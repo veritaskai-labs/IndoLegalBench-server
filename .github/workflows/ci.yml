@@ -28,6 +28,10 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
+      # Jaring kedua. Jaring pertama ada di pre-commit, tapi itu opsional per mesin.
+      - name: Secret scan
+        run: git ls-files -z | xargs -0 detect-secrets-hook --baseline .secrets.baseline
+
       - name: Lint
         run: ruff check .
 

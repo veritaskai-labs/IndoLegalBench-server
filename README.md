@@ -64,10 +64,13 @@ Kalau tidak memakai Docker, siapkan PostgreSQL sendiri lalu sesuaikan `DATABASE_
 python -m venv .venv
 source .venv/bin/activate          # Windows: .venv\Scripts\activate
 pip install -r requirements-dev.txt
+pre-commit install
 cp .env.example .env
 ```
 
 Lalu isi `.env` sesuai kebutuhan.
+
+`pre-commit install` cukup sekali per clone. Setelah itu tiap commit dipindai detect-secrets, jadi kredensial tidak ikut ter-commit. CI memindai ulang, tapi lebih murah ketahuan di lokal.
 
 ### 3. Jalankan migration
 
@@ -94,6 +97,7 @@ pytest tests/modules/suites     # test satu modul saja
 ruff check .                    # cek lint
 ruff format .                   # rapikan format
 ruff check . --fix              # perbaiki lint yang bisa diperbaiki otomatis
+python scripts/export_openapi.py  # regenerate kontrak setelah mengubah schemas.py
 ```
 
 Semua perintah di atas juga dijalankan CI. Jalankan di lokal sebelum push supaya PR kalian tidak merah.

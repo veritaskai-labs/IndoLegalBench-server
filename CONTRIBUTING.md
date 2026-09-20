@@ -269,14 +269,17 @@ git clone <url-repo-server>
 cd IndoLegalBench-server
 python -m venv .venv
 source .venv/bin/activate    # Windows: .venv\Scripts\activate
-pip install -r requirements.txt
+pip install -r requirements-dev.txt   # bukan requirements.txt, ini sudah termasuk pytest dan ruff
+pre-commit install           # sekali per clone, mengaktifkan pemindaian kredensial
 cp .env.example .env         # isi sesuai kebutuhan
+docker compose up -d         # PostgreSQL lokal
+alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
 Dokumentasi API otomatis tersedia di `http://localhost:8000/docs` setelah server jalan.
 
-> **TODO tim:** lengkapi bagian ini setelah repo server di-scaffold, termasuk cara menjalankan migration dan cara menjalankan test.
+Cara menjalankan test, membuat migration, dan meregenerate kontrak OpenAPI ada di `README.md` repo server.
 
 ### Aturan file rahasia
 
