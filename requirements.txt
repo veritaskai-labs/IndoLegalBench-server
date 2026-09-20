@@ -1,9 +1,27 @@
-fastapi>=0.141
-uvicorn[standard]>=0.53
-sqlalchemy[asyncio]>=2.0.54
-asyncpg>=0.31
-psycopg[binary]>=3.3
-alembic>=1.20
-pydantic>=2.13
-pydantic-settings>=2.15
-python-dotenv>=1.0
+# Dependency runtime, dipin persis (==) dan bukan rentang (>=).
+#
+# Alasan pin: kontrak OpenAPI di openapi.json dihasilkan oleh FastAPI,
+# Pydantic, dan Starlette. Kalau versinya bebas, dua orang yang
+# menjalankan scripts/export_openapi.py bisa menghasilkan kontrak yang
+# berbeda, dan tipe TypeScript di frontend ikut berbeda tanpa ada
+# perubahan kode sama sekali. Sudah terbukti: naik satu versi patch
+# FastAPI menambah field input dan ctx di schema ValidationError.
+#
+# Kalau menaikkan versi salah satu paket di bawah, jalankan ulang
+# scripts/export_openapi.py dan ikut commit hasilnya di PR yang sama.
+
+fastapi==0.141.1
+uvicorn[standard]==0.53.0
+
+# Starlette sebenarnya dependency turunan FastAPI, tapi sengaja dipin
+# di sini karena ikut menentukan bentuk kontrak OpenAPI.
+starlette==1.6.0
+
+sqlalchemy[asyncio]==2.0.54
+asyncpg==0.31.0
+psycopg[binary]==3.3.6
+alembic==1.20.0
+
+pydantic==2.13.5
+pydantic-settings==2.15.0
+python-dotenv==1.2.3
