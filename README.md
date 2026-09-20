@@ -50,15 +50,32 @@ Kalau dua aturan itu dijaga, modul kalian punya batas nyata, bukan sekadar hiasa
 
 ## Menjalankan di lokal
 
-### 1. Nyalakan database
+Ada dua cara. Pilih salah satu.
+
+### Cara cepat: seluruh stack lewat Docker
 
 ```bash
-docker compose up -d
+docker compose up -d --build
+docker compose exec api alembic upgrade head
+```
+
+API langsung jalan di http://localhost:8000. Cocok kalau kalian cuma butuh server hidup, misalnya orang frontend yang perlu backend menyala.
+
+Migration sengaja tidak jalan otomatis saat container start, supaya tidak ada yang mengubah skema database tanpa sadar.
+
+### Cara pengembangan: Python di host, database di Docker
+
+Pakai ini kalau kalian sedang mengoding backend, karena `--reload` jauh lebih enak daripada rebuild image tiap ganti baris.
+
+#### 1. Nyalakan database
+
+```bash
+docker compose up -d db
 ```
 
 Kalau tidak memakai Docker, siapkan PostgreSQL sendiri lalu sesuaikan `DATABASE_URL` di `.env`.
 
-### 2. Siapkan environment
+#### 2. Siapkan environment
 
 ```bash
 python -m venv .venv
@@ -72,13 +89,13 @@ Lalu isi `.env` sesuai kebutuhan.
 
 `pre-commit install` cukup sekali per clone. Setelah itu tiap commit dipindai detect-secrets, jadi kredensial tidak ikut ter-commit. CI memindai ulang, tapi lebih murah ketahuan di lokal.
 
-### 3. Jalankan migration
+#### 3. Jalankan migration
 
 ```bash
 alembic upgrade head
 ```
 
-### 4. Jalankan server
+#### 4. Jalankan server
 
 ```bash
 uvicorn app.main:app --reload

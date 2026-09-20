@@ -59,3 +59,22 @@ jobs:
           path: openapi.json
           retention-days: 30
           if-no-files-found: error
+
+      # Belum dipush ke registry, baru memastikan image-nya bisa dibangun.
+      - name: Build image
+        run: docker build -t indolegalbench-server:${{ github.sha }} .
+
+      - name: Smoke test image
+        run: |
+          docker run -d --name api -p 8000:8000 \
+            -e DATABASE_URL=postgresql+psycopg://none:none@127.0.0.1:1/none \
+            indolegalbench-server:${{ github.sha }}
+          for i in $(seq 1 30); do
+            if curl -fsS http://localhost:8000/health > /dev/null 2>&1; then
+              curl -fsS http://localhost:8000/health; echo; exit 0
+            fi
+            sleep 2
+          done
+          echo "::error::Container tidak menjawab /health dalam 60 detik."
+          docker logs api
+          exit 1

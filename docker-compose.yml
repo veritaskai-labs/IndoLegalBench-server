@@ -5,6 +5,22 @@
 # terkelola di Datacomm sesuai stack yang ditetapkan klien.
 
 services:
+  api:
+    build: .
+    container_name: indolegalbench-api
+    restart: unless-stopped
+    environment:
+      APP_ENV: local
+      DEBUG: "true"
+      # Host db, bukan localhost: ini di dalam jaringan compose.
+      DATABASE_URL: postgresql+psycopg://indolegalbench:indolegalbench@db:5432/indolegalbench
+      CORS_ORIGINS: '["http://localhost:3000"]'
+    ports:
+      - "8000:8000"
+    depends_on:
+      db:
+        condition: service_healthy
+
   db:
     image: postgres:16-alpine
     container_name: indolegalbench-db
