@@ -29,10 +29,19 @@ class Base(DeclarativeBase):
 @lru_cache
 def get_engine() -> Engine:
     settings = get_settings()
+
+    # Tanpa batas waktu, percobaan koneksi ke database yang mati baru
+    # menyerah setelah beberapa menit, dan test health ikut menggantung
+    # selama itu. connect_timeout hanya dikenal driver PostgreSQL.
+    connect_args: dict[str, int] = {}
+    if settings.database_url.startswith("postgresql"):
+        connect_args["connect_timeout"] = 3
+
     return create_engine(
         settings.database_url,
         pool_pre_ping=True,
         echo=settings.debug and settings.app_env == "local",
+        connect_args=connect_args,
     )
 
 
