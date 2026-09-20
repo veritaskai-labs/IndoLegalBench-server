@@ -1,4 +1,4 @@
-"""create regulations table
+"""create suites table
 
 Revision ID: 82269a909576
 Revises: 
