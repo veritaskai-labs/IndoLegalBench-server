@@ -123,10 +123,13 @@ Kontrak dihasilkan otomatis oleh FastAPI dari schema Pydantic di tiap modul. Fil
 
 Kalau kalian mengubah `schemas.py` atau menambah endpoint, artinya kontrak berubah. Yang wajib dilakukan:
 
-1. Umumkan di grup bahwa kontrak berubah, sebutkan bagian mana
-2. Orang frontend menjalankan ulang generator tipe TypeScript dari `/openapi.json`
+1. Jalankan `python scripts/export_openapi.py` dan commit `openapi.json` di PR yang sama
+2. Umumkan di grup bahwa kontrak berubah, sebutkan bagian mana
+3. Orang frontend menjalankan ulang generator tipe TypeScript
 
-Langkah nomor 1 paling sering dilupakan, dan itu penyebab paling umum frontend tiba-tiba rusak tanpa ada yang tahu kenapa.
+CI menolak PR yang melewatkan langkah 1. Langkah 2 paling sering dilupakan, dan itu penyebab paling umum frontend tiba-tiba rusak tanpa ada yang tahu kenapa.
+
+**Untuk orang frontend:** kontrak terbaru tersedia sebagai artefak `openapi-contract` di setiap run CI. Buka tab Actions, pilih run pada `staging`, unduh dari bagian Artifacts. Tidak perlu menjalankan server Python di mesin kalian.
 
 ## Aturan file rahasia
 

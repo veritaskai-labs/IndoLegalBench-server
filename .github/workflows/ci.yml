@@ -7,16 +7,51 @@ on:
     branches: [main, staging]
   workflow_dispatch:
 
+permissions:
+  contents: read
+
 jobs:
+  # Nama job dipakai branch protection sebagai required check. Jangan diganti.
   build:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
+
       - uses: actions/setup-python@v5
         with:
           python-version: '3.11'
           cache: 'pip'
-      - run: pip install -r requirements-dev.txt
-      - run: ruff check .
-      - run: ruff format --check .
-      - run: pytest
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Lint
+        run: ruff check .
+
+      - name: Format check
+        run: ruff format --check .
+
+      - name: Test
+        run: pytest
+
+      # Menangkap schemas.py yang berubah tapi openapi.json lupa diregenerate.
+      - name: Check OpenAPI contract is up to date
+        run: |
+          python scripts/export_openapi.py
+          if ! git diff --quiet -- openapi.json; then
+            echo "::error file=openapi.json::Kontrak basi. Jalankan 'python scripts/export_openapi.py' lalu commit hasilnya."
+            git --no-pager diff -- openapi.json
+            exit 1
+          fi
+
+      # Dipakai frontend untuk generate tipe TypeScript. Ambil di tab Actions > Artifacts.
+      - name: Upload OpenAPI contract
+        uses: actions/upload-artifact@v4
+        with:
+          name: openapi-contract
+          path: openapi.json
+          retention-days: 30
+          if-no-files-found: error
