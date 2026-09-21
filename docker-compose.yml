@@ -1,8 +1,8 @@
-# PostgreSQL untuk pengembangan lokal.
-# Jalankan dengan: docker compose up -d
+# PostgreSQL for local development.
+# Run with: docker compose up -d
 #
-# Ini hanya untuk lokal. Staging dan production memakai database
-# terkelola di Datacomm sesuai stack yang ditetapkan klien.
+# Local only. Staging and production use the managed database at
+# Datacomm, per the stack the client specified.
 
 services:
   api:
@@ -12,7 +12,7 @@ services:
     environment:
       APP_ENV: local
       DEBUG: "true"
-      # Host db, bukan localhost: ini di dalam jaringan compose.
+      # Host db, not localhost: this runs inside the compose network.
       DATABASE_URL: postgresql+psycopg://indolegalbench:indolegalbench@db:5432/indolegalbench
       CORS_ORIGINS: '["http://localhost:3000"]'
     ports:

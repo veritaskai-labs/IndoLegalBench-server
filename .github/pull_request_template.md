@@ -1,33 +1,34 @@
-# Ringkasan
+# Summary
 
-<!-- Jelaskan apa yang berubah di PR ini dalam 1 sampai 3 kalimat. -->
+<!-- What changed in this PR, in 1 to 3 sentences. -->
 
 ## Sub Task
 
-<!-- Sebutkan kode PBI dan sub task-nya. Contoh: PBI-3, [FE] Inline validation & completeness indicator -->
+<!-- The PBI code and its sub task. Example: PBI-3, [FE] Inline validation & completeness indicator -->
 
 - PBI:
 - Sub task:
 
-## Jenis Perubahan
+## Type of Change
 
-- [ ] `feat` fitur baru
-- [ ] `fix` perbaikan bug
-- [ ] `chore` setup, konfigurasi, dependency, migration
-- [ ] `ci` pipeline dan automasi
-- [ ] `docs` dokumentasi atau kontrak
-- [ ] `test` penambahan atau perbaikan test
-- [ ] `refactor` merapikan tanpa mengubah perilaku
+- [ ] `feat` new feature
+- [ ] `fix` bug fix
+- [ ] `chore` setup, configuration, dependency, migration
+- [ ] `ci` pipeline and automation
+- [ ] `docs` documentation or contract
+- [ ] `test` adding or fixing tests
+- [ ] `refactor` tidying without changing behaviour
 
-## Acceptance Criteria yang Tersentuh
+## Acceptance Criteria Touched
 
-<!-- Salin AC dari PBI yang dikerjakan PR ini. Kalau PR ini belum menuntaskan AC-nya, tulis "sebagian" dan jelaskan sisanya. -->
+<!-- Copy the AC from the PBI this PR works on. If this PR does not finish the AC,
+     write "partial" and explain what is left. -->
 
 -
 
-## Cara Menguji
+## How to Test
 
-<!-- Langkah konkret supaya reviewer bisa mencoba sendiri. -->
+<!-- Concrete steps so the reviewer can try it themselves. -->
 
 1.
 2.
@@ -35,24 +36,37 @@
 
 ## Checklist
 
-- [ ] Branch dibuat dari `staging` terbaru dan sudah di-merge dengan `staging` terakhir
-- [ ] PR mengarah ke `staging`, bukan ke `main`
-- [ ] CI hijau (build dan lint lolos)
-- [ ] Sudah ditest sendiri di lokal
-- [ ] Tidak ada `.env`, kredensial, atau API key yang ikut ter-commit
-- [ ] Tidak ada `console.log`, `print`, atau kode debug yang tertinggal
+- [ ] Branch was created from the latest `staging` and is merged with the latest `staging`
+- [ ] PR targets `staging`, not `main`
+- [ ] CI is green (build and lint pass)
+- [ ] Tested locally by me
+- [ ] No `.env`, credentials, or API keys committed
+- [ ] No leftover `console.log`, `print`, or debug code
+- [ ] Diff is under roughly 400 lines, or split into several PRs
 
-## Kontrak OpenAPI
+## OpenAPI Contract
 
-- [ ] PR ini **tidak** mengubah kontrak API
-- [ ] PR ini **mengubah** kontrak API, file kontrak sudah diregenerate dan ikut di-commit, dan sudah diumumkan di grup
+- [ ] This PR does **not** change the API contract
+- [ ] This PR **changes** the API contract, the contract file was regenerated and committed, and it was announced in the group chat
 
-## Repo Pasangannya
+## Paired Repo
 
-<!-- Kalau sub task ini juga butuh perubahan di repo satunya, tautkan PR-nya di sini. Kalau tidak, tulis "tidak ada". -->
+<!-- If this sub task also needs a change in the other repo, link its PR here. Otherwise write "none". -->
 
 -
 
-## Catatan untuk Reviewer
+## Definition of Done
 
-<!-- Bagian yang perlu perhatian khusus, keputusan teknis yang diambil, atau hal yang sengaja belum dikerjakan. -->
+The team DoD is scored per PBI, not per PR (CONTRIBUTING section 8). Tick only
+what this PR actually contributes to, so the PO can trace the PBI at sprint review.
+
+- [ ] **Design Reviewed** — the design behind this change was reviewed before coding
+- [ ] **Code Completed** — this sub task is fully implemented, nothing left as a TODO
+- [ ] **Tested** — unit and integration tests run, coverage stays above 60 percent
+- [ ] **No Blocker Bugs** — nothing here breaks the main flow
+- [ ] **Accepted by PO** — <!-- PBI level, usually ticked on the last PR of the PBI -->
+- [ ] **Live on Production** — <!-- PBI level, ticked at release time -->
+
+## Notes for Reviewer
+
+<!-- Anything needing special attention, technical decisions made, or things deliberately left undone. -->

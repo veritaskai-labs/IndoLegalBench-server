@@ -11,7 +11,7 @@ permissions:
   contents: read
 
 jobs:
-  # Nama job dipakai branch protection sebagai required check. Jangan diganti.
+  # Branch protection uses this job name as the required check. Do not rename it.
   build:
     runs-on: ubuntu-latest
     steps:
@@ -28,7 +28,7 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements-dev.txt
 
-      # Jaring kedua. Jaring pertama ada di pre-commit, tapi itu opsional per mesin.
+      # Second net. The first is pre-commit, but that is opt-in per machine.
       - name: Secret scan
         run: git ls-files -z | xargs -0 detect-secrets-hook --baseline .secrets.baseline
 
@@ -41,17 +41,17 @@ jobs:
       - name: Test
         run: pytest
 
-      # Menangkap schemas.py yang berubah tapi openapi.json lupa diregenerate.
+      # Catches a changed schemas.py where openapi.json was not regenerated.
       - name: Check OpenAPI contract is up to date
         run: |
           python scripts/export_openapi.py
           if ! git diff --quiet -- openapi.json; then
-            echo "::error file=openapi.json::Kontrak basi. Jalankan 'python scripts/export_openapi.py' lalu commit hasilnya."
+            echo "::error file=openapi.json::Contract is stale. Run 'python scripts/export_openapi.py' and commit the result."
             git --no-pager diff -- openapi.json
             exit 1
           fi
 
-      # Dipakai frontend untuk generate tipe TypeScript. Ambil di tab Actions > Artifacts.
+      # Used by the frontend to generate TypeScript types. Grab it from Actions > Artifacts.
       - name: Upload OpenAPI contract
         uses: actions/upload-artifact@v4
         with:
@@ -60,7 +60,7 @@ jobs:
           retention-days: 30
           if-no-files-found: error
 
-      # Belum dipush ke registry, baru memastikan image-nya bisa dibangun.
+      # Not pushed to a registry yet, this only proves the image builds.
       - name: Build image
         run: docker build -t indolegalbench-server:${{ github.sha }} .
 
@@ -75,6 +75,6 @@ jobs:
             fi
             sleep 2
           done
-          echo "::error::Container tidak menjawab /health dalam 60 detik."
+          echo "::error::Container did not answer /health within 60 seconds."
           docker logs api
           exit 1

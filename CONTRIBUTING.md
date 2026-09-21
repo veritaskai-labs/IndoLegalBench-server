@@ -1,43 +1,43 @@
-# Panduan Kontribusi IndoLegalBench
+# IndoLegalBench Contributing Guide
 
-Dokumen ini berlaku untuk dua repo: `IndoLegalBench-client` (Next.js) dan `IndoLegalBench-server` (FastAPI).
-Tujuannya supaya semua orang punya cara kerja yang sama dan tidak ada yang perlu bertanya tiap kali mau mulai.
+This document covers both repos: `IndoLegalBench-client` (Next.js) and `IndoLegalBench-server` (FastAPI).
+The point is that everyone works the same way and nobody has to ask how to start.
 
-Kalau ada aturan di sini yang menghambat, jangan dilanggar diam-diam. Angkat di daily atau di grup, lalu kita ubah dokumennya bersama.
+If a rule here gets in your way, do not quietly break it. Raise it at daily or in the group chat, and we change the document together.
 
 ---
 
-## 1. Struktur Branch
+## 1. Branch Structure
 
-Hanya ada dua branch permanen. Selain itu, semua branch berumur pendek dan dihapus setelah di-merge.
+There are only two permanent branches. Everything else is short-lived and deleted after merge.
 
-| Branch | Isinya | Siapa yang boleh menulis |
+| Branch | Contents | Who may write |
 |---|---|---|
-| `main` | Kode yang tayang di production | Tidak ada yang push langsung. Hanya merge dari `staging` |
-| `staging` | Integrasi harian, di-deploy ke staging | Tidak ada yang push langsung. Hanya merge dari branch sub task lewat PR |
-| `<tipe>/<pbi>-<deskripsi>` | Kerja satu orang untuk satu sub task | Pemilik branch |
+| `main` | Code running in production | Nobody pushes directly. Merges from `staging` only |
+| `staging` | Daily integration, deployed to staging | Nobody pushes directly. Merges from sub task branches via PR only |
+| `<type>/<pbi>-<description>` | One person's work on one sub task | The branch owner |
 
-**Default branch untuk PR adalah `staging`.** Jangan buka PR ke `main` kecuali memang sedang melakukan rilis.
+**The default PR target is `staging`.** Do not open a PR against `main` unless you are actually cutting a release.
 
-### Kapan masuk ke mana
+### What goes where, and when
 
-- Sub task selesai, lolos review, CI hijau, maka merge ke `staging`
-- Satu PBI selesai seluruhnya dan lolos Definition of Done, maka `staging` di-merge ke `main`
-- Saat Sprint Review, `main` di-tag dengan versi rilis
+- Sub task done, review passed, CI green, then merge into `staging`
+- A whole PBI done and passing Definition of Done, then `staging` merges into `main`
+- At Sprint Review, `main` gets tagged with the release version
 
-Jangan menunggu satu PBI selesai utuh baru merge ke `staging`. Sub task yang sudah selesai boleh dan harus masuk lebih dulu.
+Do not wait for an entire PBI to finish before merging into `staging`. Sub tasks that are done can and should land first.
 
 ---
 
-## 2. Penamaan Branch
+## 2. Branch Naming
 
 Format:
 
 ```
-<tipe>/<pbi>-<deskripsi-singkat>
+<type>/<pbi>-<short-description>
 ```
 
-Contoh:
+Examples:
 
 ```
 feat/pbi1-zitadel-oidc
@@ -52,33 +52,33 @@ docs/pbi3-case-schema-contract
 test/pbi2-suite-testing
 ```
 
-Tipe yang dipakai, mengikuti Conventional Commits:
+The types we use, following Conventional Commits:
 
-| Tipe | Untuk apa |
+| Type | What for |
 |---|---|
-| `feat` | Fitur baru yang terlihat oleh pengguna |
-| `fix` | Perbaikan bug |
-| `chore` | Setup, konfigurasi, dependency, migration |
-| `ci` | Pipeline dan automasi |
-| `docs` | Dokumentasi, ERD, kontrak |
-| `test` | Penambahan atau perbaikan test |
-| `refactor` | Merapikan kode tanpa mengubah perilaku |
+| `feat` | New user-visible feature |
+| `fix` | Bug fix |
+| `chore` | Setup, configuration, dependencies, migrations |
+| `ci` | Pipeline and automation |
+| `docs` | Documentation, ERD, contract |
+| `test` | Adding or fixing tests |
+| `refactor` | Tidying code without changing behaviour |
 
-**Aturan penting:** kalau satu sub task menyentuh dua repo, pakai nama branch yang sama persis di `client` dan `server`. Ini supaya saat Sprint Review kita bisa menelusuri satu sub task ke dua PR-nya.
+**Important rule:** if one sub task touches both repos, use the exact same branch name in `client` and `server`. This is so that at Sprint Review we can trace one sub task to both of its PRs.
 
-Selalu sertakan kode PBI di nama branch. Tanpa itu, kita tidak bisa membuktikan PBI mana yang sudah Done.
+Always include the PBI code in the branch name. Without it, we cannot prove which PBI is actually Done.
 
 ---
 
-## 3. Format Commit
+## 3. Commit Format
 
-Pakai Conventional Commits, sama seperti yang sudah berjalan di repo client.
+Use Conventional Commits, the same as what is already running in the client repo.
 
 ```
-<tipe>(<scope opsional>): <deskripsi singkat, huruf kecil, tanpa titik>
+<type>(<optional scope>): <short description, lowercase, no trailing period>
 ```
 
-Contoh:
+Examples:
 
 ```
 feat(case-editor): add inline validation for reference fields
@@ -88,36 +88,36 @@ docs(api): update OpenAPI contract for cases endpoint
 test(suite): add test rejecting duplicate suite names
 ```
 
-Tulis deskripsi dalam Bahasa Indonesia atau Inggris, tapi konsisten dalam satu PR. Jelaskan apa yang berubah, bukan cuma "update" atau "fix bug".
+Write commit descriptions in English. Explain what changed, not just "update" or "fix bug".
 
 ---
 
-## 4. Alur Kerja Sehari-hari
+## 4. Day-to-day Workflow
 
-Ikuti urutan ini setiap kali mengambil sub task baru.
+Follow this order every time you pick up a new sub task.
 
-**1. Ambil sub task dari board**
+**1. Take a sub task from the board**
 
-Pastikan sub task itu belum diambil orang lain, lalu tandai atas nama kamu sebelum mulai koding.
+Make sure nobody else has taken it, then assign it to yourself before you start coding.
 
-**2. Pastikan `staging` terbaru**
+**2. Make sure `staging` is current**
 
 ```bash
 git checkout staging
 git pull origin staging
 ```
 
-**3. Buat branch**
+**3. Create the branch**
 
 ```bash
 git checkout -b feat/pbi3-case-editor
 ```
 
-**4. Kerjakan, commit kecil-kecil**
+**4. Work, and commit in small pieces**
 
-Jangan menumpuk semua pekerjaan dalam satu commit raksasa. Commit tiap kali satu bagian logis selesai.
+Do not pile all your work into one giant commit. Commit each time a logical piece is finished.
 
-**5. Tarik `staging` setiap pagi selama branch masih hidup**
+**5. Pull `staging` every morning while the branch is alive**
 
 ```bash
 git checkout staging
@@ -126,175 +126,175 @@ git checkout feat/pbi3-case-editor
 git merge staging
 ```
 
-Konflik kecil setiap hari jauh lebih murah daripada konflik besar di akhir sprint.
+A small conflict every day is far cheaper than a big one at the end of the sprint.
 
-**6. Push dan buka Pull Request**
+**6. Push and open a Pull Request**
 
 ```bash
 git push -u origin feat/pbi3-case-editor
 ```
 
-Buka PR ke `staging`, isi template PR, minta satu orang review.
+Open the PR against `staging`, fill in the PR template, ask one person to review.
 
-**7. Setelah di-approve, squash merge, lalu hapus branch**
+**7. Once approved, squash merge, then delete the branch**
 
-GitHub menyediakan tombol untuk keduanya. Squash supaya riwayat `staging` bersih, satu commit per sub task.
-
----
-
-## 5. Aturan yang Tidak Bisa Ditawar
-
-Lima hal ini yang paling menentukan sprint kita selamat atau tidak.
-
-**1. Branch hidup maksimal 2 sampai 3 hari.**
-Kalau sub task kamu butuh lebih lama dari itu, sub task-nya terlalu besar. Angkat di daily supaya dipecah, jangan dipaksakan sendiri.
-
-**2. Selalu branch dari `staging` terbaru.**
-Jangan branch dari branch orang lain kecuali memang ada dependensi langsung (lihat bagian 7).
-
-**3. Tidak ada push langsung ke `main` dan `staging`.**
-Semua lewat Pull Request, tanpa kecuali, termasuk untuk perbaikan satu baris.
-
-**4. Satu PR wajib satu approval dan CI hijau.**
-Jangan merge PR sendiri tanpa direview. Jangan approve tanpa benar-benar membaca.
-
-**5. PR yang kebesaran akan diminta dipecah.**
-Kalau PR kamu mengubah lebih dari sekitar 400 baris, pertimbangkan memecahnya. Reviewer tidak bisa membaca PR raksasa dengan serius, dan review asal-asalan sama saja dengan tidak ada review.
+GitHub has a button for both. Squash keeps the `staging` history clean, one commit per sub task.
 
 ---
 
-## 6. Kontrak OpenAPI
+## 5. Non-negotiable Rules
 
-Kontrak API adalah sumber kebenaran tunggal antara client dan server. Perlakukan dengan serius.
+These five matter most for whether our sprint survives.
 
-**Di mana kontraknya tinggal:** repo `IndoLegalBench-server`. FastAPI menghasilkannya otomatis dari model Pydantic, dan hasilnya di-commit ke repo supaya perubahannya terlihat di PR.
+**1. A branch lives 2 to 3 days at most.**
+If your sub task needs longer than that, the sub task is too big. Raise it at daily so it gets split, do not push through on your own.
 
-**Kalau kamu mengubah schema atau endpoint:**
+**2. Always branch from the latest `staging`.**
+Do not branch from someone else's branch unless there is a direct dependency (see section 7).
 
-1. Ubah model Pydantic di server
-2. Regenerate file kontrak dan commit hasilnya di PR yang sama
-3. **Umumkan di grup** bahwa kontrak berubah, sebutkan bagian mana
-4. Orang frontend menjalankan ulang generator tipe TypeScript
+**3. No direct pushes to `main` or `staging`.**
+Everything goes through a Pull Request, no exceptions, including one-line fixes.
 
-Langkah 3 sering dilupakan dan itu penyebab paling umum frontend tiba-tiba rusak tanpa ada yang tahu kenapa.
+**4. Every PR needs one approval and green CI.**
+Do not merge your own PR unreviewed. Do not approve without actually reading.
 
-**Kalau kamu di frontend dan butuh endpoint yang belum ada:**
-Jangan menunggu. Sepakati bentuk kontraknya dulu dengan orang backend, lalu kerjakan halamanmu dengan data tiruan. Begitu endpoint aslinya jadi, tinggal disambungkan.
-
-**Catatan khusus PBI-3:** skema kasus hukum (OpenAPI Case) dipakai untuk empat hal sekaligus, yaitu validasi di backend, validasi real-time di frontend, format ekspor ke AiYU, dan dokumentasi API. Aturan validasi ditulis sekali di schema, tidak ditulis ulang terpisah di frontend. Kalau kamu tergoda menyalin aturan validasi ke frontend secara manual, berhenti dan tanya dulu.
+**5. Oversized PRs will be sent back to be split.**
+If your PR changes more than roughly 400 lines, consider splitting it. A reviewer cannot read a giant PR seriously, and a careless review is the same as no review.
 
 ---
 
-## 7. Menangani Dependensi Antar Sub Task
+## 6. The OpenAPI Contract
 
-Beberapa sub task tidak bisa dimulai sebelum sub task lain selesai. Ini cara menanganinya.
+The API contract is the single source of truth between client and server. Treat it seriously.
 
-**Sub task fondasi dikerjakan lebih dulu dan tidak masuk sistem pick up bebas:**
+**Where the contract lives:** the `IndoLegalBench-server` repo. FastAPI generates it automatically from the Pydantic models, and the result is committed to the repo so changes show up in the PR.
+
+**If you change a schema or an endpoint:**
+
+1. Change the Pydantic model on the server
+2. Regenerate the contract file and commit the result in the same PR
+3. **Announce it in the group chat**, say which part changed
+4. Whoever is on frontend re-runs the TypeScript type generator
+
+Step 3 is the one people forget, and it is the most common reason the frontend suddenly breaks with nobody knowing why.
+
+**If you are on frontend and need an endpoint that does not exist yet:**
+Do not wait. Agree the shape of the contract with someone on backend first, then build your page against mock data. Once the real endpoint lands, you just wire it up.
+
+**Special note for PBI-3:** the legal case schema (OpenAPI Case) is used for four things at once, namely backend validation, real-time frontend validation, the export format for AiYU, and the API documentation. Validation rules are written once in the schema, not rewritten separately in the frontend. If you are tempted to copy validation rules into the frontend by hand, stop and ask first.
+
+---
+
+## 7. Handling Dependencies Between Sub Tasks
+
+Some sub tasks cannot start before others finish. Here is how to handle it.
+
+**Foundation sub tasks are done first and are not part of the free pick-up system:**
 
 - `[BE] Setup repository & CI`
 - `[BE] First DB schema & migration`
 - `[FE] Frontend bootstrap & generate from contract`
 - `[SA] Case schema contract (ERD)`
 
-Keempatnya harus masuk `staging` secepat mungkin di awal sprint. Sebelum itu selesai, sebagian besar sub task lain akan terblokir.
+All four need to land in `staging` as early in the sprint as possible. Until they do, most other sub tasks are blocked.
 
-**Kalau sub task kamu bergantung pada branch yang belum di-merge:**
+**If your sub task depends on a branch that is not merged yet:**
 
-Jangan menganggur menunggu. Branch dari branch itu, kerjakan bagianmu, lalu rebase ke `staging` setelah dependensinya masuk.
+Do not sit idle waiting. Branch from that branch, do your part, then rebase onto `staging` once the dependency lands.
 
 ```bash
 git checkout feat/pbi1-admin-members-endpoint
 git checkout -b feat/pbi1-admin-members-page
-# kerjakan
-# setelah branch dependensinya di-merge ke staging:
+# do the work
+# once the dependency branch is merged into staging:
 git checkout staging && git pull
 git checkout feat/pbi1-admin-members-page
 git rebase staging
 ```
 
-**Kalau kamu terblokir lebih dari setengah hari,** angkat di grup. Jangan diam menunggu, ambil sub task lain yang tidak terblokir.
+**If you are blocked for more than half a day,** raise it in the group chat. Do not wait in silence, pick up another sub task that is not blocked.
 
 ---
 
 ## 8. Definition of Done
 
-Sebuah PBI baru boleh disebut Done kalau keenam hal ini terpenuhi. Ini berlaku sama untuk PBI-1, PBI-2, PBI-3, dan PBI-10 karena ini standar tim, bukan standar per item.
+A PBI may only be called Done when all six of these are met. This applies equally to PBI-1, PBI-2, PBI-3, and PBI-10 because this is the team standard, not a per-item standard.
 
-- [ ] **Design Reviewed** — desain sudah ditinjau tim sebelum dikoding
-- [ ] **Code Completed** — semua sub task BE, FE, dan SA selesai dan sudah di `staging`
-- [ ] **Tested** — unit dan integration test jalan, coverage di atas 60 persen
-- [ ] **No Blocker Bugs** — tidak ada bug yang menghentikan alur utama
-- [ ] **Accepted by PO** — disetujui Product Owner
-- [ ] **Live on Production** — sudah tayang, bukan hanya jalan di lokal
+- [ ] **Design Reviewed** — the design was reviewed by the team before coding
+- [ ] **Code Completed** — all BE, FE, and SA sub tasks are finished and in `staging`
+- [ ] **Tested** — unit and integration tests run, coverage stays above 60 percent
+- [ ] **No Blocker Bugs** — nothing breaks the main flow
+- [ ] **Accepted by PO** — approved by the Product Owner
+- [ ] **Live on Production** — actually shipped, not just running locally
 
-Sub task selesai bukan berarti PBI Done. PBI Done itu keputusan bersama di akhir, bukan klaim perorangan.
+A finished sub task does not mean the PBI is Done. PBI Done is a shared decision at the end, not an individual claim.
 
 ---
 
-## 9. Rilis
+## 9. Releasing
 
-Saat sebuah PBI sudah lolos seluruh Definition of Done:
+Once a PBI has passed the entire Definition of Done:
 
-1. Buka PR dari `staging` ke `main`
-2. Setelah di-merge, deploy ke production
-3. Saat Sprint Review, beri tag pada `main`
+1. Open a PR from `staging` to `main`
+2. After it merges, deploy to production
+3. At Sprint Review, tag `main`
 
 ```bash
 git checkout main
 git pull origin main
-git tag -a v1.0 -m "Sprint 1 Release: Fondasi dan Kontrak Output"
+git tag -a v1.0 -m "Sprint 1 Release: Foundation and Output Contract"
 git push origin v1.0
 ```
 
-Tentukan dari awal siapa yang bertanggung jawab atas langkah rilis ini. Jangan diputuskan di hari terakhir.
+Decide up front who owns this release step. Do not decide it on the last day.
 
 ---
 
-## 10. Setup Awal
+## 10. Initial Setup
 
 ### Client (`IndoLegalBench-client`)
 
 ```bash
-git clone <url-repo-client>
+git clone <client-repo-url>
 cd IndoLegalBench-client
 npm install
-cp .env.example .env.local   # isi sesuai kebutuhan
+cp .env.example .env.local   # fill in as needed
 npm run dev
 ```
 
 ### Server (`IndoLegalBench-server`)
 
 ```bash
-git clone <url-repo-server>
+git clone <server-repo-url>
 cd IndoLegalBench-server
 python -m venv .venv
 source .venv/bin/activate    # Windows: .venv\Scripts\activate
-pip install -r requirements-dev.txt   # bukan requirements.txt, ini sudah termasuk pytest dan ruff
-pre-commit install           # sekali per clone, mengaktifkan pemindaian kredensial
-cp .env.example .env         # isi sesuai kebutuhan
-docker compose up -d         # PostgreSQL lokal
+pip install -r requirements-dev.txt   # not requirements.txt, this one includes pytest and ruff
+pre-commit install           # once per clone, enables credential scanning
+cp .env.example .env         # fill in as needed
+docker compose up -d         # local PostgreSQL
 alembic upgrade head
 uvicorn app.main:app --reload
 ```
 
-Dokumentasi API otomatis tersedia di `http://localhost:8000/docs` setelah server jalan.
+The automatic API documentation is available at `http://localhost:8000/docs` once the server is running.
 
-Cara menjalankan test, membuat migration, dan meregenerate kontrak OpenAPI ada di `README.md` repo server.
+How to run tests, create migrations, and regenerate the OpenAPI contract is in the `README.md` of the server repo.
 
-### Aturan file rahasia
+### Rules for secret files
 
-Jangan pernah commit `.env`, kredensial, API key, atau kunci Zitadel. Pastikan file-file itu ada di `.gitignore`.
+Never commit `.env`, credentials, API keys, or Zitadel keys. Make sure those files are in `.gitignore`.
 
-Kalau ada kredensial yang tidak sengaja ter-commit, **jangan cuma menghapusnya di commit berikutnya**, karena riwayat Git tetap menyimpannya. Langsung kabari tim, lalu kredensialnya harus dicabut dan diganti.
+If a credential is committed by accident, **do not just delete it in the next commit**, because Git history still holds it. Tell the team immediately, then the credential has to be revoked and replaced.
 
-Ini berlaku ekstra ketat untuk PBI-10, karena yang ditangani adalah kredensial produk AI pesaing milik klien.
+This applies extra strictly to PBI-10, because what is handled there are the client's competitor AI product credentials.
 
 ---
 
-## 11. Kalau Ragu
+## 11. When in Doubt
 
-- Ragu soal cara kerja teknis, tanya di grup dev
-- Ragu soal ruang lingkup sub task atau acceptance criteria, tanya PO
-- Ragu soal aturan di dokumen ini, angkat di daily supaya dokumennya diperbaiki
+- Unsure about something technical, ask in the dev group chat
+- Unsure about the scope of a sub task or its acceptance criteria, ask the PO
+- Unsure about a rule in this document, raise it at daily so the document gets fixed
 
-Bertanya lima menit lebih murah daripada mengerjakan hal yang salah selama dua hari.
+Asking for five minutes is cheaper than building the wrong thing for two days.

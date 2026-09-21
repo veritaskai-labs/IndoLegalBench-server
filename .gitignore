@@ -1,4 +1,4 @@
-# Rahasia, jangan pernah di-commit
+# Secrets, never commit these
 .env
 .env.*
 !.env.example
@@ -13,7 +13,7 @@ __pycache__/
 venv/
 env/
 
-# Test dan coverage
+# Tests and coverage
 .pytest_cache/
 .coverage
 coverage.xml

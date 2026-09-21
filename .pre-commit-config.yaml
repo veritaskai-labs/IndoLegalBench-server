@@ -1,9 +1,9 @@
-# Aktifkan sekali per clone: pre-commit install
+# Enable once per clone: pre-commit install
 repos:
   - repo: https://github.com/Yelp/detect-secrets
     rev: v1.5.0
     hooks:
       - id: detect-secrets
-        # Tanpa baseline, hook menolak kredensial contoh yang memang sudah
-        # ada di repo. Temuan baru tetap diblokir.
+        # Without a baseline the hook rejects the example credentials that are
+        # already in the repo. New findings are still blocked.
         args: ['--baseline', '.secrets.baseline']

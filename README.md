@@ -1,81 +1,81 @@
 # IndoLegalBench Server
 
-Backend API untuk IndoLegalBench, platform penulisan dan pengukuran test case hukum untuk Veritask.
+Backend API for IndoLegalBench, the platform for writing and measuring legal test cases for Veritask.
 
-Frontend ada di repo terpisah: `IndoLegalBench-client` (Next.js).
+The frontend lives in a separate repo: `IndoLegalBench-client` (Next.js).
 
-## Arsitektur
+## Architecture
 
-Monolith modular. Satu unit deployment, dibagi jadi modul domain, tiap modul berlapis di dalamnya.
+Modular monolith. One deployment unit, split into domain modules, each module layered internally.
 
 ```
 app/
-  modules/              satu folder per domain
-    health/             contoh pola yang sudah lengkap, baca ini dulu
-    auth/               PBI-1  Login aman & manajemen akses tim
-    suites/             PBI-2  Mengelola suite sebagai wadah kasus
-    cases/              PBI-3  Menulis kasus hukum terstruktur
-    providers/          PBI-10 Registri produk AI yang akan diukur
-    runs/               Sprint 3, eksekusi pengukuran
-    reports/            Sprint 4, laporan perbandingan
-    audit/              Sprint 4, jejak audit
-  shared/               dipakai lintas modul
-    config.py           seluruh setelan aplikasi
+  modules/              one folder per domain
+    health/             the complete reference pattern, read this one first
+    auth/               PBI-1  Secure login & team access management
+    suites/             PBI-2  Managing suites as containers for cases
+    cases/              PBI-3  Writing structured legal cases
+    providers/          PBI-10 Registry of the AI products being measured
+    runs/               Sprint 3, measurement execution
+    reports/            Sprint 4, comparison reports
+    audit/              Sprint 4, audit trail
+  shared/               used across modules
+    config.py           all application settings
     database.py         engine, session, Base
-    exceptions.py       exception domain
-    security.py         peran pengguna dan RBAC
-    pagination.py       bentuk paginasi seragam
-  main.py               pendaftaran router dan handler exception
+    exceptions.py       domain exceptions
+    security.py         user roles and RBAC
+    pagination.py       uniform pagination shape
+  main.py               router registration and exception handlers
 
 migrations/             Alembic
-tests/                  cermin struktur app/modules/
+tests/                  mirrors the structure of app/modules/
 ```
 
-### Isi tiap modul
+### What each module contains
 
-| File | Tugasnya | Boleh menyentuh |
+| File | Its job | May touch |
 |---|---|---|
-| `router.py` | Terjemahkan HTTP ke pemanggilan service | service milik modulnya sendiri |
-| `service.py` | Logika bisnis | repository sendiri, service modul lain |
-| `repository.py` | Query database | models milik modulnya sendiri |
-| `models.py` | Tabel SQLAlchemy | Base dari shared |
-| `schemas.py` | Bentuk request dan response, sumber kontrak OpenAPI | Pydantic |
+| `router.py` | Translate HTTP into service calls | its own module's service |
+| `service.py` | Business logic | its own repository, other modules' services |
+| `repository.py` | Database queries | its own module's models |
+| `models.py` | SQLAlchemy tables | Base from shared |
+| `schemas.py` | Request and response shapes, source of the OpenAPI contract | Pydantic |
 
-### Dua aturan batas modul
+### Two module boundary rules
 
-1. Modul boleh memanggil `service.py` modul lain. Modul **tidak boleh** mengimpor `repository.py` atau `models.py` milik modul lain.
-2. `service.py` tidak boleh menyentuh HTTP. Tidak ada `Request`, `Response`, atau `HTTPException` di sana. Lempar exception dari `app/shared/exceptions.py`, biar `main.py` yang menerjemahkannya jadi HTTP.
+1. A module may call another module's `service.py`. A module **may not** import another module's `repository.py` or `models.py`.
+2. `service.py` must not touch HTTP. No `Request`, `Response`, or `HTTPException` in there. Raise exceptions from `app/shared/exceptions.py` and let `main.py` translate them into HTTP.
 
-Kalau dua aturan itu dijaga, modul kalian punya batas nyata, bukan sekadar hiasan folder.
+Keep those two rules and your modules have real boundaries, not just decorative folders.
 
-## Menjalankan di lokal
+## Running locally
 
-Ada dua cara. Pilih salah satu.
+There are two ways. Pick one.
 
-### Cara cepat: seluruh stack lewat Docker
+### Quick way: the whole stack via Docker
 
 ```bash
 docker compose up -d --build
 docker compose exec api alembic upgrade head
 ```
 
-API langsung jalan di http://localhost:8000. Cocok kalau kalian cuma butuh server hidup, misalnya orang frontend yang perlu backend menyala.
+The API comes up at http://localhost:8000. Good if you just need a live server, for example someone on frontend who needs the backend running.
 
-Migration sengaja tidak jalan otomatis saat container start, supaya tidak ada yang mengubah skema database tanpa sadar.
+Migrations deliberately do not run automatically on container start, so nobody changes the database schema without noticing.
 
-### Cara pengembangan: Python di host, database di Docker
+### Development way: Python on the host, database in Docker
 
-Pakai ini kalau kalian sedang mengoding backend, karena `--reload` jauh lebih enak daripada rebuild image tiap ganti baris.
+Use this when you are actually coding the backend, because `--reload` is much nicer than rebuilding the image on every line.
 
-#### 1. Nyalakan database
+#### 1. Start the database
 
 ```bash
 docker compose up -d db
 ```
 
-Kalau tidak memakai Docker, siapkan PostgreSQL sendiri lalu sesuaikan `DATABASE_URL` di `.env`.
+If you are not using Docker, set up PostgreSQL yourself and adjust `DATABASE_URL` in `.env`.
 
-#### 2. Siapkan environment
+#### 2. Set up the environment
 
 ```bash
 python -m venv .venv
@@ -85,81 +85,81 @@ pre-commit install
 cp .env.example .env
 ```
 
-Lalu isi `.env` sesuai kebutuhan.
+Then fill in `.env` as needed.
 
-`pre-commit install` cukup sekali per clone. Setelah itu tiap commit dipindai detect-secrets, jadi kredensial tidak ikut ter-commit. CI memindai ulang, tapi lebih murah ketahuan di lokal.
+`pre-commit install` is once per clone. After that every commit is scanned by detect-secrets, so credentials do not get committed. CI scans again, but catching it locally is cheaper.
 
-#### 3. Jalankan migration
+#### 3. Run migrations
 
 ```bash
 alembic upgrade head
 ```
 
-#### 4. Jalankan server
+#### 4. Run the server
 
 ```bash
 uvicorn app.main:app --reload
 ```
 
 - API: http://localhost:8000
-- Dokumentasi interaktif: http://localhost:8000/docs
-- Kontrak OpenAPI: http://localhost:8000/openapi.json
-- Cek kesehatan: http://localhost:8000/health
+- Interactive docs: http://localhost:8000/docs
+- OpenAPI contract: http://localhost:8000/openapi.json
+- Health check: http://localhost:8000/health
 
-## Perintah harian
+## Daily commands
 
 ```bash
-pytest                          # jalankan seluruh test
-pytest tests/modules/suites     # test satu modul saja
-ruff check .                    # cek lint
-ruff format .                   # rapikan format
-ruff check . --fix              # perbaiki lint yang bisa diperbaiki otomatis
-python scripts/export_openapi.py  # regenerate kontrak setelah mengubah schemas.py
+pytest                          # run the whole test suite
+pytest tests/modules/suites     # test a single module
+ruff check .                    # lint check
+ruff format .                   # tidy formatting
+ruff check . --fix              # fix the lint issues that can be fixed automatically
+python scripts/export_openapi.py  # regenerate the contract after changing schemas.py
 ```
 
-Semua perintah di atas juga dijalankan CI. Jalankan di lokal sebelum push supaya PR kalian tidak merah.
+CI runs all of the above too. Run them locally before pushing so your PR does not go red.
 
-## Membuat migration baru
+## Creating a new migration
 
 ```bash
-alembic revision --autogenerate -m "tambah tabel cases"
+alembic revision --autogenerate -m "add cases table"
 alembic upgrade head
 ```
 
-**Penting:** setiap kali ada modul baru yang punya tabel, tambahkan import model-nya di `migrations/env.py`. Kalau lupa, Alembic tidak akan melihat tabel itu dan autogenerate akan menghasilkan migration yang salah.
+**Important:** whenever a new module has a table, add its model import to `migrations/env.py`. Forget that and Alembic will not see the table, and autogenerate will produce a wrong migration.
 
-Selalu baca file migration hasil autogenerate sebelum di-commit. Alembic sering salah menebak, terutama untuk perubahan tipe kolom dan rename.
+Always read the autogenerated migration file before committing it. Alembic often guesses wrong, especially for column type changes and renames.
 
-## Menambah modul baru
+## Adding a new module
 
-1. Buat folder di `app/modules/<nama>/`
-2. Salin lima file dari modul yang sudah ada: `router.py`, `service.py`, `repository.py`, `models.py`, `schemas.py`
-3. Daftarkan router-nya di `app/main.py`
-4. Kalau punya tabel, tambahkan import model di `migrations/env.py`
-5. Buat folder test yang mencerminkannya di `tests/modules/<nama>/`
+1. Create the folder at `app/modules/<name>/`
+2. Copy the five files from an existing module: `router.py`, `service.py`, `repository.py`, `models.py`, `schemas.py`
+3. Register its router in `app/main.py`
+4. If it has a table, add the model import to `migrations/env.py`
+5. Create the mirroring test folder at `tests/modules/<name>/`
 
-## Kontrak OpenAPI
+## The OpenAPI contract
 
-Kontrak dihasilkan otomatis oleh FastAPI dari schema Pydantic di tiap modul. File `schemas.py` adalah sumber kebenarannya.
+The contract is generated automatically by FastAPI from the Pydantic schemas in each module. The `schemas.py` files are the source of truth.
 
-Kalau kalian mengubah `schemas.py` atau menambah endpoint, artinya kontrak berubah. Yang wajib dilakukan:
+If you change `schemas.py` or add an endpoint, the contract changed. What you must do:
 
-1. Jalankan `python scripts/export_openapi.py` dan commit `openapi.json` di PR yang sama
-2. Umumkan di grup bahwa kontrak berubah, sebutkan bagian mana
-3. Orang frontend menjalankan ulang generator tipe TypeScript
+1. Run `python scripts/export_openapi.py` and commit `openapi.json` in the same PR
+2. Announce in the group chat that the contract changed, say which part
+3. Whoever is on frontend re-runs the TypeScript type generator
 
-CI menolak PR yang melewatkan langkah 1. Langkah 2 paling sering dilupakan, dan itu penyebab paling umum frontend tiba-tiba rusak tanpa ada yang tahu kenapa.
+CI rejects any PR that skips step 1. Step 2 is the one people forget most, and it is the most common reason the frontend suddenly breaks with nobody knowing why.
 
-**Untuk orang frontend:** kontrak terbaru tersedia sebagai artefak `openapi-contract` di setiap run CI. Buka tab Actions, pilih run pada `staging`, unduh dari bagian Artifacts. Tidak perlu menjalankan server Python di mesin kalian.
+**For people on frontend:** the latest contract is available as the `openapi-contract` artifact on every CI run. Open the Actions tab, pick a run on `staging`, download it from the Artifacts section. No need to run a Python server on your machine.
 
-## Aturan file rahasia
+## Rules for secret files
 
-Jangan pernah commit `.env`, kredensial, API key, atau kunci Zitadel.
+Never commit `.env`, credentials, API keys, or Zitadel keys.
 
-Kalau ada kredensial yang tidak sengaja ter-commit, jangan cuma menghapusnya di commit berikutnya, karena riwayat Git tetap menyimpannya. Langsung kabari tim supaya kredensialnya dicabut dan diganti.
+If a credential is committed by accident, do not just delete it in the next commit, because Git history still holds it. Tell the team immediately so the credential can be revoked and replaced.
 
-Ini berlaku ekstra ketat untuk modul `providers`, karena yang ditangani adalah kredensial produk AI pesaing milik klien.
+This applies extra strictly to the `providers` module, because what is handled there are the client's competitor AI product credentials.
 
-## Alur kerja Git
+## Git workflow
 
-Baca `CONTRIBUTING.md`.
+Read `CONTRIBUTING.md`.
