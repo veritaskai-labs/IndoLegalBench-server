@@ -18,7 +18,22 @@ from app.shared.security import CurrentUser, Role, get_current_user
 
 
 @pytest.fixture
-def as_role(db_session) -> Callable[..., TestClient]:
+def buat_pengguna() -> Callable[..., CurrentUser]:
+    """Pembuat CurrentUser palsu, satu-satunya sumber identitas pengguna uji."""
+
+    def buat(
+        role: Role,
+        *,
+        user_id: str = "u-qa",
+        email: str = "qa@veritask.test",
+    ) -> CurrentUser:
+        return CurrentUser(user_id=user_id, email=email, role=role)
+
+    return buat
+
+
+@pytest.fixture
+def as_role(db_session, buat_pengguna) -> Callable[..., TestClient]:
     """Client yang sudah dianggap login sebagai peran tertentu.
 
     PBI-1, sub task [QA] SCRUM-96. Router suites sekarang belum dijaga
@@ -40,20 +55,14 @@ def as_role(db_session) -> Callable[..., TestClient]:
     """
     stack = ExitStack()
 
-    def login_sebagai(
-        role: Role,
-        *,
-        user_id: str = "u-qa",
-        email: str = "qa@veritask.test",
-    ) -> TestClient:
+    def login_sebagai(role: Role, **identitas: str) -> TestClient:
+        pengguna = buat_pengguna(role, **identitas)
+
         def override_get_db():
             yield db_session
 
-        def override_get_current_user() -> CurrentUser:
-            return CurrentUser(user_id=user_id, email=email, role=role)
-
         app.dependency_overrides[get_db] = override_get_db
-        app.dependency_overrides[get_current_user] = override_get_current_user
+        app.dependency_overrides[get_current_user] = lambda: pengguna
         return stack.enter_context(TestClient(app))
 
     yield login_sebagai
