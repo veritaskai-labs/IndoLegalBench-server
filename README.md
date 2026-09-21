@@ -95,7 +95,29 @@ Then fill in `.env` as needed.
 alembic upgrade head
 ```
 
-#### 4. Run the server
+#### 4. Seed the local test accounts
+
+```bash
+python scripts/seed_dev.py
+```
+
+Creates four accounts, one per role, so you can exercise RBAC without a
+working Zitadel login. Safe to run more than once, existing emails are
+skipped. These are development accounts only and deliberately live
+outside the migrations, so they never reach staging or production.
+
+| Email | Role |
+|---|---|
+| `author@veritask.test` | author |
+| `reviewer@veritask.test` | reviewer |
+| `admin@veritask.test` | admin |
+| `viewer@veritask.test` | viewer |
+
+Their `zitadel_sub` is left empty on purpose. The accounts are registered
+on the platform but have never logged in, which is the same state an
+account is in right after an Admin creates it.
+
+#### 5. Run the server
 
 ```bash
 uvicorn app.main:app --reload
@@ -115,6 +137,7 @@ ruff check .                    # lint check
 ruff format .                   # tidy formatting
 ruff check . --fix              # fix the lint issues that can be fixed automatically
 python scripts/export_openapi.py  # regenerate the contract after changing schemas.py
+python scripts/seed_dev.py        # create the four local test accounts
 ```
 
 CI runs all of the above too. Run them locally before pushing so your PR does not go red.
