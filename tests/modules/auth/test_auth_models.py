@@ -147,3 +147,49 @@ def test_sesi_terhubung_ke_user(db_session):
 
     assert len(user.sessions) == 1
     assert user.sessions[0].user_id == user.id
+
+
+def test_sesi_boleh_tanpa_kolom_oidc(db_session):
+    """Sesi dari seed, test, dan fake IdP tidak punya sid maupun id_token.
+
+    Keduanya nullable justru supaya alur di luar OIDC tetap bisa
+    membuat sesi.
+    """
+    user = buat_user()
+    db_session.add(user)
+    db_session.commit()
+
+    sekarang = datetime.now(UTC)
+    sesi = UserSession(
+        user_id=user.id,
+        last_activity_at=sekarang,
+        expires_at=sekarang + timedelta(hours=8),
+    )
+    db_session.add(sesi)
+    db_session.commit()
+
+    assert sesi.zitadel_sid is None
+    assert sesi.id_token is None
+
+
+def test_kolom_oidc_tersimpan_saat_login_lewat_zitadel(db_session):
+    """SCRUM-90 menyimpan id_token untuk id_token_hint saat end_session."""
+    user = buat_user()
+    db_session.add(user)
+    db_session.commit()
+
+    sekarang = datetime.now(UTC)
+    db_session.add(
+        UserSession(
+            user_id=user.id,
+            last_activity_at=sekarang,
+            expires_at=sekarang + timedelta(hours=8),
+            zitadel_sid="sid-abc123",
+            id_token="header.payload.signature",
+        )
+    )
+    db_session.commit()
+
+    baris = db_session.execute(text("SELECT zitadel_sid, id_token FROM sessions")).one()
+    assert baris.zitadel_sid == "sid-abc123"
+    assert baris.id_token == "header.payload.signature"

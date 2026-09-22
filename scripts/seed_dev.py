@@ -1,4 +1,4 @@
-"""Isi database lokal dengan empat akun uji, satu per peran.
+"""Isi database lokal dengan lima akun uji: satu per peran, plus satu nonaktif.
 
 Jalankan setelah migration:
 
@@ -7,7 +7,7 @@ Jalankan setelah migration:
 
 Akun ini untuk pengembangan dan test manual, bukan data produksi, jadi
 seed-nya sengaja TIDAK ditaruh di dalam migration. Kalau ikut migration,
-keempatnya akan ikut terpasang di staging dan production juga, dan
+kelimanya akan ikut terpasang di staging dan production juga, dan
 PBI-1 AC5 melarang baris users dihapus begitu saja.
 
 zitadel_sub sengaja dibiarkan kosong. Akun dianggap terdaftar di
@@ -31,11 +31,16 @@ from app.shared.config import get_settings  # noqa: E402
 from app.shared.database import get_session_factory  # noqa: E402
 from app.shared.security import Role  # noqa: E402
 
+# Empat akun aktif, satu per peran, ditambah satu akun yang sengaja
+# dinonaktifkan. Yang terakhir dipakai SCRUM-90 untuk menguji
+# USER_DEACTIVATED dan SCRUM-92 untuk AC5, yaitu akun nonaktif yang
+# barisnya tetap ada dan tidak pernah dihapus.
 SEED_USERS = [
-    ("author@veritask.test", "Uji Author", Role.AUTHOR),
-    ("reviewer@veritask.test", "Uji Reviewer", Role.REVIEWER),
-    ("admin@veritask.test", "Uji Admin", Role.ADMIN),
-    ("viewer@veritask.test", "Uji Viewer", Role.VIEWER),
+    ("author@veritask.test", "Uji Author", Role.AUTHOR, True),
+    ("reviewer@veritask.test", "Uji Reviewer", Role.REVIEWER, True),
+    ("admin@veritask.test", "Uji Admin", Role.ADMIN, True),
+    ("viewer@veritask.test", "Uji Viewer", Role.VIEWER, True),
+    ("nonaktif@veritask.test", "Uji Nonaktif", Role.AUTHOR, False),
 ]
 
 
@@ -62,15 +67,16 @@ def main() -> None:
     dilewati = 0
 
     with session_factory() as session:
-        for email, name, role in SEED_USERS:
+        for email, name, role, is_active in SEED_USERS:
             sudah_ada = session.scalar(select(User).where(User.email == email))
             if sudah_ada is not None:
                 print(f"  lewati  {email:<26} sudah ada dengan peran {sudah_ada.role}")
                 dilewati += 1
                 continue
 
-            session.add(User(email=email, name=name, role=role))
-            print(f"  buat    {email:<26} peran {role}")
+            session.add(User(email=email, name=name, role=role, is_active=is_active))
+            status = "aktif" if is_active else "NONAKTIF"
+            print(f"  buat    {email:<26} peran {role}, {status}")
             dibuat += 1
 
         session.commit()

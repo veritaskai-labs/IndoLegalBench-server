@@ -22,7 +22,7 @@ def upgrade() -> None:
     op.create_table('users',
     sa.Column('id', sa.Uuid(), nullable=False),
     sa.Column('zitadel_sub', sa.String(length=255), nullable=True),
-    sa.Column('email', sa.String(length=255), nullable=False),
+    sa.Column('email', sa.String(length=320), nullable=False),
     sa.Column('name', sa.String(length=255), nullable=False),
     sa.Column('role', sa.Enum('author', 'reviewer', 'admin', 'viewer', name='user_role_enum'), nullable=False),
     sa.Column('is_active', sa.Boolean(), server_default=sa.text('true'), nullable=False),
@@ -38,6 +38,8 @@ def upgrade() -> None:
     sa.Column('created_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('last_activity_at', sa.DateTime(timezone=True), server_default=sa.text('now()'), nullable=False),
     sa.Column('expires_at', sa.DateTime(timezone=True), nullable=False),
+    sa.Column('zitadel_sid', sa.String(length=64), nullable=True),
+    sa.Column('id_token', sa.Text(), nullable=True),
     sa.ForeignKeyConstraint(['user_id'], ['users.id'], ondelete='CASCADE'),
     sa.PrimaryKeyConstraint('id')
     )

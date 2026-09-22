@@ -17,7 +17,7 @@ Dua tabel di sini punya siklus hidup yang berbeda, jangan tertukar:
 import uuid
 from datetime import datetime
 
-from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Uuid, func, true
+from sqlalchemy import Boolean, DateTime, Enum, ForeignKey, String, Text, Uuid, func, true
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.database import Base
@@ -41,7 +41,7 @@ class User(Base):
 
     # Kunci penghubung ke akun Zitadel selama zitadel_sub masih kosong,
     # jadi wajib unik dan tidak boleh null.
-    email: Mapped[str] = mapped_column(String(255), nullable=False, unique=True, index=True)
+    email: Mapped[str] = mapped_column(String(320), nullable=False, unique=True, index=True)
     name: Mapped[str] = mapped_column(String(255), nullable=False)
 
     # values_callable wajib ada. Tanpa itu SQLAlchemy menyimpan NAMA
@@ -110,5 +110,20 @@ class UserSession(Base):
 
     # Batas waktu absolut, terpisah dari idle timeout.
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
+
+    # Dua kolom di bawah diisi alur OIDC (SCRUM-90) dan nullable, karena
+    # sesi yang lahir di luar alur itu (seed, test, fake IdP) tidak
+    # punya keduanya.
+
+    # Klaim sid dari Zitadel. Belum dibaca siapa pun, disimpan sejak
+    # sekarang supaya pemakaiannya nanti tidak menuntut migration kedua.
+    zitadel_sid: Mapped[str | None] = mapped_column(String(64), nullable=True)
+
+    # Dipakai sebagai id_token_hint saat end_session di Zitadel, supaya
+    # logout ikut mengakhiri sesi di sisi IdP, bukan hanya di sini.
+    # Text cukup untuk satu JWT. Sengaja TIDAK dienkripsi di sprint ini:
+    # token ini hanya mengakhiri sesi IdP, dan enkripsi berarti dekripsi
+    # di setiap logout.
+    id_token: Mapped[str | None] = mapped_column(Text, nullable=True)
 
     user: Mapped["User"] = relationship(back_populates="sessions")
