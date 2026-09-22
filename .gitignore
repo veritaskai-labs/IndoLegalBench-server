@@ -5,6 +5,9 @@
 *.pem
 *.key
 
+# TODO(SCRUM-89): local SQLite stub; drop when Alembic uses Postgres
+*.db
+
 # Python
 __pycache__/
 *.py[cod]

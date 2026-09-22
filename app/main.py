@@ -11,11 +11,14 @@ Satu-satunya tugas file ini:
 Jangan menaruh logika bisnis di file ini.
 """
 
+from contextlib import asynccontextmanager
+
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from app.modules.audit.router import router as audit_router
+from app.modules.auth.oidc import ensure_fake_oidc_allowed
 from app.modules.auth.router import router as auth_router
 from app.modules.cases.router import router as cases_router
 from app.modules.health.router import router as health_router
@@ -24,9 +27,18 @@ from app.modules.reports.router import router as reports_router
 from app.modules.runs.router import router as runs_router
 from app.modules.suites.router import router as suites_router
 from app.shared.config import get_settings
+from app.shared.dev_db import bootstrap_local_sqlite
 from app.shared.exceptions import DomainError
 
 settings = get_settings()
+
+
+@asynccontextmanager
+async def lifespan(_: FastAPI):
+    # TODO(SCRUM-89): drop SQLite create_all / DEV_ZITADEL_SUB
+    bootstrap_local_sqlite()
+    yield
+
 
 app = FastAPI(
     title=settings.app_name,
@@ -38,6 +50,7 @@ app = FastAPI(
     version="0.1.0",
     docs_url="/docs",
     openapi_url="/openapi.json",
+    lifespan=lifespan,
 )
 
 app.add_middleware(
@@ -64,6 +77,11 @@ async def domain_error_handler(_: Request, exc: DomainError) -> JSONResponse:
 # Urutan pendaftaran mengikuti urutan PBI di Sprint 1
 app.include_router(health_router)
 app.include_router(auth_router)  # PBI-1
+if settings.auth_oidc_mode == "fake":
+    ensure_fake_oidc_allowed(settings)
+    from app.modules.auth.oidc_fake_router import fake_router
+
+    app.include_router(fake_router)
 app.include_router(suites_router)  # PBI-2
 app.include_router(cases_router)  # PBI-3
 app.include_router(providers_router)  # PBI-10

@@ -30,12 +30,20 @@ class Base(DeclarativeBase):
 def get_engine() -> Engine:
     settings = get_settings()
 
-    # Tanpa batas waktu, percobaan koneksi ke database yang mati baru
-    # menyerah setelah beberapa menit, dan test health ikut menggantung
-    # selama itu. connect_timeout hanya dikenal driver PostgreSQL.
-    connect_args: dict[str, int] = {}
+    # Dua driver, dua kebutuhan berbeda, dan keduanya tidak saling
+    # menggantikan.
+    #
+    # connect_timeout: tanpa batas waktu, percobaan koneksi ke database
+    # yang mati baru menyerah setelah beberapa menit, dan test health
+    # ikut menggantung selama itu. Hanya dikenal driver PostgreSQL.
+    #
+    # check_same_thread: khusus SQLite, dipakai saat smoke test lokal
+    # dijalankan tanpa PostgreSQL yang menyala.
+    connect_args: dict[str, int | bool] = {}
     if settings.database_url.startswith("postgresql"):
         connect_args["connect_timeout"] = 3
+    if settings.database_url.startswith("sqlite"):
+        connect_args["check_same_thread"] = False
 
     return create_engine(
         settings.database_url,

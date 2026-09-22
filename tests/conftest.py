@@ -5,6 +5,14 @@ menyala. Kalau nanti ada test yang butuh fitur khusus PostgreSQL
 (misalnya JSONB), pisahkan ke test integrasi tersendiri.
 """
 
+import os
+
+# Pin before app.main → get_settings() so a local .env AUTH_OIDC_MODE=zitadel
+# cannot send pytest at Cloud.
+os.environ["AUTH_OIDC_MODE"] = "fake"
+os.environ["APP_ENV"] = "local"
+os.environ["AUTH_DONE_URL_OVERRIDE"] = ""
+
 import pytest
 from fastapi.testclient import TestClient
 from sqlalchemy import create_engine

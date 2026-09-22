@@ -37,6 +37,7 @@ def get_current_user() -> CurrentUser:
     TODO(PBI-1): verifikasi token OIDC ke Zitadel, baca klaim peran,
     cek akun masih aktif, cek idle timeout, lalu kembalikan CurrentUser.
     """
+    # TODO(SCRUM-91): read veritask_session cookie / sessions row; this always 401s
     raise UnauthorizedError("Verifikasi token belum diimplementasikan (PBI-1)")
 
 

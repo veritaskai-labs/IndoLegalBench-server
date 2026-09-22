@@ -25,3 +25,8 @@ alembic==1.20.0
 pydantic==2.13.5
 pydantic-settings==2.15.0
 python-dotenv==1.2.3
+
+# Verifikasi id_token OIDC (SCRUM-90). Extra cryptography wajib:
+# Zitadel menandatangani dengan RS256/ES256 lewat JWKS, dan tanpa
+# extra itu python-jose hanya sanggup algoritma HMAC.
+python-jose[cryptography]==3.5.0
