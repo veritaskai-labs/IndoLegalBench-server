@@ -73,4 +73,4 @@ def test_penolakan_peran_sampai_ke_pengguna_sebagai_403(buat_pengguna):
         ditolak = client.get("/khusus-admin")
 
     assert ditolak.status_code == 403
-    assert ditolak.json()["code"] == "forbidden"
+    assert ditolak.json()["code"] == ForbiddenError.code
