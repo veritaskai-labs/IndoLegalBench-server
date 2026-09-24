@@ -23,6 +23,7 @@ coverage.xml
 htmlcov/
 
 # Tooling
+.scannerwork/
 .ruff_cache/
 .mypy_cache/
 

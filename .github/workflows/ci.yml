@@ -14,8 +14,15 @@ jobs:
   # Branch protection uses this job name as the required check. Do not rename it.
   build:
     runs-on: ubuntu-latest
+    env:
+      # Kosong sampai secret dipasang. Dipakai di if: langkah SonarQube.
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # SonarQube butuh riwayat penuh untuk menentukan kode baru.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -39,7 +46,15 @@ jobs:
         run: ruff format --check .
 
       - name: Test
-        run: pytest
+        run: pytest --cov-report=xml
+
+      # Community Build hanya punya satu dashboard per project, jadi analisis
+      # hanya dijalankan saat merge ke staging. Kalau dijalankan di setiap PR,
+      # hasil branch PR akan menimpa hasil staging.
+      # Langkah ini melompat sendiri selama secret SONAR_TOKEN belum dipasang.
+      - name: SonarQube scan
+        if: github.event_name == 'push' && github.ref == 'refs/heads/staging' && env.SONAR_TOKEN != ''
+        uses: SonarSource/sonarqube-scan-action@v6
 
       # Catches a changed schemas.py where openapi.json was not regenerated.
       - name: Check OpenAPI contract is up to date
