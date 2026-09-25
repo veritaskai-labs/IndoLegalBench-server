@@ -25,9 +25,7 @@ from app.shared.security import Role
 
 
 def test_ac2_author_boleh_membuat_suite(as_role):
-    # Belum bukti AC-2: suites belum memakai require_roles, jadi test ini
-    # juga lolos sebagai VIEWER. Gunanya menjaga Author tetap bisa bekerja
-    # setelah guard dipasang.
+    # Author tetap bisa membuat suite setelah guard peran dipasang di SCRUM-99.
     client = as_role(Role.AUTHOR)
 
     response = client.post(
@@ -38,9 +36,6 @@ def test_ac2_author_boleh_membuat_suite(as_role):
     assert response.status_code == 201
 
 
-@pytest.mark.xfail(
-    reason="RED: require_roles belum diaktifkan di router suites (TODO di suites/router.py)",
-)
 def test_ac2_viewer_ditolak_membuat_suite(as_role):
     client = as_role(Role.VIEWER)
 
