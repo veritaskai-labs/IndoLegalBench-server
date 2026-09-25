@@ -167,11 +167,13 @@ def test_client_secret_dikirim_hanya_kalau_dikonfigurasi(zitadel_palsu):
     )
     assert "client_secret" not in zitadel_palsu["badan_permintaan_token"]
 
-    pengaturan.zitadel_client_secret = "rahasia-uji"
+    # Nilai karangan untuk test, bukan kredensial.
+    pengaturan.zitadel_client_secret = "rahasia-uji"  # pragma: allowlist secret
     ZitadelOidcClient(pengaturan).exchange_code(
         code="kode-1", code_verifier="verifier-1", expected_nonce="nonce-1"
     )
-    assert "client_secret=rahasia-uji" in zitadel_palsu["badan_permintaan_token"]
+    badan = zitadel_palsu["badan_permintaan_token"]
+    assert "client_secret=rahasia-uji" in badan  # pragma: allowlist secret
 
 
 def test_client_id_wajib_diisi_saat_mode_zitadel():
