@@ -32,7 +32,11 @@ class SuiteCreate(BaseModel):
 
 class SuiteUpdate(BaseModel):
     name: str | None = Field(default=None, min_length=1, max_length=200)
-    description: str | None = Field(default=None, max_length=1000)
+    description: str | None = Field(
+        default=None,
+        max_length=1000,
+        description="Null mengosongkan deskripsi. Kalau field ini tidak dikirim, deskripsi tidak berubah.",
+    )
 
     @field_validator("name")
     @classmethod

@@ -1029,7 +1029,8 @@
                 "type": "null"
               }
             ],
-            "title": "Description"
+            "title": "Description",
+            "description": "Null mengosongkan deskripsi. Kalau field ini tidak dikirim, deskripsi tidak berubah."
           }
         },
         "type": "object",
