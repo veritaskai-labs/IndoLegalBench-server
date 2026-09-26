@@ -128,6 +128,11 @@ uvicorn app.main:app --reload
 - OpenAPI contract: http://localhost:8000/openapi.json
 - Health check: http://localhost:8000/health
 
+## Deploying
+
+See [docs/DEPLOY.md](docs/DEPLOY.md): images, environment variables,
+migrations, the first admin account, probes, and the Zitadel settings.
+
 ## Daily commands
 
 ```bash
