@@ -78,3 +78,15 @@ jobs:
           echo "::error::Container did not answer /health within 60 seconds."
           docker logs api
           exit 1
+
+      # /health never loads the auth modules, so a runtime dependency that
+      # only lives in requirements-dev.txt slips past the smoke test. Import
+      # every module inside the image, where only requirements.txt exists.
+      - name: Check every app module imports in the image
+        run: |
+          docker run --rm indolegalbench-server:${{ github.sha }} python -c "
+          import importlib, pkgutil, app
+          for m in pkgutil.walk_packages(app.__path__, 'app.'):
+              importlib.import_module(m.name)
+          print('all app modules import')
+          "
