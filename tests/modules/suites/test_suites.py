@@ -118,6 +118,42 @@ def test_ubah_hanya_deskripsi(as_role):
     assert response.json()["description"] == "Hanya tema"
 
 
+def test_ubah_deskripsi_null_mengosongkan(as_role):
+    """description: null mengosongkan. Kunci yang tidak dikirim tidak mengubahnya."""
+    client = as_role(Role.AUTHOR)
+    suite_id = _buat(client).json()["id"]
+
+    dikosongkan = client.patch(f"/suites/{suite_id}", json={"description": None})
+
+    assert dikosongkan.status_code == 200
+    assert dikosongkan.json()["description"] is None
+
+    diisi = client.patch(f"/suites/{suite_id}", json={"description": "Tema lagi"})
+    assert diisi.status_code == 200
+
+    hanya_nama = client.patch(f"/suites/{suite_id}", json={"name": "Nama Baru"})
+
+    assert hanya_nama.status_code == 200
+    assert hanya_nama.json()["name"] == "Nama Baru"
+    assert hanya_nama.json()["description"] == "Tema lagi"
+
+
+def test_form_kirim_nama_dan_deskripsi_null(as_role):
+    """Body form suite: nama tetap dikirim, deskripsi kosong jadi null."""
+    client = as_role(Role.AUTHOR)
+    suite_id = _buat(client).json()["id"]
+
+    response = client.patch(
+        f"/suites/{suite_id}",
+        json={"name": NAMA, "description": None},
+    )
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["name"] == NAMA
+    assert body["description"] is None
+
+
 def test_ubah_kapital_nama_yang_sama_diterima(as_role):
     client = as_role(Role.AUTHOR)
     suite_id = _buat(client).json()["id"]
