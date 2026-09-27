@@ -1,0 +1,12 @@
+# Caddy gets and renews the HTTPS certificates for both domains by itself,
+# as long as their DNS points at this VM and ports 80 and 443 are open.
+
+{$WEB_DOMAIN} {
+	encode gzip
+	reverse_proxy web:3000
+}
+
+{$API_DOMAIN} {
+	encode gzip
+	reverse_proxy api:8000
+}

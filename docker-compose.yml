@@ -1,8 +1,8 @@
 # PostgreSQL for local development.
 # Run with: docker compose up -d
 #
-# Local only. Staging and production use the managed database at
-# Datacomm, per the stack the client specified.
+# Local only. The UAT deployment uses deploy/compose.yml instead, see
+# docs/DEPLOY.md.
 
 services:
   api:

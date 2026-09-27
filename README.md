@@ -130,8 +130,9 @@ uvicorn app.main:app --reload
 
 ## Deploying
 
-See [docs/DEPLOY.md](docs/DEPLOY.md): images, environment variables,
-migrations, the first admin account, probes, and the Zitadel settings.
+See [docs/DEPLOY.md](docs/DEPLOY.md): the UAT stack on one VM with Docker
+Compose and Caddy (files in `deploy/`), environment variables, the first admin
+account, the Zitadel settings, and backups.
 
 ## Daily commands
 
