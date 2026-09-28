@@ -1079,6 +1079,60 @@
           }
         }
       }
+    },
+    "/cases/{case_id}/completeness": {
+      "get": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Indikator kelengkapan satu kasus",
+        "description": "Return what the case still needs before it can be sent for review.",
+        "operationId": "get_completeness_cases__case_id__completeness_get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseCompleteness"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus atau suite tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1114,6 +1168,43 @@
         "type": "object",
         "title": "AnswerCriteria",
         "description": "Phrases the answer must or must not contain, plus an expected conclusion."
+      },
+      "CaseCompleteness": {
+        "properties": {
+          "is_complete": {
+            "type": "boolean",
+            "title": "Is Complete"
+          },
+          "ready_for_review": {
+            "type": "boolean",
+            "title": "Ready For Review"
+          },
+          "missing": {
+            "items": {
+              "$ref": "#/components/schemas/CompletenessIssue"
+            },
+            "type": "array",
+            "title": "Missing"
+          },
+          "trap_count": {
+            "type": "integer",
+            "title": "Trap Count"
+          },
+          "legal_ref_count": {
+            "type": "integer",
+            "title": "Legal Ref Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "is_complete",
+          "ready_for_review",
+          "missing",
+          "trap_count",
+          "legal_ref_count"
+        ],
+        "title": "CaseCompleteness",
+        "description": "Indikator kelengkapan satu kasus (SCRUM-107)."
       },
       "CaseIdentity": {
         "properties": {
@@ -1336,6 +1427,25 @@
         ],
         "title": "CaseWrite",
         "description": "Body for create and update. The server sets status; clients cannot send it."
+      },
+      "CompletenessIssue": {
+        "properties": {
+          "field": {
+            "type": "string",
+            "title": "Field"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "field",
+          "message"
+        ],
+        "title": "CompletenessIssue",
+        "description": "Satu bagian yang belum terisi, dengan pesan untuk ditampilkan editor."
       },
       "ErrorBody": {
         "properties": {
