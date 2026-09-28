@@ -67,7 +67,9 @@ def update_suite(db: Session, suite_id: uuid.UUID, payload: SuiteUpdate) -> Suit
     elif payload.name is not None:
         suite.name = payload.name
 
-    if payload.description is not None:
+    # JSON null ada di model_fields_set dan mengosongkan. Kunci yang tidak
+    # dikirim tidak ada di sana, jadi deskripsi lama tetap.
+    if "description" in payload.model_fields_set:
         suite.description = payload.description
 
     try:
