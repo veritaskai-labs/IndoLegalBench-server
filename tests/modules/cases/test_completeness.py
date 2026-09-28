@@ -1,5 +1,3 @@
-"""Test kelengkapan case (SCRUM-107)."""
-
 from dataclasses import dataclass, field
 from typing import Any
 
