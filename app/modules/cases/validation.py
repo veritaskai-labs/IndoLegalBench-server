@@ -8,14 +8,18 @@ PBI-3, SCRUM-106. Satu modul dipakai untuk tiga hal:
 TODO(Klarifikasi #7): replace the case_code pattern. Keep the rule in this module.
 PHK-001 and phk-001 are both allowed today.
 TODO(SCRUM-103): adjust the field shape if the signed Case contract differs.
-TODO(SCRUM-107): replace completeness() with the final completeness formula.
-Stored rows keep the old pct until they are saved again.
 """
 
 import re
 from typing import Any
 
 from app.shared.exceptions import ValidationError
+from app.modules.cases import completeness as completeness_module
+from app.modules.cases.validation_rules import (
+    FIELD_RUJUKAN as _FIELD_RUJUKAN,
+    PLACEHOLDER_CASE_CODE_PATTERN,
+    TAG_SAH as _TAG_SAH,
+)
 
 # TODO(Klarifikasi #7): leading letter or digit, then letters, digits, dot,
 # underscore, or hyphen. Not the final pattern. PHK-001 and phk-001 both match.
@@ -29,17 +33,6 @@ VALIDATION_ERROR = "VALIDATION_ERROR"
 
 _TAG_SAH = frozenset({"dev", "test"})
 _FIELD_RUJUKAN = ("regulation_type", "regulation_number", "pasal")
-# TODO(SCRUM-107): sections treated as "complete" until that ticket locks the formula.
-_BAGIAN_KELENGKAPAN = (
-    "identity.title",
-    "identity.question",
-    "case_code",
-    "split_tag",
-    "legal_refs",
-    "answer_criteria",
-    "traps",
-)
-
 
 def validate_payload(data: dict[str, Any]) -> None:
     """Reject a payload that breaks the save rules. A clean return may be stored."""
@@ -50,31 +43,8 @@ def validate_payload(data: dict[str, Any]) -> None:
 
 
 def completeness(data: dict[str, Any]) -> dict[str, Any]:
-    """Return how many sections are filled, as a percent plus the missing names.
-
-    TODO(SCRUM-107): temporary formula. A draft may omit traps and answer
-    criteria. AC4 (at least one trap before review) is not enforced here.
-    Stored rows keep this pct until they are saved again.
-    """
-    identitas = data.get("identity") if isinstance(data.get("identity"), dict) else {}
-    terisi = {
-        "identity.title": bool(_text(identitas.get("title"))),
-        "identity.question": bool(_text(identitas.get("question"))),
-        "case_code": _POLA_KODE.fullmatch(_text(data.get("case_code"))) is not None,
-        "split_tag": data.get("split_tag") in _TAG_SAH,
-        "legal_refs": _legal_refs_complete(data.get("legal_refs")),
-        "answer_criteria": _has_answer_criteria(data.get("answer_criteria")),
-        "traps": _has_trap(data.get("traps")),
-    }
-    belum = [nama for nama in _BAGIAN_KELENGKAPAN if not terisi[nama]]
-    jumlah = len(_BAGIAN_KELENGKAPAN)
-    return {
-        "pct": round((jumlah - len(belum)) * 100 / jumlah),
-        "missing": belum,
-        # TODO(SCRUM-107): marks this stored indicator as the temporary formula.
-        # Old rows keep this pct until the case is saved again.
-        "contract": "placeholder",
-    }
+    """Indikator kelengkapan yang disimpan bersama kasus (SCRUM-107)."""
+    return completeness_module.evaluate(data)
 
 
 def response_from_pydantic(errors: list[dict[str, Any]]) -> dict[str, str]:
