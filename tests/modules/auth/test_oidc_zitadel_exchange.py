@@ -12,12 +12,12 @@ userinfo dipakai hanya bila ID token kurang lengkap.
 
 import httpx
 import pytest
-from _oidc_keys import AUDIENCE, ISSUER, JWK_SAH, id_token
 
 from app.modules.auth import oidc_zitadel
 from app.modules.auth.oidc_zitadel import ZitadelOidcClient
 from app.shared.config import Settings
 from app.shared.exceptions import OidcExchangeFailedError
+from tests.modules.auth._oidc_keys import AUDIENCE, ISSUER, JWK_SAH, id_token
 
 TOKEN_ENDPOINT = f"{ISSUER}/oauth/v2/token"
 JWKS_URI = f"{ISSUER}/oauth/v2/keys"
@@ -40,6 +40,9 @@ def _settings() -> Settings:
         zitadel_client_id=AUDIENCE,
         zitadel_redirect_uri="http://localhost:8000/auth/callback",
         cors_origins=["http://localhost:3000"],
+        # Dikunci kosong, jangan ikut .env siapa pun: test client_secret di
+        # bawah memeriksa jalur "tanpa secret" lebih dulu.
+        zitadel_client_secret="",
     )
 
 

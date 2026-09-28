@@ -15,12 +15,20 @@ from datetime import UTC, datetime, timedelta
 
 import httpx
 import pytest
-from _oidc_keys import AUDIENCE, ISSUER, JWK_SAH, KID, PEM_PENYERANG, id_token, klaim
 from jose import jwt
 from jose.exceptions import ExpiredSignatureError, JWTClaimsError, JWTError
 
 from app.modules.auth.oidc_jwt import verify_id_token
 from app.shared.exceptions import OidcExchangeFailedError
+from tests.modules.auth._oidc_keys import (
+    AUDIENCE,
+    ISSUER,
+    JWK_SAH,
+    KID,
+    PEM_PENYERANG,
+    id_token,
+    klaim,
+)
 
 
 @pytest.fixture
