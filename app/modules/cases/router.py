@@ -12,7 +12,7 @@ from sqlalchemy.orm import Session
 from app.modules.auth.schemas import ErrorBody
 from app.modules.cases import service
 from app.modules.cases.models import CaseStatus, SplitTag
-from app.modules.cases.schemas import CaseRead, CaseSummary, CaseWrite
+from app.modules.cases.schemas import CaseCompleteness, CaseRead, CaseSummary, CaseWrite
 from app.shared.database import get_db
 from app.shared.security import CurrentUser, Role, require_roles
 
@@ -114,3 +114,18 @@ def update_case(
         actor_id=_user_id(user),
         is_admin=user.role == Role.ADMIN,
     )
+
+
+@router.get(
+    "/cases/{case_id}/completeness",
+    response_model=CaseCompleteness,
+    summary="Indikator kelengkapan satu kasus",
+    responses={404: _ERROR_CODES[404]},
+)
+def get_completeness(
+    case_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(_can_write),
+) -> CaseCompleteness:
+    """Return what the case still needs before it can be sent for review."""
+    return service.get_completeness(db, case_id)

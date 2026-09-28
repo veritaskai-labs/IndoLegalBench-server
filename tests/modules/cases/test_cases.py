@@ -488,3 +488,27 @@ def test_openapi_memakai_pola_placeholder(client):
     assert rujukan["required"] == ["regulation_type", "regulation_number", "pasal"]
     assert "/suites/{suite_id}/cases" in spec["paths"]
     assert "/cases/{case_id}" in spec["paths"]
+
+
+def test_completeness_kasus_lengkap(as_role):
+    client = as_role(Role.AUTHOR)
+    suite_id = _suite(client)
+    case_id = _buat(client, suite_id).json()["id"]
+
+    response = client.get(f"/cases/{case_id}/completeness")
+
+    assert response.status_code == 200
+    body = response.json()
+    assert body["is_complete"] is True
+    assert body["ready_for_review"] is True
+    assert body["missing"] == []
+    assert body["trap_count"] >= 1
+    assert body["legal_ref_count"] >= 1
+
+
+def test_completeness_kasus_tidak_dikenal(as_role):
+    client = as_role(Role.AUTHOR)
+
+    response = client.get(f"/cases/{uuid.uuid4()}/completeness")
+
+    assert response.status_code == 404
