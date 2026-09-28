@@ -162,3 +162,19 @@ class CaseSummary(BaseModel):
     status: CaseStatus
     completeness_pct: int = Field(ge=0, le=100)
     updated_at: datetime
+
+class CompletenessIssue(BaseModel):
+    """Satu bagian yang belum terisi, dengan pesan untuk ditampilkan editor."""
+
+    field: str
+    message: str
+
+
+class CaseCompleteness(BaseModel):
+    """Indikator kelengkapan satu kasus (SCRUM-107)."""
+
+    is_complete: bool
+    ready_for_review: bool
+    missing: list[CompletenessIssue]
+    trap_count: int
+    legal_ref_count: int

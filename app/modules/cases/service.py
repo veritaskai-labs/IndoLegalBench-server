@@ -11,9 +11,9 @@ import uuid
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.modules.cases import repository, validation
+from app.modules.cases import repository, validation, completeness
 from app.modules.cases.models import Case, CaseStatus, SplitTag
-from app.modules.cases.schemas import CaseRead, CaseSummary, CaseWrite
+from app.modules.cases.schemas import CaseRead, CaseSummary, CaseWrite, CaseCompleteness
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
 
 CASE_CODE_TAKEN = "CASE_CODE_TAKEN"
@@ -47,6 +47,13 @@ def get_case(db: Session, case_id: uuid.UUID) -> CaseRead:
     """Return one case, or raise when the id does not exist."""
     return _to_read(_require_case(db, case_id))
 
+def get_completeness(db: Session, case_id: uuid.UUID) -> CaseCompleteness:
+    """completeness of a case, dihitung ulang dari baris yang tersimpan.
+    Dihitung dari kolom isi, bukan dari kolom `completeness`, supaya baris
+    lama yang disimpan sebelum formula ini tetap menjawab dengan benar.
+    """
+    case = _require_case(db, case_id)
+    return CaseCompleteness(**completeness.from_row(case))
 
 def list_cases(
     db: Session,
