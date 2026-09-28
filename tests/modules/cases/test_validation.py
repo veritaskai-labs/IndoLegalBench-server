@@ -118,7 +118,8 @@ def test_kelengkapan_penuh_seratus_persen():
 
     assert hasil["pct"] == 100
     assert hasil["missing"] == []
-    assert hasil["contract"] == "placeholder"
+    assert hasil["is_complete"] is True
+    assert hasil["ready_for_review"] is True
 
 
 def test_kelengkapan_tanpa_jebakan_dan_kriteria_belum_penuh():
@@ -127,8 +128,8 @@ def test_kelengkapan_tanpa_jebakan_dan_kriteria_belum_penuh():
     )
 
     assert hasil["pct"] == 71
-    assert hasil["missing"] == ["answer_criteria", "traps"]
-    assert hasil["contract"] == "placeholder"
+    assert [item["field"] for item in hasil["missing"]] == ["answer_criteria", "traps"]
+    assert hasil["ready_for_review"] is False
 
 
 def test_field_path_rujukan():

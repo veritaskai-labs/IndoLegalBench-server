@@ -1,7 +1,7 @@
 import re
 from typing import Any
 
-# Disalin dari validation.py 
+# Disalin dari validation.py
 # validation.py mengimpor modul ini jadi cannot import the validation.py here
 
 # TODO(Klarifikasi #7): pola case_code masih sementara, samakan dengan
@@ -52,11 +52,7 @@ def evaluate(data: dict[str, Any]) -> dict[str, Any]:
         "traps": trap_count > 0,
     }
 
-    missing = [
-        {"field": nama, "message": _PESAN[nama]}
-        for nama in _BAGIAN
-        if not terisi[nama]
-    ]
+    missing = [{"field": nama, "message": _PESAN[nama]} for nama in _BAGIAN if not terisi[nama]]
     is_complete = not missing
 
     return {
@@ -91,8 +87,7 @@ def _count_refs(legal_refs: Any) -> int:
     return sum(
         1
         for rujukan in legal_refs
-        if isinstance(rujukan, dict)
-        and all(_text(rujukan.get(nama)) for nama in FIELD_RUJUKAN)
+        if isinstance(rujukan, dict) and all(_text(rujukan.get(nama)) for nama in FIELD_RUJUKAN)
     )
 
 
@@ -100,9 +95,7 @@ def _count_traps(traps: Any) -> int:
     """Jebakan baru dihitung kalau deskripsinya terisi."""
     if not isinstance(traps, list):
         return 0
-    return sum(
-        1 for item in traps if isinstance(item, dict) and _text(item.get("description"))
-    )
+    return sum(1 for item in traps if isinstance(item, dict) and _text(item.get("description")))
 
 
 def _has_answer_criteria(nilai: Any) -> bool:

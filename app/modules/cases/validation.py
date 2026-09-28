@@ -13,8 +13,8 @@ TODO(SCRUM-103): adjust the field shape if the signed Case contract differs.
 import re
 from typing import Any
 
-from app.shared.exceptions import ValidationError
 from app.modules.cases import completeness as completeness_module
+from app.shared.exceptions import ValidationError
 
 # TODO(Klarifikasi #7): leading letter or digit, then letters, digits, dot,
 # underscore, or hyphen. Not the final pattern. PHK-001 and phk-001 both match.
@@ -28,6 +28,7 @@ VALIDATION_ERROR = "VALIDATION_ERROR"
 
 _TAG_SAH = frozenset({"dev", "test"})
 _FIELD_RUJUKAN = ("regulation_type", "regulation_number", "pasal")
+
 
 def validate_payload(data: dict[str, Any]) -> None:
     """Reject a payload that breaks the save rules. A clean return may be stored."""

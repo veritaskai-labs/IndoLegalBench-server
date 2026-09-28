@@ -163,6 +163,7 @@ class CaseSummary(BaseModel):
     completeness_pct: int = Field(ge=0, le=100)
     updated_at: datetime
 
+
 class CompletenessIssue(BaseModel):
     """Satu bagian yang belum terisi, dengan pesan untuk ditampilkan editor."""
 

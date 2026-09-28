@@ -87,7 +87,8 @@ def test_buat_kasus_draft(as_role, db_session):
     assert tersimpan is not None
     assert tersimpan.created_by == USER_ID_QA
     assert tersimpan.status == CaseStatus.DRAFT
-    assert tersimpan.completeness["contract"] == "placeholder"
+    assert tersimpan.completeness["is_complete"] is True
+    assert tersimpan.completeness["ready_for_review"] is True
     suite = client.get(f"/suites/{suite_id}").json()
     assert suite["case_count"] == 1
     assert suite["is_empty"] is False
