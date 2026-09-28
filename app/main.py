@@ -14,6 +14,8 @@ Jangan menaruh logika bisnis di file ini.
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
+from fastapi.exception_handlers import request_validation_exception_handler
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
@@ -22,6 +24,7 @@ from app.modules.auth.cookies import clear_session_cookie
 from app.modules.auth.oidc import ensure_fake_oidc_allowed
 from app.modules.auth.router import router as auth_router
 from app.modules.cases.router import router as cases_router
+from app.modules.cases.validation import response_from_pydantic
 from app.modules.health.router import router as health_router
 from app.modules.providers.router import router as providers_router
 from app.modules.reports.router import router as reports_router
@@ -69,13 +72,39 @@ async def domain_error_handler(_: Request, exc: DomainError) -> JSONResponse:
 
     Berkat handler ini, service.py tidak perlu tahu apa-apa soal HTTP.
     """
+    content = {"code": exc.code, "message": exc.message}
+    if exc.field:
+        content["field"] = exc.field
     response = JSONResponse(
         status_code=exc.status_code,
-        content={"code": exc.code, "message": exc.message},
+        content=content,
     )
     if isinstance(exc, SessionExpiredError):
         clear_session_cookie(response, get_settings())
     return response
+
+
+def _tulisan_kasus(request: Request) -> bool:
+    """True for case create and update, which use the cases validation error codes.
+
+    Matches POST /suites/{suite_id}/cases and PUT /cases/{case_id}. Update
+    both sites together if those routes move.
+    """
+    if request.method not in {"POST", "PUT"}:
+        return False
+    path = request.url.path.rstrip("/")
+    if path.startswith("/cases/"):
+        return True
+    bagian = path.strip("/").split("/")
+    return len(bagian) == 3 and bagian[0] == "suites" and bagian[2] == "cases"
+
+
+@app.exception_handler(RequestValidationError)
+async def case_validation_handler(request: Request, exc: RequestValidationError):
+    """Map case-body failures through the cases module. Other routes keep FastAPI's detail."""
+    if _tulisan_kasus(request):
+        return JSONResponse(status_code=422, content=response_from_pydantic(exc.errors()))
+    return await request_validation_exception_handler(request, exc)
 
 
 # Urutan pendaftaran mengikuti urutan PBI di Sprint 1
