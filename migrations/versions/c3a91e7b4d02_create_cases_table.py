@@ -4,8 +4,8 @@ Revision ID: c3a91e7b4d02
 Revises: a4c8e2b17d90
 Create Date: 2026-09-27 15:45:00.000000
 
+SCRUM-105. JSONB on PostgreSQL, plain JSON on SQLite.
 TODO(SCRUM-103): columns follow the ticket text, not a signed contract.
-TODO(SCRUM-105): temporary revision. Alter this revision; do not add a second cases table.
 """
 
 from collections.abc import Sequence
@@ -18,6 +18,8 @@ revision: str = "c3a91e7b4d02"  # pragma: allowlist secret
 down_revision: str | None = "a4c8e2b17d90"  # pragma: allowlist secret
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
+
+json_type = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
 
 # create_type=False: tipe dibuat sekali lewat .create(). CREATE TABLE tidak
 # boleh mengeluarkan CREATE TYPE lagi; PostgreSQL menolak duplikat itu di
@@ -52,13 +54,13 @@ def upgrade() -> None:
         sa.Column("title", sa.String(length=300), nullable=False),
         sa.Column("question", sa.Text(), nullable=False),
         sa.Column("category", sa.String(length=120), nullable=True),
-        sa.Column("legal_refs", sa.JSON(), nullable=False),
-        sa.Column("answer_criteria", sa.JSON(), nullable=False),
-        sa.Column("traps", sa.JSON(), nullable=False),
+        sa.Column("legal_refs", json_type, nullable=False),
+        sa.Column("answer_criteria", json_type, nullable=False),
+        sa.Column("traps", json_type, nullable=False),
         sa.Column("split_tag", split_tag_enum, nullable=False),
-        sa.Column("status", status_enum, nullable=False),
-        sa.Column("completeness", sa.JSON(), nullable=False),
-        sa.Column("version", sa.Integer(), nullable=False),
+        sa.Column("status", status_enum, server_default="draft", nullable=False),
+        sa.Column("completeness", json_type, nullable=False),
+        sa.Column("version", sa.Integer(), server_default=sa.text("1"), nullable=False),
         sa.Column("created_by", sa.Uuid(), nullable=False),
         sa.Column("updated_by", sa.Uuid(), nullable=False),
         sa.Column(
