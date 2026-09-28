@@ -56,3 +56,7 @@ class MeResponse(BaseModel):
 class ErrorBody(BaseModel):
     code: str
     message: str = Field(examples=["No platform account is mapped to this identity."])
+    field: str | None = Field(
+        default=None,
+        description="Lokasi field yang gagal, misalnya legal_refs[0].pasal",
+    )
