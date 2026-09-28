@@ -1,0 +1,94 @@
+# UAT stack on one VM: Caddy (HTTPS) in front of the API and the web app,
+# plus PostgreSQL. See docs/DEPLOY.md.
+#
+# Run from this folder:  docker compose up -d
+# Values come from deploy/.env (copy .env.example, never commit it).
+#
+# Only Caddy publishes ports. The API, web app and database are reachable
+# inside the compose network only.
+
+x-logging: &logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      WEB_DOMAIN: ${WEB_DOMAIN}
+      API_DOMAIN: ${API_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      # Certificates live here. Losing the volume means re-issuing them, and
+      # Let's Encrypt rate limits repeated re-issues.
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api
+      - web
+    logging: *logging
+
+  api:
+    build: ..
+    image: indolegalbench-server
+    restart: unless-stopped
+    # Exactly one API container. The unfinished-login state lives in process
+    # memory, so never scale this service up. See "Read this first".
+    environment:
+      APP_ENV: staging
+      DEBUG: "false"
+      DATABASE_URL: postgresql+psycopg://indolegalbench:${POSTGRES_PASSWORD}@db:5432/indolegalbench
+      CORS_ORIGINS: '["https://${WEB_DOMAIN}"]'
+      AUTH_OIDC_MODE: zitadel
+      PUBLIC_BASE_URL: https://${API_DOMAIN}
+      ZITADEL_ISSUER: ${ZITADEL_ISSUER}
+      ZITADEL_CLIENT_ID: ${ZITADEL_CLIENT_ID}
+      COOKIE_SECURE: "true"
+      IDLE_TIMEOUT_MINUTES: "30"
+      ABSOLUTE_SESSION_LIFETIME_MINUTES: "720"
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 30s
+      timeout: 5s
+      retries: 3
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *logging
+
+  web:
+    build:
+      context: ${CLIENT_DIR:-../../IndoLegalBench-client}
+      args:
+        NEXT_PUBLIC_API_BASE_URL: https://${API_DOMAIN}
+    image: indolegalbench-client
+    restart: unless-stopped
+    logging: *logging
+
+  db:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: indolegalbench
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_DB: indolegalbench
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U indolegalbench"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    logging: *logging
+
+volumes:
+  postgres_data:
+  caddy_data:
+  caddy_config:
