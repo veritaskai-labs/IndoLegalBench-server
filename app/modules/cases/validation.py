@@ -15,11 +15,6 @@ from typing import Any
 
 from app.shared.exceptions import ValidationError
 from app.modules.cases import completeness as completeness_module
-from app.modules.cases.validation_rules import (
-    FIELD_RUJUKAN as _FIELD_RUJUKAN,
-    PLACEHOLDER_CASE_CODE_PATTERN,
-    TAG_SAH as _TAG_SAH,
-)
 
 # TODO(Klarifikasi #7): leading letter or digit, then letters, digits, dot,
 # underscore, or hyphen. Not the final pattern. PHK-001 and phk-001 both match.

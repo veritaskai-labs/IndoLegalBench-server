@@ -1,13 +1,18 @@
 import re
 from typing import Any
 
-from app.modules.cases.validation_rules import (
-    FIELD_RUJUKAN,
-    PLACEHOLDER_CASE_CODE_PATTERN,
-    TAG_SAH,
-)
+# Disalin dari validation.py 
+# validation.py mengimpor modul ini jadi cannot import the validation.py here
+
+# TODO(Klarifikasi #7): pola case_code masih sementara, samakan dengan
+# validation.PLACEHOLDER_CASE_CODE_PATTERN kalau pola finalnya sudah ada.
+
+PLACEHOLDER_CASE_CODE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$"
+TAG_SAH = frozenset({"dev", "test"})
+FIELD_RUJUKAN = ("regulation_type", "regulation_number", "pasal")
 
 _POLA_KODE = re.compile(PLACEHOLDER_CASE_CODE_PATTERN)
+
 
 # Urutan ini menentukan urutan `missing` dan pembagi `pct`.
 _BAGIAN = (
