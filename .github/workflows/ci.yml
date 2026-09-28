@@ -14,8 +14,30 @@ jobs:
   # Branch protection uses this job name as the required check. Do not rename it.
   build:
     runs-on: ubuntu-latest
+    services:
+      # Same image as docker compose. pytest uses SQLite and never runs ENUM DDL.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: indolegalbench
+          POSTGRES_PASSWORD: indolegalbench  # pragma: allowlist secret
+          POSTGRES_DB: indolegalbench
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U indolegalbench"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    env:
+      # Empty until the secrets are set. Read by the SonarQube step's if:.
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # SonarQube needs the full history to work out what is new code.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -39,7 +61,18 @@ jobs:
         run: ruff format --check .
 
       - name: Test
-        run: pytest
+        run: pytest --cov-report=xml
+
+      # Community Build keeps one dashboard per project, so the analysis only
+      # runs on merges to staging. Running it per PR would let a PR branch
+      # overwrite the staging result.
+      # The step skips itself while the SONAR_TOKEN secret is unset, and
+      # continue-on-error keeps an unreachable SonarQube from failing the
+      # required build check.
+      - name: SonarQube scan
+        if: github.event_name == 'push' && github.ref == 'refs/heads/staging' && env.SONAR_TOKEN != ''
+        continue-on-error: true
+        uses: SonarSource/sonarqube-scan-action@v6
 
       # Catches a changed schemas.py where openapi.json was not regenerated.
       - name: Check OpenAPI contract is up to date
@@ -90,3 +123,24 @@ jobs:
               importlib.import_module(m.name)
           print('all app modules import')
           "
+
+      # The enum types in the cases migration are created twice if CREATE TABLE
+      # also emits CREATE TYPE. SQLite ignores that. PostgreSQL aborts the
+      # whole upgrade. Run it from the runtime image against postgres:16-alpine.
+      - name: Apply migrations on PostgreSQL 16
+        env:
+          # Same local credentials as docker-compose.yml. Not a production secret.
+          DATABASE_URL: postgresql+psycopg://indolegalbench:indolegalbench@127.0.0.1:5432/indolegalbench  # pragma: allowlist secret
+        run: |
+          docker run --rm --network host \
+            -e DATABASE_URL \
+            indolegalbench-server:${{ github.sha }} \
+            alembic upgrade head
+          docker run --rm --network host \
+            -e DATABASE_URL \
+            indolegalbench-server:${{ github.sha }} \
+            alembic downgrade base
+          docker run --rm --network host \
+            -e DATABASE_URL \
+            indolegalbench-server:${{ github.sha }} \
+            alembic upgrade head
