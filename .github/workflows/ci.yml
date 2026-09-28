@@ -14,6 +14,21 @@ jobs:
   # Branch protection uses this job name as the required check. Do not rename it.
   build:
     runs-on: ubuntu-latest
+    services:
+      # Same image as docker compose. pytest uses SQLite and never runs ENUM DDL.
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_USER: indolegalbench
+          POSTGRES_PASSWORD: indolegalbench  # pragma: allowlist secret
+          POSTGRES_DB: indolegalbench
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U indolegalbench"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
     steps:
       - uses: actions/checkout@v4
 
@@ -90,3 +105,24 @@ jobs:
               importlib.import_module(m.name)
           print('all app modules import')
           "
+
+      # The enum types in the cases migration are created twice if CREATE TABLE
+      # also emits CREATE TYPE. SQLite ignores that. PostgreSQL aborts the
+      # whole upgrade. Run it from the runtime image against postgres:16-alpine.
+      - name: Apply migrations on PostgreSQL 16
+        env:
+          # Same local credentials as docker-compose.yml. Not a production secret.
+          DATABASE_URL: postgresql+psycopg://indolegalbench:indolegalbench@127.0.0.1:5432/indolegalbench  # pragma: allowlist secret
+        run: |
+          docker run --rm --network host \
+            -e DATABASE_URL \
+            indolegalbench-server:${{ github.sha }} \
+            alembic upgrade head
+          docker run --rm --network host \
+            -e DATABASE_URL \
+            indolegalbench-server:${{ github.sha }} \
+            alembic downgrade base
+          docker run --rm --network host \
+            -e DATABASE_URL \
+            indolegalbench-server:${{ github.sha }} \
+            alembic upgrade head

@@ -12,9 +12,10 @@ class DomainError(Exception):
     status_code: int = 400
     code: str = "domain_error"
 
-    def __init__(self, message: str, *, code: str | None = None) -> None:
+    def __init__(self, message: str, *, code: str | None = None, field: str | None = None) -> None:
         super().__init__(message)
         self.message = message
+        self.field = field
         if code:
             self.code = code
 
