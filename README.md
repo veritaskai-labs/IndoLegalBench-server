@@ -128,6 +128,12 @@ uvicorn app.main:app --reload
 - OpenAPI contract: http://localhost:8000/openapi.json
 - Health check: http://localhost:8000/health
 
+## Deploying
+
+See [docs/DEPLOY.md](docs/DEPLOY.md): the UAT stack on one VM with Docker
+Compose and Caddy (files in `deploy/`), environment variables, the first admin
+account, the Zitadel settings, and backups.
+
 ## Daily commands
 
 ```bash
