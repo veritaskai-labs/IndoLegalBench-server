@@ -31,3 +31,8 @@ email-validator==2.2.0
 # Zitadel menandatangani dengan RS256/ES256 lewat JWKS, dan tanpa
 # extra itu python-jose hanya sanggup algoritma HMAC.
 python-jose[cryptography]==3.5.0
+
+# Klien HTTP ke Zitadel: discovery, token, JWKS, userinfo. Dipakai saat
+# runtime, jadi harus di sini dan bukan di requirements-dev.txt; tanpa
+# ini setiap login di image Docker gagal 500.
+httpx==0.28.1
