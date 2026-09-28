@@ -1,7 +1,7 @@
 # Deploying IndoLegalBench
 
 How to run both tiers for the UAT, on the dedicated Tencent Cloud VM that
-Veritask provides (4 vCPU, 8 GB RAM, 100 GB, Ubuntu, hosted in Indonesia). We
+Veritask provides (2 vCPU, 8 GB RAM, 70 GB, Ubuntu, hosted in Indonesia). We
 run everything on it ourselves with Docker Compose. The files are in
 [`deploy/`](../deploy):
 
@@ -15,7 +15,7 @@ run everything on it ourselves with Docker Compose. The files are in
 
 | | API (this repo) | Web app ([IndoLegalBench-client](https://github.com/veritaskai-labs/IndoLegalBench-client)) |
 |---|---|---|
-| Domain | `https://api.legalbench.veritask.ai` | `https://legalbench.veritask.ai` |
+| Domain | `https://api.indolegalbench.veritask.ai` | `https://indolegalbench.veritask.ai` |
 | Image | `Dockerfile` in this repo | `Dockerfile` in the client repo |
 | Port inside the network | 8000 | 3000 |
 | Runs as | `appuser` (uid 1000) | `node` |
@@ -50,14 +50,14 @@ Login goes through Veritask's Zitadel at `https://auth8.veritask.ai`.
 - Zitadel: the `IndoLegalBenchFrontend` application has these, next to the
   existing localhost ones. They must match exactly, including `https://` and
   without a trailing slash:
-  - Redirect URI: `https://api.legalbench.veritask.ai/auth/callback`
-  - Post-logout URI: `https://legalbench.veritask.ai/login`
+  - Redirect URI: `https://api.indolegalbench.veritask.ai/auth/callback`
+  - Post-logout URI: `https://indolegalbench.veritask.ai/login`
 
 Check DNS from your own machine before going further:
 
 ```bash
-nslookup legalbench.veritask.ai
-nslookup api.legalbench.veritask.ai
+nslookup indolegalbench.veritask.ai
+nslookup api.indolegalbench.veritask.ai
 ```
 
 Both must answer the VM's IP. If Caddy starts before that, it fails to get
@@ -66,7 +66,7 @@ certificates and retries with a growing delay.
 ## 2. Prepare the VM (once)
 
 ```bash
-ssh USER@VM_IP
+ssh ubuntu@VM_IP        # user from Veritask; IP is what both domains resolve to
 
 # Docker Engine and the compose plugin
 curl -fsSL https://get.docker.com | sudo sh
@@ -129,8 +129,8 @@ admin from the Anggota (Members) page.
 
 ## 6. Check the deployment
 
-1. `https://api.legalbench.veritask.ai/health` shows `"database":"ok"`.
-2. Open `https://legalbench.veritask.ai/login` in a private window and click
+1. `https://api.indolegalbench.veritask.ai/health` shows `"database":"ok"`.
+2. Open `https://indolegalbench.veritask.ai/login` in a private window and click
    **Masuk dengan akun Veritask**.
 3. Log in as staff10. You land on `/admin/members` as Admin.
 4. Click **Keluar**. You end up back on `/login`.
