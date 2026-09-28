@@ -771,10 +771,572 @@
           }
         }
       }
+    },
+    "/suites/{suite_id}/cases": {
+      "post": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Buat kasus hukum dalam status draft",
+        "description": "Create a draft case. Authors and admins only.",
+        "operationId": "create_case_suites__suite_id__cases_post",
+        "parameters": [
+          {
+            "name": "suite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Suite Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan pembuat kasus dan bukan admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus atau suite tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), beserta nama suite pemilik.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Suite tidak aktif (`SUITE_NOT_ACTIVE`), tag kosong (`SPLIT_TAG_REQUIRED`), pola case_code ditolak (`CASE_CODE_INVALID`), atau field wajib kosong (`field`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Daftar ringkas kasus di dalam satu suite",
+        "description": "List the short case summary for one suite.",
+        "operationId": "list_cases_suites__suite_id__cases_get",
+        "parameters": [
+          {
+            "name": "suite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Suite Id"
+            }
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CaseStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Status"
+            }
+          },
+          {
+            "name": "split_tag",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SplitTag"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Split Tag"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/CaseSummary"
+                  },
+                  "title": "Response List Cases Suites  Suite Id  Cases Get"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus atau suite tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cases/{case_id}": {
+      "get": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Detail satu kasus",
+        "description": "Return the full case.",
+        "operationId": "get_case_cases__case_id__get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus atau suite tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "put": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Ubah kasus",
+        "description": "Update a case. The service decides who may change split_tag.",
+        "operationId": "update_case_cases__case_id__put",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/CaseWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan pembuat kasus dan bukan admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus atau suite tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), beserta nama suite pemilik.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Suite tidak aktif (`SUITE_NOT_ACTIVE`), tag kosong (`SPLIT_TAG_REQUIRED`), pola case_code ditolak (`CASE_CODE_INVALID`), atau field wajib kosong (`field`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
     "schemas": {
+      "AnswerCriteria": {
+        "properties": {
+          "must_contain": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Must Contain"
+          },
+          "must_not_contain": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Must Not Contain"
+          },
+          "expected_conclusion": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Conclusion"
+          }
+        },
+        "type": "object",
+        "title": "AnswerCriteria",
+        "description": "Phrases the answer must or must not contain, plus an expected conclusion."
+      },
+      "CaseIdentity": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "minLength": 1,
+            "title": "Title",
+            "description": "Judul pertanyaan"
+          },
+          "question": {
+            "type": "string",
+            "maxLength": 20000,
+            "minLength": 1,
+            "title": "Question",
+            "description": "Pertanyaan hukum"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "question"
+        ],
+        "title": "CaseIdentity",
+        "description": "Title, question, and optional category for one case."
+      },
+      "CaseRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "suite_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Suite Id"
+          },
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/CaseIdentity"
+          },
+          "legal_refs": {
+            "items": {
+              "$ref": "#/components/schemas/LegalRef"
+            },
+            "type": "array",
+            "title": "Legal Refs"
+          },
+          "answer_criteria": {
+            "$ref": "#/components/schemas/AnswerCriteria"
+          },
+          "traps": {
+            "items": {
+              "$ref": "#/components/schemas/Trap"
+            },
+            "type": "array",
+            "title": "Traps"
+          },
+          "split_tag": {
+            "$ref": "#/components/schemas/SplitTag"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaseStatus"
+          },
+          "completeness_pct": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Completeness Pct"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "suite_id",
+          "case_code",
+          "identity",
+          "legal_refs",
+          "answer_criteria",
+          "traps",
+          "split_tag",
+          "status",
+          "completeness_pct",
+          "version",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "CaseRead",
+        "description": "Full case returned by create, read, and update."
+      },
+      "CaseStatus": {
+        "type": "string",
+        "enum": [
+          "draft",
+          "in_review",
+          "needs_revision",
+          "approved"
+        ],
+        "title": "CaseStatus",
+        "description": "Server-owned lifecycle. Clients do not send this on create or update."
+      },
+      "CaseSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "split_tag": {
+            "$ref": "#/components/schemas/SplitTag"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaseStatus"
+          },
+          "completeness_pct": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Completeness Pct"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "case_code",
+          "title",
+          "split_tag",
+          "status",
+          "completeness_pct",
+          "updated_at"
+        ],
+        "title": "CaseSummary",
+        "description": "Short list item. The list endpoint does not return the full body."
+      },
+      "CaseWrite": {
+        "properties": {
+          "case_code": {
+            "type": "string",
+            "maxLength": 64,
+            "minLength": 2,
+            "pattern": "^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$",
+            "title": "Case Code",
+            "description": "Pola sementara, bukan pola final: diawali huruf atau angka, lalu huruf, angka, titik, garis bawah, atau tanda hubung."
+          },
+          "identity": {
+            "$ref": "#/components/schemas/CaseIdentity"
+          },
+          "legal_refs": {
+            "items": {
+              "$ref": "#/components/schemas/LegalRef"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Legal Refs",
+            "description": "Minimal satu rujukan, masing-masing sampai level pasal."
+          },
+          "answer_criteria": {
+            "$ref": "#/components/schemas/AnswerCriteria"
+          },
+          "traps": {
+            "items": {
+              "$ref": "#/components/schemas/Trap"
+            },
+            "type": "array",
+            "title": "Traps"
+          },
+          "split_tag": {
+            "$ref": "#/components/schemas/SplitTag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_code",
+          "identity",
+          "legal_refs",
+          "split_tag"
+        ],
+        "title": "CaseWrite",
+        "description": "Body for create and update. The server sets status; clients cannot send it."
+      },
       "ErrorBody": {
         "properties": {
           "code": {
@@ -787,6 +1349,18 @@
             "examples": [
               "No platform account is mapped to this identity."
             ]
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field",
+            "description": "Lokasi field yang gagal, misalnya legal_refs[0].pasal"
           }
         },
         "type": "object",
@@ -831,6 +1405,73 @@
           "database"
         ],
         "title": "HealthResponse"
+      },
+      "LegalRef": {
+        "properties": {
+          "regulation_type": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Regulation Type"
+          },
+          "regulation_number": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Regulation Number"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "maximum": 9999.0,
+                "minimum": 1.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
+          },
+          "pasal": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Pasal"
+          },
+          "ayat": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ayat"
+          },
+          "huruf": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Huruf"
+          }
+        },
+        "type": "object",
+        "required": [
+          "regulation_type",
+          "regulation_number",
+          "pasal"
+        ],
+        "title": "LegalRef",
+        "description": "One citation. regulation_type, regulation_number, and pasal are required."
       },
       "MeResponse": {
         "properties": {
@@ -900,6 +1541,15 @@
           "viewer"
         ],
         "title": "Role"
+      },
+      "SplitTag": {
+        "type": "string",
+        "enum": [
+          "dev",
+          "test"
+        ],
+        "title": "SplitTag",
+        "description": "Dataset split stored on a case. Only dev and test are valid."
       },
       "SuiteCreate": {
         "properties": {
@@ -1035,6 +1685,34 @@
         },
         "type": "object",
         "title": "SuiteUpdate"
+      },
+      "Trap": {
+        "properties": {
+          "description": {
+            "type": "string",
+            "maxLength": 2000,
+            "minLength": 1,
+            "title": "Description"
+          },
+          "expected_model_behavior": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Expected Model Behavior"
+          }
+        },
+        "type": "object",
+        "required": [
+          "description"
+        ],
+        "title": "Trap",
+        "description": "A known mistake and how the model is expected to handle it."
       },
       "UserCreateRequest": {
         "properties": {
