@@ -133,29 +133,34 @@ class TestBentukDataYangSamaSekaliSalah:
         assert kena.value.code == FIELD_REQUIRED
 
 
+def _bagian_kurang(hasil: dict) -> list[str]:
+    """Nama bagian yang belum terisi. Sejak SCRUM-107 tiap item missing adalah {field, message}."""
+    return [item["field"] for item in hasil["missing"]]
+
+
 class TestKelengkapanDariBentukYangTidakTerduga:
     """Indikator kelengkapan dihitung ulang dari data tersimpan, termasuk baris lama."""
 
     def test_rujukan_bukan_daftar_dihitung_belum_terisi(self):
         hasil = completeness(_payload(legal_refs="uu 13"))
 
-        assert "legal_refs" in hasil["missing"]
+        assert "legal_refs" in _bagian_kurang(hasil)
 
     def test_kriteria_jawaban_bukan_objek_dihitung_belum_terisi(self):
         hasil = completeness(_payload(answer_criteria="harus menyebut surat"))
 
-        assert "answer_criteria" in hasil["missing"]
+        assert "answer_criteria" in _bagian_kurang(hasil)
 
     def test_jebakan_bukan_daftar_dihitung_belum_terisi(self):
         hasil = completeness(_payload(traps="satu jebakan"))
 
-        assert "traps" in hasil["missing"]
+        assert "traps" in _bagian_kurang(hasil)
 
     def test_identitas_bukan_objek_tidak_meledak(self):
         hasil = completeness(_payload(identity="PHK sepihak"))
 
-        assert "identity.title" in hasil["missing"]
-        assert "identity.question" in hasil["missing"]
+        assert "identity.title" in _bagian_kurang(hasil)
+        assert "identity.question" in _bagian_kurang(hasil)
 
     def test_isian_lengkap_tetap_seratus_persen(self):
         hasil = completeness(_payload())
@@ -166,7 +171,7 @@ class TestKelengkapanDariBentukYangTidakTerduga:
     def test_rujukan_yang_isinya_setengah_belum_dihitung_lengkap(self):
         hasil = completeness(_payload(legal_refs=[{"regulation_type": "uu", "pasal": "151"}]))
 
-        assert "legal_refs" in hasil["missing"]
+        assert "legal_refs" in _bagian_kurang(hasil)
 
     def test_kriteria_jawaban_berisi_frasa_kosong_belum_dihitung_terisi(self):
         hasil = completeness(
@@ -179,7 +184,7 @@ class TestKelengkapanDariBentukYangTidakTerduga:
             )
         )
 
-        assert "answer_criteria" in hasil["missing"]
+        assert "answer_criteria" in _bagian_kurang(hasil)
 
     def test_kesimpulan_saja_sudah_menghitung_kriteria_jawaban_terisi(self):
         hasil = completeness(
@@ -192,12 +197,12 @@ class TestKelengkapanDariBentukYangTidakTerduga:
             )
         )
 
-        assert "answer_criteria" not in hasil["missing"]
+        assert "answer_criteria" not in _bagian_kurang(hasil)
 
     def test_jebakan_tanpa_deskripsi_belum_dihitung_terisi(self):
         hasil = completeness(_payload(traps=[{"expected_model_behavior": "menolak"}]))
 
-        assert "traps" in hasil["missing"]
+        assert "traps" in _bagian_kurang(hasil)
 
 
 class TestIsianOpsionalDibersihkan:
