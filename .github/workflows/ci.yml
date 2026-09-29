@@ -29,8 +29,15 @@ jobs:
           --health-interval 10s
           --health-timeout 5s
           --health-retries 5
+    env:
+      # Empty until the secrets are set. Read by the SonarQube step's if:.
+      SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
+      SONAR_HOST_URL: ${{ secrets.SONAR_HOST_URL }}
     steps:
       - uses: actions/checkout@v4
+        with:
+          # SonarQube needs the full history to work out what is new code.
+          fetch-depth: 0
 
       - uses: actions/setup-python@v5
         with:
@@ -54,7 +61,18 @@ jobs:
         run: ruff format --check .
 
       - name: Test
-        run: pytest
+        run: pytest --cov-report=xml
+
+      # Community Build keeps one dashboard per project, so the analysis only
+      # runs on merges to staging. Running it per PR would let a PR branch
+      # overwrite the staging result.
+      # The step skips itself while the SONAR_TOKEN secret is unset, and
+      # continue-on-error keeps an unreachable SonarQube from failing the
+      # required build check.
+      - name: SonarQube scan
+        if: github.event_name == 'push' && github.ref == 'refs/heads/staging' && env.SONAR_TOKEN != ''
+        continue-on-error: true
+        uses: SonarSource/sonarqube-scan-action@v6
 
       # Catches a changed schemas.py where openapi.json was not regenerated.
       - name: Check OpenAPI contract is up to date
