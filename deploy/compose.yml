@@ -53,6 +53,9 @@ services:
       COOKIE_SECURE: "true"
       IDLE_TIMEOUT_MINUTES: "30"
       ABSOLUTE_SESSION_LIFETIME_MINUTES: "720"
+      # Fernet key for AI product credentials (PBI-10). deploy.sh refuses to
+      # run without it. Never change it on a running install, see DEPLOY.md.
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s

@@ -86,9 +86,16 @@ git clone https://github.com/veritaskai-labs/IndoLegalBench-client.git
 cd /opt/indolegalbench/IndoLegalBench-server/deploy
 cp .env.example .env
 chmod 600 .env
-openssl rand -hex 24   # paste as POSTGRES_PASSWORD
-nano .env              # also fill ZITADEL_CLIENT_ID
+openssl rand -hex 24                     # paste as POSTGRES_PASSWORD
+openssl rand -base64 32 | tr '+/' '-_'   # paste as CREDENTIAL_ENCRYPTION_KEY
+nano .env                                # also fill ZITADEL_CLIENT_ID
 ```
+
+`CREDENTIAL_ENCRYPTION_KEY` encrypts the AI product credentials (PBI-10).
+Store a copy somewhere other than the VM. The database dumps do not contain
+it, and a changed or lost key makes every stored credential unreadable: the
+admin would have to enter each one again. `deploy.sh` stops if it is empty.
+On an install that predates PBI-10, add it to `.env` before the next deploy.
 
 `.env` holds only what differs per install. The rest of the API settings are
 fixed in `compose.yml` (full list in section 7). The web app needs no runtime
@@ -170,11 +177,11 @@ come from the env file.
 | `COOKIE_SECURE` | `true` | Requires HTTPS |
 | `IDLE_TIMEOUT_MINUTES` | `30` | |
 | `ABSOLUTE_SESSION_LIFETIME_MINUTES` | `720` | 12 hours |
+| `CREDENTIAL_ENCRYPTION_KEY` | Fernet key (`.env`) | See section 3. Never change it on a running install |
 
 Left unset on purpose: `ZITADEL_CLIENT_SECRET` and `ZITADEL_AUDIENCE` (public
-client with PKCE, audience defaults to the client ID), `AUTH_DONE_URL_OVERRIDE`
-(local testing only; if set, logins never return to the web app), and
-`CREDENTIAL_ENCRYPTION_KEY` (used from PBI-10 onward).
+client with PKCE, audience defaults to the client ID) and `AUTH_DONE_URL_OVERRIDE`
+(local testing only; if set, logins never return to the web app).
 
 ## 8. Backups
 
@@ -189,7 +196,8 @@ crontab -e
 ```
 
 The dumps stay on the VM, so they cover "we broke the data", not "the VM is
-gone". A VM snapshot on Veritask's side, or copying the dumps to a bucket,
+gone". They also do not include `CREDENTIAL_ENCRYPTION_KEY`; a restore on a new
+VM needs the copy of the key kept in section 3. A VM snapshot on Veritask's side, or copying the dumps to a bucket,
 covers the second case.
 
 Restoring a dump replaces the current data:

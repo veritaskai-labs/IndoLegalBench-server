@@ -6,6 +6,7 @@ set -euo pipefail
 
 cd "$(dirname "$0")"
 set -a; . ./.env; set +a
+: "${CREDENTIAL_ENCRYPTION_KEY:?is empty in deploy/.env, see docs/DEPLOY.md section 3}"
 
 branch="${DEPLOY_BRANCH:-staging}"
 for repo in .. "${CLIENT_DIR:-../../IndoLegalBench-client}"; do
