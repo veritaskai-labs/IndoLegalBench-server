@@ -1179,6 +1179,12 @@
             "type": "boolean",
             "title": "Ready For Review"
           },
+          "pct": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Pct"
+          },
           "missing": {
             "items": {
               "$ref": "#/components/schemas/CompletenessIssue"
@@ -1199,6 +1205,7 @@
         "required": [
           "is_complete",
           "ready_for_review",
+          "pct",
           "missing",
           "trap_count",
           "legal_ref_count"

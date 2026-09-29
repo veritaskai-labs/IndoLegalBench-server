@@ -502,8 +502,22 @@ def test_completeness_kasus_lengkap(as_role):
     assert body["is_complete"] is True
     assert body["ready_for_review"] is True
     assert body["missing"] == []
+    assert body["pct"] == 100
     assert body["trap_count"] >= 1
     assert body["legal_ref_count"] >= 1
+
+
+def test_completeness_tanpa_jebakan_memberi_persentase_sebagian(as_role):
+    client = as_role(Role.AUTHOR)
+    suite_id = _suite(client)
+    case_id = _buat(client, suite_id, traps=[]).json()["id"]
+
+    body = client.get(f"/cases/{case_id}/completeness").json()
+
+    # 6 dari 7 bagian terisi: round(600 / 7) = 86.
+    assert body["pct"] == 86
+    assert body["ready_for_review"] is False
+    assert [item["field"] for item in body["missing"]] == ["traps"]
 
 
 def test_completeness_kasus_tidak_dikenal(as_role):

@@ -1,11 +1,15 @@
+"""Rumus kelengkapan kasus (SCRUM-107).
+
+Aturan dasar kasus (pola case_code, tag sah, field rujukan) hanya ditulis di
+sini. validation.py mengimpor modul ini, bukan sebaliknya, supaya tidak ada
+impor melingkar dan tidak ada salinan aturan.
+"""
+
 import re
 from typing import Any
 
-# Disalin dari validation.py
-# validation.py mengimpor modul ini jadi cannot import the validation.py here
-
-# TODO(Klarifikasi #7): pola case_code masih sementara, samakan dengan
-# validation.PLACEHOLDER_CASE_CODE_PATTERN kalau pola finalnya sudah ada.
+# TODO(Klarifikasi #7): pola case_code masih sementara. PHK-001 dan phk-001
+# sama-sama lolos. Ganti di sini saja; validation.py ikut memakainya.
 
 PLACEHOLDER_CASE_CODE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$"
 TAG_SAH = frozenset({"dev", "test"})

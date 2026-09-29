@@ -49,7 +49,8 @@ def get_case(db: Session, case_id: uuid.UUID) -> CaseRead:
 
 
 def get_completeness(db: Session, case_id: uuid.UUID) -> CaseCompleteness:
-    """completeness of a case, dihitung ulang dari baris yang tersimpan.
+    """Kelengkapan satu kasus, dihitung ulang dari baris yang tersimpan.
+
     Dihitung dari kolom isi, bukan dari kolom `completeness`, supaya baris
     lama yang disimpan sebelum formula ini tetap menjawab dengan benar.
     """
