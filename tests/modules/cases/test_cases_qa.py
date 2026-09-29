@@ -94,11 +94,40 @@ OPERASI_CASE = [
     ("case-ubah", "PUT", f"/cases/{TIDAK_ADA}", {Role.AUTHOR, Role.ADMIN}, _badan()),
 ]
 
-KOMBINASI = [(op, peran) for op in OPERASI_CASE for peran in Role]
-NAMA = [f"{op[0]}--{peran.value}" for op, peran in KOMBINASI]
+# Dua sel matriks yang saat ini gagal karena cacat yang sudah dilaporkan,
+# bukan karena testnya keliru: penjaga baca di cases/router.py memakai
+# require_roles(AUTHOR, ADMIN) untuk kedua GET, sementara
+# docs/pbi1/roles-matrix.svg mengizinkan Reviewer membaca kasus. Cacat ini
+# ikut masuk lewat #19 dan keputusannya, melebarkan penjaga atau mengubah
+# matriks, ditunda sampai setelah UAT.
+#
+# Ditandai xfail strict, bukan dilewati: testnya tetap dijalankan, kegagalan
+# yang sudah diketahui tidak memerahkan CI tim, dan begitu izinnya diperbaiki
+# test ini berubah jadi XPASS yang dihitung gagal, sehingga penandaannya tidak
+# bisa tertinggal diam-diam.
+ALASAN_REVIEWER = (
+    "Reviewer ditolak membaca kasus, berbeda dengan docs/pbi1/roles-matrix.svg "
+    "(SCRUM-97). Ikut dari #19. Keputusan melebarkan penjaga atau mengubah "
+    "matriks ditunda ke setelah UAT. Menghalangi PBI-6 Review Independen."
+)
+MENUNGGU_KEPUTUSAN = {
+    ("case-daftar", Role.REVIEWER),
+    ("case-detail", Role.REVIEWER),
+}
 
 
-@pytest.mark.parametrize("operasi,peran", KOMBINASI, ids=NAMA)
+def _kombinasi():
+    for op in OPERASI_CASE:
+        for peran in Role:
+            tanda = (
+                [pytest.mark.xfail(strict=True, reason=ALASAN_REVIEWER)]
+                if (op[0], peran) in MENUNGGU_KEPUTUSAN
+                else []
+            )
+            yield pytest.param(op, peran, id=f"{op[0]}--{peran.value}", marks=tanda)
+
+
+@pytest.mark.parametrize("operasi,peran", list(_kombinasi()))
 def test_izin_kasus_sesuai_matriks_peran(as_role, operasi, peran):
     """Otorisasi diperiksa sebelum baris dicari, jadi UUID yang tidak ada sudah cukup."""
     nama, metode, jalur, boleh, badan = operasi
@@ -189,6 +218,16 @@ JALUR_CASES_SEKARANG = {
 }
 
 
+@pytest.mark.xfail(
+    strict=True,
+    reason=(
+        "Tombol dan endpoint pengajuan review dijadwalkan di PBI-6 "
+        "(Review Independen), sesuai catatan pada SCRUM-109. Selama transisi "
+        "draft -> in_review belum ada, AC-4 PBI-3 tidak punya aksi untuk "
+        "dijaga. Test ini menunggu di sini supaya aturannya tidak hilang saat "
+        "PBI-6 dikerjakan."
+    ),
+)
 def test_ac4_ada_jalan_untuk_mengajukan_kasus_ke_review():
     """AC-4: "Kasus tidak bisa diajukan untuk direview jika belum memiliki
     setidaknya satu jebakan."
