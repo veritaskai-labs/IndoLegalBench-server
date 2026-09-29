@@ -38,6 +38,17 @@ POLA_RAHASIA = re.compile(
     re.IGNORECASE,
 )
 
+# Pengecualian yang disebut spesifikasi, nama persis, bukan pola. SCRUM-115
+# AC-2: GET produk AI "tanpa kredensial, hanya credential_hint &
+# has_credential=true". credential_hint hanya 4 karakter terakhir
+# (String(4), SCRUM-114), has_credential hanya penanda. Nama lain yang
+# mirip, misalnya credential_value, tetap dianggap bocor.
+DIIZINKAN = frozenset({"credential_hint", "has_credential"})
+
+
+def _bocor(properti: str) -> bool:
+    return POLA_RAHASIA.search(properti) is not None and properti not in DIIZINKAN
+
 
 @pytest.fixture(scope="module")
 def kontrak() -> dict[str, Any]:
@@ -87,7 +98,7 @@ def test_tidak_ada_field_kredensial_di_schema_respons(kontrak):
 
     for nama in sorted(_nama_schema_respons(kontrak)):
         for properti in _properti(schemas.get(nama, {})):
-            if POLA_RAHASIA.search(properti):
+            if _bocor(properti):
                 bocor.append(f"{nama}.{properti}")
 
     assert not bocor, (
@@ -112,7 +123,7 @@ def test_tidak_ada_field_kredensial_di_respons_yang_ditulis_inline(kontrak):
                     if "$ref" in schema:
                         continue
                     for properti in _properti(schema):
-                        if POLA_RAHASIA.search(properti):
+                        if _bocor(properti):
                             bocor.append(f"{metode.upper()} {jalur} [{kode}] -> {properti}")
 
     assert not bocor, "Field kredensial muncul di respons inline: " + ", ".join(bocor)
@@ -142,6 +153,17 @@ def test_penjaga_ini_benar_benar_menangkap_kebocoran():
     boleh_lewat = ["id", "name", "base_url", "model_name", "rate_limit_rpm", "budget_idr"]
     for nama in boleh_lewat:
         assert not POLA_RAHASIA.search(nama), f"pola salah menuduh {nama!r}"
+
+
+def test_pengecualian_hanya_nama_persis_dari_spesifikasi():
+    """credential_hint dan has_credential boleh (SCRUM-115), nama mirip lainnya tidak."""
+    for nama in DIIZINKAN:
+        # Tanpa pengecualian, pola memang menangkapnya; jadi pengecualiannya bermakna.
+        assert POLA_RAHASIA.search(nama)
+        assert not _bocor(nama)
+
+    for nama in ["credential_value", "credential_plain", "hint_credential", "credentials"]:
+        assert _bocor(nama), f"{nama!r} seharusnya tetap dianggap bocor"
 
 
 def test_kontrak_yang_diperiksa_memang_permukaan_api_yang_sekarang(kontrak):
