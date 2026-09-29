@@ -24,9 +24,10 @@ class AdapterConfig:
     model_name: str
     auth_header_name: str
     auth_scheme: str | None
-    credential: str            # sudah didekripsi, hanya di memori
+    credential: str  # sudah didekripsi, hanya di memori
     request_config: dict | None = None
     timeout_s: float = 15.0
+
 
 # Nilai untuk ProviderResponse.error
 AUTH_FAILED = "auth_failed"
@@ -37,6 +38,7 @@ NETWORK_ERROR = "network_error"
 INVALID_RESPONSE = "invalid_response"
 UPSTREAM_ERROR = "upstream_error"
 
+
 class ProviderAdapter(ABC):
     name: str
 
@@ -44,7 +46,7 @@ class ProviderAdapter(ABC):
         self.config = config
 
     @abstractmethod
-    def test_connection(self) -> ProviderResponse: ...   # usulan: sebelumnya bool
+    def test_connection(self) -> ProviderResponse: ...  # usulan: sebelumnya bool
 
     @abstractmethod
     def ask(self, prompt: str) -> ProviderResponse: ...
@@ -56,6 +58,7 @@ _ADAPTERS: dict[ProviderType, type[ProviderAdapter]] = {
     ProviderType.OPENAI_COMPATIBLE: OpenAICompatibleAdapter,
     ProviderType.CUSTOM_HTTP: CustomHttpAdapter,
 }
+
 
 def build_adapter(provider_type: ProviderType, config: AdapterConfig) -> ProviderAdapter:
     return _ADAPTERS[provider_type](config)
