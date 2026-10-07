@@ -390,7 +390,9 @@ def test_openai_401_returns_access_denied_category(monkeypatch):
 
     # Act
     result = OpenAICompatibleAdapter(
-        base_url=_BASE, model_name="gpt-test", api_key="bad-key"  # pragma: allowlist secret
+        base_url=_BASE,
+        model_name="gpt-test",
+        api_key="bad-key",  # pragma: allowlist secret
     ).test_connection()
 
     # Assert
@@ -407,7 +409,9 @@ def test_openai_403_returns_access_denied_category(monkeypatch):
 
     # Act
     result = OpenAICompatibleAdapter(
-        base_url=_BASE, model_name="gpt-test", api_key="bad-key"  # pragma: allowlist secret
+        base_url=_BASE,
+        model_name="gpt-test",
+        api_key="bad-key",  # pragma: allowlist secret
     ).test_connection()
 
     # Assert
@@ -424,7 +428,9 @@ def test_openai_404_returns_model_not_found_category(monkeypatch):
 
     # Act
     result = OpenAICompatibleAdapter(
-        base_url=_BASE, model_name="no-such-model", api_key="key"  # pragma: allowlist secret
+        base_url=_BASE,
+        model_name="no-such-model",
+        api_key="key",  # pragma: allowlist secret
     ).test_connection()
 
     # Assert
@@ -441,7 +447,9 @@ def test_openai_timeout_returns_timeout_category(monkeypatch):
 
     # Act
     result = OpenAICompatibleAdapter(
-        base_url=_BASE, model_name="gpt-test", api_key="key"  # pragma: allowlist secret
+        base_url=_BASE,
+        model_name="gpt-test",
+        api_key="key",  # pragma: allowlist secret
     ).test_connection()
 
     # Assert
@@ -458,7 +466,9 @@ def test_openai_connect_error_returns_unreachable_category(monkeypatch):
 
     # Act
     result = OpenAICompatibleAdapter(
-        base_url=_BASE, model_name="gpt-test", api_key="key"  # pragma: allowlist secret
+        base_url=_BASE,
+        model_name="gpt-test",
+        api_key="key",  # pragma: allowlist secret
     ).test_connection()
 
     # Assert

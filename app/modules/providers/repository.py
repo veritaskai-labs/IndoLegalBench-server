@@ -24,11 +24,7 @@ def get_by_id(db: Session, product_id: uuid.UUID) -> AiProduct | None:
 
 def get_by_name(db: Session, name: str) -> AiProduct | None:
     """Hanya mencari produk yang belum dihapus, sesuai partial unique index."""
-    return (
-        db.query(AiProduct)
-        .filter(AiProduct.name == name, AiProduct.deleted_at.is_(None))
-        .first()
-    )
+    return db.query(AiProduct).filter(AiProduct.name == name, AiProduct.deleted_at.is_(None)).first()
 
 
 def list_products(db: Session, *, is_active: bool | None) -> list[AiProduct]:

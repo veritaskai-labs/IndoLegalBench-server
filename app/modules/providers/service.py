@@ -129,11 +129,7 @@ def test_connection(db: Session, product_id: uuid.UUID) -> ConnectionTestRead:
     )
     is_ok = result.status == "ok"
     message = None if is_ok else clip(result.message or "connection test failed", secret)
-    category = (
-        None
-        if is_ok
-        else ConnectionTestErrorCategory(result.error_category or "unknown")
-    )
+    category = None if is_ok else ConnectionTestErrorCategory(result.error_category or "unknown")
     product.last_test_at = datetime.now(UTC)
     product.last_test_status = LastTestStatus.OK if is_ok else LastTestStatus.FAILED
     product.last_test_message = message

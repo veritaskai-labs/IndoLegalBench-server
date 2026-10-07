@@ -162,9 +162,7 @@ def test_deleted_product_cannot_be_updated(client, db_session, encryption_key):
     client.delete(f"/admin/providers/{product_id}")
 
     # Act
-    response = client.patch(
-        f"/admin/providers/{product_id}", json={"model_name": "new-model"}
-    )
+    response = client.patch(f"/admin/providers/{product_id}", json={"model_name": "new-model"})
 
     # Assert
     assert response.status_code == 404
