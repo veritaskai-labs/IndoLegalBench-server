@@ -5,7 +5,6 @@ are invisible everywhere and their names can be reused for new products.
 """
 
 import uuid
-from decimal import Decimal
 
 import pytest
 from cryptography.fernet import Fernet
