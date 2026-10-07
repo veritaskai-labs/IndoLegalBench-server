@@ -496,6 +496,34 @@ def test_connection_test_endpoint_returns_error_category(
     assert get_resp.json()["last_test_error_category"] == "access_denied"
 
 
+def test_api_key_is_not_stored_in_last_test_message(
+    client, db_session, encryption_key, monkeypatch
+):
+    # Arrange: provider returns the API key verbatim in the error body
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, text=f"rejected token {_SECRET}")
+
+    _mock_transport(monkeypatch, handler)
+    complete_login(client, db_session, ADMIN_SUB)
+    created = client.post("/admin/providers", json=_payload(name="KeyLeakCheck"))
+    product_id = created.json()["id"]
+
+    # Act
+    response = client.post(f"/admin/providers/{product_id}/test-connection")
+
+    # Assert: API key absent from HTTP response
+    assert response.status_code == 200
+    assert _SECRET not in response.text
+
+    # Assert: API key absent from what is stored in last_test_message
+    db_session.expire_all()
+    stored = db_session.get(AiProduct, uuid.UUID(product_id))
+    assert stored.last_test_message is not None
+    assert _SECRET not in stored.last_test_message
+    # category is still set correctly despite sanitization
+    assert stored.last_test_error_category == ConnectionTestErrorCategory.ACCESS_DENIED
+
+
 def test_successful_test_clears_error_category(client, db_session, encryption_key, monkeypatch):
     # Arrange: gunakan satu mock transport dengan handler yang bisa diganti
     responses = {"handler": lambda req: httpx.Response(401, json={"error": "unauthorized"})}
