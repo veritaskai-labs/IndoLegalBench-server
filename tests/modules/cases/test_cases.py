@@ -299,6 +299,28 @@ def test_daftar_menyaring_tag(as_role):
     assert review.json() == []
 
 
+def test_daftar_menghitung_ulang_completeness(as_role, db_session):
+    client = as_role(Role.AUTHOR)
+    suite_id = _suite(client)
+
+    case_id = _buat(client, suite_id, traps=[]).json()["id"]
+
+    kasus = db_session.get(Case, uuid.UUID(case_id))
+    assert kasus is not None
+
+    # Simulate a stale stored completeness value.
+    kasus.completeness["pct"] = 71
+    db_session.commit()
+
+    response = client.get(f"/suites/{suite_id}/cases")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body[0]["id"] == case_id
+    assert body[0]["completeness_pct"] == 100
+
+
 def test_pembuat_boleh_mengubah_termasuk_tag(as_role):
     client = as_role(Role.AUTHOR)
     suite_id = _suite(client)

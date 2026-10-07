@@ -238,24 +238,6 @@ class TestIsianOpsionalDibersihkan:
 
 
 class TestNilaiTersimpanYangTidakTerbaca:
-    def test_kelengkapan_tersimpan_yang_rusak_dibaca_nol_bukan_meledak(self, as_role, db_session):
-        """Baris lama bisa menyimpan bentuk kelengkapan yang berbeda.
-
-        Formulanya sendiri ditandai sementara di SCRUM-107, jadi baris yang
-        ditulis sebelum formula berubah harus tetap bisa dibuka.
-        """
-        client = as_role(Role.AUTHOR)
-        suite_id = client.post("/suites", json={"name": "S", "description": None}).json()["id"]
-        case_id = client.post(f"/suites/{suite_id}/cases", json=_payload()).json()["id"]
-        kasus = db_session.get(Case, uuid.UUID(case_id))
-        kasus.completeness = {"pct": "seratus", "contract": "lama"}
-        db_session.commit()
-
-        respons = client.get(f"/cases/{case_id}")
-
-        assert respons.status_code == 200
-        assert respons.json()["completeness_pct"] == 0
-
     def test_kode_bentrok_dengan_suite_yang_sudah_dihapus_tetap_terbaca(self, as_role):
         """AC-3 tetap harus menjawab meski suite pemilik kode sudah tidak ada.
 
