@@ -14,15 +14,26 @@ from app.modules.providers.models import AiProduct
 
 
 def get_by_id(db: Session, product_id: uuid.UUID) -> AiProduct | None:
-    return db.get(AiProduct, product_id)
+    """Mengembalikan None untuk produk yang sudah dihapus (deleted_at IS NOT NULL)."""
+    return (
+        db.query(AiProduct)
+        .filter(AiProduct.id == product_id, AiProduct.deleted_at.is_(None))
+        .first()
+    )
 
 
 def get_by_name(db: Session, name: str) -> AiProduct | None:
-    return db.query(AiProduct).filter(AiProduct.name == name).first()
+    """Hanya mencari produk yang belum dihapus, sesuai partial unique index."""
+    return (
+        db.query(AiProduct)
+        .filter(AiProduct.name == name, AiProduct.deleted_at.is_(None))
+        .first()
+    )
 
 
 def list_products(db: Session, *, is_active: bool | None) -> list[AiProduct]:
-    query = db.query(AiProduct)
+    """Produk yang sudah dihapus tidak pernah masuk daftar."""
+    query = db.query(AiProduct).filter(AiProduct.deleted_at.is_(None))
     if is_active is not None:
         query = query.filter(AiProduct.is_active == is_active)
     return query.order_by(AiProduct.name).all()
