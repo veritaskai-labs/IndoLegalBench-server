@@ -2540,7 +2540,7 @@
           "description"
         ],
         "title": "Trap",
-        "description": "A known mistake and how the model is expected to handle it."
+        "description": "An optionally included known mistake and how the model is expected to handle it."
       },
       "UserCreateRequest": {
         "properties": {
