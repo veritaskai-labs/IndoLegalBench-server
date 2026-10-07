@@ -12,7 +12,7 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.modules.providers.models import LastTestStatus, ProviderType
+from app.modules.providers.models import ConnectionTestErrorCategory, LastTestStatus, ProviderType
 
 
 def _teks_bersih(value: str) -> str:
@@ -92,6 +92,7 @@ class AiProductRead(BaseModel):
     last_test_at: datetime | None
     last_test_status: LastTestStatus | None
     last_test_message: str | None
+    last_test_error_category: ConnectionTestErrorCategory | None
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
@@ -103,3 +104,4 @@ class ConnectionTestRead(BaseModel):
     status: Literal["ok", "failed"]
     latency_ms: int | None = None
     message: str | None = None
+    error_category: ConnectionTestErrorCategory | None = None

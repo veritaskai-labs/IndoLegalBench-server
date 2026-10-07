@@ -23,11 +23,13 @@ from dataclasses import dataclass
 
 @dataclass(frozen=True)
 class ConnectionTestResult:
-    """Hasil uji koneksi. Jangan taruh kredensial di message."""
+    """Hasil uji koneksi. Jangan taruh kredensial di message atau error_category."""
 
     status: str
     latency_ms: int | None = None
     message: str | None = None
+    # Kategori kegagalan yang mudah dipahami Admin. None jika status == "ok".
+    error_category: str | None = None
 
 
 @dataclass

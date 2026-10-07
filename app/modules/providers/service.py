@@ -22,7 +22,7 @@ from app.modules.providers.crypto import (
     decrypt_credential,
     encrypt_credential,
 )
-from app.modules.providers.models import AiProduct, LastTestStatus
+from app.modules.providers.models import AiProduct, ConnectionTestErrorCategory, LastTestStatus
 from app.modules.providers.schemas import (
     AiProductCreate,
     AiProductRead,
@@ -96,6 +96,13 @@ def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate)
     return _tampilkan(tersimpan)
 
 
+def delete_product(db: Session, product_id: uuid.UUID) -> None:
+    """Soft delete: mengisi deleted_at. Produk tidak muncul di daftar manapun setelah ini."""
+    product = _wajib_ada(db, product_id)
+    product.deleted_at = datetime.now(UTC)
+    repository.save(db, product)
+
+
 def set_active(db: Session, product_id: uuid.UUID, *, is_active: bool) -> AiProductRead:
     product = _wajib_ada(db, product_id)
     product.is_active = is_active
@@ -120,19 +127,24 @@ def test_connection(db: Session, product_id: uuid.UUID) -> ConnectionTestRead:
         model_name=product.model_name,
         api_key=secret,
     )
-    message = (
-        None if result.status == "ok" else clip(result.message or "connection test failed", secret)
+    is_ok = result.status == "ok"
+    message = None if is_ok else clip(result.message or "connection test failed", secret)
+    category = (
+        None
+        if is_ok
+        else ConnectionTestErrorCategory(result.error_category or "unknown")
     )
     product.last_test_at = datetime.now(UTC)
-    product.last_test_status = LastTestStatus.OK if result.status == "ok" else LastTestStatus.FAILED
+    product.last_test_status = LastTestStatus.OK if is_ok else LastTestStatus.FAILED
     product.last_test_message = message
+    product.last_test_error_category = category
     repository.save(db, product)
 
-    if result.status == "ok":
+    if is_ok:
         return ConnectionTestRead(
             status="ok", latency_ms=result.latency_ms if result.latency_ms is not None else 0
         )
-    return ConnectionTestRead(status="failed", message=message)
+    return ConnectionTestRead(status="failed", message=message, error_category=category)
 
 
 def _as_bytes(value: bytes) -> bytes:
@@ -181,6 +193,7 @@ def _tampilkan(product: AiProduct) -> AiProductRead:
         last_test_at=product.last_test_at,
         last_test_status=product.last_test_status,
         last_test_message=product.last_test_message,
+        last_test_error_category=product.last_test_error_category,
         created_by=product.created_by,
         created_at=product.created_at,
         updated_at=product.updated_at,
