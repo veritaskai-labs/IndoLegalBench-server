@@ -204,6 +204,36 @@ def test_deleted_name_can_be_reused_via_endpoint(client, db_session, encryption_
     assert second.json()["id"] != first.json()["id"]
 
 
+def test_deleted_product_cannot_be_activated(client, db_session, encryption_key):
+    # Produk terhapus tidak bisa diaktifkan — mekanisme yang sama mencegah pemilihan
+    # untuk pengukuran: runs module akan memanggil get_by_id yang mengembalikan None.
+    # Arrange
+    complete_login(client, db_session, ADMIN_SUB)
+    created = client.post("/admin/providers", json=_payload(name="ActivateDeleted"))
+    product_id = created.json()["id"]
+    client.delete(f"/admin/providers/{product_id}")
+
+    # Act
+    response = client.post(f"/admin/providers/{product_id}/activate")
+
+    # Assert
+    assert response.status_code == 404
+
+
+def test_deleted_product_cannot_be_deactivated(client, db_session, encryption_key):
+    # Arrange
+    complete_login(client, db_session, ADMIN_SUB)
+    created = client.post("/admin/providers", json=_payload(name="DeactivateDeleted"))
+    product_id = created.json()["id"]
+    client.delete(f"/admin/providers/{product_id}")
+
+    # Act
+    response = client.post(f"/admin/providers/{product_id}/deactivate")
+
+    # Assert
+    assert response.status_code == 404
+
+
 def test_active_duplicate_name_still_rejected(client, db_session, encryption_key):
     # Arrange: produk aktif dengan nama yang sama masih ditolak
     complete_login(client, db_session, ADMIN_SUB)

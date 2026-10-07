@@ -199,6 +199,120 @@ def test_gemini_adapter_sends_api_key_and_does_not_rewrite_url(monkeypatch):
     }
 
 
+def test_gemini_401_returns_access_denied_category(monkeypatch):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "invalid_api_key"})
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = GeminiInteractionsAdapter(
+        base_url="https://generativelanguage.googleapis.com/v1beta/interactions",
+        model_name="gemini-test",
+        api_key="bad-key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "access_denied"
+
+
+def test_gemini_timeout_returns_timeout_category(monkeypatch):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("timed out")
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = GeminiInteractionsAdapter(
+        base_url="https://generativelanguage.googleapis.com/v1beta/interactions",
+        model_name="gemini-test",
+        api_key="key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "timeout"
+
+
+def test_gemini_invalid_body_returns_unknown_category(monkeypatch):
+    # Arrange: response 200 but not a valid JSON object
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="not-json")
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = GeminiInteractionsAdapter(
+        base_url="https://generativelanguage.googleapis.com/v1beta/interactions",
+        model_name="gemini-test",
+        api_key="key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "unknown"
+
+
+def test_anthropic_401_returns_access_denied_category(monkeypatch):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": {"type": "authentication_error"}})
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = AnthropicMessagesAdapter(
+        base_url="https://api.anthropic.com/v1/messages",
+        model_name="claude-test",
+        api_key="bad-key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "access_denied"
+
+
+def test_anthropic_timeout_returns_timeout_category(monkeypatch):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("timed out")
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = AnthropicMessagesAdapter(
+        base_url="https://api.anthropic.com/v1/messages",
+        model_name="claude-test",
+        api_key="key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "timeout"
+
+
+def test_anthropic_invalid_body_returns_unknown_category(monkeypatch):
+    # Arrange: 200 but no "content" list
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": "msg-1", "type": "message"})
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = AnthropicMessagesAdapter(
+        base_url="https://api.anthropic.com/v1/messages",
+        model_name="claude-test",
+        api_key="key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "unknown"
+
+
 def test_claude_adapter_sends_version_header_and_does_not_rewrite_url(monkeypatch):
     url = "https://api.anthropic.com/v1/messages"
     seen = {}
