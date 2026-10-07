@@ -1,11 +1,15 @@
-# UAT stack on one VM: Caddy (HTTPS) in front of the API and the web app,
-# plus PostgreSQL. See docs/DEPLOY.md.
+# One app stack (API, web app, PostgreSQL). The VM runs two of these side by
+# side, `prod` and `dev`, each from its own checkout with its own deploy/.env.
+# HTTPS is the shared Caddy in deploy/proxy/, which must be up first. See
+# docs/DEPLOY.md.
 #
-# Run from this folder:  docker compose up -d
-# Values come from deploy/.env (copy .env.example, never commit it).
+# Run from this folder:  ./deploy.sh
+# Values come from deploy/.env (copy .env.example, never commit it). The
+# compose project name is COMPOSE_PROJECT_NAME from that file, which keeps the
+# two stacks' containers, volumes and networks apart.
 #
-# Only Caddy publishes ports. The API, web app and database are reachable
-# inside the compose network only.
+# No service publishes ports. The API and web app are reachable only through
+# Caddy on `ilb-edge`, the database only inside this stack's own network.
 
 x-logging: &logging
   driver: json-file
@@ -14,35 +18,15 @@ x-logging: &logging
     max-file: "5"
 
 services:
-  caddy:
-    image: caddy:2-alpine
-    restart: unless-stopped
-    ports:
-      - "80:80"
-      - "443:443"
-      - "443:443/udp"
-    environment:
-      WEB_DOMAIN: ${WEB_DOMAIN}
-      API_DOMAIN: ${API_DOMAIN}
-    volumes:
-      - ./Caddyfile:/etc/caddy/Caddyfile:ro
-      # Certificates live here. Losing the volume means re-issuing them, and
-      # Let's Encrypt rate limits repeated re-issues.
-      - caddy_data:/data
-      - caddy_config:/config
-    depends_on:
-      - api
-      - web
-    logging: *logging
-
   api:
     build: ..
-    image: indolegalbench-server
+    # Tagged per stack, so building dev never replaces the image prod runs.
+    image: indolegalbench-server:${STACK:?set STACK in deploy/.env}
     restart: unless-stopped
     # Exactly one API container. The unfinished-login state lives in process
     # memory, so never scale this service up. See "Read this first".
     environment:
-      APP_ENV: staging
+      APP_ENV: ${APP_ENV:?set APP_ENV in deploy/.env}
       DEBUG: "false"
       DATABASE_URL: postgresql+psycopg://indolegalbench:${POSTGRES_PASSWORD}@db:5432/indolegalbench
       CORS_ORIGINS: '["https://${WEB_DOMAIN}"]'
@@ -64,6 +48,10 @@ services:
     depends_on:
       db:
         condition: service_healthy
+    networks:
+      default:
+      edge:
+        aliases: ["${STACK}-api"]
     logging: *logging
 
   web:
@@ -71,8 +59,11 @@ services:
       context: ${CLIENT_DIR:-../../IndoLegalBench-client}
       args:
         NEXT_PUBLIC_API_BASE_URL: https://${API_DOMAIN}
-    image: indolegalbench-client
+    image: indolegalbench-client:${STACK}
     restart: unless-stopped
+    networks:
+      edge:
+        aliases: ["${STACK}-web"]
     logging: *logging
 
   db:
@@ -91,7 +82,11 @@ services:
       retries: 5
     logging: *logging
 
+networks:
+  # Created by deploy/proxy/compose.yml.
+  edge:
+    name: ilb-edge
+    external: true
+
 volumes:
   postgres_data:
-  caddy_data:
-  caddy_config:

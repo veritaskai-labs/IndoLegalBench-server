@@ -1,0 +1,48 @@
+# The one Caddy on the VM. It owns ports 80 and 443 and sends each of the four
+# hostnames to the right stack over the shared `ilb-edge` network. See
+# docs/DEPLOY.md.
+#
+# Run from this folder:  docker compose up -d
+# Values come from deploy/proxy/.env (copy .env.example, never commit it).
+# After editing the Caddyfile:  docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
+
+name: ilb-proxy
+
+services:
+  caddy:
+    image: caddy:2-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+      - "443:443/udp"
+    environment:
+      PROD_WEB_DOMAIN: ${PROD_WEB_DOMAIN}
+      PROD_API_DOMAIN: ${PROD_API_DOMAIN}
+      DEV_WEB_DOMAIN: ${DEV_WEB_DOMAIN}
+      DEV_API_DOMAIN: ${DEV_API_DOMAIN}
+    volumes:
+      - ./Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    networks:
+      - edge
+    logging:
+      driver: json-file
+      options:
+        max-size: "10m"
+        max-file: "5"
+
+networks:
+  # The app stacks join this network as `external`, so it must exist first.
+  edge:
+    name: ilb-edge
+
+volumes:
+  # Certificates live here. The names are kept from the single-stack layout
+  # (compose project `deploy`) so the existing certificates carry over. Losing
+  # the volume means re-issuing them, and Let's Encrypt rate limits that.
+  caddy_data:
+    name: deploy_caddy_data
+  caddy_config:
+    name: deploy_caddy_config

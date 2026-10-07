@@ -1,0 +1,42 @@
+name: Deploy staging
+
+# Redeploys the dev stack (dev.indolegalbench.veritask.ai) after every merge to
+# staging. The client repo has the same job; deploy.sh pulls both repos and
+# takes a lock, so either one deploys the latest of both. Production is never
+# deployed from here, see docs/DEPLOY.md.
+#
+# The SSH key is a dedicated deploy key. On the VM it is restricted to one
+# forced command (the dev deploy.sh), so the job sends no command of its own.
+
+on:
+  push:
+    branches: [staging]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: deploy-staging
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    env:
+      DEPLOY_SSH_KEY: ${{ secrets.STAGING_DEPLOY_SSH_KEY }}
+      DEPLOY_KNOWN_HOSTS: ${{ secrets.STAGING_DEPLOY_KNOWN_HOSTS }}
+      DEPLOY_HOST: ${{ secrets.STAGING_DEPLOY_HOST }}
+    steps:
+      - name: Deploy the dev stack
+        run: |
+          if [ -z "$DEPLOY_SSH_KEY" ] || [ -z "$DEPLOY_KNOWN_HOSTS" ] || [ -z "$DEPLOY_HOST" ]; then
+            echo "::notice::Deploy secrets are not set, skipping. See docs/DEPLOY.md section 9."
+            exit 0
+          fi
+          install -m 700 -d ~/.ssh
+          printf '%s\n' "$DEPLOY_SSH_KEY" > ~/.ssh/deploy_key
+          chmod 600 ~/.ssh/deploy_key
+          printf '%s\n' "$DEPLOY_KNOWN_HOSTS" > ~/.ssh/known_hosts
+          ssh -T -i ~/.ssh/deploy_key -o BatchMode=yes -o IdentitiesOnly=yes "$DEPLOY_HOST"

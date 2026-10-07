@@ -1,0 +1,26 @@
+# Caddy gets and renews the HTTPS certificates for all four domains by itself,
+# as long as their DNS points at this VM and ports 80 and 443 are open.
+#
+# The upstream names are network aliases the app stacks register on
+# `ilb-edge` (`<STACK>-api`, `<STACK>-web`, see deploy/compose.yml). A stack
+# that is not running answers 502, the other one is unaffected.
+
+{$PROD_WEB_DOMAIN} {
+	encode gzip
+	reverse_proxy prod-web:3000
+}
+
+{$PROD_API_DOMAIN} {
+	encode gzip
+	reverse_proxy prod-api:8000
+}
+
+{$DEV_WEB_DOMAIN} {
+	encode gzip
+	reverse_proxy dev-web:3000
+}
+
+{$DEV_API_DOMAIN} {
+	encode gzip
+	reverse_proxy dev-api:8000
+}
