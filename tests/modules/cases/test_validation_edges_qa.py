@@ -17,11 +17,9 @@ pesan yang bisa dibaca Author. Semuanya diuji di sini tanpa lewat HTTP,
 kecuali dua yang memang hanya muncul lewat alur nyata.
 """
 
-import uuid
 
 import pytest
 
-from app.modules.cases.models import Case
 from app.modules.cases.validation import (
     FIELD_REQUIRED,
     VALIDATION_ERROR,
