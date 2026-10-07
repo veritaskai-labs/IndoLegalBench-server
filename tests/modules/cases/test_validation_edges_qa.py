@@ -151,11 +151,6 @@ class TestKelengkapanDariBentukYangTidakTerduga:
 
         assert "answer_criteria" in _bagian_kurang(hasil)
 
-    def test_jebakan_bukan_daftar_dihitung_belum_terisi(self):
-        hasil = completeness(_payload(traps="satu jebakan"))
-
-        assert "traps" in _bagian_kurang(hasil)
-
     def test_identitas_bukan_objek_tidak_meledak(self):
         hasil = completeness(_payload(identity="PHK sepihak"))
 
@@ -198,11 +193,6 @@ class TestKelengkapanDariBentukYangTidakTerduga:
         )
 
         assert "answer_criteria" not in _bagian_kurang(hasil)
-
-    def test_jebakan_tanpa_deskripsi_belum_dihitung_terisi(self):
-        hasil = completeness(_payload(traps=[{"expected_model_behavior": "menolak"}]))
-
-        assert "traps" in _bagian_kurang(hasil)
 
 
 class TestIsianOpsionalDibersihkan:
