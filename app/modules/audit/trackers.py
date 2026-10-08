@@ -17,6 +17,7 @@ from enum import Enum
 from typing import Any
 
 from app.modules.audit.models import AuditEntityType
+from app.modules.audit.redaction import CREDENTIAL_ROTATED
 
 
 @dataclass(frozen=True)
@@ -144,9 +145,51 @@ class CaseTracker(Tracker):
         return self._field_event(row, verb, field, change)
 
 
+class AiProductTracker(Tracker):
+    entity_type = AuditEntityType.AI_PRODUCT
+    prefix = "ai_product"
+    created_action = "registered"
+    # credential_encrypted sengaja tidak ada di sini (PBI-10 AC2).
+    created_fields = (
+        "name",
+        "provider_type",
+        "base_url",
+        "model_name",
+        "rate_limit_per_minute",
+        "monthly_budget_idr",
+        "is_active",
+    )
+    fields = (*created_fields, "credential_encrypted")
+    special = frozenset({"credential_encrypted", "is_active"})
+
+    def _special_event(self, row: Any, field: str, change: Change) -> AuditEvent:
+        if field == "credential_encrypted":
+            return self._event(row, "credential_rotated", after=dict(CREDENTIAL_ROTATED))
+        verb = "activated" if change.new else "deactivated"
+        return self._field_event(row, verb, field, change)
+
+
+class UserTracker(Tracker):
+    entity_type = AuditEntityType.USER
+    prefix = "user"
+    created_action = "added"
+    created_fields = ("email", "role")
+    # Nama dan zitadel_sub disinkronkan dari IdP saat login, bukan aksi pengguna.
+    fields = ("role", "is_active")
+    special = frozenset(fields)
+
+    def _special_event(self, row: Any, field: str, change: Change) -> AuditEvent:
+        if field == "role":
+            return self._field_event(row, "role_changed", field, change)
+        verb = "activated" if change.new else "deactivated"
+        return self._field_event(row, verb, field, change)
+
+
 TRACKERS: dict[str, Tracker] = {
     "suites": SuiteTracker(),
     "cases": CaseTracker(),
+    "ai_products": AiProductTracker(),
+    "users": UserTracker(),
 }
 
 

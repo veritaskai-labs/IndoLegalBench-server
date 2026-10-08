@@ -7,6 +7,7 @@ jadi test ini tidak menyentuh database maupun model modul lain.
 
 import uuid
 from datetime import UTC, datetime
+from decimal import Decimal
 from enum import StrEnum
 from types import SimpleNamespace
 
@@ -42,6 +43,8 @@ def test_tabel_di_luar_katalog_tidak_dilacak():
     [
         ("suites", AuditEntityType.SUITE),
         ("cases", AuditEntityType.CASE),
+        ("ai_products", AuditEntityType.AI_PRODUCT),
+        ("users", AuditEntityType.USER),
     ],
 )
 def test_setiap_tabel_katalog_punya_tracker(tabel, jenis):
@@ -193,3 +196,110 @@ def test_nilai_kolom_diubah_jadi_aman_untuk_jsonb():
 
     # Assert
     assert event.after == {"created_by": str(pemilik)}
+
+
+# --- AI product ---------------------------------------------------------------
+
+
+def test_produk_ai_didaftarkan_tanpa_kredensial():
+    # Arrange
+    row = _row(
+        name="GPT",
+        provider_type="openai_compatible",
+        base_url="https://api.example.test/v1/chat/completions",
+        model_name="gpt-x",
+        rate_limit_per_minute=60,
+        monthly_budget_idr=Decimal("1500000.00"),
+        is_active=True,
+        credential_encrypted=b"rahasia",
+    )
+
+    # Act
+    event = _satu(tracker_for("ai_products").created(row))
+
+    # Assert
+    assert event.action == "ai_product.registered"
+    assert "credential_encrypted" not in event.after
+    assert event.after["monthly_budget_idr"] == "1500000.00"
+    assert event.after["is_active"] is True
+
+
+def test_kredensial_diganti_hanya_penanda():
+    """PBI-10 AC2: nilai lama maupun baru tidak pernah tercatat."""
+    # Act
+    event = _satu(
+        tracker_for("ai_products").updated(
+            _row(), {"credential_encrypted": Change(b"lama", b"baru")}
+        )
+    )
+
+    # Assert
+    assert event.action == "ai_product.credential_rotated"
+    assert event.before is None
+    assert event.after == {"credential": "rotated"}
+
+
+@pytest.mark.parametrize(
+    ("baru", "action"),
+    [(True, "ai_product.activated"), (False, "ai_product.deactivated")],
+)
+def test_produk_ai_diaktifkan_atau_dinonaktifkan(baru, action):
+    # Act
+    event = _satu(tracker_for("ai_products").updated(_row(), {"is_active": Change(not baru, baru)}))
+
+    # Assert
+    assert event.action == action
+    assert event.after == {"is_active": baru}
+
+
+def test_produk_ai_diubah_field_non_rahasia():
+    # Act
+    event = _satu(
+        tracker_for("ai_products").updated(_row(), {"rate_limit_per_minute": Change(60, 120)})
+    )
+
+    # Assert
+    assert event.action == "ai_product.updated"
+    assert event.after == {"rate_limit_per_minute": 120}
+
+
+# --- User ---------------------------------------------------------------------
+
+
+def test_anggota_ditambahkan():
+    # Act
+    event = _satu(tracker_for("users").created(_row(email="a@veritask.test", role=_Status.ACTIVE)))
+
+    # Assert
+    assert event.action == "user.added"
+    assert event.after == {"email": "a@veritask.test", "role": "active"}
+
+
+def test_peran_anggota_diubah():
+    # Act
+    event = _satu(tracker_for("users").updated(_row(), {"role": Change("author", "reviewer")}))
+
+    # Assert
+    assert event.action == "user.role_changed"
+    assert (event.before, event.after) == ({"role": "author"}, {"role": "reviewer"})
+
+
+@pytest.mark.parametrize(
+    ("baru", "action"), [(False, "user.deactivated"), (True, "user.activated")]
+)
+def test_anggota_dinonaktifkan_atau_diaktifkan(baru, action):
+    # Act
+    event = _satu(tracker_for("users").updated(_row(), {"is_active": Change(not baru, baru)}))
+
+    # Assert
+    assert event.action == action
+
+
+def test_perubahan_profil_saat_login_tidak_dicatat():
+    """Nama dan zitadel_sub disinkronkan dari IdP saat login, bukan aksi pengguna."""
+    # Arrange
+    tracker = tracker_for("users")
+
+    # Act + Assert
+    assert "name" not in tracker.fields
+    assert "zitadel_sub" not in tracker.fields
