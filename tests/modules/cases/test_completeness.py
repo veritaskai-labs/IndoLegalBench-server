@@ -137,20 +137,21 @@ def test_hanya_must_not_contain_sudah_dihitung():
     assert "answer_criteria" not in missing_fields(hasil)
 
 
-def test_tanpa_jebakan_belum_siap_review():
+def test_tanpa_jebakan_siap_review():
     hasil = evaluate(payload(traps=[]))
 
     assert hasil["trap_count"] == 0
-    assert hasil["is_complete"] is False
-    assert hasil["ready_for_review"] is False
-    assert "traps" in missing_fields(hasil)
+    assert hasil["is_complete"] is True
+    assert hasil["ready_for_review"] is True
+    assert "traps" not in missing_fields(hasil)
+    assert hasil["pct"] == 100
 
 
 def test_jebakan_tanpa_deskripsi_tidak_dihitung():
     hasil = evaluate(payload(traps=[{"expected_model_behavior": "Menolak"}]))
 
     assert hasil["trap_count"] == 0
-    assert "traps" in missing_fields(hasil)
+    assert "traps" not in missing_fields(hasil)
 
 
 def test_split_tag_kosong_dilaporkan():
@@ -186,7 +187,6 @@ def test_draft_kosong_melaporkan_semua_bagian():
         "split_tag",
         "legal_refs",
         "answer_criteria",
-        "traps",
     }
     assert all(item["message"] for item in hasil["missing"])
 

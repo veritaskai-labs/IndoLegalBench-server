@@ -127,9 +127,18 @@ def test_kelengkapan_tanpa_jebakan_dan_kriteria_belum_penuh():
         _data(answer_criteria={"must_contain": [], "must_not_contain": []}, traps=[])
     )
 
-    assert hasil["pct"] == 71
-    assert [item["field"] for item in hasil["missing"]] == ["answer_criteria", "traps"]
+    assert hasil["pct"] == 83
+    assert [item["field"] for item in hasil["missing"]] == ["answer_criteria"]
     assert hasil["ready_for_review"] is False
+
+
+def test_kelengkapan_tanpa_jebakan_tetap_lengkap():
+    hasil = completeness(_data(traps=[]))
+
+    assert hasil["pct"] == 100
+    assert hasil["missing"] == []
+    assert hasil["is_complete"] is True
+    assert hasil["ready_for_review"] is True
 
 
 def test_field_path_rujukan():

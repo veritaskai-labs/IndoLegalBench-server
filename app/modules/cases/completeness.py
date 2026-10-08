@@ -26,7 +26,6 @@ _BAGIAN = (
     "split_tag",
     "legal_refs",
     "answer_criteria",
-    "traps",
 )
 
 _PESAN = {
@@ -36,7 +35,6 @@ _PESAN = {
     "split_tag": "Tag dev atau test wajib dipilih.",
     "legal_refs": "Butuh minimal satu rujukan hukum sampai tingkat pasal.",
     "answer_criteria": "Butuh minimal satu kriteria jawaban.",
-    "traps": "Butuh minimal satu jebakan sebelum kasus bisa diajukan review.",
 }
 
 
@@ -53,7 +51,6 @@ def evaluate(data: dict[str, Any]) -> dict[str, Any]:
         "split_tag": data.get("split_tag") in TAG_SAH,
         "legal_refs": legal_ref_count > 0,
         "answer_criteria": _has_answer_criteria(data.get("answer_criteria")),
-        "traps": trap_count > 0,
     }
 
     missing = [{"field": nama, "message": _PESAN[nama]} for nama in _BAGIAN if not terisi[nama]]
