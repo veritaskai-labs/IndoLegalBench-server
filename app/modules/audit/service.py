@@ -11,8 +11,10 @@ perubahannya dan tidak pernah commit sendiri. Kalau salah satu gagal,
 keduanya batal.
 """
 
+import logging
 import re
 import uuid
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from sqlalchemy.orm import Session
@@ -20,7 +22,10 @@ from sqlalchemy.orm import Session
 from app.modules.audit import redaction, repository
 from app.modules.audit.models import AuditEntityType, AuditLog
 from app.shared import request_context
+from app.shared.config import get_settings
 from app.shared.exceptions import ValidationError
+
+logger = logging.getLogger(__name__)
 
 # D6a: action = <entitas>.<kata kerja lampau, snake_case>.
 _FORMAT_ACTION = re.compile(r"^[a-z][a-z_]*\.[a-z][a-z_]*$")
@@ -70,3 +75,20 @@ def record(
         request_id=request_context.request_id(db),
     )
     return repository.add(db, row)
+
+
+def purge_expired(db: Session, *, now: datetime | None = None) -> int:
+    """AC7: hapus permanen catatan yang lewat masa simpan, lalu catat jumlahnya.
+
+    Hanya berhasil lewat koneksi role ilb_retention. Role lain ditolak
+    trigger, dan errornya diteruskan tanpa commit.
+    """
+    cutoff = (now or datetime.now(UTC)) - timedelta(days=get_settings().audit_retention_days)
+    deleted = repository.delete_older_than(db, cutoff)
+    db.commit()
+    logger.info(
+        "audit retention: %d audit_logs rows deleted, occurred_at before %s",
+        deleted,
+        cutoff.isoformat(),
+    )
+    return deleted

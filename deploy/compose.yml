@@ -56,6 +56,8 @@ services:
       # Fernet key for AI product credentials (PBI-10). deploy.sh refuses to
       # run without it. Never change it on a running install, see DEPLOY.md.
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
+      # Only read by the audit retention job, see docs/DEPLOY.md section 9.
+      AUDIT_RETENTION_DATABASE_URL: ${AUDIT_RETENTION_DATABASE_URL:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s

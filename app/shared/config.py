@@ -55,6 +55,13 @@ class Settings(BaseSettings):
     # Jangan pernah di-commit. Isi lewat .env atau secret manager.
     credential_encryption_key: str = ""
 
+    # PBI-18 AC7: masa simpan audit log. Trigger database menolak penghapusan
+    # catatan yang lebih muda dari 90 hari, apa pun nilai di sini.
+    audit_retention_days: int = 90
+    # Koneksi role ilb_retention, khusus job retensi. Bukan DATABASE_URL:
+    # role aplikasi tidak pernah boleh menghapus audit log.
+    audit_retention_database_url: str = ""
+
     @property
     def frontend_origin(self) -> str:
         if self.cors_origins:

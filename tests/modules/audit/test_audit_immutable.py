@@ -7,11 +7,13 @@ tests/integration/test_audit_immutable_pg.py.
 """
 
 import uuid
+from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
+from app.modules.audit import repository
 from app.modules.audit.models import AuditEntityType, AuditLog
 
 
@@ -88,3 +90,24 @@ def test_menambah_baris_tetap_boleh(db_session, baris):
         "suite.created",
         "suite.updated",
     ]
+
+
+def test_retensi_tanpa_catatan_kedaluwarsa_tidak_menghapus_apa_pun(db_session, baris):
+    # Act
+    jumlah = repository.delete_older_than(db_session, datetime(2000, 1, 1, tzinfo=UTC))
+    db_session.commit()
+
+    # Assert
+    assert jumlah == 0
+    assert db_session.query(AuditLog).count() == 1
+
+
+def test_retensi_lewat_koneksi_biasa_tetap_ditolak(db_session, baris):
+    """SQLite tidak punya role, jadi semua penghapusan ditolak. Jalur ilb_retention diuji di PostgreSQL."""
+    # Act
+    with pytest.raises(IntegrityError, match="append-only"):
+        repository.delete_older_than(db_session, datetime.now(UTC) + timedelta(days=1))
+    db_session.rollback()
+
+    # Assert
+    assert db_session.query(AuditLog).count() == 1
