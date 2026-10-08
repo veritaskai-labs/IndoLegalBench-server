@@ -13,6 +13,7 @@ from enum import StrEnum
 from fastapi import Depends, Request, Response
 from sqlalchemy.orm import Session
 
+from app.shared import request_context
 from app.shared.config import get_settings
 from app.shared.database import get_db
 from app.shared.exceptions import ForbiddenError, UnauthenticatedError
@@ -57,12 +58,14 @@ def get_current_user(
         raise UnauthenticatedError("Authentication required.")
     user = auth_service.resolve_session(db, session_id)
     set_session_cookie(response, settings, session_id)
-    return CurrentUser(
+    current = CurrentUser(
         user_id=user.id,
         name=user.name,
         email=user.email,
         role=Role(user.role),
     )
+    _ikat_aktor(request, db, current)
+    return current
 
 
 def require_roles(*allowed: Role):
@@ -83,6 +86,16 @@ def require_roles(*allowed: Role):
         return user
 
     return guard
+
+
+def _ikat_aktor(request: Request, db: Session, user: CurrentUser) -> None:
+    """PBI-18: pencatat audit membaca pelaku dari session database ini."""
+    request_context.bind(
+        db,
+        user_id=user.user_id,
+        role=user.role,
+        request_id=getattr(request.state, "request_id", None),
+    )
 
 
 require_role = require_roles

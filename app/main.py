@@ -11,6 +11,7 @@ Satu-satunya tugas file ini:
 Jangan menaruh logika bisnis di file ini.
 """
 
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -64,6 +65,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """PBI-18: satu id per request, mengikat baris audit yang lahir bersama."""
+    request.state.request_id = uuid.uuid4()
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = str(request.state.request_id)
+    return response
 
 
 @app.exception_handler(DomainError)
