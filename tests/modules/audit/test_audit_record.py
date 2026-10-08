@@ -88,7 +88,7 @@ def test_aktor_diambil_dari_session(db_session):
     _catat(db_session)
     db_session.commit()
 
-    baris = db_session.query(AuditLog).one()
+    baris = db_session.query(AuditLog).filter_by(action="suite.updated").one()
     assert baris.actor_user_id == admin.id
     assert baris.actor_role == "admin"
     assert baris.request_id == request_id

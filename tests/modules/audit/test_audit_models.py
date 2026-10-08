@@ -97,7 +97,7 @@ def test_simpan_baris_lengkap(db_session):
     )
     db_session.commit()
 
-    tersimpan = db_session.query(AuditLog).one()
+    tersimpan = db_session.query(AuditLog).filter_by(action="case.updated").one()
 
     assert isinstance(tersimpan.id, int)
     assert tersimpan.actor_user_id == admin.id

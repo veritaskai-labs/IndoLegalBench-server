@@ -20,6 +20,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.modules.audit import listener as audit_listener
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.cookies import clear_session_cookie
 from app.modules.auth.oidc import ensure_fake_oidc_allowed
@@ -36,6 +37,9 @@ from app.shared.dev_db import bootstrap_local_sqlite
 from app.shared.exceptions import DomainError, SessionExpiredError
 
 settings = get_settings()
+
+# PBI-18: setiap perubahan di tabel katalog D6a tercatat otomatis.
+audit_listener.install()
 
 
 @asynccontextmanager
