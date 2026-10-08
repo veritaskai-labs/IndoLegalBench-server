@@ -6,6 +6,7 @@ sekaligus menjadi daftar periksa QA: setiap aksi tulis harus terbukti
 menghasilkan baris audit.
 """
 
+import uuid
 from unittest.mock import patch
 
 import pytest
@@ -259,4 +260,44 @@ def test_anggota_ditambah_diubah_perannya_lalu_dinonaktifkan(as_role, db_session
     )
     assert (diubah.action, diubah.after) == ("user.role_changed", {"role": "reviewer"})
     assert dinonaktifkan.action == "user.deactivated"
+    # Nonaktifkan menghapus sesi dan commit lebih dulu, jadi baris user sudah
+    # kedaluwarsa saat is_active diubah. Nilai lama tetap harus tercatat.
+    assert (dinonaktifkan.before, dinonaktifkan.after) == (
+        {"is_active": True},
+        {"is_active": False},
+    )
     assert {baris.actor_role for baris in _log(db_session)} == {"admin"}
+
+
+def test_nilai_lama_tercatat_walau_baris_kedaluwarsa(as_role, db_session):
+    """Commit di tengah request membuat atribut kedaluwarsa. before tidak boleh jadi null."""
+    client = as_role(Role.AUTHOR)
+    suite_id = _suite(client)
+    suite = db_session.get(Suite, uuid.UUID(suite_id))
+    db_session.expire(suite)
+
+    suite.name = "Nama Baru"
+    db_session.commit()
+
+    baris = _log(db_session)[-1]
+    assert (baris.before, baris.after) == ({"name": "Ketenagakerjaan 2026"}, {"name": "Nama Baru"})
+
+
+def test_model_yang_dipetakan_belakangan_ikut_memuat_nilai_lama():
+    """Model baru (mis. tabel runs di PBI-11) dipetakan setelah install() jalan."""
+    from sqlalchemy import Boolean, String, Uuid, event
+    from sqlalchemy.orm import DeclarativeBase, Mapped, configure_mappers, mapped_column
+
+    class _BaseLain(DeclarativeBase):
+        pass
+
+    class _UserLain(_BaseLain):
+        __tablename__ = "users"
+        id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True)
+        role: Mapped[str] = mapped_column(String(32))
+        is_active: Mapped[bool] = mapped_column(Boolean)
+
+    configure_mappers()
+
+    assert event.contains(_UserLain.role, "set", listener._no_op)
+    assert event.contains(_UserLain.is_active, "set", listener._no_op)

@@ -13,6 +13,11 @@ yang sedang berjalan:
    Baris audit ikut di-flush sebelum commit selesai, jadi kalau salah
    satu gagal, keduanya batal (D6b).
 
+Kolom yang dipantau tracker memakai active_history: nilai lama dimuat
+dulu sebelum diganti. Tanpa itu, baris yang kedaluwarsa karena commit di
+tengah request (mis. nonaktifkan anggota menghapus sesinya dulu) tercatat
+dengan before = null.
+
 Penghapusan fisik tidak dicatat di sini. Katalog D6a hanya mengenal
 soft delete (deleted_at), dan users tidak pernah dihapus.
 """
@@ -20,10 +25,11 @@ soft delete (deleted_at), dan users tidak pernah dihapus.
 from typing import Any
 
 from sqlalchemy import event, inspect
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Mapper, Session
 
 from app.modules.audit import service as audit_service
 from app.modules.audit.trackers import AuditEvent, Change, Tracker, tracker_for
+from app.shared.database import Base
 
 _PENDING = "audit_pending_events"
 
@@ -33,6 +39,30 @@ def install() -> None:
     if not event.contains(Session, "after_flush", _collect):
         event.listen(Session, "after_flush", _collect)
         event.listen(Session, "after_flush_postexec", _write)
+    for mapper in Base.registry.mappers:
+        _keep_old_values(mapper)
+    if not event.contains(Mapper, "mapper_configured", _on_mapper_configured):
+        event.listen(Mapper, "mapper_configured", _on_mapper_configured)
+
+
+def _on_mapper_configured(mapper: Mapper, _class: type) -> None:
+    _keep_old_values(mapper)
+
+
+def _keep_old_values(mapper: Mapper) -> None:
+    """Muat nilai lama kolom yang dipantau sebelum diganti (active_history)."""
+    tracker = tracker_for(mapper.local_table.name)
+    if tracker is None:
+        return
+    for field in tracker.fields:
+        attribute = getattr(mapper.class_, field)
+        if not event.contains(attribute, "set", _no_op):
+            event.listen(attribute, "set", _no_op, active_history=True)
+
+
+def _no_op(_target: Any, value: Any, _oldvalue: Any, _initiator: Any) -> Any:
+    """Listener kosong. Yang dibutuhkan hanya efek active_history=True."""
+    return value
 
 
 def _collect(session: Session, _flush_context: Any) -> None:
