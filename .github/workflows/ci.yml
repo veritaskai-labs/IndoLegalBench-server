@@ -124,12 +124,15 @@ jobs:
           print('all app modules import')
           "
 
-      # PBI-18 AC2: the append-only migration grants ilb_app SELECT and INSERT
-      # only when the role exists. Create it so CI exercises that branch.
-      - name: Create the runtime database role
+      # PBI-18: the audit migrations grant ilb_app (AC2) and ilb_retention (AC7)
+      # only when the roles exist. Create them so CI exercises those branches.
+      - name: Create the audit database roles
         env:
           PGPASSWORD: indolegalbench  # pragma: allowlist secret
-        run: psql -h 127.0.0.1 -U indolegalbench -d indolegalbench -c "CREATE ROLE ilb_app NOLOGIN"
+        run: |
+          psql -h 127.0.0.1 -U indolegalbench -d indolegalbench \
+            -c "CREATE ROLE ilb_app NOLOGIN" \
+            -c "CREATE ROLE ilb_retention NOLOGIN"
 
       # The enum types in the cases migration are created twice if CREATE TABLE
       # also emits CREATE TYPE. SQLite ignores that. PostgreSQL aborts the
@@ -152,7 +155,7 @@ jobs:
             indolegalbench-server:${{ github.sha }} \
             alembic upgrade head
 
-      # D6c: the AC2 test must run on PostgreSQL. pytest above uses SQLite,
+      # D6c: the AC2 and AC7 tests must run on PostgreSQL. pytest above uses SQLite,
       # so prove the triggers and grants against the migrated database.
       - name: Test append-only audit log on PostgreSQL 16
         env:

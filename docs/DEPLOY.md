@@ -207,6 +207,29 @@ gunzip -c /var/backups/indolegalbench/indolegalbench-YYYY-MM-DD.sql.gz \
   | docker compose exec -T db psql -U indolegalbench -d indolegalbench
 ```
 
+## 9. Audit log retention
+
+Audit log rows are kept 90 days, then deleted permanently (PBI-18 AC7,
+client decision). Nobody else can delete them: a database trigger rejects
+every UPDATE, DELETE and TRUNCATE on `audit_logs`, the table owner included.
+The one exception is the role `ilb_retention`, and only for rows older than
+90 days. Create that role once, then let cron run the job daily:
+
+```bash
+openssl rand -hex 24   # paste below and into .env as part of AUDIT_RETENTION_DATABASE_URL
+docker compose exec -T db psql -U indolegalbench -d indolegalbench \
+  -c "CREATE ROLE ilb_retention LOGIN PASSWORD '<password>'" \
+  -c "GRANT SELECT, DELETE ON audit_logs TO ilb_retention"
+# .env:
+# AUDIT_RETENTION_DATABASE_URL=postgresql+psycopg://ilb_retention:<password>@db:5432/indolegalbench
+crontab -e
+# add:
+30 2 * * * cd /opt/indolegalbench/IndoLegalBench-server/deploy && docker compose run --rm api python -m app.modules.audit.retention_job >> /var/backups/indolegalbench/audit-retention.log 2>&1
+```
+
+Each run logs how many rows it deleted. With `AUDIT_RETENTION_DATABASE_URL`
+empty the job exits with an error and deletes nothing.
+
 ## Not covered yet
 
 - **No CI/CD yet.** Deploys are `./deploy.sh` over SSH. A GitHub Actions job
