@@ -9,7 +9,7 @@ Isi file ini murni query, tanpa logika bisnis.
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import func
+from sqlalchemy import func, or_
 from sqlalchemy.orm import Session as DbSession
 
 from app.modules.auth.models import User, UserSession
@@ -35,6 +35,35 @@ def get_users(db: DbSession, is_active: bool | None = None) -> list[User]:
     if is_active is not None:
         query = query.filter(User.is_active == is_active)
     return query.order_by(User.name, User.email).all()
+
+
+def find_user_ids_matching(db: DbSession, text: str) -> list[uuid.UUID]:
+    """Id pengguna yang nama atau emailnya memuat text, tanpa peduli kapital.
+
+    Termasuk pengguna nonaktif. '%' dan '_' dari pemanggil dicari apa adanya.
+    """
+    pola = "%" + _escape_like(text.lower()) + "%"
+    baris = (
+        db.query(User.id)
+        .filter(
+            or_(
+                func.lower(User.name).like(pola, escape="\\"),
+                func.lower(User.email).like(pola, escape="\\"),
+            )
+        )
+        .order_by(User.name)
+        .all()
+    )
+    return [user_id for (user_id,) in baris]
+
+
+def get_names(db: DbSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    baris = db.query(User.id, User.name).filter(User.id.in_(user_ids)).all()
+    return dict(baris)
+
+
+def _escape_like(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 
 
 def create_user(

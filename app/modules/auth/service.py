@@ -150,6 +150,18 @@ def resolve_session(db: DbSession, session_id: uuid.UUID) -> User:
     return user
 
 
+def find_user_ids(db: DbSession, text: str) -> list[uuid.UUID]:
+    """Dipakai modul audit untuk menyaring catatan berdasarkan nama pengguna (PBI-18 AC3)."""
+    return repository.find_user_ids_matching(db, text)
+
+
+def user_names(db: DbSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Nama pelaku untuk tampilan audit log. Id yang tidak dikenal tidak ada di hasil."""
+    if not user_ids:
+        return {}
+    return repository.get_names(db, user_ids)
+
+
 class AuthService:
     def __init__(self, db: DbSession):
         self.db = db
