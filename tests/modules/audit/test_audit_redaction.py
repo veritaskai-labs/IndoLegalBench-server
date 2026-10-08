@@ -7,6 +7,9 @@ import pytest
 
 from app.modules.audit.redaction import CREDENTIAL_ROTATED, without_secrets
 
+# Nilai palsu untuk menguji penyaring, bukan kredensial sungguhan.
+NILAI_PALSU = "sk-nilai-palsu-untuk-tes"  # pragma: allowlist secret
+
 
 @pytest.mark.parametrize(
     "kunci",
@@ -26,7 +29,7 @@ from app.modules.audit.redaction import CREDENTIAL_ROTATED, without_secrets
 )
 def test_kunci_rahasia_dibuang(kunci):
     # Arrange
-    nilai = {"name": "GPT", kunci: "sk-rahasia"}
+    nilai = {"name": "GPT", kunci: NILAI_PALSU}
 
     # Act
     hasil = without_secrets(nilai)
@@ -52,7 +55,7 @@ def test_kunci_mirip_rahasia_tetap_dicatat(kunci):
 
 def test_dict_bersarang_ikut_disaring():
     # Arrange
-    nilai = {"config": {"headers": {"api_key": "sk-x", "model": "gpt"}}}
+    nilai = {"config": {"headers": {"api_key": NILAI_PALSU, "model": "gpt"}}}
 
     # Act
     hasil = without_secrets(nilai)
@@ -82,8 +85,10 @@ def test_penanda_rotasi_kredensial_dipertahankan():
 
 
 def test_penanda_tidak_bisa_dipakai_menyelundupkan_nilai_lain():
+    """Hanya kunci credential yang boleh membawa penanda, kunci rahasia lain tetap dibuang."""
     # Arrange
-    nilai = {"credential": "sk-asli", "api_key": "rotated-but-real"}
+    penanda = CREDENTIAL_ROTATED["credential"]
+    nilai = {"credential": NILAI_PALSU, "api_key": penanda}
 
     # Act
     hasil = without_secrets(nilai)
@@ -101,10 +106,10 @@ def test_nilai_bukan_dict_dikembalikan_apa_adanya(nilai):
 def test_masukan_tidak_diubah():
     """Penyaring membuat salinan. Dict milik pemanggil tetap utuh."""
     # Arrange
-    asli = {"api_key": "sk-x", "name": "GPT"}
+    asli = {"api_key": NILAI_PALSU, "name": "GPT"}
 
     # Act
     without_secrets(asli)
 
     # Assert
-    assert asli == {"api_key": "sk-x", "name": "GPT"}
+    assert asli == {"api_key": NILAI_PALSU, "name": "GPT"}
