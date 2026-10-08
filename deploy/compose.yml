@@ -90,3 +90,7 @@ networks:
 
 volumes:
   postgres_data:
+    # Named in deploy/.env, not derived from the project name: dev keeps the
+    # database of the single-stack layout (`deploy_postgres_data`), prod starts
+    # with its own. See docs/DEPLOY.md section 11.
+    name: ${POSTGRES_VOLUME:?set POSTGRES_VOLUME in deploy/.env}

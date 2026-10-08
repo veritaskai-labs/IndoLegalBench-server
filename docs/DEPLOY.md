@@ -24,7 +24,7 @@ Caddy.
                |  network ilb-edge
        +-------+--------+
    prod-web  prod-api   dev-web  dev-api
-   (project deploy)     (project ilb-dev)
+   (project ilb-prod)   (project ilb-dev)
        |                    |
     prod db              dev db
 ```
@@ -48,7 +48,13 @@ The files are in [`deploy/`](../deploy):
 | Runs as | `appuser` (uid 1000) | `node` |
 | Health path | `GET /health` | `GET /login` |
 
-Login goes through Veritask's Zitadel at `https://auth8.veritask.ai`.
+Login goes through Veritask's Zitadel. Veritask runs two instances, one per
+stack, each with its own IndoLegalBench application and its own accounts:
+
+| Stack | Zitadel |
+|---|---|
+| `dev` | `https://auth8.veritask.ai` (Veritask development) |
+| `prod` | `https://auth.veritask.ai` (Veritask production) |
 
 ## Read this first
 
@@ -80,17 +86,18 @@ Login goes through Veritask's Zitadel at `https://auth8.veritask.ai`.
   want HTTP/3. Caddy needs 80 and 443 reachable from the internet to get
   certificates.
 - Our SSH public keys are on the VM.
-- Zitadel: the IndoLegalBench application has these, next to the existing
-  localhost ones. They must match exactly, including `https://` and without a
-  trailing slash:
+- Zitadel: each instance has an IndoLegalBench application with these URIs.
+  They must match exactly, including `https://` and without a trailing slash.
+  The dev application also has the localhost ones for local testing.
 
-  | | Redirect URI | Post-logout URI |
-  |---|---|---|
-  | prod | `https://api.indolegalbench.veritask.ai/auth/callback` | `https://indolegalbench.veritask.ai/login` |
-  | dev | `https://devapi.indolegalbench.veritask.ai/auth/callback` | `https://dev.indolegalbench.veritask.ai/login` |
+  | | Zitadel | Redirect URI | Post-logout URI |
+  |---|---|---|---|
+  | prod | `auth.veritask.ai` | `https://api.indolegalbench.veritask.ai/auth/callback` | `https://indolegalbench.veritask.ai/login` |
+  | dev | `auth8.veritask.ai` | `https://devapi.indolegalbench.veritask.ai/auth/callback` | `https://dev.indolegalbench.veritask.ai/login` |
 
-  If dev uses a separate Zitadel application, its client ID goes into the dev
-  `.env` only.
+  Each application's client ID goes into that stack's `.env` only. Accounts
+  are per instance too: everyone who uses prod needs an account on
+  `auth.veritask.ai`.
 
 Check DNS from your own machine before going further:
 
@@ -147,16 +154,21 @@ say:
 
 | Variable | dev | prod |
 |---|---|---|
-| `COMPOSE_PROJECT_NAME` | `ilb-dev` | `deploy` |
+| `COMPOSE_PROJECT_NAME` | `ilb-dev` | `ilb-prod` |
+| `POSTGRES_VOLUME` | `deploy_postgres_data` | `ilb-prod_postgres_data` |
 | `STACK` | `dev` | `prod` |
 | `APP_ENV` | `staging` | `production` |
 | `DEPLOY_BRANCH` | `staging` | `main` |
 | `WEB_DOMAIN` | `dev.indolegalbench.veritask.ai` | `indolegalbench.veritask.ai` |
 | `API_DOMAIN` | `devapi.indolegalbench.veritask.ai` | `api.indolegalbench.veritask.ai` |
 | `BACKUP_DIR` | `/var/backups/indolegalbench-dev` | `/var/backups/indolegalbench` |
+| `ZITADEL_ISSUER` | `https://auth8.veritask.ai` | `https://auth.veritask.ai` |
+| `ZITADEL_CLIENT_ID` | the dev application's | the prod application's |
 
-prod is called `deploy` because that was the project name before the split,
-and keeping it keeps its database volume (`deploy_postgres_data`).
+dev's database volume is the one from the single-stack layout (section 11). It
+holds the Sprint 1 data, and its users are linked to `auth8` accounts, which
+is why it belongs to dev. prod starts with an empty database at its first
+release.
 
 `CREDENTIAL_ENCRYPTION_KEY` encrypts the AI product credentials (PBI-10). Use a
 different key per stack, and store a copy of each somewhere other than the VM.
@@ -207,8 +219,9 @@ docker compose exec caddy caddy reload --config /etc/caddy/Caddyfile
 ## 5. First admin account
 
 Nobody can log in until an admin exists in the database, and fake login is
-disabled in both stacks. Insert the first admin once per stack, after its
-first deploy, from its `deploy/` folder:
+disabled in both stacks. dev already has its admins after section 11. For a new
+stack (prod at its first release), insert the first admin once, after its first
+deploy, from its `deploy/` folder:
 
 ```bash
 docker compose exec db psql -U indolegalbench -c "
@@ -265,7 +278,7 @@ come from the env file.
 | `CORS_ORIGINS` | `["https://" + WEB_DOMAIN]` (`.env`) | JSON list. The first entry is also where users land after login and logout |
 | `AUTH_OIDC_MODE` | `zitadel` | |
 | `PUBLIC_BASE_URL` | `"https://" + API_DOMAIN` (`.env`) | The Zitadel redirect URI is derived from it |
-| `ZITADEL_ISSUER` | `https://auth8.veritask.ai` (`.env`) | No trailing slash |
+| `ZITADEL_ISSUER` | `https://auth8.veritask.ai` (dev) or `https://auth.veritask.ai` (prod) (`.env`) | No trailing slash |
 | `ZITADEL_CLIENT_ID` | client ID of the IndoLegalBench Zitadel app (`.env`) | Not a secret for a public PKCE client, but kept out of this public repo |
 | `COOKIE_SECURE` | `true` | Requires HTTPS |
 | `IDLE_TIMEOUT_MINUTES` | `30` | |
@@ -364,51 +377,83 @@ Set up once:
 A hotfix goes into `staging` first like any other change, then through the
 same release PR.
 
+The first release also sets prod up, since there is no prod stack before it:
+section 1 for `auth.veritask.ai` (application, URIs, accounts), section 3 for
+prod with new values (new `POSTGRES_PASSWORD` and `CREDENTIAL_ENCRYPTION_KEY`,
+never dev's), then `./deploy.sh` instead of step 2, section 5, the prod line in
+section 8, and section 6.
+
 ## 11. Moving from the single-stack layout (once)
 
-Before the split, one compose project `deploy` ran Caddy, API, web app and
-database for the prod domains. These steps keep its data and certificates and
-cost about a minute of downtime on prod. Do them outside working hours.
+Before the split, one compose project `deploy` in `/opt/indolegalbench` ran
+Caddy, API, web app and database for the prod domains, logging in through
+`auth8`, Veritask's development Zitadel. That data and those users belong to
+dev, so the move hands the existing database to the dev stack and leaves prod
+empty until its first release (section 10). From then on the prod domains
+answer `502`, and the dev domains serve the existing data.
+
+Do it outside working hours, after this layout is merged into `staging`. The
+dev downtime is the length of one `deploy.sh` with the images already built.
 
 ```bash
-cd /opt/indolegalbench/IndoLegalBench-server
-git pull --ff-only origin staging      # brings in the new deploy/ files
-cd deploy
-
-# 1. prod .env: add the new keys (section 3 table, prod column).
-nano .env
-#    COMPOSE_PROJECT_NAME=deploy, STACK=prod, APP_ENV=production,
-#    DEPLOY_BRANCH=main, BACKUP_DIR=/var/backups/indolegalbench
-
-# 2. Proxy .env.
-cp proxy/.env.example proxy/.env
-
-# 3. Build the prod images while the old stack still serves.
-#    The client checkout is not pulled, so prod's web app stays as it is.
+# 0. Backup with the old layout, before anything changes.
+cd /opt/indolegalbench/IndoLegalBench-server/deploy
 ./backup.sh
+
+# 1. dev checkouts: section 2, the /opt/indolegalbench-dev part only.
+
+# 2. Move the old .env to dev. It holds the database password and the
+#    encryption key the existing data needs: keep them, do not generate new
+#    ones. prod gets its own .env at its first release.
+mv /opt/indolegalbench/IndoLegalBench-server/deploy/.env \
+   /opt/indolegalbench-dev/IndoLegalBench-server/deploy/.env
+cd /opt/indolegalbench-dev/IndoLegalBench-server/deploy
+nano .env
+#    Keep POSTGRES_PASSWORD, CREDENTIAL_ENCRYPTION_KEY, ZITADEL_ISSUER (auth8),
+#    ZITADEL_CLIENT_ID and CLIENT_DIR. Change WEB_DOMAIN and API_DOMAIN to the
+#    dev ones and add the rest of the dev column of section 3:
+#    COMPOSE_PROJECT_NAME=ilb-dev, POSTGRES_VOLUME=deploy_postgres_data,
+#    STACK=dev, APP_ENV=staging, DEPLOY_BRANCH=staging,
+#    BACKUP_DIR=/var/backups/indolegalbench-dev
+
+# 3. The proxy lives in the prod checkout, which needs the new deploy/ files.
+cd /opt/indolegalbench/IndoLegalBench-server
+git pull --ff-only origin staging
+cp deploy/proxy/.env.example deploy/proxy/.env
+
+# 4. Build dev's images while the old stack still serves.
+cd /opt/indolegalbench-dev/IndoLegalBench-server/deploy
 docker compose build
 
-# 4. Switch over (the downtime starts here).
-docker rm -f deploy-caddy-1             # the old Caddy, frees 80 and 443
-(cd proxy && docker compose up -d)
-docker compose up -d --remove-orphans
+# 5. Switch over (the downtime starts here). Remove the old containers by
+#    name: the new compose.yml cannot drive the old project. Volumes stay.
+docker rm -f deploy-caddy-1 deploy-api-1 deploy-web-1 deploy-db-1
+docker network rm deploy_default
+(cd /opt/indolegalbench/IndoLegalBench-server/deploy/proxy && docker compose up -d)
+./deploy.sh
 
-# 5. Check.
+# 6. Check.
 docker compose ps
-(cd proxy && docker compose ps)
-curl -s https://api.indolegalbench.veritask.ai/health
+(cd /opt/indolegalbench/IndoLegalBench-server/deploy/proxy && docker compose ps)
+curl -s https://devapi.indolegalbench.veritask.ai/health
 ```
 
+Then section 6 on the dev domains: the existing accounts log in as before.
 The Caddy in `proxy/` reuses the volumes `deploy_caddy_data` and
 `deploy_caddy_config`, so it keeps the existing certificates and only requests
 new ones for the two dev domains.
 
-Then set up dev: section 2 (the `/opt/indolegalbench-dev` checkouts only),
-section 3 for dev, `./deploy.sh`, section 5, the dev line in section 8, and
-section 9.
+Backups: the old dumps are dev's now. Move them, and point the old cron line
+at dev (section 8 has the exact line; prod's is added at its first release):
 
-Until the first release (section 10), prod's `main` is behind `staging`, so do
-not run prod's `deploy.sh` before that release is merged.
+```bash
+sudo mkdir -p /var/backups/indolegalbench-dev
+sudo chown "$USER" /var/backups/indolegalbench-dev
+mv /var/backups/indolegalbench/indolegalbench-*.sql.gz /var/backups/indolegalbench-dev/
+crontab -e
+```
+
+Finally section 9, so merges to `staging` redeploy dev.
 
 ## Not covered yet
 
