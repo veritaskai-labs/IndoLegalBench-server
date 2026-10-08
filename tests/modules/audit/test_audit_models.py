@@ -6,10 +6,9 @@ alasan bila ada.
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 import pytest
-from sqlalchemy import inspect
 from sqlalchemy.exc import IntegrityError
 
 from app.modules.audit.models import AuditEntityType, AuditLog
@@ -111,13 +110,17 @@ def test_simpan_baris_lengkap(db_session):
 
 
 def test_waktu_kejadian_diisi_server(db_session):
-    """occurred_at memakai waktu server, bukan nilai kiriman klien."""
+    """occurred_at memakai waktu server saat INSERT, bukan nilai kiriman klien."""
+    sebelum = datetime.now(UTC) - timedelta(seconds=5)
     db_session.add(_baris())
     db_session.commit()
 
-    tersimpan = db_session.query(AuditLog).one()
+    waktu = db_session.query(AuditLog).one().occurred_at
+    if waktu.tzinfo is None:
+        # SQLite tidak menyimpan zona waktu, nilainya UTC. timestamptz menyimpannya.
+        waktu = waktu.replace(tzinfo=UTC)
 
-    assert isinstance(tersimpan.occurred_at, datetime)
+    assert sebelum <= waktu <= datetime.now(UTC) + timedelta(seconds=5)
 
 
 def test_aktor_kosong_berarti_sistem(db_session):
@@ -165,21 +168,3 @@ def test_jenis_objek_sesuai_katalog():
         "ai_product",
         "user",
     }
-
-
-def test_tabel_ikut_dibuat_create_all(db_session):
-    """Fixture db_session memakai create_all. Tabel audit harus ikut terbentuk."""
-    assert "audit_logs" in inspect(db_session.get_bind()).get_table_names()
-
-
-def test_waktu_bisa_dibandingkan_dengan_utc(db_session):
-    db_session.add(_baris())
-    db_session.commit()
-
-    tersimpan = db_session.query(AuditLog).one()
-    waktu = tersimpan.occurred_at
-    if waktu.tzinfo is None:
-        # SQLite tidak menyimpan zona waktu. PostgreSQL timestamptz menyimpannya.
-        waktu = waktu.replace(tzinfo=UTC)
-
-    assert waktu <= datetime.now(UTC)
