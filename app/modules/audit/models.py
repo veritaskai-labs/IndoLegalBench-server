@@ -12,6 +12,7 @@ from datetime import datetime
 from enum import StrEnum
 
 from sqlalchemy import (
+    DDL,
     JSON,
     BigInteger,
     DateTime,
@@ -23,6 +24,7 @@ from sqlalchemy import (
     Text,
     Uuid,
     column,
+    event,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -82,3 +84,17 @@ class AuditLog(Base):
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     # Mengikat beberapa baris yang lahir dari satu request.
     request_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+
+
+# AC2 di SQLite, dipakai test dan bootstrap lokal (create_all). PostgreSQL
+# memakai trigger dari migration a9c3e5f71b28, bukan DDL ini.
+for _operasi in ("UPDATE", "DELETE"):
+    event.listen(
+        AuditLog.__table__,
+        "after_create",
+        DDL(
+            f"CREATE TRIGGER audit_logs_block_{_operasi.lower()} "
+            f"BEFORE {_operasi} ON audit_logs "
+            "BEGIN SELECT RAISE(ABORT, 'audit_logs is append-only'); END"
+        ).execute_if(dialect="sqlite"),
+    )
