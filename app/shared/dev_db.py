@@ -16,6 +16,7 @@ def bootstrap_local_sqlite() -> None:
         return
 
     # Register tables on Base.metadata (same imports Alembic uses).
+    from app.modules.audit import models as audit_models  # noqa: F401
     from app.modules.auth import models as auth_models  # noqa: F401
     from app.modules.cases import models as cases_models  # noqa: F401
     from app.modules.suites import models as suites_models  # noqa: F401
