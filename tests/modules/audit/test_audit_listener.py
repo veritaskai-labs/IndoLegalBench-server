@@ -6,6 +6,7 @@ sekaligus menjadi daftar periksa QA: setiap aksi tulis harus terbukti
 menghasilkan baris audit.
 """
 
+import logging
 import uuid
 from unittest.mock import patch
 
@@ -113,6 +114,23 @@ def test_audit_gagal_maka_perubahan_ikut_batal(as_role, db_session):
 
     assert db_session.query(Suite).count() == 0
     assert db_session.query(AuditLog).count() == 0
+
+
+def test_audit_gagal_tercatat_jelas_di_log_server(as_role, db_session, caplog):
+    """Error tetap dilempar (D6b), tapi log server menyebut event mana yang gagal."""
+    client = as_role(Role.AUTHOR)
+
+    with (
+        patch.object(listener.audit_service, "record", side_effect=RuntimeError("audit mati")),
+        caplog.at_level(logging.ERROR, logger=listener.logger.name),
+        pytest.raises(RuntimeError),
+    ):
+        client.post("/suites", json={"name": "Pidana"})
+    db_session.rollback()
+
+    assert "suite.created" in caplog.text
+    assert "change rolled back" in caplog.text
+    assert "audit mati" in caplog.text
 
 
 def test_aksi_baca_tidak_dicatat(as_role, db_session):

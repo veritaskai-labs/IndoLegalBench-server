@@ -22,6 +22,7 @@ Penghapusan fisik tidak dicatat di sini. Katalog D6a hanya mengenal
 soft delete (deleted_at), dan users tidak pernah dihapus.
 """
 
+import logging
 from typing import Any
 
 from sqlalchemy import event, inspect
@@ -30,6 +31,8 @@ from sqlalchemy.orm import Mapper, Session
 from app.modules.audit import service as audit_service
 from app.modules.audit.trackers import AuditEvent, Change, Tracker, tracker_for
 from app.shared.database import Base
+
+logger = logging.getLogger(__name__)
 
 _PENDING = "audit_pending_events"
 
@@ -81,16 +84,31 @@ def _collect(session: Session, _flush_context: Any) -> None:
 
 
 def _write(session: Session, _flush_context: Any) -> None:
+    """Tulis event yang terkumpul. Kegagalan sengaja tidak ditelan.
+
+    D6b: tidak ada perubahan tanpa log. Kalau baris audit gagal ditulis,
+    perubahannya ikut batal. Errornya dicatat dulu dengan konteks supaya
+    500 yang muncul bisa langsung ditelusuri dari log server.
+    """
     for tracker, item in session.info.pop(_PENDING, []):
-        audit_service.record(
-            session,
-            action=item.action,
-            entity_type=tracker.entity_type,
-            entity_id=item.entity_id,
-            case_id=item.case_id,
-            before=item.before,
-            after=item.after,
-        )
+        try:
+            audit_service.record(
+                session,
+                action=item.action,
+                entity_type=tracker.entity_type,
+                entity_id=item.entity_id,
+                case_id=item.case_id,
+                before=item.before,
+                after=item.after,
+            )
+        except Exception:
+            logger.exception(
+                "audit write failed for %s on %s %s, change rolled back",
+                item.action,
+                tracker.entity_type.value,
+                item.entity_id,
+            )
+            raise
 
 
 def _tracker(row: Any) -> Tracker | None:
