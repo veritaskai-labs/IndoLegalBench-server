@@ -25,7 +25,6 @@ from app.modules.audit.repository import SearchCriteria
 from app.modules.audit.schemas import AuditLogFilter, AuditLogRead
 from app.modules.auth import service as auth_service
 from app.shared import request_context
-from app.shared.config import get_settings
 from app.shared.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.shared.pagination import Page
 from app.shared.security import Role
@@ -37,6 +36,11 @@ _FORMAT_ACTION = re.compile(r"^[a-z][a-z_]*\.[a-z][a-z_]*$")
 
 # D6a: event yang alasannya wajib diisi.
 _WAJIB_ALASAN = frozenset({"review.reviewer_replaced"})
+
+# AC7: masa simpan tetap 90 hari, bukan setelan. Trigger di migration
+# c5e7a1d93f40 memakai angka yang sama, dan tes PostgreSQL menjaga keduanya
+# tetap cocok. Mengubahnya berarti migration baru, bukan isi .env.
+RETENTION_DAYS = 90
 
 # AC6: batas baris satu file ekspor. Lebih dari ini, Admin diminta mempersempit saringan.
 EXPORT_LIMIT = 5000
@@ -91,7 +95,7 @@ def purge_expired(db: Session, *, now: datetime | None = None) -> int:
     Hanya berhasil lewat koneksi role ilb_retention. Role lain ditolak
     trigger, dan errornya diteruskan tanpa commit.
     """
-    cutoff = (now or datetime.now(UTC)) - timedelta(days=get_settings().audit_retention_days)
+    cutoff = (now or datetime.now(UTC)) - timedelta(days=RETENTION_DAYS)
     deleted = repository.delete_older_than(db, cutoff)
     db.commit()
     logger.info(

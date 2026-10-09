@@ -12,6 +12,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.modules.audit import retention_job, service
+from app.shared.config import get_settings
 
 SEKARANG = datetime(2026, 10, 8, 2, 0, tzinfo=UTC)
 
@@ -21,6 +22,13 @@ def repo():
     with patch.object(service, "repository") as palsu:
         palsu.delete_older_than.return_value = 3
         yield palsu
+
+
+def test_masa_simpan_tetap_90_hari_bukan_setelan():
+    """AC7 menetapkan 90 hari, dan trigger database memakai angka yang sama."""
+    # Act + Assert
+    assert service.RETENTION_DAYS == 90
+    assert not hasattr(get_settings(), "audit_retention_days")
 
 
 def test_batas_waktu_tepat_90_hari_sebelum_sekarang(repo):

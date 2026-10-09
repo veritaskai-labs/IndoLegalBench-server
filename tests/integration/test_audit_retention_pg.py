@@ -139,3 +139,14 @@ def test_purge_expired_hanya_menghapus_yang_lewat_90_hari(conn):
     assert jumlah >= 1
     assert not _ada(conn, tua)
     assert _ada(conn, muda)
+
+
+def test_trigger_memakai_masa_simpan_yang_sama_dengan_aplikasi(conn):
+    """Kalau salah satu diubah tanpa yang lain, job retensi akan selalu ditolak."""
+    # Act
+    definisi = conn.execute(
+        text("SELECT pg_get_functiondef('audit_logs_forbid_mutation'::regproc)")
+    ).scalar_one()
+
+    # Assert
+    assert f"interval '{service.RETENTION_DAYS} days'" in definisi
