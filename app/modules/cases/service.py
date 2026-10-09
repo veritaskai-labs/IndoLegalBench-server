@@ -164,12 +164,8 @@ def _to_summary(case: Case) -> CaseSummary:
 
 
 def _completeness_pct(case: Case) -> int:
-    """Read completeness.pct, or 0 when the stored value is missing or invalid."""
-    mentah = case.completeness or {}
-    try:
-        return int(mentah.get("pct", 0))
-    except (TypeError, ValueError):
-        return 0
+    """Calculate completeness from the current case data."""
+    return int(completeness.from_row(case)["pct"])
 
 
 def _require_case(db: Session, case_id: uuid.UUID) -> Case:

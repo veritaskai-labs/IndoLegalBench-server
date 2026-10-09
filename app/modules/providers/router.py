@@ -120,6 +120,16 @@ def activate_product(product_id: uuid.UUID, db: Session = Depends(get_db)) -> Ai
     return service.set_active(db, product_id, is_active=True)
 
 
+@router.delete(
+    "/{product_id}",
+    status_code=status.HTTP_204_NO_CONTENT,
+    summary="Hapus produk AI (soft delete)",
+    responses=_TIDAK_ADA,
+)
+def delete_product(product_id: uuid.UUID, db: Session = Depends(get_db)) -> None:
+    service.delete_product(db, product_id)
+
+
 @router.post(
     "/{product_id}/test-connection",
     response_model=ConnectionTestRead,

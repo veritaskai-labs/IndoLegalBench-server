@@ -60,3 +60,26 @@ def http_failure(response: httpx.Response, secret: str) -> str:
 def invalid_body(response: httpx.Response, secret: str) -> str:
     detail = response.text or ""
     return clip(f"provider response was not a valid success body {detail}", secret)
+
+
+def classify_error(
+    status_code: int | None = None,
+    transport_error: str | None = None,
+) -> str:
+    """Petakan kegagalan HTTP/transport ke kategori yang mudah dipahami Admin.
+
+    SRP: satu-satunya tempat yang memetakan kode status dan pesan transport
+    ke kategori. Adapter membaca hasilnya tanpa menduplikasi logika ini.
+    """
+    if transport_error is not None:
+        lower = transport_error.lower()
+        if "timed out" in lower:
+            return "timeout"
+        if "could not connect" in lower:
+            return "unreachable"
+        return "unknown"
+    if status_code in (401, 403):
+        return "access_denied"
+    if status_code == 404:
+        return "model_not_found"
+    return "unknown"

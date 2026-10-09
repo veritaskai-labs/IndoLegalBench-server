@@ -1358,6 +1358,50 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "providers"
+        ],
+        "summary": "Hapus produk AI (soft delete)",
+        "operationId": "delete_product_admin_providers__product_id__delete",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Produk AI tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/admin/providers/{product_id}/deactivate": {
@@ -2068,6 +2112,16 @@
             ],
             "title": "Last Test Message"
           },
+          "last_test_error_category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionTestErrorCategory"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_by": {
             "type": "string",
             "format": "uuid",
@@ -2098,6 +2152,7 @@
           "last_test_at",
           "last_test_status",
           "last_test_message",
+          "last_test_error_category",
           "created_by",
           "created_at",
           "updated_at"
@@ -2667,6 +2722,18 @@
         "title": "CompletenessIssue",
         "description": "Satu bagian yang belum terisi, dengan pesan untuk ditampilkan editor."
       },
+      "ConnectionTestErrorCategory": {
+        "type": "string",
+        "enum": [
+          "access_denied",
+          "model_not_found",
+          "timeout",
+          "unreachable",
+          "unknown"
+        ],
+        "title": "ConnectionTestErrorCategory",
+        "description": "Kategori kegagalan uji koneksi yang mudah dipahami Admin.\n\nNilai ini disimpan di last_test_error_category dan dikembalikan di\nConnectionTestRead agar frontend tidak perlu mem-parsing pesan mentah."
+      },
       "ConnectionTestRead": {
         "properties": {
           "status": {
@@ -2698,6 +2765,16 @@
               }
             ],
             "title": "Message"
+          },
+          "error_category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionTestErrorCategory"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -3139,7 +3216,7 @@
           "description"
         ],
         "title": "Trap",
-        "description": "A known mistake and how the model is expected to handle it."
+        "description": "An optionally included known mistake and how the model is expected to handle it."
       },
       "UserCreateRequest": {
         "properties": {
