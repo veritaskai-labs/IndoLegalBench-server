@@ -137,10 +137,13 @@ class CaseTracker(Tracker):
 
     def _special_event(self, row: Any, field: str, change: Change) -> AuditEvent:
         if field == "split_tag":
-            event = self._field_event(row, "tag_changed", field, change)
-            if (_json(change.old), _json(change.new)) == ("dev", "test"):
-                event.after["warning"] = True
-            return event
+            lama, baru = _json(change.old), _json(change.new)
+            # D6a: dev→test diberi tanda peringatan. Dict dibangun lengkap di
+            # sini karena AuditEvent frozen dan tidak boleh diubah setelah jadi.
+            after = (
+                {field: baru, "warning": True} if (lama, baru) == ("dev", "test") else {field: baru}
+            )
+            return self._event(row, "tag_changed", before={field: lama}, after=after)
         verb = self._STATUS_VERB.get(_json(change.new), "status_changed")
         return self._field_event(row, verb, field, change)
 
