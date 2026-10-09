@@ -259,6 +259,17 @@ def test_produk_ai_dinonaktifkan_lalu_diaktifkan(as_role, db_session, encryption
     assert _actions(db_session)[1:] == ["ai_product.deactivated", "ai_product.activated"]
 
 
+def test_produk_ai_dihapus_tercatat(as_role, db_session, encryption_key):
+    client = as_role(Role.ADMIN)
+    produk_id = _produk(client)
+
+    assert client.delete(f"/admin/providers/{produk_id}").status_code == 204
+
+    baris = _log(db_session)[-1]
+    assert baris.action == "ai_product.deleted"
+    assert baris.after["deleted_at"]
+
+
 # --- User ---------------------------------------------------------------------
 
 

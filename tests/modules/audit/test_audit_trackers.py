@@ -252,6 +252,19 @@ def test_produk_ai_diaktifkan_atau_dinonaktifkan(baru, action):
     assert event.after == {"is_active": baru}
 
 
+def test_produk_ai_dihapus_lunak():
+    """D6a: ai_product.deleted, soft delete lewat deleted_at (SCRUM-133)."""
+    # Arrange
+    waktu = datetime(2026, 10, 9, 2, 0, tzinfo=UTC)
+
+    # Act
+    event = _satu(tracker_for("ai_products").updated(_row(), {"deleted_at": Change(None, waktu)}))
+
+    # Assert
+    assert event.action == "ai_product.deleted"
+    assert event.after == {"deleted_at": "2026-10-09T02:00:00+00:00"}
+
+
 def test_produk_ai_diubah_field_non_rahasia():
     # Act
     event = _satu(

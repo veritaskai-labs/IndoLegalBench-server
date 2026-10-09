@@ -84,6 +84,10 @@ class Tracker:
             action=f"{self.prefix}.{verb}", entity_id=row.id, case_id=self.case_id(row), **values
         )
 
+    def _soft_deleted(self, row: Any, change: Change) -> AuditEvent:
+        """<prefix>.deleted untuk soft delete lewat deleted_at (D6a)."""
+        return self._event(row, "deleted", after={"deleted_at": _json(change.new)})
+
     def _field_event(self, row: Any, verb: str, field: str, change: Change) -> AuditEvent:
         return self._event(
             row, verb, before={field: _json(change.old)}, after={field: _json(change.new)}
@@ -99,7 +103,7 @@ class SuiteTracker(Tracker):
 
     def _special_event(self, row: Any, field: str, change: Change) -> AuditEvent:
         if field == "deleted_at":
-            return self._event(row, "deleted", after={"deleted_at": _json(change.new)})
+            return self._soft_deleted(row, change)
         verb = "archived" if _json(change.new) == "archived" else "unarchived"
         return self._field_event(row, verb, field, change)
 
@@ -162,12 +166,14 @@ class AiProductTracker(Tracker):
         "monthly_budget_idr",
         "is_active",
     )
-    fields = (*created_fields, "credential_encrypted")
-    special = frozenset({"credential_encrypted", "is_active"})
+    fields = (*created_fields, "credential_encrypted", "deleted_at")
+    special = frozenset({"credential_encrypted", "is_active", "deleted_at"})
 
     def _special_event(self, row: Any, field: str, change: Change) -> AuditEvent:
         if field == "credential_encrypted":
             return self._event(row, "credential_rotated", after=dict(CREDENTIAL_ROTATED))
+        if field == "deleted_at":
+            return self._soft_deleted(row, change)
         verb = "activated" if change.new else "deactivated"
         return self._field_event(row, verb, field, change)
 
