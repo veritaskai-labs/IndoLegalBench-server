@@ -269,7 +269,7 @@ def test_draft_boleh_belum_lengkap(as_role):
     assert response.status_code == 201
     body = response.json()
     assert body["status"] == "draft"
-    assert body["completeness_pct"] == 71
+    assert body["completeness_pct"] == 83
 
 
 def test_daftar_menyaring_tag(as_role):
@@ -297,6 +297,28 @@ def test_daftar_menyaring_tag(as_role):
     assert [item["id"] for item in hanya_test.json()] == [test_id]
     assert {item["id"] for item in draft.json()} == {dev_id, test_id}
     assert review.json() == []
+
+
+def test_daftar_menghitung_ulang_completeness(as_role, db_session):
+    client = as_role(Role.AUTHOR)
+    suite_id = _suite(client)
+
+    case_id = _buat(client, suite_id, traps=[]).json()["id"]
+
+    kasus = db_session.get(Case, uuid.UUID(case_id))
+    assert kasus is not None
+
+    # Simulate a stale stored completeness value.
+    kasus.completeness["pct"] = 71
+    db_session.commit()
+
+    response = client.get(f"/suites/{suite_id}/cases")
+
+    assert response.status_code == 200
+    body = response.json()
+
+    assert body[0]["id"] == case_id
+    assert body[0]["completeness_pct"] == 100
 
 
 def test_pembuat_boleh_mengubah_termasuk_tag(as_role):
@@ -507,17 +529,18 @@ def test_completeness_kasus_lengkap(as_role):
     assert body["legal_ref_count"] >= 1
 
 
-def test_completeness_tanpa_jebakan_memberi_persentase_sebagian(as_role):
+def test_completeness_tanpa_jebakan_lengkap(as_role):
     client = as_role(Role.AUTHOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id, traps=[]).json()["id"]
 
     body = client.get(f"/cases/{case_id}/completeness").json()
 
-    # 6 dari 7 bagian terisi: round(600 / 7) = 86.
-    assert body["pct"] == 86
-    assert body["ready_for_review"] is False
-    assert [item["field"] for item in body["missing"]] == ["traps"]
+    assert body["pct"] == 100
+    assert body["is_complete"] is True
+    assert body["ready_for_review"] is True
+    assert body["missing"] == []
+    assert body["trap_count"] == 0
 
 
 def test_completeness_kasus_tidak_dikenal(as_role):

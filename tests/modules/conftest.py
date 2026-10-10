@@ -11,9 +11,11 @@ from collections.abc import Callable
 from contextlib import ExitStack
 
 import pytest
+from fastapi import Depends, Request
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.shared import request_context
 from app.shared.database import get_db
 from app.shared.security import CurrentUser, Role, get_current_user
 
@@ -70,8 +72,19 @@ def as_role(db_session, buat_pengguna) -> Callable[..., TestClient]:
         def override_get_db():
             yield db_session
 
+        def pengguna_palsu(request: Request, db=Depends(get_db)):
+            # Sama seperti get_current_user asli: pelaku diikat ke session
+            # supaya pencatat audit (PBI-18) tahu siapa yang mengubah.
+            request_context.bind(
+                db,
+                user_id=pengguna.user_id,
+                role=pengguna.role,
+                request_id=getattr(request.state, "request_id", None),
+            )
+            return pengguna
+
         app.dependency_overrides[get_db] = override_get_db
-        app.dependency_overrides[get_current_user] = lambda: pengguna
+        app.dependency_overrides[get_current_user] = pengguna_palsu
         return stack.enter_context(TestClient(app))
 
     yield login_sebagai

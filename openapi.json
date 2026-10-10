@@ -1358,6 +1358,50 @@
             }
           }
         }
+      },
+      "delete": {
+        "tags": [
+          "providers"
+        ],
+        "summary": "Hapus produk AI (soft delete)",
+        "operationId": "delete_product_admin_providers__product_id__delete",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Product Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Produk AI tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
       }
     },
     "/admin/providers/{product_id}/deactivate": {
@@ -1518,6 +1562,416 @@
           }
         }
       }
+    },
+    "/audit-logs": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "Cari dan saring catatan audit",
+        "operationId": "search_logs_audit_logs_get",
+        "parameters": [
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Batas awal, inklusif. Tanpa zona dianggap WIB",
+              "title": "From"
+            },
+            "description": "Batas awal, inklusif. Tanpa zona dianggap WIB"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Batas akhir, inklusif. Tanpa zona dianggap WIB",
+              "title": "To"
+            },
+            "description": "Batas akhir, inklusif. Tanpa zona dianggap WIB"
+          },
+          {
+            "name": "entity_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AuditEntityType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Jenis data",
+              "title": "Entity Type"
+            },
+            "description": "Jenis data"
+          },
+          {
+            "name": "actor_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor Id"
+            }
+          },
+          {
+            "name": "actor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sebagian nama atau email pelaku",
+              "title": "Actor"
+            },
+            "description": "Sebagian nama atau email pelaku"
+          },
+          {
+            "name": "case_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_AuditLogRead_"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Peran tidak berwenang, atau Reviewer meminta kasus yang tidak ditugaskan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/audit-logs/export": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "Unduh hasil pencarian sebagai CSV atau PDF",
+        "operationId": "export_logs_audit_logs_export_get",
+        "parameters": [
+          {
+            "name": "format",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ExportFormat"
+            }
+          },
+          {
+            "name": "from",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Batas awal, inklusif. Tanpa zona dianggap WIB",
+              "title": "From"
+            },
+            "description": "Batas awal, inklusif. Tanpa zona dianggap WIB"
+          },
+          {
+            "name": "to",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Batas akhir, inklusif. Tanpa zona dianggap WIB",
+              "title": "To"
+            },
+            "description": "Batas akhir, inklusif. Tanpa zona dianggap WIB"
+          },
+          {
+            "name": "entity_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/AuditEntityType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Jenis data",
+              "title": "Entity Type"
+            },
+            "description": "Jenis data"
+          },
+          {
+            "name": "actor_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Actor Id"
+            }
+          },
+          {
+            "name": "actor",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 255
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sebagian nama atau email pelaku",
+              "title": "Actor"
+            },
+            "description": "Sebagian nama atau email pelaku"
+          },
+          {
+            "name": "case_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "File unduhan, waktu dalam WIB",
+            "content": {
+              "text/csv": {},
+              "application/pdf": {}
+            }
+          },
+          "403": {
+            "description": "Peran tidak berwenang, atau Reviewer meminta kasus yang tidak ditugaskan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Saringan tidak valid atau hasil terlalu besar"
+          }
+        }
+      }
+    },
+    "/audit-logs/{log_id}": {
+      "get": {
+        "tags": [
+          "audit"
+        ],
+        "summary": "Buka kembali satu catatan audit",
+        "operationId": "get_log_audit_logs__log_id__get",
+        "parameters": [
+          {
+            "name": "log_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Log Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AuditLogRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Peran tidak berwenang, atau Reviewer meminta kasus yang tidak ditugaskan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Catatan tidak ditemukan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -1658,6 +2112,16 @@
             ],
             "title": "Last Test Message"
           },
+          "last_test_error_category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionTestErrorCategory"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
           "created_by": {
             "type": "string",
             "format": "uuid",
@@ -1688,6 +2152,7 @@
           "last_test_at",
           "last_test_status",
           "last_test_message",
+          "last_test_error_category",
           "created_by",
           "created_at",
           "updated_at"
@@ -1821,6 +2286,156 @@
         "type": "object",
         "title": "AnswerCriteria",
         "description": "Phrases the answer must or must not contain, plus an expected conclusion."
+      },
+      "AuditEntityType": {
+        "type": "string",
+        "enum": [
+          "case",
+          "case_version",
+          "review",
+          "suite",
+          "ai_product",
+          "user"
+        ],
+        "title": "AuditEntityType",
+        "description": "Jenis objek yang dicatat, sesuai katalog event D6a."
+      },
+      "AuditLogRead": {
+        "properties": {
+          "id": {
+            "type": "integer",
+            "title": "Id"
+          },
+          "occurred_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Occurred At"
+          },
+          "actor_user_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor User Id",
+            "description": "Null berarti kejadian oleh sistem"
+          },
+          "actor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Name"
+          },
+          "actor_role": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Actor Role"
+          },
+          "action": {
+            "type": "string",
+            "title": "Action"
+          },
+          "entity_type": {
+            "$ref": "#/components/schemas/AuditEntityType"
+          },
+          "entity_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Entity Id"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id"
+          },
+          "before": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Before"
+          },
+          "after": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "After"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason"
+          },
+          "request_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Request Id"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "occurred_at",
+          "actor_user_id",
+          "actor_name",
+          "actor_role",
+          "action",
+          "entity_type",
+          "entity_id",
+          "case_id",
+          "before",
+          "after",
+          "reason",
+          "request_id"
+        ],
+        "title": "AuditLogRead",
+        "description": "Satu catatan audit, lengkap untuk dibuka kembali sebagai bukti (AC4)."
       },
       "CaseCompleteness": {
         "properties": {
@@ -2107,6 +2722,18 @@
         "title": "CompletenessIssue",
         "description": "Satu bagian yang belum terisi, dengan pesan untuk ditampilkan editor."
       },
+      "ConnectionTestErrorCategory": {
+        "type": "string",
+        "enum": [
+          "access_denied",
+          "model_not_found",
+          "timeout",
+          "unreachable",
+          "unknown"
+        ],
+        "title": "ConnectionTestErrorCategory",
+        "description": "Kategori kegagalan uji koneksi yang mudah dipahami Admin.\n\nNilai ini disimpan di last_test_error_category dan dikembalikan di\nConnectionTestRead agar frontend tidak perlu mem-parsing pesan mentah."
+      },
       "ConnectionTestRead": {
         "properties": {
           "status": {
@@ -2138,6 +2765,16 @@
               }
             ],
             "title": "Message"
+          },
+          "error_category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionTestErrorCategory"
+              },
+              {
+                "type": "null"
+              }
+            ]
           }
         },
         "type": "object",
@@ -2179,6 +2816,14 @@
           "message"
         ],
         "title": "ErrorBody"
+      },
+      "ExportFormat": {
+        "type": "string",
+        "enum": [
+          "csv",
+          "pdf"
+        ],
+        "title": "ExportFormat"
       },
       "HTTPValidationError": {
         "properties": {
@@ -2318,6 +2963,37 @@
           "role"
         ],
         "title": "MeResponse"
+      },
+      "Page_AuditLogRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/AuditLogRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "Page[AuditLogRead]"
       },
       "Page_SuiteRead_": {
         "properties": {
@@ -2540,7 +3216,7 @@
           "description"
         ],
         "title": "Trap",
-        "description": "A known mistake and how the model is expected to handle it."
+        "description": "An optionally included known mistake and how the model is expected to handle it."
       },
       "UserCreateRequest": {
         "properties": {

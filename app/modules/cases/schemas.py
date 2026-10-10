@@ -82,7 +82,7 @@ class AnswerCriteria(BaseModel):
 
 
 class Trap(BaseModel):
-    """A known mistake and how the model is expected to handle it."""
+    """An optionally included known mistake and how the model is expected to handle it."""
 
     description: str = Field(min_length=1, max_length=2000)
     expected_model_behavior: str | None = Field(default=None, max_length=2000)

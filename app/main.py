@@ -11,6 +11,7 @@ Satu-satunya tugas file ini:
 Jangan menaruh logika bisnis di file ini.
 """
 
+import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
@@ -19,6 +20,7 @@ from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
+from app.modules.audit import listener as audit_listener
 from app.modules.audit.router import router as audit_router
 from app.modules.auth.cookies import clear_session_cookie
 from app.modules.auth.oidc import ensure_fake_oidc_allowed
@@ -35,6 +37,9 @@ from app.shared.dev_db import bootstrap_local_sqlite
 from app.shared.exceptions import DomainError, SessionExpiredError
 
 settings = get_settings()
+
+# PBI-18: setiap perubahan di tabel katalog D6a tercatat otomatis.
+audit_listener.install()
 
 
 @asynccontextmanager
@@ -64,6 +69,15 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+
+
+@app.middleware("http")
+async def request_id_middleware(request: Request, call_next):
+    """PBI-18: satu id per request, mengikat baris audit yang lahir bersama."""
+    request.state.request_id = uuid.uuid4()
+    response = await call_next(request)
+    response.headers["X-Request-ID"] = str(request.state.request_id)
+    return response
 
 
 @app.exception_handler(DomainError)
@@ -120,4 +134,4 @@ app.include_router(cases_router)  # PBI-3
 app.include_router(providers_router)  # PBI-10
 app.include_router(runs_router)  # Sprint 3
 app.include_router(reports_router)  # Sprint 4
-app.include_router(audit_router)  # Sprint 4
+app.include_router(audit_router)  # PBI-18

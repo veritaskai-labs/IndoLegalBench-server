@@ -41,3 +41,7 @@ cryptography==44.0.0
 # runtime, jadi harus di sini dan bukan di requirements-dev.txt; tanpa
 # ini setiap login di image Docker gagal 500.
 httpx==0.28.1
+
+# Ekspor audit log ke PDF (PBI-18 AC6). Lisensi BSD, tanpa browser atau
+# dependency sistem, jadi image Docker tidak perlu paket tambahan.
+reportlab==5.0.1

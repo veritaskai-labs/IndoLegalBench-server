@@ -1,10 +1,11 @@
-"""SCRUM-75 SCRUM-114: ai_products schema.
+"""SCRUM-75 SCRUM-114 / SCRUM-133: ai_products schema.
 
 SQLite in-memory, same as the other model tests. These lock the columns
-and checks the ticket names: unique name, positive limits, lowercase
-enum values, and last-test fields that stay empty until SCRUM-116.
+and checks the ticket names: unique active name (partial index), positive
+limits, lowercase enum values, last-test fields, and soft delete.
 """
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
@@ -89,14 +90,45 @@ def test_last_test_status_is_stored_lowercase(db_session):
     assert stored == "failed"
 
 
-def test_duplicate_name_is_rejected(db_session):
+def test_duplicate_active_name_is_rejected(db_session):
+    # Arrange: dua produk aktif dengan nama sama
     admin = _admin(db_session)
     db_session.add(_product(admin.id))
     db_session.commit()
 
+    # Act & Assert: partial unique index menolak duplikat selama deleted_at IS NULL
     db_session.add(_product(admin.id, model_name="aiyu-2"))
     with pytest.raises(IntegrityError):
         db_session.commit()
+
+
+def test_deleted_name_can_be_reused(db_session):
+    # Arrange: produk pertama sudah dihapus (deleted_at diisi)
+    admin = _admin(db_session)
+    first = _product(admin.id, deleted_at=datetime.now(UTC))
+    db_session.add(first)
+    db_session.commit()
+
+    # Act: produk baru dengan nama yang sama boleh dibuat
+    second = _product(admin.id, model_name="aiyu-2")
+    db_session.add(second)
+    db_session.commit()  # tidak boleh raise IntegrityError
+
+    # Assert
+    assert second.id != first.id
+    assert second.name == first.name
+    assert second.deleted_at is None
+
+
+def test_new_product_has_no_deleted_at(db_session):
+    # Arrange & Act
+    admin = _admin(db_session)
+    product = _product(admin.id)
+    db_session.add(product)
+    db_session.commit()
+
+    # Assert
+    assert product.deleted_at is None
 
 
 @pytest.mark.parametrize("rate_limit", [0, -1])

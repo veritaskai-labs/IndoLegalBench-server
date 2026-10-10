@@ -1,4 +1,4 @@
-"""SCRUM-75 SCRUM-116: admin connection test.
+"""SCRUM-75 SCRUM-116 / SCRUM-133: admin connection test and error category mapping.
 
 Provider HTTP is httpx.MockTransport. No live network.
 """
@@ -14,7 +14,9 @@ from app.modules.auth.seeds import ADMIN_SUB, AUTHOR_SUB
 from app.modules.providers.adapters import http as provider_http
 from app.modules.providers.adapters.anthropic_messages import AnthropicMessagesAdapter
 from app.modules.providers.adapters.gemini_interactions import GeminiInteractionsAdapter
-from app.modules.providers.models import AiProduct, LastTestStatus
+from app.modules.providers.adapters.http import classify_error
+from app.modules.providers.adapters.openai_compatible import OpenAICompatibleAdapter
+from app.modules.providers.models import AiProduct, ConnectionTestErrorCategory, LastTestStatus
 from app.shared.config import get_settings
 from tests.login import complete_login
 
@@ -197,6 +199,120 @@ def test_gemini_adapter_sends_api_key_and_does_not_rewrite_url(monkeypatch):
     }
 
 
+def test_gemini_401_returns_access_denied_category(monkeypatch):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "invalid_api_key"})
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = GeminiInteractionsAdapter(
+        base_url="https://generativelanguage.googleapis.com/v1beta/interactions",
+        model_name="gemini-test",
+        api_key="bad-key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "access_denied"
+
+
+def test_gemini_timeout_returns_timeout_category(monkeypatch):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("timed out")
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = GeminiInteractionsAdapter(
+        base_url="https://generativelanguage.googleapis.com/v1beta/interactions",
+        model_name="gemini-test",
+        api_key="key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "timeout"
+
+
+def test_gemini_invalid_body_returns_unknown_category(monkeypatch):
+    # Arrange: response 200 but not a valid JSON object
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, text="not-json")
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = GeminiInteractionsAdapter(
+        base_url="https://generativelanguage.googleapis.com/v1beta/interactions",
+        model_name="gemini-test",
+        api_key="key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "unknown"
+
+
+def test_anthropic_401_returns_access_denied_category(monkeypatch):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": {"type": "authentication_error"}})
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = AnthropicMessagesAdapter(
+        base_url="https://api.anthropic.com/v1/messages",
+        model_name="claude-test",
+        api_key="bad-key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "access_denied"
+
+
+def test_anthropic_timeout_returns_timeout_category(monkeypatch):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("timed out")
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = AnthropicMessagesAdapter(
+        base_url="https://api.anthropic.com/v1/messages",
+        model_name="claude-test",
+        api_key="key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "timeout"
+
+
+def test_anthropic_invalid_body_returns_unknown_category(monkeypatch):
+    # Arrange: 200 but no "content" list
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"id": "msg-1", "type": "message"})
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = AnthropicMessagesAdapter(
+        base_url="https://api.anthropic.com/v1/messages",
+        model_name="claude-test",
+        api_key="key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "unknown"
+
+
 def test_claude_adapter_sends_version_header_and_does_not_rewrite_url(monkeypatch):
     url = "https://api.anthropic.com/v1/messages"
     seen = {}
@@ -226,3 +342,226 @@ def test_claude_adapter_sends_version_header_and_does_not_rewrite_url(monkeypatc
         "max_tokens": 1,
         "messages": [{"role": "user", "content": "ping"}],
     }
+
+
+# --- SCRUM-133: error category mapping ---
+
+
+@pytest.mark.parametrize(
+    "transport_error,expected",
+    [
+        ("connection timed out", "timeout"),
+        ("read timed out", "timeout"),
+        ("could not connect", "unreachable"),
+        ("connection failed", "unknown"),
+        (None, "unknown"),
+    ],
+)
+def test_classify_error_transport(transport_error, expected):
+    # Arrange / Act
+    category = classify_error(transport_error=transport_error)
+    # Assert
+    assert category == expected
+
+
+@pytest.mark.parametrize(
+    "status_code,expected",
+    [
+        (401, "access_denied"),
+        (403, "access_denied"),
+        (404, "model_not_found"),
+        (500, "unknown"),
+        (429, "unknown"),
+    ],
+)
+def test_classify_error_http_status(status_code, expected):
+    # Arrange / Act
+    category = classify_error(status_code=status_code)
+    # Assert
+    assert category == expected
+
+
+def test_openai_401_returns_access_denied_category(monkeypatch):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "invalid_api_key"})
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = OpenAICompatibleAdapter(
+        base_url=_BASE,
+        model_name="gpt-test",
+        api_key="bad-key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "access_denied"
+
+
+def test_openai_403_returns_access_denied_category(monkeypatch):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(403, json={"error": "forbidden"})
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = OpenAICompatibleAdapter(
+        base_url=_BASE,
+        model_name="gpt-test",
+        api_key="bad-key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "access_denied"
+
+
+def test_openai_404_returns_model_not_found_category(monkeypatch):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(404, json={"error": "model_not_found"})
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = OpenAICompatibleAdapter(
+        base_url=_BASE,
+        model_name="no-such-model",
+        api_key="key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "model_not_found"
+
+
+def test_openai_timeout_returns_timeout_category(monkeypatch):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ReadTimeout("timed out")
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = OpenAICompatibleAdapter(
+        base_url=_BASE,
+        model_name="gpt-test",
+        api_key="key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "timeout"
+
+
+def test_openai_connect_error_returns_unreachable_category(monkeypatch):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        raise httpx.ConnectError("could not connect")
+
+    _mock_transport(monkeypatch, handler)
+
+    # Act
+    result = OpenAICompatibleAdapter(
+        base_url=_BASE,
+        model_name="gpt-test",
+        api_key="key",  # pragma: allowlist secret
+    ).test_connection()
+
+    # Assert
+    assert result.status == "failed"
+    assert result.error_category == "unreachable"
+
+
+def test_connection_test_endpoint_returns_error_category(
+    client, db_session, encryption_key, monkeypatch
+):
+    # Arrange
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, json={"error": "unauthorized"})
+
+    _mock_transport(monkeypatch, handler)
+    complete_login(client, db_session, ADMIN_SUB)
+    created = client.post("/admin/providers", json=_payload(name="CategoryTest"))
+    product_id = created.json()["id"]
+
+    # Act
+    response = client.post(f"/admin/providers/{product_id}/test-connection")
+
+    # Assert
+    body = response.json()
+    assert response.status_code == 200
+    assert body["status"] == "failed"
+    assert body["error_category"] == "access_denied"
+
+    # kategori juga tersimpan di DB dan muncul di GET produk
+    db_session.expire_all()
+    stored = db_session.get(AiProduct, uuid.UUID(product_id))
+    assert stored.last_test_error_category == ConnectionTestErrorCategory.ACCESS_DENIED
+
+    get_resp = client.get(f"/admin/providers/{product_id}")
+    assert get_resp.json()["last_test_error_category"] == "access_denied"
+
+
+def test_api_key_is_not_stored_in_last_test_message(
+    client, db_session, encryption_key, monkeypatch
+):
+    # Arrange: provider returns the API key verbatim in the error body
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(401, text=f"rejected token {_SECRET}")
+
+    _mock_transport(monkeypatch, handler)
+    complete_login(client, db_session, ADMIN_SUB)
+    created = client.post("/admin/providers", json=_payload(name="KeyLeakCheck"))
+    product_id = created.json()["id"]
+
+    # Act
+    response = client.post(f"/admin/providers/{product_id}/test-connection")
+
+    # Assert: API key absent from HTTP response
+    assert response.status_code == 200
+    assert _SECRET not in response.text
+
+    # Assert: API key absent from what is stored in last_test_message
+    db_session.expire_all()
+    stored = db_session.get(AiProduct, uuid.UUID(product_id))
+    assert stored.last_test_message is not None
+    assert _SECRET not in stored.last_test_message
+    # category is still set correctly despite sanitization
+    assert stored.last_test_error_category == ConnectionTestErrorCategory.ACCESS_DENIED
+
+
+def test_successful_test_clears_error_category(client, db_session, encryption_key, monkeypatch):
+    # Arrange: gunakan satu mock transport dengan handler yang bisa diganti
+    responses = {"handler": lambda req: httpx.Response(401, json={"error": "unauthorized"})}
+
+    def dispatch(request: httpx.Request) -> httpx.Response:
+        return responses["handler"](request)
+
+    _mock_transport(monkeypatch, dispatch)
+    complete_login(client, db_session, ADMIN_SUB)
+    created = client.post("/admin/providers", json=_payload(name="ClearCategory"))
+    product_id = created.json()["id"]
+
+    # tes pertama gagal
+    client.post(f"/admin/providers/{product_id}/test-connection")
+
+    # ganti handler: tes sekarang berhasil
+    responses["handler"] = lambda req: httpx.Response(
+        200, json={"choices": [{"message": {"content": ""}}]}
+    )
+
+    # Act
+    response = client.post(f"/admin/providers/{product_id}/test-connection")
+
+    # Assert
+    body = response.json()
+    assert body["status"] == "ok"
+    assert body.get("error_category") is None
+
+    db_session.expire_all()
+    stored = db_session.get(AiProduct, uuid.UUID(product_id))
+    assert stored.last_test_error_category is None

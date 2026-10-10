@@ -14,7 +14,13 @@ from app.modules.providers.adapters.base import (
     ProviderAdapter,
     ProviderResponse,
 )
-from app.modules.providers.adapters.http import http_failure, invalid_body, json_object, post_json
+from app.modules.providers.adapters.http import (
+    classify_error,
+    http_failure,
+    invalid_body,
+    json_object,
+    post_json,
+)
 
 
 class GeminiInteractionsAdapter(ProviderAdapter):
@@ -41,16 +47,22 @@ class GeminiInteractionsAdapter(ProviderAdapter):
             },
         )
         if error is not None or response is None:
-            return ConnectionTestResult(status="failed", message=error or "connection failed")
+            return ConnectionTestResult(
+                status="failed",
+                message=error or "connection failed",
+                error_category=classify_error(transport_error=error),
+            )
         if not 200 <= response.status_code < 300:
             return ConnectionTestResult(
                 status="failed",
                 message=http_failure(response, self._api_key),
+                error_category=classify_error(status_code=response.status_code),
             )
         if json_object(response) is None:
             return ConnectionTestResult(
                 status="failed",
                 message=invalid_body(response, self._api_key),
+                error_category=classify_error(),
             )
         return ConnectionTestResult(status="ok", latency_ms=latency_ms)
 

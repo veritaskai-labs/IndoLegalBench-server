@@ -32,3 +32,6 @@ ignore = [
 testpaths = ["tests"]
 pythonpath = ["."]
 addopts = "-q --cov=app --cov-report=term-missing"
+markers = [
+    "postgres: needs a migrated PostgreSQL in TEST_POSTGRES_URL, skipped otherwise",
+]
