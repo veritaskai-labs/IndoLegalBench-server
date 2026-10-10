@@ -153,6 +153,13 @@ def upgrade() -> None:
     op.execute(_BACKFILL)
     op.execute(_POINT_CURRENT)
     op.execute(_POINT_APPROVED)
+    # The backfill queued deferred FK checks on case_versions. PostgreSQL
+    # refuses ALTER TABLE on a table with pending trigger events, and alembic
+    # runs every revision in one transaction, so later revisions that alter
+    # case_versions failed on any database that already had cases. Run the
+    # checks now instead of at commit.
+    if op.get_bind().dialect.name == "postgresql":
+        op.execute("SET CONSTRAINTS ALL IMMEDIATE")
     op.alter_column("cases", "current_version_id", nullable=False)
     op.create_foreign_key(
         "fk_cases_current_version_id",
