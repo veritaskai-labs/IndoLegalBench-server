@@ -155,6 +155,11 @@ def find_user_ids(db: DbSession, text: str) -> list[uuid.UUID]:
     return repository.find_user_ids_matching(db, text)
 
 
+def active_reviewer_ids(db: DbSession) -> list[uuid.UUID]:
+    """Reviewer aktif yang boleh ditugaskan review (PBI-6 AC2)."""
+    return repository.get_active_reviewer_ids(db)
+
+
 def user_names(db: DbSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
     """Nama pelaku untuk tampilan audit log. Id yang tidak dikenal tidak ada di hasil."""
     if not user_ids:
