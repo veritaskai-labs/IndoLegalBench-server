@@ -772,6 +772,189 @@
         }
       }
     },
+    "/suites/{suite_id}/snapshots": {
+      "post": {
+        "tags": [
+          "suites"
+        ],
+        "summary": "Bekukan suite sebagai snapshot",
+        "description": "Freeze the approved cases. No request body and no name.",
+        "operationId": "create_snapshot_suites__suite_id__snapshots_post",
+        "parameters": [
+          {
+            "name": "suite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Suite Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Suite tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Suite tidak punya kasus approved (`NOTHING_TO_SNAPSHOT`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "suites"
+        ],
+        "summary": "Daftar snapshot satu suite",
+        "description": "List snapshots, newest first.\n\nAuthor, Reviewer, Admin, and Viewer. SCRUM-138 shows this list to Viewer.\nCreating a snapshot stays Admin only.",
+        "operationId": "list_snapshots_suites__suite_id__snapshots_get",
+        "parameters": [
+          {
+            "name": "suite_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Suite Id"
+            }
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_SnapshotSummary_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/snapshots/{snapshot_id}": {
+      "get": {
+        "tags": [
+          "snapshots"
+        ],
+        "summary": "Isi satu snapshot",
+        "description": "Return the frozen items. The body is the stored copy.\n\nAuthor, Reviewer, Admin, and Viewer. SCRUM-138 shows this page to Viewer.\nCreating a snapshot stays Admin only.",
+        "operationId": "get_snapshot_snapshots__snapshot_id__get",
+        "parameters": [
+          {
+            "name": "snapshot_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Snapshot Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SnapshotRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Snapshot tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/suites/{suite_id}/cases": {
       "post": {
         "tags": [
@@ -1147,6 +1330,140 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Riwayat versi satu kasus",
+        "description": "List every stored version, oldest number first.\n\nAuthor, Reviewer, Admin, and Viewer. SCRUM-138 shows this history to\nViewer, and a Reviewer needs it while a new version is in review.",
+        "operationId": "list_case_versions_cases__case_id__versions_get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/VersionSummary"
+                  },
+                  "title": "Response List Case Versions Cases  Case Id  Versions Get"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cases/{case_id}/versions/compare": {
+      "get": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Bandingkan dua nomor versi",
+        "description": "Diff two version numbers of one case. The diff is computed on request.\n\nAuthor, Reviewer, Admin, and Viewer. SCRUM-138 shows this compare to\nViewer, and a Reviewer needs it while a new version is in review.",
+        "operationId": "compare_case_versions_cases__case_id__versions_compare_get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "a",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Nomor versi pertama",
+              "title": "A"
+            },
+            "description": "Nomor versi pertama"
+          },
+          {
+            "name": "b",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "description": "Nomor versi kedua",
+              "title": "B"
+            },
+            "description": "Nomor versi kedua"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VersionCompare"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus atau nomor versi tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -2050,6 +2367,26 @@
   },
   "components": {
     "schemas": {
+      "ActorRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ActorRead",
+        "description": "Who wrote a version, or who froze a suite snapshot."
+      },
       "AiProductCreate": {
         "properties": {
           "name": {
@@ -3069,6 +3406,37 @@
         ],
         "title": "Page[AuditLogRead]"
       },
+      "Page_SnapshotSummary_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotSummary"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "Page[SnapshotSummary]"
+      },
       "Page_SuiteRead_": {
         "properties": {
           "items": {
@@ -3119,6 +3487,102 @@
           "viewer"
         ],
         "title": "Role"
+      },
+      "SnapshotItemRead": {
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Case Id"
+          },
+          "case_version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Case Version Id"
+          },
+          "body": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Body"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_id",
+          "case_version_id",
+          "body"
+        ],
+        "title": "SnapshotItemRead",
+        "description": "One frozen case. body is the copy taken at snapshot time."
+      },
+      "SnapshotRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "suite_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Suite Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "author": {
+            "$ref": "#/components/schemas/ActorRead"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/SnapshotItemRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "suite_id",
+          "created_at",
+          "author",
+          "items"
+        ],
+        "title": "SnapshotRead",
+        "description": "GET /snapshots/{id} and the body of POST /suites/{id}/snapshots."
+      },
+      "SnapshotSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "author": {
+            "$ref": "#/components/schemas/ActorRead"
+          },
+          "case_count": {
+            "type": "integer",
+            "title": "Case Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "created_at",
+          "author",
+          "case_count"
+        ],
+        "title": "SnapshotSummary",
+        "description": "One row of GET /suites/{id}/snapshots. Items are on the detail route."
       },
       "SplitTag": {
         "type": "string",
@@ -3401,6 +3865,157 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VersionCompare": {
+        "properties": {
+          "a": {
+            "$ref": "#/components/schemas/VersionSide"
+          },
+          "b": {
+            "$ref": "#/components/schemas/VersionSide"
+          },
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Changed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "a",
+          "b",
+          "changed"
+        ],
+        "title": "VersionCompare",
+        "description": "GET /cases/{id}/versions/compare. a and b are version numbers."
+      },
+      "VersionSections": {
+        "properties": {
+          "identity.title": {
+            "type": "string",
+            "title": "Identity.Title"
+          },
+          "identity.question": {
+            "type": "string",
+            "title": "Identity.Question"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          },
+          "split_tag": {
+            "type": "string",
+            "title": "Split Tag"
+          },
+          "legal_refs": {
+            "items": {},
+            "type": "array",
+            "title": "Legal Refs"
+          },
+          "answer_criteria": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Answer Criteria"
+          },
+          "traps": {
+            "items": {},
+            "type": "array",
+            "title": "Traps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "identity.title",
+          "identity.question",
+          "case_code",
+          "split_tag",
+          "legal_refs",
+          "answer_criteria",
+          "traps"
+        ],
+        "title": "VersionSections",
+        "description": "One version split into the eight SCRUM-137 sections.\n\nThe dotted names are the API keys. See app/modules/cases/sections.py."
+      },
+      "VersionSide": {
+        "properties": {
+          "version_no": {
+            "type": "integer",
+            "title": "Version No"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaseStatus"
+          },
+          "author": {
+            "$ref": "#/components/schemas/ActorRead"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "sections": {
+            "$ref": "#/components/schemas/VersionSections"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version_no",
+          "status",
+          "author",
+          "created_at",
+          "sections"
+        ],
+        "title": "VersionSide",
+        "description": "One side of a compare. sections uses the eight section names."
+      },
+      "VersionSummary": {
+        "properties": {
+          "version_no": {
+            "type": "integer",
+            "title": "Version No"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaseStatus"
+          },
+          "author": {
+            "$ref": "#/components/schemas/ActorRead"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "changed": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Changed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "version_no",
+          "status",
+          "author",
+          "created_at",
+          "changed"
+        ],
+        "title": "VersionSummary",
+        "description": "One row of GET /cases/{id}/versions."
       }
     }
   }

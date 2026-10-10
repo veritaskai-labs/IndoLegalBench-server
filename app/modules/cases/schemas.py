@@ -180,3 +180,56 @@ class CaseCompleteness(BaseModel):
     missing: list[CompletenessIssue]
     trap_count: int
     legal_ref_count: int
+
+
+class ActorRead(BaseModel):
+    """Who wrote a version, or who froze a suite snapshot."""
+
+    id: uuid.UUID
+    name: str
+
+
+class VersionSummary(BaseModel):
+    """One row of GET /cases/{id}/versions."""
+
+    version_no: int
+    status: CaseStatus
+    author: ActorRead
+    created_at: datetime
+    changed: list[str]
+
+
+class VersionSections(BaseModel):
+    """One version split into the eight SCRUM-137 sections.
+
+    The dotted names are the API keys. See app/modules/cases/sections.py.
+    """
+
+    model_config = ConfigDict(populate_by_name=True)
+
+    identity_title: str = Field(alias="identity.title")
+    identity_question: str = Field(alias="identity.question")
+    category: str | None = None
+    case_code: str
+    split_tag: str
+    legal_refs: list[Any]
+    answer_criteria: dict[str, Any]
+    traps: list[Any]
+
+
+class VersionSide(BaseModel):
+    """One side of a compare. sections uses the eight section names."""
+
+    version_no: int
+    status: CaseStatus
+    author: ActorRead
+    created_at: datetime
+    sections: VersionSections
+
+
+class VersionCompare(BaseModel):
+    """GET /cases/{id}/versions/compare. a and b are version numbers."""
+
+    a: VersionSide
+    b: VersionSide
+    changed: list[str]

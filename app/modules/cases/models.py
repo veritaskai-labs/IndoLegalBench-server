@@ -143,6 +143,7 @@ class CaseVersion(Base):
         _enum(CaseStatus, "case_status_enum"),
         nullable=False,
     )
+    case_code: Mapped[str] = mapped_column(String(64), nullable=False)
     split_tag: Mapped[SplitTag] = mapped_column(
         _enum(SplitTag, "case_split_tag_enum"),
         nullable=False,

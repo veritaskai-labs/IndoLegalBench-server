@@ -72,6 +72,40 @@ def has_approved(db: Session, suite_id: uuid.UUID) -> bool:
     )
 
 
+def list_versions(db: Session, case_id: uuid.UUID) -> list[CaseVersion]:
+    """Every version of one case, oldest version_no first."""
+    return (
+        db.query(CaseVersion)
+        .filter(CaseVersion.case_id == case_id)
+        .order_by(CaseVersion.version_no.asc())
+        .all()
+    )
+
+
+def get_version(db: Session, case_id: uuid.UUID, version_no: int) -> CaseVersion | None:
+    """One version of this case, or None when that number is not stored."""
+    return (
+        db.query(CaseVersion)
+        .filter(CaseVersion.case_id == case_id, CaseVersion.version_no == version_no)
+        .one_or_none()
+    )
+
+
+def approved_for_suite(db: Session, suite_id: uuid.UUID) -> list[tuple[Case, CaseVersion]]:
+    """Cases in the suite that have an approved version, with that version.
+
+    The version is latest_approved_version, not an open draft. Ordered by
+    case_code so a snapshot's items are stable.
+    """
+    return (
+        db.query(Case, CaseVersion)
+        .join(CaseVersion, CaseVersion.id == Case.latest_approved_version_id)
+        .filter(Case.suite_id == suite_id, Case.latest_approved_version_id.is_not(None))
+        .order_by(Case.case_code.asc())
+        .all()
+    )
+
+
 def max_version_no(db: Session, case_id: uuid.UUID) -> int:
     """Highest version_no stored for the case, or 0 when it has none."""
     tertinggi = (

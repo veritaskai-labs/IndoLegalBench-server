@@ -12,13 +12,22 @@ from sqlalchemy.orm import Session
 from app.modules.auth.schemas import ErrorBody
 from app.modules.cases import service
 from app.modules.cases.models import CaseStatus, SplitTag
-from app.modules.cases.schemas import CaseCompleteness, CaseRead, CaseSummary, CaseWrite
+from app.modules.cases.schemas import (
+    CaseCompleteness,
+    CaseRead,
+    CaseSummary,
+    CaseWrite,
+    VersionCompare,
+    VersionSummary,
+)
 from app.shared.database import get_db
 from app.shared.security import CurrentUser, Role, require_roles
 
 router = APIRouter(tags=["cases"])
 
 _can_write = require_roles(Role.AUTHOR, Role.ADMIN)
+# SCRUM-138: Viewer sees history, and a Reviewer re-reviews a new version.
+_can_read_versions = require_roles(Role.AUTHOR, Role.REVIEWER, Role.ADMIN, Role.VIEWER)
 
 _ERROR_CODES = {
     403: {"model": ErrorBody, "description": "Bukan pembuat kasus dan bukan admin."},
@@ -142,6 +151,50 @@ def start_case_version(
         actor_id=_user_id(user),
         is_admin=user.role == Role.ADMIN,
     )
+
+
+@router.get(
+    "/cases/{case_id}/versions",
+    response_model=list[VersionSummary],
+    summary="Riwayat versi satu kasus",
+    responses={
+        404: {"model": ErrorBody, "description": "Kasus tidak ditemukan."},
+    },
+)
+def list_case_versions(
+    case_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(_can_read_versions),
+) -> list[VersionSummary]:
+    """List every stored version, oldest number first.
+
+    Author, Reviewer, Admin, and Viewer. SCRUM-138 shows this history to
+    Viewer, and a Reviewer needs it while a new version is in review.
+    """
+    return service.list_case_versions(db, case_id)
+
+
+@router.get(
+    "/cases/{case_id}/versions/compare",
+    response_model=VersionCompare,
+    summary="Bandingkan dua nomor versi",
+    responses={
+        404: {"model": ErrorBody, "description": "Kasus atau nomor versi tidak ditemukan."},
+    },
+)
+def compare_case_versions(
+    case_id: uuid.UUID,
+    a: int = Query(..., ge=1, description="Nomor versi pertama"),
+    b: int = Query(..., ge=1, description="Nomor versi kedua"),
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(_can_read_versions),
+) -> VersionCompare:
+    """Diff two version numbers of one case. The diff is computed on request.
+
+    Author, Reviewer, Admin, and Viewer. SCRUM-138 shows this compare to
+    Viewer, and a Reviewer needs it while a new version is in review.
+    """
+    return service.compare_case_versions(db, case_id, a, b)
 
 
 @router.get(

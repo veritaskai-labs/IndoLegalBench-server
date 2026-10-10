@@ -13,9 +13,20 @@ import uuid
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.modules.cases import completeness, repository, validation
+from app.modules.auth import service as auth_service
+from app.modules.cases import completeness, repository, sections, validation
 from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
-from app.modules.cases.schemas import CaseCompleteness, CaseRead, CaseSummary, CaseWrite
+from app.modules.cases.schemas import (
+    ActorRead,
+    CaseCompleteness,
+    CaseRead,
+    CaseSummary,
+    CaseWrite,
+    VersionCompare,
+    VersionSections,
+    VersionSide,
+    VersionSummary,
+)
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
 
 CASE_CODE_TAKEN = "CASE_CODE_TAKEN"
@@ -52,6 +63,7 @@ def create_case(
         case_id=case_id,
         version_no=1,
         status=CaseStatus.DRAFT,
+        case_code=payload.case_code,
         split_tag=payload.split_tag,
         content={},
         created_by=actor_id,
@@ -158,6 +170,7 @@ def start_new_version(
         case_id=case.id,
         version_no=repository.max_version_no(db, case.id) + 1,
         status=CaseStatus.DRAFT,
+        case_code=approved.case_code,
         split_tag=approved.split_tag,
         content=copy.deepcopy(approved.content or {}),
         created_by=actor_id,
@@ -177,6 +190,75 @@ def start_new_version(
     return _to_read(case, version)
 
 
+def list_case_versions(db: Session, case_id: uuid.UUID) -> list[VersionSummary]:
+    """Every version, with the sections that differ from the previous one.
+
+    Version 1 has an empty changed list. The diff is computed here, not stored.
+    """
+    case = _require_case(db, case_id)
+    versions = repository.list_versions(db, case.id)
+    names = auth_service.user_names(db, {version.created_by for version in versions})
+    previous: dict | None = None
+    rows: list[VersionSummary] = []
+    for version in versions:
+        current = _section_values(version)
+        changed = [] if previous is None else sections.changed_sections(previous, current)
+        rows.append(
+            VersionSummary(
+                version_no=version.version_no,
+                status=version.status,
+                author=_author(version.created_by, names),
+                created_at=version.created_at,
+                changed=changed,
+            )
+        )
+        previous = current
+    return rows
+
+
+def compare_case_versions(db: Session, case_id: uuid.UUID, a: int, b: int) -> VersionCompare:
+    """Diff version numbers a and b of one case.
+
+    The same number compared with itself has an empty changed list. A number
+    that is not on this case is a 404.
+    """
+    case = _require_case(db, case_id)
+    left = _require_version(db, case.id, a)
+    right = _require_version(db, case.id, b)
+    names = auth_service.user_names(db, {left.created_by, right.created_by})
+    left_sections = _section_values(left)
+    right_sections = _section_values(right)
+    changed = [] if a == b else sections.changed_sections(left_sections, right_sections)
+    return VersionCompare(
+        a=_version_side(left, names, left_sections),
+        b=_version_side(right, names, right_sections),
+        changed=changed,
+    )
+
+
+def approved_copies_for_suite(db: Session, suite_id: uuid.UUID) -> list[dict]:
+    """Frozen bodies of each case's latest approved version.
+
+    Draft-only cases are left out.
+    """
+    copies: list[dict] = []
+    for case, version in repository.approved_for_suite(db, suite_id):
+        copies.append(
+            {
+                "case_id": case.id,
+                "case_version_id": version.id,
+                "body": sections.snapshot_body(
+                    case_code=version.case_code,
+                    version_no=version.version_no,
+                    status=version.status.value,
+                    split_tag=version.split_tag.value,
+                    content=version.content,
+                ),
+            }
+        )
+    return copies
+
+
 def count_for_suite(db: Session, suite_id: uuid.UUID) -> int:
     """Count cases in one suite. Called by the suites module."""
     return repository.count_for_suite(db, suite_id)
@@ -185,6 +267,30 @@ def count_for_suite(db: Session, suite_id: uuid.UUID) -> int:
 def has_approved_case(db: Session, suite_id: uuid.UUID) -> bool:
     """True when the suite contains a case that has an approved version."""
     return repository.has_approved(db, suite_id)
+
+
+def _version_side(version: CaseVersion, names: dict[uuid.UUID, str], values: dict) -> VersionSide:
+    return VersionSide(
+        version_no=version.version_no,
+        status=version.status,
+        author=_author(version.created_by, names),
+        created_at=version.created_at,
+        sections=VersionSections.model_validate(values),
+    )
+
+
+def _author(user_id: uuid.UUID, names: dict[uuid.UUID, str]) -> ActorRead:
+    """Id plus display name. A missing user row leaves the name empty."""
+    return ActorRead(id=user_id, name=names.get(user_id, ""))
+
+
+def _section_values(version: CaseVersion) -> dict:
+    """The eight sections for one version, including its stored case_code."""
+    return sections.sections_from(
+        case_code=version.case_code,
+        split_tag=version.split_tag.value,
+        content=version.content,
+    )
 
 
 def _catat_versi_baru(version: CaseVersion) -> None:
@@ -203,6 +309,7 @@ def _write_version(
     data = payload.model_dump(mode="json")
     case.case_code = payload.case_code
     case.updated_by = actor_id
+    version.case_code = payload.case_code
     version.split_tag = payload.split_tag
     version.content = {
         "title": payload.identity.title,
@@ -294,6 +401,14 @@ def _completeness_pct(mentah: dict | None) -> int:
         return int(mentah.get("pct", 0))
     except (TypeError, ValueError):
         return 0
+
+
+def _require_version(db: Session, case_id: uuid.UUID, version_no: int) -> CaseVersion:
+    """Load one version of this case, or raise NotFoundError."""
+    version = repository.get_version(db, case_id, version_no)
+    if version is None:
+        raise NotFoundError("Versi tidak ditemukan")
+    return version
 
 
 def _require_case(db: Session, case_id: uuid.UUID) -> Case:
