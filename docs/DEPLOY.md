@@ -453,7 +453,8 @@ mv /var/backups/indolegalbench/indolegalbench-*.sql.gz /var/backups/indolegalben
 crontab -e
 ```
 
-Finally section 9, so merges to `staging` redeploy dev.
+Finally section 9, so merges to `staging` redeploy dev, and section 12 for
+dev, so its audit log retention runs.
 
 ## 12. Audit log retention (once per stack)
 
