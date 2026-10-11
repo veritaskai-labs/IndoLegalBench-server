@@ -22,11 +22,13 @@ from app.modules.cases.schemas import (
     CaseRead,
     CaseSummary,
     CaseWrite,
+    ReviewSubmission,
     VersionCompare,
     VersionSections,
     VersionSide,
     VersionSummary,
 )
+from app.modules.reviews import service as reviews_service
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
 
 CASE_CODE_TAKEN = "CASE_CODE_TAKEN"
@@ -36,6 +38,8 @@ SPLIT_TAG_LOCKED = "SPLIT_TAG_LOCKED"
 VERSION_LOCKED = "VERSION_LOCKED"
 VERSION_IN_PROGRESS = "VERSION_IN_PROGRESS"
 NO_APPROVED_VERSION = "NO_APPROVED_VERSION"
+CASE_NOT_READY = "CASE_NOT_READY"
+VERSION_NOT_SUBMITTABLE = "VERSION_NOT_SUBMITTABLE"
 
 _EDITABLE = frozenset({CaseStatus.DRAFT, CaseStatus.NEEDS_REVISION})
 _IN_PROGRESS = frozenset({CaseStatus.DRAFT, CaseStatus.IN_REVIEW, CaseStatus.NEEDS_REVISION})
@@ -188,6 +192,44 @@ def start_new_version(
             code=VERSION_IN_PROGRESS,
         ) from None
     return _to_read(case, version)
+
+
+def submit_for_review(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -> ReviewSubmission:
+    """Ajukan versi yang sedang dikerjakan untuk direview (PBI-6 AC1, D3 langkah 1-12).
+
+    Hanya pembuat kasus, hanya versi draft atau needs_revision, dan hanya
+    bila guard D2 lolos. Status versi dan round baru disimpan dalam satu
+    commit, jadi tidak ada versi in_review tanpa round.
+    """
+    case = _require_case(db, case_id)
+    _require_active_suite(db, case.suite_id)
+    if case.created_by != actor_id:
+        raise ForbiddenError("Hanya penulis kasus yang boleh mengajukannya untuk direview")
+    version = case.current_version
+    _require_submittable(version)
+    kurang = completeness.review_blockers(completeness.row_data(case))
+    if kurang:
+        raise ValidationError(
+            "Kasus belum siap diajukan. Lengkapi bagian yang disebut di `missing`.",
+            code=CASE_NOT_READY,
+            details={"missing": kurang},
+        )
+    version.status = CaseStatus.IN_REVIEW
+    case.updated_by = actor_id
+    try:
+        ronde = reviews_service.open_round(db, case_id=case.id, case_version_id=version.id)
+        repository.save(db, case)
+    except IntegrityError:
+        # Pengajuan lain untuk versi yang sama menang lebih dulu.
+        db.rollback()
+        raise _not_submittable("Versi ini sudah diajukan dan sedang ditinjau.") from None
+    return ReviewSubmission(
+        case_id=case.id,
+        version=version.version_no,
+        status=version.status,
+        round_no=ronde.round_no,
+        round_status=str(ronde.status),
+    )
 
 
 def list_case_versions(db: Session, case_id: uuid.UUID) -> list[VersionSummary]:
@@ -432,6 +474,19 @@ def _require_editable(version: CaseVersion) -> None:
         "Versi yang sedang ditinjau tidak bisa diubah.",
         code=VERSION_LOCKED,
     )
+
+
+def _require_submittable(version: CaseVersion) -> None:
+    """Hanya draft atau needs_revision yang bisa diajukan."""
+    if version.status in _EDITABLE:
+        return
+    if version.status == CaseStatus.IN_REVIEW:
+        raise _not_submittable("Versi ini sudah diajukan dan sedang ditinjau.")
+    raise _not_submittable("Versi ini sudah disetujui. Buat versi baru untuk mengajukan perubahan.")
+
+
+def _not_submittable(message: str) -> ConflictError:
+    return ConflictError(message, code=VERSION_NOT_SUBMITTABLE)
 
 
 def _require_suite(db: Session, suite_id: uuid.UUID):
