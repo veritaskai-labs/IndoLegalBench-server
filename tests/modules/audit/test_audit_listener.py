@@ -223,6 +223,37 @@ def test_tag_kasus_diubah_dev_ke_test(as_role, db_session):
     assert baris.after == {"split_tag": "test", "warning": True}
 
 
+def test_kasus_diajukan_tercatat_sekali_dengan_nomor_round(as_role, db_session):
+    """SCRUM-143: pengajuan tercatat di audit (D6a case.submitted)."""
+    # Arrange
+    client = as_role(Role.AUTHOR)
+    kasus = client.post(f"/suites/{_suite(client)}/cases", json=_kasus()).json()
+
+    # Act
+    assert client.post(f"/cases/{kasus['id']}/submit-review").status_code == 200
+
+    # Assert
+    [baris] = [item for item in _log(db_session) if item.action == "case.submitted"]
+    assert baris.after == {"status": "in_review", "round_no": 1}
+    assert str(baris.case_id) == kasus["id"]
+    assert baris.actor_user_id == USER_ID_QA
+    assert "case.status_changed" not in _actions(db_session)
+
+
+def test_pengajuan_ditolak_tidak_tercatat(as_role, db_session):
+    # Arrange
+    client = as_role(Role.AUTHOR)
+    kasus = client.post(
+        f"/suites/{_suite(client)}/cases", json=_kasus(traps=[], answer_criteria={})
+    ).json()
+
+    # Act
+    assert client.post(f"/cases/{kasus['id']}/submit-review").status_code == 422
+
+    # Assert
+    assert "case.submitted" not in _actions(db_session)
+
+
 # --- AI product ---------------------------------------------------------------
 
 

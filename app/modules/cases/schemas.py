@@ -233,3 +233,23 @@ class VersionCompare(BaseModel):
     a: VersionSide
     b: VersionSide
     changed: list[str]
+
+
+class ReviewSubmission(BaseModel):
+    """POST /cases/{id}/submit-review. The version now waits for reviewers."""
+
+    case_id: uuid.UUID
+    version: int = Field(description="Nomor versi yang diajukan")
+    status: CaseStatus
+    round_no: int = Field(description="1 untuk pengajuan pertama, naik setiap pengajuan ulang")
+    round_status: str = Field(
+        description="awaiting_assignment sampai dua reviewer terpasang (SCRUM-144)"
+    )
+
+
+class CaseNotReadyBody(BaseModel):
+    """422 CASE_NOT_READY: every section that blocks the submission."""
+
+    code: str = Field(examples=["CASE_NOT_READY"])
+    message: str
+    missing: list[CompletenessIssue]

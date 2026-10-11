@@ -14,9 +14,11 @@ from app.modules.cases import service
 from app.modules.cases.models import CaseStatus, SplitTag
 from app.modules.cases.schemas import (
     CaseCompleteness,
+    CaseNotReadyBody,
     CaseRead,
     CaseSummary,
     CaseWrite,
+    ReviewSubmission,
     VersionCompare,
     VersionSummary,
 )
@@ -26,6 +28,8 @@ from app.shared.security import CurrentUser, Role, require_roles
 router = APIRouter(tags=["cases"])
 
 _can_write = require_roles(Role.AUTHOR, Role.ADMIN)
+# D5a: only an Author submits, and only their own case (checked in the service).
+_can_submit = require_roles(Role.AUTHOR)
 # SCRUM-138: Viewer sees history, and a Reviewer re-reviews a new version.
 _can_read_versions = require_roles(Role.AUTHOR, Role.REVIEWER, Role.ADMIN, Role.VIEWER)
 
@@ -151,6 +155,38 @@ def start_case_version(
         actor_id=_user_id(user),
         is_admin=user.role == Role.ADMIN,
     )
+
+
+@router.post(
+    "/cases/{case_id}/submit-review",
+    response_model=ReviewSubmission,
+    summary="Ajukan kasus untuk direview",
+    responses={
+        403: {"model": ErrorBody, "description": "Bukan Author atau bukan penulis kasus ini."},
+        404: _ERROR_CODES[404],
+        409: {
+            "model": ErrorBody,
+            "description": (
+                "Versi sedang ditinjau atau sudah disetujui (`VERSION_NOT_SUBMITTABLE`)."
+            ),
+        },
+        422: {
+            "model": CaseNotReadyBody,
+            "description": (
+                "Kelengkapan belum 100%, tag kosong, atau rujukan hukum belum lengkap "
+                "(`CASE_NOT_READY`, daftar di `missing`). Suite tidak aktif "
+                "(`SUITE_NOT_ACTIVE`)."
+            ),
+        },
+    },
+)
+def submit_for_review(
+    case_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(_can_submit),
+) -> ReviewSubmission:
+    """PBI-6 AC1. The version becomes in_review and a new review round is created."""
+    return service.submit_for_review(db, case_id, actor_id=_user_id(user))
 
 
 @router.get(

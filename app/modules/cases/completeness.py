@@ -36,6 +36,7 @@ _PESAN = {
     "legal_refs": "Butuh minimal satu rujukan hukum sampai tingkat pasal.",
     "answer_criteria": "Butuh minimal satu kriteria jawaban.",
 }
+_PESAN_RUJUKAN = "Rujukan hukum harus lengkap sampai pasal."
 
 
 def evaluate(data: dict[str, Any]) -> dict[str, Any]:
@@ -67,24 +68,56 @@ def evaluate(data: dict[str, Any]) -> dict[str, Any]:
     }
 
 
+def review_blockers(data: dict[str, Any]) -> list[dict[str, str]]:
+    """Semua alasan kasus belum boleh diajukan review (SCRUM-143, guard D2).
+
+    Bagian yang kurang dari evaluate(), lalu setiap rujukan yang belum
+    lengkap. evaluate() cukup dengan satu rujukan sah, sedangkan pengajuan
+    menolak bila ada satu pun rujukan yang rusak.
+    """
+    hasil = evaluate(data)
+    blockers = list(hasil["missing"])
+    if hasil["legal_ref_count"] > 0:
+        blockers.extend(_invalid_refs(data.get("legal_refs")))
+    return blockers
+
+
 def from_row(case: Any) -> dict[str, Any]:
     """Hitung ulang dari versi yang sedang dikerjakan, bukan dari salinan tersimpan.
 
     Isi ada di `current_version.content`. Kode kasus tetap di baris identitas.
     """
+    return evaluate(row_data(case))
+
+
+def row_data(case: Any) -> dict[str, Any]:
+    """Bentuk body kasus dari versi yang sedang dikerjakan."""
     versi = case.current_version
     isi = versi.content or {}
     tag = versi.split_tag
-    return evaluate(
-        {
-            "case_code": case.case_code,
-            "identity": {"title": isi.get("title"), "question": isi.get("question")},
-            "legal_refs": isi.get("legal_refs") or [],
-            "answer_criteria": isi.get("answer_criteria") or {},
-            "traps": isi.get("traps") or [],
-            "split_tag": str(tag) if tag else None,
-        }
-    )
+    return {
+        "case_code": case.case_code,
+        "identity": {"title": isi.get("title"), "question": isi.get("question")},
+        "legal_refs": isi.get("legal_refs") or [],
+        "answer_criteria": isi.get("answer_criteria") or {},
+        "traps": isi.get("traps") or [],
+        "split_tag": str(tag) if tag else None,
+    }
+
+
+def _invalid_refs(legal_refs: Any) -> list[dict[str, str]]:
+    """Satu masalah per rujukan rusak, menyebut field pertama yang kosong."""
+    masalah: list[dict[str, str]] = []
+    for indeks, rujukan in enumerate(legal_refs or []):
+        if not isinstance(rujukan, dict):
+            masalah.append({"field": f"legal_refs[{indeks}]", "message": _PESAN_RUJUKAN})
+            continue
+        kosong = [nama for nama in FIELD_RUJUKAN if not _text(rujukan.get(nama))]
+        if kosong:
+            masalah.append(
+                {"field": f"legal_refs[{indeks}].{kosong[0]}", "message": _PESAN_RUJUKAN}
+            )
+    return masalah
 
 
 def _count_refs(legal_refs: Any) -> int:

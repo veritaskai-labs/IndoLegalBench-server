@@ -87,7 +87,8 @@ async def domain_error_handler(_: Request, exc: DomainError) -> JSONResponse:
 
     Berkat handler ini, service.py tidak perlu tahu apa-apa soal HTTP.
     """
-    content = {"code": exc.code, "message": exc.message}
+    # details lebih dulu supaya code dan message tidak bisa tertimpa.
+    content = {**exc.details, "code": exc.code, "message": exc.message}
     if exc.field:
         content["field"] = exc.field
     response = JSONResponse(

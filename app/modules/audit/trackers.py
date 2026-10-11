@@ -130,7 +130,6 @@ class CaseVersionTracker(Tracker):
     fields = ("status", "split_tag", "content")
     special = frozenset({"split_tag", "status"})
     _STATUS_VERB = {
-        "in_review": "submitted",
         "approved": "approved",
         "needs_revision": "revision_requested",
     }
@@ -143,7 +142,11 @@ class CaseVersionTracker(Tracker):
 
     def updated(self, row: Any, changes: dict[str, Change]) -> list[AuditEvent]:
         content = changes.get("content")
-        rest = {field: change for field, change in changes.items() if field != "content"}
+        rest = {
+            field: change
+            for field, change in changes.items()
+            if field != "content" and not _masuk_review(field, change)
+        }
         events = super().updated(row, rest)
         if content is not None:
             before, after = _content_diff(content)
@@ -162,6 +165,32 @@ class CaseVersionTracker(Tracker):
             return self._event(row, "tag_changed", before={field: lama}, after=after)
         verb = self._STATUS_VERB.get(_json(change.new), "status_changed")
         return self._field_event(row, verb, field, change)
+
+
+class ReviewRoundTracker(Tracker):
+    """Round baru berarti kasus diajukan (PBI-6 AC1, SCRUM-143).
+
+    case.submitted ditulis di sini, bukan dari status versi, supaya
+    round_no ikut tercatat sesuai D6a. Keputusan round tidak dicatat
+    terpisah karena status versi sudah menghasilkan case.approved atau
+    case.revision_requested.
+    """
+
+    entity_type = AuditEntityType.CASE
+    prefix = "case"
+
+    def case_id(self, row: Any) -> uuid.UUID | None:
+        return row.case_id
+
+    def created(self, row: Any) -> list[AuditEvent]:
+        return [
+            AuditEvent(
+                action="case.submitted",
+                entity_id=row.case_version_id,
+                case_id=row.case_id,
+                after={"status": "in_review", "round_no": row.round_no},
+            )
+        ]
 
 
 class AiProductTracker(Tracker):
@@ -206,6 +235,11 @@ class UserTracker(Tracker):
         return self._field_event(row, verb, field, change)
 
 
+def _masuk_review(field: str, change: Change) -> bool:
+    """Versi yang masuk in_review dicatat ReviewRoundTracker, bukan di sini."""
+    return field == "status" and _json(change.new) == "in_review"
+
+
 def _content_diff(change: Change) -> tuple[dict[str, Any], dict[str, Any]]:
     """Keys inside the version body that actually changed."""
     old = change.old if isinstance(change.old, dict) else {}
@@ -224,6 +258,7 @@ TRACKERS: dict[str, Tracker] = {
     "suites": SuiteTracker(),
     "cases": CaseTracker(),
     "case_versions": CaseVersionTracker(),
+    "review_rounds": ReviewRoundTracker(),
     "ai_products": AiProductTracker(),
     "users": UserTracker(),
 }
