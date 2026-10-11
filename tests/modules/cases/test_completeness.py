@@ -2,7 +2,7 @@
 
 from typing import Any
 
-from app.modules.cases.completeness import evaluate
+from app.modules.cases.completeness import evaluate, review_blockers
 
 
 def payload(**overrides: Any) -> dict[str, Any]:
@@ -195,3 +195,56 @@ def test_setengah_terisi_memberi_persentase_di_antaranya():
     hasil = evaluate(payload(traps=[], answer_criteria={}))
 
     assert 0 < hasil["pct"] < 100
+
+
+# --- Guard pengajuan review (SCRUM-143) ---------------------------------------
+
+
+def _ref(**ubah: Any) -> dict[str, Any]:
+    rujukan = {"regulation_type": "UU", "regulation_number": "13", "year": 2003, "pasal": "151"}
+    rujukan.update(ubah)
+    return rujukan
+
+
+def test_kasus_lengkap_tidak_punya_penghalang():
+    # Act + Assert
+    assert review_blockers(payload()) == []
+
+
+def test_penghalang_memuat_bagian_yang_kurang():
+    # Act
+    hasil = review_blockers(payload(answer_criteria={}, split_tag=None))
+
+    # Assert
+    assert [item["field"] for item in hasil] == ["split_tag", "answer_criteria"]
+
+
+def test_rujukan_tidak_lengkap_tetap_menghalangi_walau_ada_yang_sah():
+    """Kelengkapan hanya butuh satu rujukan sah, guard menolak satu pun yang rusak."""
+    # Arrange
+    data = payload(legal_refs=[_ref(), _ref(pasal="  ")])
+
+    # Act
+    hasil = review_blockers(data)
+
+    # Assert
+    assert evaluate(data)["is_complete"] is True
+    assert hasil == [
+        {"field": "legal_refs[1].pasal", "message": "Rujukan hukum harus lengkap sampai pasal."}
+    ]
+
+
+def test_rujukan_bukan_objek_disebut_per_indeks():
+    # Act
+    hasil = review_blockers(payload(legal_refs=[_ref(), "UU 13/2003"]))
+
+    # Assert
+    assert [item["field"] for item in hasil] == ["legal_refs[1]"]
+
+
+def test_tanpa_rujukan_sah_tidak_mengulang_pesan_per_field():
+    # Act
+    hasil = review_blockers(payload(legal_refs=[]))
+
+    # Assert
+    assert [item["field"] for item in hasil] == ["legal_refs"]
