@@ -1393,6 +1393,80 @@
         }
       }
     },
+    "/cases/{case_id}/submit-review": {
+      "post": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Ajukan kasus untuk direview",
+        "description": "PBI-6 AC1. The version becomes in_review and a new review round is created.",
+        "operationId": "submit_for_review_cases__case_id__submit_review_post",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReviewSubmission"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Author atau bukan penulis kasus ini.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus atau suite tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Versi sedang ditinjau atau sudah disetujui (`VERSION_NOT_SUBMITTABLE`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Kelengkapan belum 100%, tag kosong, atau rujukan hukum belum lengkap (`CASE_NOT_READY`, daftar di `missing`). Suite tidak aktif (`SUITE_NOT_ACTIVE`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseNotReadyBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/cases/{case_id}/versions/compare": {
       "get": {
         "tags": [
@@ -2929,6 +3003,36 @@
         "title": "CaseIdentity",
         "description": "Title, question, and optional category for one case."
       },
+      "CaseNotReadyBody": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "examples": [
+              "CASE_NOT_READY"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "missing": {
+            "items": {
+              "$ref": "#/components/schemas/CompletenessIssue"
+            },
+            "type": "array",
+            "title": "Missing"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "missing"
+        ],
+        "title": "CaseNotReadyBody",
+        "description": "422 CASE_NOT_READY: every section that blocks the submission."
+      },
       "CaseRead": {
         "properties": {
           "id": {
@@ -3477,6 +3581,43 @@
         ],
         "title": "ProviderType",
         "description": "ProviderType:\n- openai_compatible: OpenAI chat completions (DeepSeek, GPT). Bearer auth. The stored URL is posted as-is.\n- gemini_interactions: Gemini Interactions API. Header x-goog-api-key.\n- anthropic_messages: Anthropic Messages API. Headers x-api-key and anthropic-version."
+      },
+      "ReviewSubmission": {
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Case Id"
+          },
+          "version": {
+            "type": "integer",
+            "title": "Version",
+            "description": "Nomor versi yang diajukan"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaseStatus"
+          },
+          "round_no": {
+            "type": "integer",
+            "title": "Round No",
+            "description": "1 untuk pengajuan pertama, naik setiap pengajuan ulang"
+          },
+          "round_status": {
+            "type": "string",
+            "title": "Round Status",
+            "description": "awaiting_assignment sampai dua reviewer terpasang (SCRUM-144)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_id",
+          "version",
+          "status",
+          "round_no",
+          "round_status"
+        ],
+        "title": "ReviewSubmission",
+        "description": "POST /cases/{id}/submit-review. The version now waits for reviewers."
       },
       "Role": {
         "type": "string",
