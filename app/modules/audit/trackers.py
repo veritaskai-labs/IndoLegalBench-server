@@ -116,6 +116,8 @@ class SuiteSnapshotTracker(Tracker):
     created_action = "snapshot_created"
 
     def created(self, row: Any) -> list[AuditEvent]:
+        # Dipanggil di after_flush: items harus sudah diisi di memori sebelum flush
+        # (create_snapshot melakukannya), kalau tidak len() lazy-load di tengah flush.
         after = {"snapshot_id": str(row.id), "case_count": len(row.items)}
         return [
             AuditEvent(
