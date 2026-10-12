@@ -37,14 +37,6 @@ PENULIS_LAMA = uuid.UUID("00000000-0000-0000-0000-00000000a142")
 _RAHASIA = "qa-provider-token-4wLz"  # pragma: allowlist secret
 _RAHASIA_BARU = "qa-replacement-token-8nTe"  # pragma: allowlist secret
 
-# Snapshot suite ada di katalog D6 tetapi tabelnya belum didaftarkan di
-# TRACKERS. Strict: begitu perbaikannya masuk, test ini jadi XPASS yang
-# dihitung gagal, jadi marker ini tidak bisa tertinggal diam-diam.
-BUG_SNAPSHOT = (
-    "SCRUM-173: suite_snapshots belum ada di TRACKERS, pembuatan snapshot "
-    "tidak tercatat. Marker dicabut di PR perbaikannya."
-)
-
 
 @pytest.fixture
 def encryption_key(monkeypatch):
@@ -82,7 +74,6 @@ def _jadi(client, buat_pengguna, role: Role, **identitas) -> None:
 # --- AC1: event katalog D6 tercatat tepat satu kali ---------------------------
 
 
-@pytest.mark.xfail(strict=True, reason=BUG_SNAPSHOT)
 def test_ac1_positif_snapshot_suite_tercatat_sekali(as_role, buat_pengguna, db_session):
     client = as_role(Role.AUTHOR)
     suite_id = _suite(client)
