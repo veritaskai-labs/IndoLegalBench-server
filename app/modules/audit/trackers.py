@@ -108,6 +108,22 @@ class SuiteTracker(Tracker):
         return self._field_event(row, verb, field, change)
 
 
+class SuiteSnapshotTracker(Tracker):
+    """Snapshot suite (PBI-8). Dicatat di suitenya, karena yang dicari Admin adalah suite."""
+
+    entity_type = AuditEntityType.SUITE
+    prefix = "suite"
+    created_action = "snapshot_created"
+
+    def created(self, row: Any) -> list[AuditEvent]:
+        after = {"snapshot_id": str(row.id), "case_count": len(row.items)}
+        return [
+            AuditEvent(
+                action=f"{self.prefix}.{self.created_action}", entity_id=row.suite_id, after=after
+            )
+        ]
+
+
 class CaseTracker(Tracker):
     """Identity of a case. The wording lives on case_versions."""
 
@@ -222,6 +238,7 @@ def _content_diff(change: Change) -> tuple[dict[str, Any], dict[str, Any]]:
 
 TRACKERS: dict[str, Tracker] = {
     "suites": SuiteTracker(),
+    "suite_snapshots": SuiteSnapshotTracker(),
     "cases": CaseTracker(),
     "case_versions": CaseVersionTracker(),
     "ai_products": AiProductTracker(),
