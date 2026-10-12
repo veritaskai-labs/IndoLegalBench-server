@@ -2,8 +2,9 @@
 
 PBI-18 AC7 dengan data berumur 89, tepat 90, dan 91 hari dalam satu kali
 jalan job, memakai jam yang sama untuk data dan job. Hanya catatan yang
-lebih tua dari 90 hari yang hilang. AC2: catatan yang lolos dari job tetap
-tidak bisa diubah atau dihapus oleh pemilik tabel.
+lebih tua dari 90 hari yang hilang. AC2 (pemilik tabel ditolak berapa pun
+umur catatannya) sudah diuji di test_audit_immutable_pg.py dan
+test_audit_retention_pg.py, jadi tidak diulang di sini.
 
 Dilewati kalau TEST_POSTGRES_URL kosong. CI mengisinya setelah migration.
 """
@@ -14,7 +15,6 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
 from app.modules.audit import service
@@ -71,18 +71,3 @@ def test_ac7_positif_job_hanya_menghapus_yang_lewat_90_hari(conn):
         90: True,
         91: False,
     }
-
-
-@pytest.mark.parametrize(
-    "perintah",
-    ["UPDATE audit_logs SET action = 'x' WHERE id = :id", "DELETE FROM audit_logs WHERE id = :id"],
-)
-def test_ac2_negatif_catatan_90_hari_tetap_tidak_bisa_diubah(conn, perintah):
-    row_id = _catatan_berumur(conn, 90)
-    savepoint = conn.begin_nested()
-
-    with pytest.raises(DBAPIError, match="append-only"):
-        conn.execute(text(perintah), {"id": row_id})
-
-    savepoint.rollback()
-    assert _ada(conn, row_id)
