@@ -205,7 +205,7 @@ class ReviewRoundTracker(Tracker):
             AuditEvent(
                 action="case.submitted",
                 entity_id=row.case_version_id,
-                case_id=row.case_id,
+                case_id=self.case_id(row),
                 after={"status": "in_review", "round_no": row.round_no},
             )
         ]
