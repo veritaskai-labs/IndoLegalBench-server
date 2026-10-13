@@ -15,6 +15,10 @@ PENGECUALIAN = {
     "audit_logs": "tabel audit itu sendiri",
     "sessions": "sesi login; D6 pertanyaan 11: login dicatat dari log Zitadel",
     "suite_snapshot_items": "isi snapshot; sudah diwakili event suite.snapshot_created",
+    # Sementara: tabel sudah ada (SCRUM-143) tapi belum ada yang menulisnya.
+    # Ganti dengan tracker di PR yang pertama kali menulis tabel ini.
+    "review_assignments": "review.reviewer_assigned/replaced/assignment_voided datang di SCRUM-144",
+    "review_verdicts": "review.verdict_submitted datang di SCRUM-145",
 }
 
 
