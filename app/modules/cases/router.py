@@ -234,6 +234,39 @@ def compare_case_versions(
 
 
 @router.get(
+    "/cases/{case_id}/versions/current",
+    response_model=CaseRead,
+    summary="Versi yang sedang dikerjakan (draf, ditinjau, atau perlu revisi)",
+    responses={
+        403: _ERROR_CODES[403],
+        404: {
+            "model": ErrorBody,
+            "description": (
+                "Kasus tidak ditemukan, atau tidak ada versi yang sedang "
+                "dikerjakan (`NO_OPEN_VERSION`)."
+            ),
+        },
+    },
+)
+def get_open_version(
+    case_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(_can_write),
+) -> CaseRead:
+    """Return the open draft so it can be reopened after leaving the page.
+
+    GET /cases/{id} keeps returning the approved version. Only the creator
+    or an admin may read the draft.
+    """
+    return service.get_open_version(
+        db,
+        case_id,
+        actor_id=_user_id(user),
+        is_admin=user.role == Role.ADMIN,
+    )
+
+
+@router.get(
     "/cases/{case_id}/completeness",
     response_model=CaseCompleteness,
     summary="Indikator kelengkapan satu kasus",

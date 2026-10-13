@@ -47,6 +47,7 @@ def test_tabel_di_luar_katalog_tidak_dilacak():
         ("review_rounds", AuditEntityType.CASE),
         ("ai_products", AuditEntityType.AI_PRODUCT),
         ("users", AuditEntityType.USER),
+        ("suite_snapshots", AuditEntityType.SUITE),
     ],
 )
 def test_setiap_tabel_katalog_punya_tracker(tabel, jenis):
@@ -72,6 +73,22 @@ def test_suite_dibuat():
     assert event.entity_id == ROW_ID
     assert event.before is None
     assert event.after == {"name": "Ketenagakerjaan", "description": None, "status": "active"}
+
+
+def test_snapshot_suite_dibuat_dicatat_di_suitenya():
+    # Arrange
+    suite_id = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
+    row = _row(suite_id=suite_id, items=[object(), object()])
+
+    # Act
+    event = _satu(tracker_for("suite_snapshots").created(row))
+
+    # Assert
+    assert event.action == "suite.snapshot_created"
+    assert event.entity_id == suite_id
+    assert event.case_id is None
+    assert event.before is None
+    assert event.after == {"snapshot_id": str(ROW_ID), "case_count": 2}
 
 
 def test_suite_diubah_hanya_field_yang_berubah():

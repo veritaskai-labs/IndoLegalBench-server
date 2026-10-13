@@ -1545,6 +1545,70 @@
         }
       }
     },
+    "/cases/{case_id}/versions/current": {
+      "get": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Versi yang sedang dikerjakan (draf, ditinjau, atau perlu revisi)",
+        "description": "Return the open draft so it can be reopened after leaving the page.\n\nGET /cases/{id} keeps returning the approved version. Only the creator\nor an admin may read the draft.",
+        "operationId": "get_open_version_cases__case_id__versions_current_get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan pembuat kasus dan bukan admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus tidak ditemukan, atau tidak ada versi yang sedang dikerjakan (`NO_OPEN_VERSION`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/cases/{case_id}/completeness": {
       "get": {
         "tags": [

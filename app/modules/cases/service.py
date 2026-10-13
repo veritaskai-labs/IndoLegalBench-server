@@ -40,6 +40,7 @@ VERSION_IN_PROGRESS = "VERSION_IN_PROGRESS"
 NO_APPROVED_VERSION = "NO_APPROVED_VERSION"
 CASE_NOT_READY = "CASE_NOT_READY"
 VERSION_NOT_SUBMITTABLE = "VERSION_NOT_SUBMITTABLE"
+NO_OPEN_VERSION = "NO_OPEN_VERSION"
 
 _EDITABLE = frozenset({CaseStatus.DRAFT, CaseStatus.NEEDS_REVISION})
 _IN_PROGRESS = frozenset({CaseStatus.DRAFT, CaseStatus.IN_REVIEW, CaseStatus.NEEDS_REVISION})
@@ -230,6 +231,29 @@ def submit_for_review(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -
         round_no=ronde.round_no,
         round_status=str(ronde.status),
     )
+
+
+def get_open_version(
+    db: Session,
+    case_id: uuid.UUID,
+    *,
+    actor_id: uuid.UUID,
+    is_admin: bool,
+) -> CaseRead:
+    """Return the version still being worked on, not the one in effect.
+
+    GET /cases/{id} always shows the approved wording, so this is how the
+    creator or an admin reopens a draft after leaving the page. Only the
+    creator or an admin may read it, same as starting the version. A case
+    with no draft, review or revision open is a 404 NO_OPEN_VERSION.
+    """
+    case = _require_case(db, case_id)
+    _require_creator_or_admin(case, actor_id=actor_id, is_admin=is_admin)
+    if case.current_version.status not in _IN_PROGRESS:
+        raise NotFoundError(
+            "Kasus ini tidak punya versi yang sedang dikerjakan", code=NO_OPEN_VERSION
+        )
+    return _to_read(case, case.current_version)
 
 
 def list_case_versions(db: Session, case_id: uuid.UUID) -> list[VersionSummary]:
