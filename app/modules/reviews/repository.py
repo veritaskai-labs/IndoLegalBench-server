@@ -44,13 +44,23 @@ def case_ids_assigned_to(db: Session, reviewer_id: uuid.UUID) -> Sequence[uuid.U
     ).all()
 
 
-def get_assignment(db: Session, assignment_id: uuid.UUID) -> ReviewAssignment | None:
-    """Satu assignment beserta round dan verdict-nya, atau None."""
-    return db.scalar(
+def get_assignment(
+    db: Session, assignment_id: uuid.UUID, *, fresh: bool = False
+) -> ReviewAssignment | None:
+    """Satu assignment beserta round dan verdict-nya, atau None.
+
+    fresh=True menimpa nilai yang sudah ada di session dengan isi database
+    saat ini. Dipakai setelah round dikunci, supaya penggantian reviewer
+    yang baru di-commit transaksi lain ikut terlihat.
+    """
+    query = (
         select(ReviewAssignment)
         .options(joinedload(ReviewAssignment.round), joinedload(ReviewAssignment.verdict))
         .where(ReviewAssignment.id == assignment_id)
     )
+    if fresh:
+        query = query.execution_options(populate_existing=True)
+    return db.scalar(query)
 
 
 def lock_round(db: Session, round_id: uuid.UUID) -> ReviewRound:

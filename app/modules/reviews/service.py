@@ -191,6 +191,9 @@ def submit_verdict(
         )
 
     ronde = repository.lock_round(db, tugas.review_round_id)
+    # Baca ulang sesudah kunci: assignment di atas dimuat sebelum menunggu
+    # kunci, jadi statusnya bisa sudah basi bila reviewer baru saja diganti.
+    tugas = repository.get_assignment(db, assignment_id, fresh=True)
     _require_can_submit(tugas, ronde)
     verdict = ReviewVerdict(assignment_id=tugas.id, decision=decision, comment=komentar)
     try:
@@ -218,8 +221,13 @@ def submit_verdict(
 
 
 def _require_can_submit(tugas: ReviewAssignment, ronde: ReviewRound) -> None:
-    """Dicek setelah round dikunci, supaya penggantian reviewer yang baru saja
-    selesai (AC7) atau verdict pertama yang baru masuk sudah terlihat."""
+    """Dicek pada assignment yang dibaca ulang setelah round dikunci.
+
+    Penggantian reviewer (AC7, SCRUM-147) wajib mengunci round yang sama
+    sebelum mengubah status assignment. Dengan begitu penggantian yang
+    selesai lebih dulu selalu terlihat di sini, dan yang datang sesudahnya
+    menunggu verdict ini selesai.
+    """
     if tugas.status != AssignmentStatus.ACTIVE:
         raise ConflictError(
             "Penugasan ini sudah diganti atau dibatalkan", code=ASSIGNMENT_NOT_ACTIVE
