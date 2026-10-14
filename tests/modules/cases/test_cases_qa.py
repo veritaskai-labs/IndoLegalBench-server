@@ -205,7 +205,7 @@ def test_field_milik_server_diabaikan_saat_mengubah(as_role):
     assert respons.status_code == 200
     badan = respons.json()
     assert badan["status"] == CaseStatus.DRAFT.value, "status berpindah karena titipan klien"
-    assert badan["version"] == 2, "version harus dinaikkan server, bukan diambil dari klien"
+    assert badan["version"] == 1, "draf tetap di versi 1, dan titipan klien diabaikan"
 
 
 # ---------------------------------------------------------------------

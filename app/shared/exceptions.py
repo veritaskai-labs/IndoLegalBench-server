@@ -12,10 +12,19 @@ class DomainError(Exception):
     status_code: int = 400
     code: str = "domain_error"
 
-    def __init__(self, message: str, *, code: str | None = None, field: str | None = None) -> None:
+    def __init__(
+        self,
+        message: str,
+        *,
+        code: str | None = None,
+        field: str | None = None,
+        details: dict | None = None,
+    ) -> None:
         super().__init__(message)
         self.message = message
         self.field = field
+        # Isi tambahan untuk body response, misalnya daftar `missing`.
+        self.details = details or {}
         if code:
             self.code = code
 

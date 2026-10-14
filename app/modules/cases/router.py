@@ -12,20 +12,40 @@ from sqlalchemy.orm import Session
 from app.modules.auth.schemas import ErrorBody
 from app.modules.cases import service
 from app.modules.cases.models import CaseStatus, SplitTag
-from app.modules.cases.schemas import CaseCompleteness, CaseRead, CaseSummary, CaseWrite
+from app.modules.cases.schemas import (
+    CaseCompleteness,
+    CaseNotReadyBody,
+    CaseRead,
+    CaseSummary,
+    CaseWrite,
+    ReviewSubmission,
+    VersionCompare,
+    VersionSummary,
+)
 from app.shared.database import get_db
 from app.shared.security import CurrentUser, Role, require_roles
 
 router = APIRouter(tags=["cases"])
 
 _can_write = require_roles(Role.AUTHOR, Role.ADMIN)
+# D5a: only an Author submits, and only their own case (checked in the service).
+_can_submit = require_roles(Role.AUTHOR)
+# SCRUM-138: Viewer sees history, and a Reviewer re-reviews a new version.
+_can_read_versions = require_roles(Role.AUTHOR, Role.REVIEWER, Role.ADMIN, Role.VIEWER)
 
 _ERROR_CODES = {
     403: {"model": ErrorBody, "description": "Bukan pembuat kasus dan bukan admin."},
     404: {"model": ErrorBody, "description": "Kasus atau suite tidak ditemukan."},
     409: {
         "model": ErrorBody,
-        "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), beserta nama suite pemilik.",
+        "description": (
+            "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), kode diubah setelah "
+            "ada versi yang disetujui (`CASE_CODE_LOCKED`), versi yang disetujui "
+            "atau sedang ditinjau diubah (`VERSION_LOCKED`), versi baru diminta "
+            "saat draf atau tinjauan masih berjalan (`VERSION_IN_PROGRESS`), "
+            "atau versi baru diminta sebelum ada versi yang disetujui "
+            "(`NO_APPROVED_VERSION`)."
+        ),
     },
     422: {
         "model": ErrorBody,
@@ -106,11 +126,141 @@ def update_case(
     db: Session = Depends(get_db),
     user: CurrentUser = Depends(_can_write),
 ) -> CaseRead:
-    """Update a case. The service decides who may change split_tag."""
+    """Update the open version. The service rejects an approved version."""
     return service.update_case(
         db,
         case_id,
         payload,
+        actor_id=_user_id(user),
+        is_admin=user.role == Role.ADMIN,
+    )
+
+
+@router.post(
+    "/cases/{case_id}/versions",
+    response_model=CaseRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Buat versi draf dari kasus yang sudah disetujui",
+    responses=_ERROR_CODES,
+)
+def start_case_version(
+    case_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(_can_write),
+) -> CaseRead:
+    """Copy the approved wording into a new draft. No request body."""
+    return service.start_new_version(
+        db,
+        case_id,
+        actor_id=_user_id(user),
+        is_admin=user.role == Role.ADMIN,
+    )
+
+
+@router.post(
+    "/cases/{case_id}/submit-review",
+    response_model=ReviewSubmission,
+    summary="Ajukan kasus untuk direview",
+    responses={
+        403: {"model": ErrorBody, "description": "Bukan Author atau bukan penulis kasus ini."},
+        404: _ERROR_CODES[404],
+        409: {
+            "model": ErrorBody,
+            "description": (
+                "Versi sedang ditinjau atau sudah disetujui (`VERSION_NOT_SUBMITTABLE`)."
+            ),
+        },
+        422: {
+            "model": CaseNotReadyBody,
+            "description": (
+                "Kelengkapan belum 100%, tag kosong, atau rujukan hukum belum lengkap "
+                "(`CASE_NOT_READY`, daftar di `missing`). Suite tidak aktif "
+                "(`SUITE_NOT_ACTIVE`)."
+            ),
+        },
+    },
+)
+def submit_for_review(
+    case_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(_can_submit),
+) -> ReviewSubmission:
+    """PBI-6 AC1. The version becomes in_review and a new review round is created."""
+    return service.submit_for_review(db, case_id, actor_id=_user_id(user))
+
+
+@router.get(
+    "/cases/{case_id}/versions",
+    response_model=list[VersionSummary],
+    summary="Riwayat versi satu kasus",
+    responses={
+        404: {"model": ErrorBody, "description": "Kasus tidak ditemukan."},
+    },
+)
+def list_case_versions(
+    case_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(_can_read_versions),
+) -> list[VersionSummary]:
+    """List every stored version, oldest number first.
+
+    Author, Reviewer, Admin, and Viewer. SCRUM-138 shows this history to
+    Viewer, and a Reviewer needs it while a new version is in review.
+    """
+    return service.list_case_versions(db, case_id)
+
+
+@router.get(
+    "/cases/{case_id}/versions/compare",
+    response_model=VersionCompare,
+    summary="Bandingkan dua nomor versi",
+    responses={
+        404: {"model": ErrorBody, "description": "Kasus atau nomor versi tidak ditemukan."},
+    },
+)
+def compare_case_versions(
+    case_id: uuid.UUID,
+    a: int = Query(..., ge=1, description="Nomor versi pertama"),
+    b: int = Query(..., ge=1, description="Nomor versi kedua"),
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(_can_read_versions),
+) -> VersionCompare:
+    """Diff two version numbers of one case. The diff is computed on request.
+
+    Author, Reviewer, Admin, and Viewer. SCRUM-138 shows this compare to
+    Viewer, and a Reviewer needs it while a new version is in review.
+    """
+    return service.compare_case_versions(db, case_id, a, b)
+
+
+@router.get(
+    "/cases/{case_id}/versions/current",
+    response_model=CaseRead,
+    summary="Versi yang sedang dikerjakan (draf, ditinjau, atau perlu revisi)",
+    responses={
+        403: _ERROR_CODES[403],
+        404: {
+            "model": ErrorBody,
+            "description": (
+                "Kasus tidak ditemukan, atau tidak ada versi yang sedang "
+                "dikerjakan (`NO_OPEN_VERSION`)."
+            ),
+        },
+    },
+)
+def get_open_version(
+    case_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(_can_write),
+) -> CaseRead:
+    """Return the open draft so it can be reopened after leaving the page.
+
+    GET /cases/{id} keeps returning the approved version. Only the creator
+    or an admin may read the draft.
+    """
+    return service.get_open_version(
+        db,
+        case_id,
         actor_id=_user_id(user),
         is_admin=user.role == Role.ADMIN,
     )

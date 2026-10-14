@@ -43,8 +43,11 @@ def test_tabel_di_luar_katalog_tidak_dilacak():
     [
         ("suites", AuditEntityType.SUITE),
         ("cases", AuditEntityType.CASE),
+        ("case_versions", AuditEntityType.CASE),
+        ("review_rounds", AuditEntityType.CASE),
         ("ai_products", AuditEntityType.AI_PRODUCT),
         ("users", AuditEntityType.USER),
+        ("suite_snapshots", AuditEntityType.SUITE),
     ],
 )
 def test_setiap_tabel_katalog_punya_tracker(tabel, jenis):
@@ -70,6 +73,22 @@ def test_suite_dibuat():
     assert event.entity_id == ROW_ID
     assert event.before is None
     assert event.after == {"name": "Ketenagakerjaan", "description": None, "status": "active"}
+
+
+def test_snapshot_suite_dibuat_dicatat_di_suitenya():
+    # Arrange
+    suite_id = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
+    row = _row(suite_id=suite_id, items=[object(), object()])
+
+    # Act
+    event = _satu(tracker_for("suite_snapshots").created(row))
+
+    # Assert
+    assert event.action == "suite.snapshot_created"
+    assert event.entity_id == suite_id
+    assert event.case_id is None
+    assert event.before is None
+    assert event.after == {"snapshot_id": str(ROW_ID), "case_count": 2}
 
 
 def test_suite_diubah_hanya_field_yang_berubah():
@@ -125,22 +144,37 @@ def test_tanpa_perubahan_tidak_ada_event():
 # --- Case ---------------------------------------------------------------------
 
 
-def test_kasus_dibuat_mencatat_kode_dan_versi():
+def test_kasus_dibuat_mencatat_kode():
     # Act
-    event = _satu(tracker_for("cases").created(_row(case_code="KTK-001", version=1)))
+    event = _satu(tracker_for("cases").created(_row(case_code="KTK-001")))
 
     # Assert
     assert event.action == "case.created"
     assert event.case_id == ROW_ID
-    assert event.after == {"case_code": "KTK-001", "version_no": 1}
+    assert event.after == {"case_code": "KTK-001"}
+
+
+def test_versi_baru_mencatat_nomornya():
+    # Act
+    event = _satu(tracker_for("case_versions").created(_row(case_id=ROW_ID, version_no=2)))
+
+    # Assert
+    assert event.action == "case.version_created"
+    assert event.case_id == ROW_ID
+    assert event.after == {"version_no": 2}
 
 
 def test_isi_kasus_diubah_hanya_field_yang_berubah():
     # Arrange
-    perubahan = {"title": Change("Lama", "Baru"), "traps": Change([], [{"text": "x"}])}
+    perubahan = {
+        "content": Change(
+            {"title": "Lama", "traps": []},
+            {"title": "Baru", "traps": [{"text": "x"}]},
+        )
+    }
 
     # Act
-    event = _satu(tracker_for("cases").updated(_row(), perubahan))
+    event = _satu(tracker_for("case_versions").updated(_row(case_id=ROW_ID), perubahan))
 
     # Assert
     assert event.action == "case.updated"
@@ -152,7 +186,11 @@ def test_isi_kasus_diubah_hanya_field_yang_berubah():
 def test_tag_dev_ke_test_ditandai_peringatan():
     """D6a: case.tag_changed mencatat split_tag lama/baru dan flag warning dev→test."""
     # Act
-    event = _satu(tracker_for("cases").updated(_row(), {"split_tag": Change("dev", "test")}))
+    event = _satu(
+        tracker_for("case_versions").updated(
+            _row(case_id=ROW_ID), {"split_tag": Change("dev", "test")}
+        )
+    )
 
     # Assert
     assert event.action == "case.tag_changed"
@@ -162,7 +200,11 @@ def test_tag_dev_ke_test_ditandai_peringatan():
 
 def test_tag_test_ke_dev_tanpa_peringatan():
     # Act
-    event = _satu(tracker_for("cases").updated(_row(), {"split_tag": Change("test", "dev")}))
+    event = _satu(
+        tracker_for("case_versions").updated(
+            _row(case_id=ROW_ID), {"split_tag": Change("test", "dev")}
+        )
+    )
 
     # Assert
     assert event.after == {"split_tag": "dev"}
@@ -171,7 +213,6 @@ def test_tag_test_ke_dev_tanpa_peringatan():
 @pytest.mark.parametrize(
     ("baru", "action"),
     [
-        ("in_review", "case.submitted"),
         ("approved", "case.approved"),
         ("needs_revision", "case.revision_requested"),
         ("draft", "case.status_changed"),
@@ -179,11 +220,70 @@ def test_tag_test_ke_dev_tanpa_peringatan():
 )
 def test_status_kasus_jadi_event_review(baru, action):
     # Act
-    event = _satu(tracker_for("cases").updated(_row(), {"status": Change("x", baru)}))
+    event = _satu(
+        tracker_for("case_versions").updated(_row(case_id=ROW_ID), {"status": Change("x", baru)})
+    )
 
     # Assert
     assert event.action == action
     assert event.after == {"status": baru}
+
+
+def test_versi_masuk_review_dicatat_oleh_round_bukan_versi():
+    """case.submitted ditulis ReviewRoundTracker supaya round_no ikut (D6a)."""
+    # Act
+    events = tracker_for("case_versions").updated(
+        _row(case_id=ROW_ID), {"status": Change("draft", "in_review")}
+    )
+
+    # Assert
+    assert events == []
+
+
+def test_versi_masuk_review_tetap_mencatat_perubahan_lain():
+    # Act
+    event = _satu(
+        tracker_for("case_versions").updated(
+            _row(case_id=ROW_ID),
+            {"status": Change("draft", "in_review"), "split_tag": Change("test", "dev")},
+        )
+    )
+
+    # Assert
+    assert event.action == "case.tag_changed"
+
+
+# --- Review round (SCRUM-143) -------------------------------------------------
+
+VERSI_ID = uuid.UUID("00000000-0000-0000-0000-0000000000d1")
+KASUS_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c1")
+
+
+def test_round_baru_dicatat_sebagai_kasus_diajukan():
+    # Arrange
+    ronde = _row(case_id=KASUS_ID, case_version_id=VERSI_ID, round_no=2)
+
+    # Act
+    event = _satu(tracker_for("review_rounds").created(ronde))
+
+    # Assert
+    assert event.action == "case.submitted"
+    assert event.entity_id == VERSI_ID
+    assert event.case_id == KASUS_ID
+    assert event.after == {"status": "in_review", "round_no": 2}
+
+
+def test_perubahan_round_tidak_dicatat_sendiri():
+    """Keputusan round sudah tercatat lewat status versi (case.approved)."""
+    # Arrange
+    ronde = _row(case_id=KASUS_ID, case_version_id=VERSI_ID, round_no=1)
+
+    # Act
+    events = tracker_for("review_rounds").updated(ronde, {})
+
+    # Assert
+    assert events == []
+    assert tracker_for("review_rounds").fields == ()
 
 
 def test_nilai_kolom_diubah_jadi_aman_untuk_jsonb():

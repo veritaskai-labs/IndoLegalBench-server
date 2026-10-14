@@ -161,7 +161,10 @@ def active_reviewer_ids(db: DbSession) -> list[uuid.UUID]:
 
 
 def user_names(db: DbSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
-    """Nama pelaku untuk tampilan audit log. Id yang tidak dikenal tidak ada di hasil."""
+    """Display names for audit, version history, and snapshot authors.
+
+    Ids with no user row are omitted from the result.
+    """
     if not user_ids:
         return {}
     return repository.get_names(db, user_ids)

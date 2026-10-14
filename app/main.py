@@ -32,6 +32,7 @@ from app.modules.providers.router import router as providers_router
 from app.modules.reports.router import router as reports_router
 from app.modules.runs.router import router as runs_router
 from app.modules.suites.router import router as suites_router
+from app.modules.suites.router import snapshot_router
 from app.shared.config import get_settings
 from app.shared.dev_db import bootstrap_local_sqlite
 from app.shared.exceptions import DomainError, SessionExpiredError
@@ -86,7 +87,8 @@ async def domain_error_handler(_: Request, exc: DomainError) -> JSONResponse:
 
     Berkat handler ini, service.py tidak perlu tahu apa-apa soal HTTP.
     """
-    content = {"code": exc.code, "message": exc.message}
+    # details lebih dulu supaya code dan message tidak bisa tertimpa.
+    content = {**exc.details, "code": exc.code, "message": exc.message}
     if exc.field:
         content["field"] = exc.field
     response = JSONResponse(
@@ -130,6 +132,7 @@ if settings.auth_oidc_mode == "fake":
 
     app.include_router(fake_router)
 app.include_router(suites_router)  # PBI-2
+app.include_router(snapshot_router)  # SCRUM-137 suite snapshots
 app.include_router(cases_router)  # PBI-3
 app.include_router(providers_router)  # PBI-10
 app.include_router(runs_router)  # Sprint 3

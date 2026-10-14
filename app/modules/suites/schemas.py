@@ -7,8 +7,11 @@ frontend perlu regenerate tipenya.
 
 import uuid
 from datetime import datetime
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
+
+from app.modules.cases.schemas import ActorRead
 
 
 def _nama_bersih(value: str) -> str:
@@ -60,3 +63,30 @@ class SuiteRead(BaseModel):
     )
     created_at: datetime
     updated_at: datetime
+
+
+class SnapshotItemRead(BaseModel):
+    """One frozen case. body is the copy taken at snapshot time."""
+
+    case_id: uuid.UUID
+    case_version_id: uuid.UUID
+    body: dict[str, Any]
+
+
+class SnapshotRead(BaseModel):
+    """GET /snapshots/{id} and the body of POST /suites/{id}/snapshots."""
+
+    id: uuid.UUID
+    suite_id: uuid.UUID
+    created_at: datetime
+    author: ActorRead
+    items: list[SnapshotItemRead]
+
+
+class SnapshotSummary(BaseModel):
+    """One row of GET /suites/{id}/snapshots. Items are on the detail route."""
+
+    id: uuid.UUID
+    created_at: datetime
+    author: ActorRead
+    case_count: int

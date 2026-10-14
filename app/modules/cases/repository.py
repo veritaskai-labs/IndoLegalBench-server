@@ -8,14 +8,23 @@ Isi file ini murni query, tanpa logika bisnis.
 
 import uuid
 
-from sqlalchemy.orm import Session
+from sqlalchemy import func
+from sqlalchemy.orm import Session, selectinload
 
-from app.modules.cases.models import Case, CaseStatus, SplitTag
+from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
 
 
 def get_by_id(db: Session, case_id: uuid.UUID) -> Case | None:
-    """Return the row, or None when the id is unknown."""
-    return db.get(Case, case_id)
+    """Return the case with both version pointers loaded, or None."""
+    return (
+        db.query(Case)
+        .options(
+            selectinload(Case.current_version),
+            selectinload(Case.latest_approved_version),
+        )
+        .filter(Case.id == case_id)
+        .one_or_none()
+    )
 
 
 def get_by_code(db: Session, case_code: str) -> Case | None:
@@ -29,14 +38,23 @@ def list_for_suite(
     *,
     status: CaseStatus | None = None,
     split_tag: SplitTag | None = None,
-) -> list[Case]:
-    """List a suite's cases, newest update first, then by case_code."""
-    query = db.query(Case).filter(Case.suite_id == suite_id)
+) -> list[tuple[Case, CaseVersion]]:
+    """List a suite's cases by the version that is in effect.
+
+    That version is the latest approved one when it exists, otherwise the
+    current version. Newest update of that version comes first.
+    """
+    in_effect_id = func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
+    query = (
+        db.query(Case, CaseVersion)
+        .join(CaseVersion, CaseVersion.id == in_effect_id)
+        .filter(Case.suite_id == suite_id)
+    )
     if status is not None:
-        query = query.filter(Case.status == status)
+        query = query.filter(CaseVersion.status == status)
     if split_tag is not None:
-        query = query.filter(Case.split_tag == split_tag)
-    return query.order_by(Case.updated_at.desc(), Case.case_code.asc()).all()
+        query = query.filter(CaseVersion.split_tag == split_tag)
+    return query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc()).all()
 
 
 def count_for_suite(db: Session, suite_id: uuid.UUID) -> int:
@@ -45,25 +63,69 @@ def count_for_suite(db: Session, suite_id: uuid.UUID) -> int:
 
 
 def has_approved(db: Session, suite_id: uuid.UUID) -> bool:
-    """True when any case in the suite is approved. Used by suite delete."""
+    """True when any case in the suite has an approved version."""
     return (
         db.query(Case.id)
-        .filter(Case.suite_id == suite_id, Case.status == CaseStatus.APPROVED)
+        .filter(Case.suite_id == suite_id, Case.latest_approved_version_id.is_not(None))
         .first()
         is not None
     )
 
 
-def create(db: Session, case: Case) -> Case:
-    """Insert the row and return it with database defaults filled in."""
+def list_versions(db: Session, case_id: uuid.UUID) -> list[CaseVersion]:
+    """Every version of one case, oldest version_no first."""
+    return (
+        db.query(CaseVersion)
+        .filter(CaseVersion.case_id == case_id)
+        .order_by(CaseVersion.version_no.asc())
+        .all()
+    )
+
+
+def get_version(db: Session, case_id: uuid.UUID, version_no: int) -> CaseVersion | None:
+    """One version of this case, or None when that number is not stored."""
+    return (
+        db.query(CaseVersion)
+        .filter(CaseVersion.case_id == case_id, CaseVersion.version_no == version_no)
+        .one_or_none()
+    )
+
+
+def approved_for_suite(db: Session, suite_id: uuid.UUID) -> list[tuple[Case, CaseVersion]]:
+    """Cases in the suite that have an approved version, with that version.
+
+    The version is latest_approved_version, not an open draft. Ordered by
+    case_code so a snapshot's items are stable.
+    """
+    return (
+        db.query(Case, CaseVersion)
+        .join(CaseVersion, CaseVersion.id == Case.latest_approved_version_id)
+        .filter(Case.suite_id == suite_id, Case.latest_approved_version_id.is_not(None))
+        .order_by(Case.case_code.asc())
+        .all()
+    )
+
+
+def max_version_no(db: Session, case_id: uuid.UUID) -> int:
+    """Highest version_no stored for the case, or 0 when it has none."""
+    tertinggi = (
+        db.query(func.max(CaseVersion.version_no)).filter(CaseVersion.case_id == case_id).scalar()
+    )
+    return int(tertinggi or 0)
+
+
+def create(db: Session, case: Case, version: CaseVersion) -> Case:
+    """Insert the case and its first version in one commit."""
     db.add(case)
+    db.add(version)
     db.commit()
     db.refresh(case)
+    db.refresh(version)
     return case
 
 
 def save(db: Session, case: Case) -> Case:
-    """Commit changes on an existing row and refresh it."""
+    """Commit changes on an existing case and its versions, then refresh it."""
     db.commit()
     db.refresh(case)
     return case

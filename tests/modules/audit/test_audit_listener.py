@@ -200,9 +200,12 @@ def test_kasus_dibuat_dan_diubah(as_role, db_session):
         f"/cases/{kasus['id']}", json=_kasus(identity={**_kasus()["identity"], "title": "PHK"})
     )
 
-    dibuat, diubah = _log(db_session)[1:]
-    assert dibuat.action == "case.created"
-    assert dibuat.after == {"case_code": "PHK-001", "version_no": 1}
+    baris = _log(db_session)
+    dibuat = next(item for item in baris if item.action == "case.created")
+    versi = next(item for item in baris if item.action == "case.version_created")
+    diubah = baris[-1]
+    assert dibuat.after == {"case_code": "PHK-001"}
+    assert versi.after == {"version_no": 1}
     assert diubah.action == "case.updated"
     assert (diubah.before, diubah.after) == ({"title": "PHK sepihak"}, {"title": "PHK"})
     assert str(diubah.case_id) == kasus["id"]
@@ -218,6 +221,37 @@ def test_tag_kasus_diubah_dev_ke_test(as_role, db_session):
     baris = _log(db_session)[-1]
     assert baris.action == "case.tag_changed"
     assert baris.after == {"split_tag": "test", "warning": True}
+
+
+def test_kasus_diajukan_tercatat_sekali_dengan_nomor_round(as_role, db_session):
+    """SCRUM-143: pengajuan tercatat di audit (D6a case.submitted)."""
+    # Arrange
+    client = as_role(Role.AUTHOR)
+    kasus = client.post(f"/suites/{_suite(client)}/cases", json=_kasus()).json()
+
+    # Act
+    assert client.post(f"/cases/{kasus['id']}/submit-review").status_code == 200
+
+    # Assert
+    [baris] = [item for item in _log(db_session) if item.action == "case.submitted"]
+    assert baris.after == {"status": "in_review", "round_no": 1}
+    assert str(baris.case_id) == kasus["id"]
+    assert baris.actor_user_id == USER_ID_QA
+    assert "case.status_changed" not in _actions(db_session)
+
+
+def test_pengajuan_ditolak_tidak_tercatat(as_role, db_session):
+    # Arrange
+    client = as_role(Role.AUTHOR)
+    kasus = client.post(
+        f"/suites/{_suite(client)}/cases", json=_kasus(traps=[], answer_criteria={})
+    ).json()
+
+    # Act
+    assert client.post(f"/cases/{kasus['id']}/submit-review").status_code == 422
+
+    # Assert
+    assert "case.submitted" not in _actions(db_session)
 
 
 # --- AI product ---------------------------------------------------------------

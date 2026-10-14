@@ -61,14 +61,15 @@ def _kasus(client, suite_id: str, kode: str = "QA-001") -> dict:
 
 
 def _setujui(db_session, case_id: str) -> None:
-    """Naikkan status kasus ke approved langsung di barisnya.
+    """Naikkan versi saat ini ke approved dan jadikan versi yang berlaku.
 
-    Belum ada endpoint yang bisa melakukan ini: transisi status kasus baru
-    ada di PBI-3 (SCRUM-106/107). Sampai ada, seed di baris adalah satu
-    satunya cara menghadirkan kondisi yang dijaga AC-4.
+    Belum ada endpoint review. Seed di baris adalah satu-satunya cara
+    menghadirkan kondisi yang dijaga AC-4.
     """
     kasus = db_session.get(Case, uuid.UUID(case_id))
-    kasus.status = CaseStatus.APPROVED
+    versi = kasus.current_version
+    versi.status = CaseStatus.APPROVED
+    kasus.latest_approved_version_id = versi.id
     db_session.commit()
 
 
