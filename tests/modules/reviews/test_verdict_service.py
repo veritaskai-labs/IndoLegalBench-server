@@ -116,6 +116,38 @@ def test_round_dikunci_sebelum_menghitung(dep):
     dep.repo.lock_round.assert_called_once_with(db, dep.ronde.id)
 
 
+def test_assignment_dibaca_ulang_setelah_round_dikunci(dep):
+    """Review Adra di #45: status yang dicek harus status sesudah kunci, bukan sebelumnya."""
+    # Arrange
+    db = MagicMock()
+
+    # Act
+    _kirim(dep, db=db)
+
+    # Assert
+    urutan = [c for c in dep.repo.mock_calls if c[0] in ("get_assignment", "lock_round")]
+    assert urutan == [
+        ("get_assignment", (db, TUGAS), {}),
+        ("lock_round", (db, dep.ronde.id), {}),
+        ("get_assignment", (db, TUGAS), {"fresh": True}),
+    ]
+
+
+def test_penggantian_yang_selesai_saat_menunggu_kunci_terlihat(dep):
+    """AC7: Admin mengganti reviewer ini sementara verdict-nya menunggu kunci round."""
+    # Arrange
+    diganti = SimpleNamespace(**{**vars(dep.tugas), "status": AssignmentStatus.REPLACED})
+    dep.repo.get_assignment.side_effect = [dep.tugas, diganti]
+
+    # Act
+    with pytest.raises(ConflictError) as info:
+        _kirim(dep)
+
+    # Assert
+    assert info.value.code == "ASSIGNMENT_NOT_ACTIVE"
+    dep.repo.add_verdict.assert_not_called()
+
+
 def test_komentar_dirapikan_dan_kosong_jadi_none(dep):
     # Act
     _kirim(dep, comment="   ")

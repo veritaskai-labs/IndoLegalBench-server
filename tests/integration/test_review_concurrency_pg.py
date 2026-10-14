@@ -13,6 +13,7 @@ setelah job selesai. Dilewati kalau TEST_POSTGRES_URL kosong.
 
 import os
 import threading
+import time
 import uuid
 
 import pytest
@@ -22,15 +23,18 @@ from sqlalchemy.orm import Session, sessionmaker
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
 from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
-from app.modules.reviews import service
+from app.modules.reviews import repository, service
 from app.modules.reviews.models import (
+    AssignmentStatus,
     ReviewAssignment,
     ReviewRound,
+    ReviewVerdict,
     RoundDecision,
     RoundStatus,
     VerdictDecision,
 )
 from app.modules.suites.models import Suite
+from app.shared.exceptions import ConflictError
 from app.shared.security import Role
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "")
@@ -161,3 +165,43 @@ def test_round_diputuskan_tepat_sekali(buat_sesi, keputusan, hasil, status_versi
                 .count()
                 == 2
             )
+
+
+def test_penggantian_saat_verdict_menunggu_kunci_menolak_verdict(buat_sesi):
+    """Review Adra di #45. Admin mengganti reviewer (AC7) sambil memegang kunci
+    round; verdict reviewer itu sudah membaca assignment-nya sebagai active,
+    lalu menunggu kunci. Setelah kunci lepas, verdict harus ditolak."""
+    # Arrange
+    _, round_id, tugas = _round_siap_dinilai(buat_sesi)
+    reviewer_id, assignment_id = next(iter(tugas.items()))
+    galat: list[BaseException] = []
+
+    def nilai():
+        with buat_sesi() as db:
+            try:
+                service.submit_verdict(
+                    db,
+                    assignment_id,
+                    reviewer_id=reviewer_id,
+                    decision=VerdictDecision.APPROVE,
+                    comment=None,
+                )
+            except BaseException as exc:  # noqa: BLE001 - dilaporkan ke thread utama
+                galat.append(exc)
+
+    # Act
+    with buat_sesi() as admin:
+        repository.lock_round(admin, round_id)
+        admin.get(ReviewAssignment, assignment_id).status = AssignmentStatus.REPLACED
+        admin.flush()
+        utas = threading.Thread(target=nilai)
+        utas.start()
+        time.sleep(0.5)  # verdict sudah membaca assignment dan menunggu kunci
+        admin.commit()
+    utas.join(timeout=30)
+
+    # Assert
+    assert [type(exc) for exc in galat] == [ConflictError]
+    assert galat[0].code == "ASSIGNMENT_NOT_ACTIVE"
+    with buat_sesi() as db:
+        assert db.query(ReviewVerdict).filter_by(assignment_id=assignment_id).count() == 0

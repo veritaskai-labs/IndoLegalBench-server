@@ -66,6 +66,27 @@ def test_assignment_dimuat_bersama_round_dan_verdict(db_session):
     assert hasil.verdict.decision == VerdictDecision.APPROVE
 
 
+def test_assignment_segar_membaca_ulang_dari_database(db_session):
+    """Tanpa fresh, identity map mengembalikan status lama yang sudah dimuat."""
+    # Arrange
+    tugas = _tugas(db_session, _round(db_session), REVIEWER_A)
+    db_session.commit()
+    repository.get_assignment(db_session, tugas.id)
+    db_session.execute(
+        ReviewAssignment.__table__.update()
+        .where(ReviewAssignment.__table__.c.id == tugas.id)
+        .values(status="replaced")
+    )
+
+    # Act
+    lama = repository.get_assignment(db_session, tugas.id).status
+    segar = repository.get_assignment(db_session, tugas.id, fresh=True).status
+
+    # Assert
+    assert lama == AssignmentStatus.ACTIVE
+    assert segar == AssignmentStatus.REPLACED
+
+
 def test_assignment_tidak_dikenal(db_session):
     # Act + Assert
     assert repository.get_assignment(db_session, uuid.uuid4()) is None
