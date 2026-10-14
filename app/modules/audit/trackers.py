@@ -211,6 +211,35 @@ class ReviewRoundTracker(Tracker):
         ]
 
 
+class ReviewVerdictTracker(Tracker):
+    """Penilaian reviewer (PBI-6 AC4, SCRUM-145), catatan D6a review.verdict_submitted.
+
+    Dicatat di assignment-nya (D5b: entity review = assignment). Komentar
+    sengaja tidak disalin. Verdict tidak pernah diubah, jadi tidak ada
+    field yang dipantau.
+
+    Aturan blind untuk pencarian audit Reviewer diurus SCRUM-167.
+    """
+
+    entity_type = AuditEntityType.REVIEW
+    prefix = "review"
+
+    def case_id(self, row: Any) -> uuid.UUID | None:
+        # Assignment dan round sudah dimuat service sebelum verdict disimpan,
+        # jadi ini dibaca dari identity map tanpa query di tengah flush.
+        return row.assignment.round.case_id
+
+    def created(self, row: Any) -> list[AuditEvent]:
+        return [
+            AuditEvent(
+                action="review.verdict_submitted",
+                entity_id=row.assignment_id,
+                case_id=self.case_id(row),
+                after={"decision": _json(row.decision)},
+            )
+        ]
+
+
 class AiProductTracker(Tracker):
     entity_type = AuditEntityType.AI_PRODUCT
     prefix = "ai_product"
@@ -278,6 +307,7 @@ TRACKERS: dict[str, Tracker] = {
     "cases": CaseTracker(),
     "case_versions": CaseVersionTracker(),
     "review_rounds": ReviewRoundTracker(),
+    "review_verdicts": ReviewVerdictTracker(),
     "ai_products": AiProductTracker(),
     "users": UserTracker(),
 }
