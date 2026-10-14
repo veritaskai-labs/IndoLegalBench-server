@@ -24,6 +24,7 @@ from app.modules.audit.models import AuditEntityType, AuditLog
 from app.modules.audit.repository import SearchCriteria
 from app.modules.audit.schemas import AuditLogFilter, AuditLogRead
 from app.modules.auth import service as auth_service
+from app.modules.reviews import service as review_service
 from app.shared import request_context
 from app.shared.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.shared.pagination import Page
@@ -181,22 +182,12 @@ def _actor_ids(db: Session, filters: AuditLogFilter) -> tuple[uuid.UUID, ...] | 
 def _case_scope(
     db: Session, *, viewer_id: uuid.UUID, viewer_role: str
 ) -> frozenset[uuid.UUID] | None:
-    """None berarti tanpa batas (Admin). Reviewer hanya kasus yang ditugaskan (AC5)."""
+    """None berarti tanpa batas (Admin). Reviewer hanya kasus yang pernah ditugaskan (AC5)."""
     if viewer_role == Role.ADMIN:
         return None
     if viewer_role == Role.REVIEWER:
-        return _assigned_case_ids(db, viewer_id)
+        return review_service.assigned_case_ids(db, viewer_id)
     raise ForbiddenError("Peran Anda tidak berwenang melihat catatan audit")
-
-
-def _assigned_case_ids(db: Session, reviewer_id: uuid.UUID) -> frozenset[uuid.UUID]:
-    """Kasus yang pernah ditugaskan kepada reviewer ini.
-
-    TODO(SCRUM-143): tabel review_assignments PBI-6 belum ada, jadi belum
-    ada kasus yang ditugaskan. Ganti isi fungsi ini dengan pemanggilan
-    review service begitu tabel itu tersedia.
-    """
-    return frozenset()
 
 
 def _tampilkan(db: Session, rows: list[AuditLog]) -> list[AuditLogRead]:
