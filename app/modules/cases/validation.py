@@ -135,7 +135,7 @@ def _require_legal_refs(nilai: Any, tahun_ini: int) -> None:
     """Require at least one citation, each complete for its kind and link forms (PBI-21)."""
     if not isinstance(nilai, list) or len(nilai) < 1:
         raise ValidationError(
-            "Minimal satu rujukan hukum sampai level pasal",
+            completeness_module.PESAN_TANPA_RUJUKAN,
             code=FIELD_REQUIRED,
             field="legal_refs",
         )

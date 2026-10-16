@@ -47,15 +47,18 @@ _BAGIAN = (
     "answer_criteria",
 )
 
+# Dipakai juga pesan 422 di validation.py supaya teksnya sama (PBI-21: Nama Peraturan saja sah).
+PESAN_TANPA_RUJUKAN = "Butuh minimal satu rujukan hukum."
+
 _PESAN = {
     "identity.title": "Judul wajib diisi.",
     "identity.question": "Pertanyaan wajib diisi.",
     "case_code": "Kode kasus wajib diisi dan harus sesuai pola.",
     "split_tag": "Tag dev atau test wajib dipilih.",
-    "legal_refs": "Butuh minimal satu rujukan hukum sampai tingkat pasal.",
+    "legal_refs": PESAN_TANPA_RUJUKAN,
     "answer_criteria": "Butuh minimal satu kriteria jawaban.",
 }
-_PESAN_RUJUKAN = "Rujukan hukum harus lengkap sampai pasal."
+_PESAN_RUJUKAN = "Rujukan hukum belum lengkap."
 
 
 def evaluate(data: dict[str, Any]) -> dict[str, Any]:
