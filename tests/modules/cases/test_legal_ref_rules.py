@@ -214,3 +214,14 @@ def test_field_terlarang_di_link_sebelumnya_dilaporkan_lebih_dulu():
 
     assert salah.code == FIELD_NOT_ALLOWED
     assert salah.field == "legal_refs[0].links[0].angka"
+
+
+def test_penghubung_link_pertama_dilaporkan_sebelum_field_terlarang_link_kedua():
+    """Urutan baca: semua aturan link 0 lebih dulu, baru link 1."""
+    rujukan = _rantai("jo", "jo")
+    rujukan["links"][1]["angka"] = "1"
+
+    salah = _ditolak(rujukan)
+
+    assert salah.code == CONNECTOR_INVALID
+    assert salah.field == "legal_refs[0].links[0].connector"
