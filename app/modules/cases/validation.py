@@ -131,31 +131,10 @@ def _require_legal_refs(nilai: Any) -> None:
 
 
 def _check_ref_rules(awalan: str, rujukan: dict[str, Any]) -> None:
-    """Rules that need a complete citation, in reading order: unused fields, then the chain.
+    """Rules that need a complete citation, link by link in reading order.
 
     Runs after missing_in_ref, so kind, links, and every form are known to be valid.
     """
-    _reject_unused_fields(awalan, rujukan)
-    if rujukan["kind"] == "structured":
-        _check_chain(awalan, rujukan["links"])
-
-
-def _check_chain(awalan: str, links: list[dict[str, Any]]) -> None:
-    """AC6: the first link has no connector, every next link uses jo or jis."""
-    for posisi, link in enumerate(links):
-        tanpa_penghubung = link.get("connector") == "none"
-        if posisi == 0 and not tanpa_penghubung:
-            pesan = "Peraturan pertama tidak memakai penghubung"
-        elif posisi > 0 and tanpa_penghubung:
-            pesan = f"Peraturan ke-{posisi + 1} wajib disambung dengan jo. atau jis."
-        else:
-            continue
-        field = f"{awalan}.links[{posisi}].connector"
-        raise ValidationError(pesan, code=CONNECTOR_INVALID, field=field)
-
-
-def _reject_unused_fields(awalan: str, rujukan: dict[str, Any]) -> None:
-    """Reject a field that the citation kind or the link form does not use."""
     if rujukan["kind"] == "free_text":
         if rujukan.get("links"):
             _not_allowed(f"{awalan}.links", "harus kosong untuk Teks Bebas")
@@ -163,13 +142,25 @@ def _reject_unused_fields(awalan: str, rujukan: dict[str, Any]) -> None:
     if _text(rujukan.get("free_text")):
         _not_allowed(f"{awalan}.free_text", "hanya untuk Teks Bebas")
     for posisi, link in enumerate(rujukan["links"]):
-        bentuk = link["form"]
-        for nama in _FIELD_TERLARANG[bentuk]:
-            if _text(link.get(nama)):
-                _not_allowed(
-                    f"{awalan}.links[{posisi}].{nama}",
-                    f"tidak boleh diisi untuk bentuk {_LABEL_BENTUK[bentuk]}",
-                )
+        _check_link(f"{awalan}.links[{posisi}]", posisi, link)
+
+
+def _check_link(awalan: str, posisi: int, link: dict[str, Any]) -> None:
+    """Unused fields for the form, then the connector (AC6)."""
+    bentuk = link["form"]
+    for nama in _FIELD_TERLARANG[bentuk]:
+        if _text(link.get(nama)):
+            _not_allowed(
+                f"{awalan}.{nama}", f"tidak boleh diisi untuk bentuk {_LABEL_BENTUK[bentuk]}"
+            )
+    tanpa_penghubung = link.get("connector") == "none"
+    if posisi == 0 and not tanpa_penghubung:
+        pesan = "Peraturan pertama tidak memakai penghubung"
+    elif posisi > 0 and tanpa_penghubung:
+        pesan = f"Peraturan ke-{posisi + 1} wajib disambung dengan jo. atau jis."
+    else:
+        return
+    raise ValidationError(pesan, code=CONNECTOR_INVALID, field=f"{awalan}.connector")
 
 
 def _not_allowed(field: str, alasan: str) -> NoReturn:
