@@ -140,3 +140,36 @@ def test_rujukan_lama_tanpa_tahun_tidak_menulis_tahun_kosong(jenis, harapan):
 def test_jenis_di_luar_daftar_memakai_kodenya():
     """Tidak terjadi lewat API (jenis divalidasi), tapi tampilan tidak boleh meledak."""
     assert _teks(_nama_saja("kode_lain", "1", 2020)) == "kode_lain Nomor 1 Tahun 2020"
+
+
+# --- ayat dan huruf (keputusan PO 17 Okt): Pasal, Angka, ayat, huruf, lalu nama ---
+
+
+def _pasal(**isi) -> dict:
+    """Satu link berbentuk pasal dengan input format sintetis (Pasal 1 UU 1/2020)."""
+    link = link_pasal("1", number="1", year=2020)
+    link.update(isi)
+    return {"kind": "structured", "links": [link]}
+
+
+def test_ayat_dan_huruf_setelah_pasal():
+    assert _teks(_pasal(ayat="1", huruf="a")) == "Pasal 1 ayat (1) huruf a UU 1/2020"
+
+
+def test_angka_tepat_setelah_pasal_sebelum_ayat():
+    rujukan = _pasal(form="pasal_angka", angka="2", ayat="3", huruf="b")
+
+    assert _teks(rujukan) == "Pasal 1 Angka 2 ayat (3) huruf b UU 1/2020"
+
+
+def test_huruf_tanpa_ayat():
+    assert _teks(_pasal(huruf="a")) == "Pasal 1 huruf a UU 1/2020"
+
+
+def test_ayat_yang_sudah_berkurung_tidak_dikurung_dua_kali():
+    """Data Sprint 1 bisa menyimpan ayat sebagai "(1)"."""
+    assert _teks(_pasal(ayat="(1)")) == "Pasal 1 ayat (1) UU 1/2020"
+
+
+def test_tentang_tidak_ditampilkan():
+    assert _teks(_pasal(about="Format tentang")) == "Pasal 1 UU 1/2020"
