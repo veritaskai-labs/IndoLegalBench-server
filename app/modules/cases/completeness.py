@@ -13,7 +13,10 @@ from typing import Any
 
 PLACEHOLDER_CASE_CODE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$"
 TAG_SAH = frozenset({"dev", "test"})
-FIELD_RUJUKAN = ("regulation_type", "regulation_number", "pasal")
+# PBI-21: field wajib setiap link, lalu tambahan menurut bentuk link.
+FIELD_LINK = ("regulation_type", "number", "year")
+FIELD_PER_BENTUK = {"name_only": (), "pasal": ("pasal",), "pasal_angka": ("pasal", "angka")}
+KIND_RUJUKAN = frozenset({"structured", "free_text"})
 
 # PBI-21 AC5: pasal angka biasa atau Romawi yang sah (huruf besar). Akhiran
 # satu huruf besar ("1A", pasal sisipan) usulan PO, menunggu konfirmasi Steven.
@@ -114,30 +117,58 @@ def row_data(case: Any) -> dict[str, Any]:
     }
 
 
+def missing_in_ref(rujukan: Any) -> str | None:
+    """Jalur relatif field pertama yang kosong di satu rujukan, atau None kalau lengkap.
+
+    "" berarti rujukannya sendiri bukan objek. Contoh lain: ".kind",
+    ".free_text", ".links", ".links[1]", ".links[0].pasal". Pemanggil
+    menambahkan awalan "legal_refs[i]".
+    """
+    if not isinstance(rujukan, dict):
+        return ""
+    jenis = rujukan.get("kind")
+    if jenis not in KIND_RUJUKAN:
+        return ".kind"
+    if jenis == "free_text":
+        return None if _text(rujukan.get("free_text")) else ".free_text"
+    links = rujukan.get("links")
+    if not isinstance(links, list) or not links:
+        return ".links"
+    for posisi, link in enumerate(links):
+        kurang = _missing_in_link(link)
+        if kurang is not None:
+            return f".links[{posisi}]{kurang}"
+    return None
+
+
+def _missing_in_link(link: Any) -> str | None:
+    """Jalur relatif field pertama yang kosong di satu link, atau None kalau lengkap."""
+    if not isinstance(link, dict):
+        return ""
+    bentuk = link.get("form")
+    if bentuk not in FIELD_PER_BENTUK:
+        return ".form"
+    for nama in FIELD_LINK + FIELD_PER_BENTUK[bentuk]:
+        if not _text(link.get(nama)):
+            return f".{nama}"
+    return None
+
+
 def _invalid_refs(legal_refs: Any) -> list[dict[str, str]]:
     """Satu masalah per rujukan rusak, menyebut field pertama yang kosong."""
     masalah: list[dict[str, str]] = []
     for indeks, rujukan in enumerate(legal_refs or []):
-        if not isinstance(rujukan, dict):
-            masalah.append({"field": f"legal_refs[{indeks}]", "message": _PESAN_RUJUKAN})
-            continue
-        kosong = [nama for nama in FIELD_RUJUKAN if not _text(rujukan.get(nama))]
-        if kosong:
-            masalah.append(
-                {"field": f"legal_refs[{indeks}].{kosong[0]}", "message": _PESAN_RUJUKAN}
-            )
+        kurang = missing_in_ref(rujukan)
+        if kurang is not None:
+            masalah.append({"field": f"legal_refs[{indeks}]{kurang}", "message": _PESAN_RUJUKAN})
     return masalah
 
 
 def _count_refs(legal_refs: Any) -> int:
-    """Rujukan baru dihitung kalau tipe, nomor, dan pasal sudah terisi."""
+    """Rujukan dihitung kalau kind dan isi wajib setiap link-nya terpenuhi."""
     if not isinstance(legal_refs, list):
         return 0
-    return sum(
-        1
-        for rujukan in legal_refs
-        if isinstance(rujukan, dict) and all(_text(rujukan.get(nama)) for nama in FIELD_RUJUKAN)
-    )
+    return sum(1 for rujukan in legal_refs if missing_in_ref(rujukan) is None)
 
 
 def _count_traps(traps: Any) -> int:

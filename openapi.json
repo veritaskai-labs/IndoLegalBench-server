@@ -3350,7 +3350,7 @@
           },
           "legal_refs": {
             "items": {
-              "$ref": "#/components/schemas/LegalRef"
+              "$ref": "#/components/schemas/LegalRefRead"
             },
             "type": "array",
             "title": "Legal Refs"
@@ -3558,12 +3558,12 @@
           },
           "legal_refs": {
             "items": {
-              "$ref": "#/components/schemas/LegalRef"
+              "$ref": "#/components/schemas/LegalRefWrite"
             },
             "type": "array",
             "minItems": 1,
             "title": "Legal Refs",
-            "description": "Minimal satu rujukan, masing-masing sampai level pasal."
+            "description": "Minimal satu rujukan. Isi wajib tiap link mengikuti bentuknya (PBI-21)."
           },
           "answer_criteria": {
             "$ref": "#/components/schemas/AnswerCriteria"
@@ -3755,38 +3755,76 @@
         ],
         "title": "LastTestStatus"
       },
-      "LegalRef": {
+      "LegalRefLinkRead": {
         "properties": {
+          "form": {
+            "type": "string",
+            "enum": [
+              "name_only",
+              "pasal",
+              "pasal_angka"
+            ],
+            "title": "Form"
+          },
+          "connector": {
+            "type": "string",
+            "enum": [
+              "none",
+              "jo",
+              "jis"
+            ],
+            "title": "Connector"
+          },
           "regulation_type": {
             "type": "string",
-            "maxLength": 40,
+            "maxLength": 150,
             "minLength": 1,
-            "title": "Regulation Type"
+            "title": "Regulation Type",
+            "description": "Kode dari GET /regulation-types, bukan label"
           },
-          "regulation_number": {
+          "number": {
             "type": "string",
             "maxLength": 40,
             "minLength": 1,
-            "title": "Regulation Number"
+            "title": "Number",
+            "description": "Boleh alfanumerik"
           },
-          "year": {
+          "about": {
             "anyOf": [
               {
-                "type": "integer",
-                "maximum": 9999.0,
-                "minimum": 1.0
+                "type": "string",
+                "maxLength": 500
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Year"
+            "title": "About",
+            "description": "Tentang, opsional"
           },
           "pasal": {
-            "type": "string",
-            "maxLength": 40,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Pasal"
+          },
+          "angka": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Angka"
           },
           "ayat": {
             "anyOf": [
@@ -3811,16 +3849,221 @@
               }
             ],
             "title": "Huruf"
+          },
+          "year": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Year"
           }
         },
         "type": "object",
         "required": [
+          "form",
+          "connector",
           "regulation_type",
-          "regulation_number",
-          "pasal"
+          "number"
         ],
-        "title": "LegalRef",
-        "description": "One citation. regulation_type, regulation_number, and pasal are required."
+        "title": "LegalRefLinkRead",
+        "description": "One regulation in a citation, as stored.\n\nA migrated Sprint 1 citation may have no year and a free-form pasal (AC9).\nThe Author fixes both when the case is saved again."
+      },
+      "LegalRefLinkWrite": {
+        "properties": {
+          "form": {
+            "type": "string",
+            "enum": [
+              "name_only",
+              "pasal",
+              "pasal_angka"
+            ],
+            "title": "Form"
+          },
+          "connector": {
+            "type": "string",
+            "enum": [
+              "none",
+              "jo",
+              "jis"
+            ],
+            "title": "Connector"
+          },
+          "regulation_type": {
+            "type": "string",
+            "maxLength": 150,
+            "minLength": 1,
+            "title": "Regulation Type",
+            "description": "Kode dari GET /regulation-types, bukan label"
+          },
+          "number": {
+            "type": "string",
+            "maxLength": 40,
+            "minLength": 1,
+            "title": "Number",
+            "description": "Boleh alfanumerik"
+          },
+          "about": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 500
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "About",
+            "description": "Tentang, opsional"
+          },
+          "pasal": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 40,
+                "pattern": "^(?:[1-9][0-9]*[A-Z]?|M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Pasal"
+          },
+          "angka": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20,
+                "pattern": "^[1-9][0-9]*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Angka"
+          },
+          "ayat": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 20
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ayat"
+          },
+          "huruf": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Huruf"
+          },
+          "year": {
+            "type": "integer",
+            "maximum": 9999.0,
+            "minimum": 1.0,
+            "title": "Year"
+          }
+        },
+        "type": "object",
+        "required": [
+          "form",
+          "connector",
+          "regulation_type",
+          "number",
+          "year"
+        ],
+        "title": "LegalRefLinkWrite",
+        "description": "One regulation in a citation, as the editor sends it.\n\nCross-field rules (which form needs pasal or angka, the jo./jis. chain,\nyear not after the current year) live in validation.py."
+      },
+      "LegalRefRead": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "structured",
+              "free_text"
+            ],
+            "title": "Kind"
+          },
+          "free_text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Text",
+            "description": "Hanya untuk kind free_text, disimpan apa adanya"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/LegalRefLinkRead"
+            },
+            "type": "array",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "links"
+        ],
+        "title": "LegalRefRead",
+        "description": "One citation as stored."
+      },
+      "LegalRefWrite": {
+        "properties": {
+          "kind": {
+            "type": "string",
+            "enum": [
+              "structured",
+              "free_text"
+            ],
+            "title": "Kind"
+          },
+          "free_text": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Free Text",
+            "description": "Hanya untuk kind free_text, disimpan apa adanya"
+          },
+          "links": {
+            "items": {
+              "$ref": "#/components/schemas/LegalRefLinkWrite"
+            },
+            "type": "array",
+            "title": "Links"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "links"
+        ],
+        "title": "LegalRefWrite",
+        "description": "One citation as the editor sends it. Links are in chain order."
       },
       "MeResponse": {
         "properties": {
@@ -3986,8 +4229,7 @@
           },
           "legal_refs": {
             "items": {
-              "additionalProperties": true,
-              "type": "object"
+              "$ref": "#/components/schemas/LegalRefRead"
             },
             "type": "array",
             "title": "Legal Refs"

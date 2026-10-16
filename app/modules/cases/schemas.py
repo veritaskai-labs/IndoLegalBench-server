@@ -75,32 +75,6 @@ class CaseIdentity(BaseModel):
         return bersih or None
 
 
-class LegalRef(BaseModel):
-    """One citation. regulation_type, regulation_number, and pasal are required."""
-
-    regulation_type: str = Field(min_length=1, max_length=40)
-    regulation_number: str = Field(min_length=1, max_length=40)
-    year: int | None = Field(default=None, ge=1, le=9999)
-    pasal: str = Field(min_length=1, max_length=40)
-    ayat: str | None = Field(default=None, max_length=20)
-    huruf: str | None = Field(default=None, max_length=8)
-
-    @field_validator("regulation_type", "regulation_number", "pasal")
-    @classmethod
-    def wajib_berisi(cls, nilai: str) -> str:
-        """Strip the required citation fields."""
-        return _strip_whitespace(nilai)
-
-    @field_validator("ayat", "huruf")
-    @classmethod
-    def clean_optional(cls, nilai: str | None) -> str | None:
-        """Store a stripped optional field, or None when it is blank."""
-        if nilai is None:
-            return None
-        bersih = nilai.strip()
-        return bersih or None
-
-
 class _LegalRefLinkBase(BaseModel):
     """Fields shared by the write and read shape of one regulation in a citation (PBI-21)."""
 
@@ -218,9 +192,9 @@ class CaseWrite(BaseModel):
         ),
     )
     identity: CaseIdentity
-    legal_refs: list[LegalRef] = Field(
+    legal_refs: list[LegalRefWrite] = Field(
         min_length=1,
-        description="Minimal satu rujukan, masing-masing sampai level pasal.",
+        description="Minimal satu rujukan. Isi wajib tiap link mengikuti bentuknya (PBI-21).",
     )
     answer_criteria: AnswerCriteria = Field(default_factory=AnswerCriteria)
     traps: list[Trap] = Field(default_factory=list)
@@ -250,7 +224,7 @@ class CaseRead(BaseModel):
     suite_id: uuid.UUID
     case_code: str
     identity: CaseIdentity
-    legal_refs: list[LegalRef]
+    legal_refs: list[LegalRefRead]
     answer_criteria: AnswerCriteria
     traps: list[Trap]
     split_tag: SplitTag
@@ -377,6 +351,6 @@ class ReviewCopy(BaseModel):
     version_no: int
     split_tag: SplitTag
     identity: CaseIdentity
-    legal_refs: list[dict[str, Any]]
+    legal_refs: list[LegalRefRead]
     answer_criteria: dict[str, Any]
     traps: list[dict[str, Any]]

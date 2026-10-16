@@ -27,7 +27,6 @@ FIELD_REQUIRED = "FIELD_REQUIRED"
 VALIDATION_ERROR = "VALIDATION_ERROR"
 
 _TAG_SAH = completeness_module.TAG_SAH
-_FIELD_RUJUKAN = completeness_module.FIELD_RUJUKAN
 
 
 def validate_payload(data: dict[str, Any]) -> None:
@@ -111,7 +110,7 @@ def _require_split_tag(nilai: Any) -> None:
 
 
 def _require_legal_refs(nilai: Any) -> None:
-    """Require at least one citation, each with type, number, and pasal."""
+    """Require at least one citation, each complete for its kind and link forms (PBI-21)."""
     if not isinstance(nilai, list) or len(nilai) < 1:
         raise ValidationError(
             "Minimal satu rujukan hukum sampai level pasal",
@@ -119,17 +118,10 @@ def _require_legal_refs(nilai: Any) -> None:
             field="legal_refs",
         )
     for indeks, rujukan in enumerate(nilai):
-        if not isinstance(rujukan, dict):
-            field = f"legal_refs[{indeks}]"
+        kurang = completeness_module.missing_in_ref(rujukan)
+        if kurang is not None:
+            field = f"legal_refs[{indeks}]{kurang}"
             raise ValidationError(f"Field {field} wajib diisi", code=FIELD_REQUIRED, field=field)
-        for nama in _FIELD_RUJUKAN:
-            if not _text(rujukan.get(nama)):
-                field = f"legal_refs[{indeks}].{nama}"
-                raise ValidationError(
-                    f"Field {field} wajib diisi",
-                    code=FIELD_REQUIRED,
-                    field=field,
-                )
 
 
 def _text(nilai: Any) -> str:
