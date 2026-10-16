@@ -15,7 +15,12 @@ bisa melaporkannya.
 from dataclasses import dataclass
 from typing import Any
 
-from app.modules.legal_refs.models import LegalRefConnector, LegalRefForm, LegalRefLink
+from app.modules.legal_refs.models import (
+    LegalRefConnector,
+    LegalRefKind,
+    LegalRefLink,
+    LegalRefLinkForm,
+)
 from app.modules.legal_refs.type_lookup import RegulationTypeLookup
 
 MIN_YEAR = 1
@@ -30,6 +35,7 @@ _BATAS_PANJANG = {nama: _COLUMNS[nama].type.length for nama in ("number", "pasal
 class LegalRefLinkDraft:
     position: int
     connector: LegalRefConnector
+    form: LegalRefLinkForm
     regulation_type: str
     number: str
     year: int | None
@@ -41,7 +47,7 @@ class LegalRefLinkDraft:
 @dataclass(frozen=True)
 class LegalRefDraft:
     order: int
-    form: LegalRefForm
+    kind: LegalRefKind
     free_text: str | None
     links: list[LegalRefLinkDraft]
 
@@ -67,7 +73,7 @@ def map_legacy_refs(raw: Any, lookup: RegulationTypeLookup) -> MappingResult:
         if draft is None:
             skipped += 1
             continue
-        if draft.form == LegalRefForm.FREE_TEXT:
+        if draft.kind == LegalRefKind.FREE_TEXT:
             fallbacks += 1
         refs.append(draft)
     return MappingResult(refs=refs, free_text_fallbacks=fallbacks, skipped=skipped)
@@ -94,6 +100,7 @@ def _petakan_entri(entri: Any, order: int, lookup: RegulationTypeLookup) -> Lega
         link = LegalRefLinkDraft(
             position=1,
             connector=LegalRefConnector.NONE,
+            form=LegalRefLinkForm.PASAL if pasal else LegalRefLinkForm.NAME_ONLY,
             regulation_type=code,
             number=nomor,
             year=tahun,
@@ -101,8 +108,9 @@ def _petakan_entri(entri: Any, order: int, lookup: RegulationTypeLookup) -> Lega
             ayat=ayat or None,
             huruf=huruf or None,
         )
-        form = LegalRefForm.PASAL if pasal else LegalRefForm.NAME_ONLY
-        return LegalRefDraft(order=order, form=form, free_text=None, links=[link])
+        return LegalRefDraft(
+            order=order, kind=LegalRefKind.STRUCTURED, free_text=None, links=[link]
+        )
 
     return _teks_bebas(order, _susun_teks(jenis, nomor, tahun, pasal, ayat, huruf))
 
@@ -140,4 +148,4 @@ def _susun_teks(jenis: str, nomor: str, tahun: Any, pasal: str, ayat: str, huruf
 
 
 def _teks_bebas(order: int, isi: str) -> LegalRefDraft:
-    return LegalRefDraft(order=order, form=LegalRefForm.FREE_TEXT, free_text=isi, links=[])
+    return LegalRefDraft(order=order, kind=LegalRefKind.FREE_TEXT, free_text=isi, links=[])

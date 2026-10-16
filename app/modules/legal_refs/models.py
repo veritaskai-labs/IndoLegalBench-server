@@ -34,13 +34,24 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 from app.shared.database import Base
 
 
-class LegalRefForm(StrEnum):
-    """Seberapa dalam rujukan menunjuk peraturan (PBI-21 AC4)."""
+class LegalRefKind(StrEnum):
+    """Rujukan terstruktur (punya link) atau teks bebas (AC7)."""
+
+    STRUCTURED = "structured"
+    FREE_TEXT = "free_text"
+
+
+class LegalRefLinkForm(StrEnum):
+    """Seberapa dalam satu link menunjuk peraturannya (AC4).
+
+    Bentuk ada di tiap link, bukan di rujukan, karena satu rangkaian bisa
+    punya kedalaman berbeda: Pasal 156 UU 13/2003 jo. Pasal II Angka 5
+    UU 6/2023 memakai pasal di link pertama dan pasal_angka di link kedua.
+    """
 
     NAME_ONLY = "name_only"
     PASAL = "pasal"
     PASAL_ANGKA = "pasal_angka"
-    FREE_TEXT = "free_text"
 
 
 class LegalRefConnector(StrEnum):
@@ -82,9 +93,9 @@ class LegalRef(Base):
         UniqueConstraint("case_version_id", "order", name="uq_legal_refs_case_version_id_order"),
         CheckConstraint('"order" >= 1', name="ck_legal_refs_order_positive"),
         CheckConstraint(
-            "(form = 'free_text' AND free_text IS NOT NULL AND length(trim(free_text)) > 0)"
-            " OR (form <> 'free_text' AND free_text IS NULL)",
-            name="ck_legal_refs_free_text_only_for_free_text_form",
+            "(kind = 'free_text' AND free_text IS NOT NULL AND length(trim(free_text)) > 0)"
+            " OR (kind <> 'free_text' AND free_text IS NULL)",
+            name="ck_legal_refs_free_text_only_for_free_text_kind",
         ),
     )
 
@@ -95,8 +106,8 @@ class LegalRef(Base):
         nullable=False,
     )
     order: Mapped[int] = mapped_column("order", Integer, nullable=False)
-    form: Mapped[LegalRefForm] = mapped_column(
-        _enum(LegalRefForm, "legal_ref_form_enum"), nullable=False
+    kind: Mapped[LegalRefKind] = mapped_column(
+        _enum(LegalRefKind, "legal_ref_kind_enum"), nullable=False
     )
     free_text: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -132,6 +143,9 @@ class LegalRefLink(Base):
     position: Mapped[int] = mapped_column(Integer, nullable=False)
     connector: Mapped[LegalRefConnector] = mapped_column(
         _enum(LegalRefConnector, "legal_ref_connector_enum"), nullable=False
+    )
+    form: Mapped[LegalRefLinkForm] = mapped_column(
+        _enum(LegalRefLinkForm, "legal_ref_link_form_enum"), nullable=False
     )
     regulation_type: Mapped[str] = mapped_column(
         String(150),
