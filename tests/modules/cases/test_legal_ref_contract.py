@@ -306,3 +306,16 @@ def test_case_write_hanya_memakai_kata_kunci_gen_zod(spec):
     dipakai = _kata_kunci(spec, "CaseWrite", set())
 
     assert dipakai - KATA_KUNCI_GEN_ZOD == set()
+
+
+def test_field_terlarang_lewat_http_memakai_kode_sendiri(as_role):
+    """Kode baru FIELD_NOT_ALLOWED (keputusan PO 17 Okt) sampai ke badan error FE."""
+    client = as_role(Role.AUTHOR)
+    rujukan = rujukan_ac10()
+    rujukan["links"][0]["angka"] = "1"
+
+    respons = _buat(client, _suite(client), legal_refs=[rujukan])
+
+    assert respons.status_code == 422
+    assert respons.json()["code"] == "FIELD_NOT_ALLOWED"
+    assert respons.json()["field"] == "legal_refs[0].links[0].angka"
