@@ -303,14 +303,27 @@ def test_tahun_di_luar_rentang_ditolak(db_session, tahun):
         _link(db_session, rujukan.id, year=tahun)
 
 
-@pytest.mark.parametrize("kolom", ["regulation_type", "number", "year"])
-def test_jenis_nomor_dan_tahun_link_wajib_ada(db_session, kolom):
+@pytest.mark.parametrize("kolom", ["regulation_type", "number"])
+def test_jenis_dan_nomor_link_wajib_ada(db_session, kolom):
     # Arrange
     rujukan = _rujukan(db_session)
 
     # Act + Assert
     with pytest.raises(IntegrityError):
         _link(db_session, rujukan.id, **{kolom: None})
+
+
+def test_tahun_boleh_kosong_agar_rujukan_lama_tanpa_tahun_tetap_terstruktur(db_session):
+    # Arrange: tahun opsional di Sprint 1, jadi data lama bisa tidak punya tahun
+    rujukan = _rujukan(db_session)
+
+    # Act
+    link = _link(db_session, rujukan.id, year=None)
+    db_session.refresh(link)
+
+    # Assert
+    assert link.year is None
+    assert models.LegalRefLink.__table__.c.year.nullable is True
 
 
 def test_link_dibaca_berurutan_menurut_posisi(db_session):
