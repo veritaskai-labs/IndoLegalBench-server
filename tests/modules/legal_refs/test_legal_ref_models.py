@@ -52,21 +52,23 @@ def _link(db_session, rujukan_id, *, position: int = 1, **kolom):
 
 @pytest.mark.parametrize("tabel", ["regulation_types", "legal_refs", "legal_ref_links"])
 def test_tabel_terdaftar_di_metadata(tabel):
-    assert tabel in Base.metadata.tables
+    # Act
+    tabel_terdaftar = Base.metadata.tables
+
+    # Assert
+    assert tabel in tabel_terdaftar
 
 
 def test_nilai_enum_jenis_rujukan_bentuk_link_dan_connector():
-    assert [jenis.value for jenis in models.LegalRefKind] == ["structured", "free_text"]
-    assert [bentuk.value for bentuk in models.LegalRefLinkForm] == [
-        "name_only",
-        "pasal",
-        "pasal_angka",
-    ]
-    assert [penghubung.value for penghubung in models.LegalRefConnector] == [
-        "none",
-        "jo",
-        "jis",
-    ]
+    # Act
+    jenis = [item.value for item in models.LegalRefKind]
+    bentuk = [item.value for item in models.LegalRefLinkForm]
+    penghubung = [item.value for item in models.LegalRefConnector]
+
+    # Assert
+    assert jenis == ["structured", "free_text"]
+    assert bentuk == ["name_only", "pasal", "pasal_angka"]
+    assert penghubung == ["none", "jo", "jis"]
 
 
 # --- regulation_types ---------------------------------------------------
@@ -157,6 +159,7 @@ def test_urutan_rujukan_yang_sama_boleh_dipakai_versi_lain(db_session):
 
 @pytest.mark.parametrize("urutan", [0, -1])
 def test_urutan_rujukan_dimulai_dari_satu(db_session, urutan):
+    # Act + Assert
     with pytest.raises(IntegrityError):
         _rujukan(db_session, order=urutan)
 
@@ -174,11 +177,13 @@ def test_teks_bebas_disimpan_apa_adanya(db_session):
 
 @pytest.mark.parametrize("isi", [None, "", "   "])
 def test_rujukan_teks_bebas_wajib_berisi_teks(db_session, isi):
+    # Act + Assert
     with pytest.raises(IntegrityError):
         _rujukan(db_session, kind=models.LegalRefKind.FREE_TEXT, free_text=isi)
 
 
 def test_rujukan_terstruktur_tidak_boleh_membawa_teks_bebas(db_session):
+    # Act + Assert
     with pytest.raises(IntegrityError):
         _rujukan(db_session, kind=models.LegalRefKind.STRUCTURED, free_text="sisa teks")
 
@@ -297,16 +302,20 @@ def test_posisi_link_tidak_boleh_ganda_dalam_satu_rujukan(db_session):
 
 
 def test_posisi_link_dimulai_dari_satu(db_session):
+    # Arrange
     rujukan = _rujukan(db_session)
 
+    # Act + Assert
     with pytest.raises(IntegrityError):
         _link(db_session, rujukan.id, position=0)
 
 
 @pytest.mark.parametrize("tahun", [0, -2003, 10000])
 def test_tahun_di_luar_rentang_ditolak(db_session, tahun):
+    # Arrange
     rujukan = _rujukan(db_session)
 
+    # Act + Assert
     with pytest.raises(IntegrityError):
         _link(db_session, rujukan.id, year=tahun)
 

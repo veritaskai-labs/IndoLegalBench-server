@@ -40,20 +40,39 @@ def indeks():
     ],
 )
 def test_teks_dicocokkan_ke_code_singkatan_atau_label(indeks, teks, diharapkan):
-    assert indeks.resolve(teks) == diharapkan
+    # Act
+    hasil = indeks.resolve(teks)
+
+    # Assert
+    assert hasil == diharapkan
 
 
 def test_spasi_di_pinggir_dan_spasi_ganda_diabaikan(indeks):
-    assert indeks.resolve("  Peraturan   Pemerintah \t") == "peraturan_pemerintah"
+    # Arrange
+    teks = "  Peraturan   Pemerintah \t"
+
+    # Act
+    hasil = indeks.resolve(teks)
+
+    # Assert
+    assert hasil == "peraturan_pemerintah"
 
 
 @pytest.mark.parametrize("teks", ["", "   ", "Peraturan Tidak Ada", "UU 13"])
 def test_teks_yang_tidak_dikenal_menghasilkan_none(indeks, teks):
-    assert indeks.resolve(teks) is None
+    # Act
+    hasil = indeks.resolve(teks)
+
+    # Assert
+    assert hasil is None
 
 
 def test_jenis_nonaktif_tetap_bisa_dicocokkan(indeks):
-    assert indeks.resolve("Peraturan Lama") == "lama"
+    # Act
+    hasil = indeks.resolve("Peraturan Lama")
+
+    # Assert
+    assert hasil == "lama"
 
 
 def test_code_menang_atas_singkatan_dan_label_yang_sama():
@@ -125,4 +144,8 @@ def test_seed_asli_setiap_code_dan_label_kembali_ke_jenisnya_sendiri(indeks_asli
     ],
 )
 def test_seed_asli_menyelesaikan_penulisan_yang_lazim(indeks_asli, teks, diharapkan):
-    assert indeks_asli.resolve(teks) == diharapkan
+    # Act
+    hasil = indeks_asli.resolve(teks)
+
+    # Assert
+    assert hasil == diharapkan

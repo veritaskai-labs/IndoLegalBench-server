@@ -27,13 +27,21 @@ def jenis_asli():
 
 
 def test_file_seed_asli_ada_di_migrations_seeds():
-    assert seed.DEFAULT_SEED_PATH.name == "regulation_types_seed_2026-10-16.csv"
-    assert seed.DEFAULT_SEED_PATH.parent.name == "seeds"
-    assert seed.DEFAULT_SEED_PATH.exists()
+    # Act
+    jalur = seed.DEFAULT_SEED_PATH
+
+    # Assert
+    assert jalur.name == "regulation_types_seed_2026-10-16.csv"
+    assert jalur.parent.name == "seeds"
+    assert jalur.exists()
 
 
 def test_seed_asli_berisi_266_jenis_dengan_urutan_satu_sampai_266(jenis_asli):
-    assert [jenis.urutan for jenis in jenis_asli] == list(range(1, 267))
+    # Act
+    urutan = [jenis.urutan for jenis in jenis_asli]
+
+    # Assert
+    assert urutan == list(range(1, 267))
 
 
 def test_seed_asli_code_unik_dan_muat_di_kolom(jenis_asli):
@@ -47,7 +55,11 @@ def test_seed_asli_code_unik_dan_muat_di_kolom(jenis_asli):
 
 
 def test_seed_asli_semua_jenis_aktif(jenis_asli):
-    assert all(jenis.is_active is True for jenis in jenis_asli)
+    # Act
+    status = [jenis.is_active for jenis in jenis_asli]
+
+    # Assert
+    assert all(aktif is True for aktif in status)
 
 
 def test_seed_asli_singkatan_umum_terisi_dan_sisanya_kosong(jenis_asli):
@@ -114,45 +126,57 @@ def test_spasi_di_sekitar_nilai_dibuang(tmp_path):
 
 
 def test_header_yang_salah_ditolak_dengan_menyebut_kolom(tmp_path):
+    # Arrange
     berkas = _tulis(tmp_path, "1,uu,Undang-undang,UU,true", header="urutan,code,label")
 
+    # Act + Assert
     with pytest.raises(seed.SeedDataError, match="singkatan"):
         seed.load_regulation_types(berkas)
 
 
 def test_file_tanpa_data_ditolak(tmp_path):
+    # Arrange
     berkas = _tulis(tmp_path)
 
+    # Act + Assert
     with pytest.raises(seed.SeedDataError, match="kosong"):
         seed.load_regulation_types(berkas)
 
 
 def test_code_ganda_ditolak_dengan_menyebut_code_dan_baris(tmp_path):
+    # Arrange
     berkas = _tulis(tmp_path, "1,uu,Undang-undang,UU,true", "2,uu,Lainnya,,true")
 
+    # Act + Assert
     with pytest.raises(seed.SeedDataError, match=r"baris 3.*uu"):
         seed.load_regulation_types(berkas)
 
 
 def test_urutan_ganda_ditolak(tmp_path):
+    # Arrange
     berkas = _tulis(tmp_path, "1,uu,Undang-undang,UU,true", "1,pp,Peraturan Pemerintah,PP,true")
 
+    # Act + Assert
     with pytest.raises(seed.SeedDataError, match=r"baris 3.*urutan"):
         seed.load_regulation_types(berkas)
 
 
 @pytest.mark.parametrize("urutan", ["0", "-1", "satu", "1.5", ""])
 def test_urutan_bukan_bilangan_bulat_positif_ditolak(tmp_path, urutan):
+    # Arrange
     berkas = _tulis(tmp_path, f"{urutan},uu,Undang-undang,UU,true")
 
+    # Act + Assert
     with pytest.raises(seed.SeedDataError, match=r"baris 2.*urutan"):
         seed.load_regulation_types(berkas)
 
 
 @pytest.mark.parametrize("code", ["UU", "undang undang", "undang-undang", "", "uu;"])
 def test_code_di_luar_huruf_kecil_angka_dan_garis_bawah_ditolak(tmp_path, code):
+    # Arrange
     berkas = _tulis(tmp_path, f"1,{code},Undang-undang,UU,true")
 
+    # Act + Assert
     with pytest.raises(seed.SeedDataError, match=r"baris 2.*code"):
         seed.load_regulation_types(berkas)
 
@@ -173,22 +197,28 @@ def test_code_150_karakter_masih_diterima_tapi_151_ditolak(tmp_path):
 
 @pytest.mark.parametrize("label", ["", "   ", "x" * 256])
 def test_label_kosong_atau_lebih_dari_255_karakter_ditolak(tmp_path, label):
+    # Arrange
     berkas = _tulis(tmp_path, f"1,uu,{label},UU,true")
 
+    # Act + Assert
     with pytest.raises(seed.SeedDataError, match=r"baris 2.*label"):
         seed.load_regulation_types(berkas)
 
 
 def test_singkatan_lebih_dari_50_karakter_ditolak(tmp_path):
+    # Arrange
     berkas = _tulis(tmp_path, f"1,uu,Undang-undang,{'S' * 51},true")
 
+    # Act + Assert
     with pytest.raises(seed.SeedDataError, match=r"baris 2.*singkatan"):
         seed.load_regulation_types(berkas)
 
 
 @pytest.mark.parametrize("nilai", ["yes", "1", "", "benar"])
 def test_is_active_selain_true_atau_false_ditolak(tmp_path, nilai):
+    # Arrange
     berkas = _tulis(tmp_path, f"1,uu,Undang-undang,UU,{nilai}")
 
+    # Act + Assert
     with pytest.raises(seed.SeedDataError, match=r"baris 2.*is_active"):
         seed.load_regulation_types(berkas)
