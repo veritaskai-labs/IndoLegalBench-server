@@ -25,6 +25,7 @@ SPLIT_TAG_REQUIRED = "SPLIT_TAG_REQUIRED"
 CASE_CODE_INVALID = "CASE_CODE_INVALID"
 FIELD_REQUIRED = "FIELD_REQUIRED"
 FIELD_NOT_ALLOWED = "FIELD_NOT_ALLOWED"
+CONNECTOR_INVALID = "CONNECTOR_INVALID"
 VALIDATION_ERROR = "VALIDATION_ERROR"
 
 _TAG_SAH = completeness_module.TAG_SAH
@@ -126,14 +127,35 @@ def _require_legal_refs(nilai: Any) -> None:
         if kurang is not None:
             field = f"legal_refs[{indeks}]{kurang}"
             raise ValidationError(f"Field {field} wajib diisi", code=FIELD_REQUIRED, field=field)
-        _reject_unused_fields(f"legal_refs[{indeks}]", rujukan)
+        _check_ref_rules(f"legal_refs[{indeks}]", rujukan)
 
 
-def _reject_unused_fields(awalan: str, rujukan: dict[str, Any]) -> None:
-    """Reject a field that the citation kind or the link form does not use.
+def _check_ref_rules(awalan: str, rujukan: dict[str, Any]) -> None:
+    """Rules that need a complete citation, in reading order: unused fields, then the chain.
 
     Runs after missing_in_ref, so kind, links, and every form are known to be valid.
     """
+    _reject_unused_fields(awalan, rujukan)
+    if rujukan["kind"] == "structured":
+        _check_chain(awalan, rujukan["links"])
+
+
+def _check_chain(awalan: str, links: list[dict[str, Any]]) -> None:
+    """AC6: the first link has no connector, every next link uses jo or jis."""
+    for posisi, link in enumerate(links):
+        tanpa_penghubung = link.get("connector") == "none"
+        if posisi == 0 and not tanpa_penghubung:
+            pesan = "Peraturan pertama tidak memakai penghubung"
+        elif posisi > 0 and tanpa_penghubung:
+            pesan = f"Peraturan ke-{posisi + 1} wajib disambung dengan jo. atau jis."
+        else:
+            continue
+        field = f"{awalan}.links[{posisi}].connector"
+        raise ValidationError(pesan, code=CONNECTOR_INVALID, field=field)
+
+
+def _reject_unused_fields(awalan: str, rujukan: dict[str, Any]) -> None:
+    """Reject a field that the citation kind or the link form does not use."""
     if rujukan["kind"] == "free_text":
         if rujukan.get("links"):
             _not_allowed(f"{awalan}.links", "harus kosong untuk Teks Bebas")
