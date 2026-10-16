@@ -6,7 +6,7 @@ dijalankan lewat HTTP seperti pengguna sungguhan:
 
 - AC1: snapshot suite (PBI-8) dan versi baru hasil fork tercatat tepat satu kali
 - AC3: saringan pelaku yang akunnya sudah dinonaktifkan tetap menemukan catatannya
-- AC5: Reviewer melihat riwayat kasusnya, menunggu SCRUM-167
+- AC5: Reviewer melihat riwayat kasus yang pernah ditugaskan (SCRUM-167)
 - AC6: nilai kredensial tidak ikut ke file CSV maupun PDF
 - Edge: aksi yang ditolak validasi (422) atau bentrok (409) tidak meninggalkan catatan
 
@@ -26,6 +26,7 @@ from app.modules.audit import export
 from app.modules.audit.export import ExportFormat, PdfExporter
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
+from app.modules.reviews.models import AssignmentStatus, ReviewAssignment, ReviewRound
 from app.shared import request_context
 from app.shared.config import get_settings
 from app.shared.database import get_db
@@ -34,6 +35,7 @@ from tests.modules.cases.test_cases import _buat, _setujui, _suite
 from tests.modules.conftest import USER_ID_QA
 
 PENULIS_LAMA = uuid.UUID("00000000-0000-0000-0000-00000000a142")
+REVIEWER_QA = uuid.UUID("00000000-0000-0000-0000-00000000a167")
 _RAHASIA = "qa-provider-token-4wLz"  # pragma: allowlist secret
 _RAHASIA_BARU = "qa-replacement-token-8nTe"  # pragma: allowlist secret
 
@@ -140,14 +142,40 @@ def test_ac3_edge_pelaku_yang_dinonaktifkan_tetap_bisa_dicari(as_role, buat_peng
 # --- AC5: Reviewer --------------------------------------------------------------
 
 
-@pytest.mark.skip(
-    reason=(
-        "Menunggu SCRUM-167: _assigned_case_ids() masih stub kosong sampai tabel "
-        "review_assignments PBI-6 (SCRUM-143, SCRUM-144) masuk staging."
+@pytest.mark.parametrize("status", [AssignmentStatus.ACTIVE, AssignmentStatus.REPLACED])
+def test_ac5_positif_reviewer_melihat_riwayat_kasus_yang_ditugaskan(as_role, db_session, status):
+    """SCRUM-167. Reviewer yang sudah diganti Admin tetap melihat riwayatnya (asumsi #10).
+
+    Bagian negatif AC5 sudah diuji di test_audit_api.py. Assignment disisipkan
+    langsung karena penugasan otomatis (SCRUM-144) belum masuk staging.
+    """
+    # Arrange
+    penulis = as_role(Role.AUTHOR)
+    suite_id = _suite(penulis)
+    ditugaskan = _buat(penulis, suite_id).json()["id"]
+    lain = _buat(penulis, suite_id, case_code="PHK-002").json()["id"]
+    assert penulis.post(f"/cases/{ditugaskan}/submit-review").status_code == 200
+    ronde = db_session.query(ReviewRound).filter_by(case_id=uuid.UUID(ditugaskan)).one()
+    db_session.add(
+        User(id=REVIEWER_QA, email="reviewer.qa@veritask.ai", name="Reviewer QA", role="reviewer")
     )
-)
-def test_ac5_positif_reviewer_melihat_riwayat_kasus_yang_ditugaskan():
-    """Bagian negatif AC5 sudah diuji di test_audit_api.py."""
+    db_session.add(
+        ReviewAssignment(review_round_id=ronde.id, reviewer_id=REVIEWER_QA, status=status)
+    )
+    db_session.commit()
+    reviewer = as_role(Role.REVIEWER, user_id=REVIEWER_QA)
+
+    # Act
+    daftar = reviewer.get("/audit-logs")
+    detail = reviewer.get(f"/audit-logs/{daftar.json()['items'][0]['id']}")
+    kasus_lain = reviewer.get("/audit-logs", params={"case_id": lain})
+
+    # Assert
+    assert daftar.status_code == 200
+    assert daftar.json()["total"] > 0
+    assert {item["case_id"] for item in daftar.json()["items"]} == {ditugaskan}
+    assert detail.status_code == 200
+    assert kasus_lain.status_code == 403
 
 
 # --- AC6: kredensial tidak ikut ke file unduhan -------------------------------

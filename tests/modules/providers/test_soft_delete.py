@@ -9,7 +9,7 @@ import uuid
 import pytest
 from cryptography.fernet import Fernet
 
-from app.modules.auth.seeds import ADMIN_SUB, AUTHOR_SUB
+from app.modules.auth.seeds import ADMIN_SUB, AUTHOR_SUB, REVIEWER_SUB, VIEWER_SUB
 from app.modules.providers.models import AiProduct
 from app.shared.config import get_settings
 from tests.login import complete_login
@@ -88,13 +88,27 @@ def test_delete_already_deleted_product_returns_404(client, db_session, encrypti
     assert response.status_code == 404
 
 
-def test_author_cannot_delete_product(client, db_session, encryption_key):
+def _assert_still_registered(db_session, product_id: str) -> None:
+    db_session.expire_all()
+    stored = db_session.get(AiProduct, uuid.UUID(product_id))
+    assert stored.deleted_at is None
+
+
+@pytest.mark.parametrize(
+    "role_sub",
+    [
+        pytest.param(AUTHOR_SUB, id="author"),
+        pytest.param(REVIEWER_SUB, id="reviewer"),
+        pytest.param(VIEWER_SUB, id="viewer"),
+    ],
+)
+def test_non_admin_cannot_delete_product(client, db_session, encryption_key, role_sub):
     # Arrange
     complete_login(client, db_session, ADMIN_SUB)
-    created = client.post("/admin/providers", json=_payload(name="AuthorTarget"))
+    created = client.post("/admin/providers", json=_payload(name="NonAdminTarget"))
     product_id = created.json()["id"]
 
-    complete_login(client, db_session, AUTHOR_SUB)
+    complete_login(client, db_session, role_sub)
 
     # Act
     response = client.delete(f"/admin/providers/{product_id}")
@@ -102,6 +116,20 @@ def test_author_cannot_delete_product(client, db_session, encryption_key):
     # Assert
     assert response.status_code == 403
     assert response.json()["code"] == "FORBIDDEN"
+    _assert_still_registered(db_session, product_id)
+
+
+def test_signed_out_user_cannot_delete_product(client, db_session, encryption_key):
+    complete_login(client, db_session, ADMIN_SUB)
+    created = client.post("/admin/providers", json=_payload(name="SignedOutTarget"))
+    product_id = created.json()["id"]
+    client.post("/auth/logout")
+
+    response = client.delete(f"/admin/providers/{product_id}")
+
+    assert response.status_code == 401
+    assert response.json()["code"] == "UNAUTHENTICATED"
+    _assert_still_registered(db_session, product_id)
 
 
 # --- deleted product visibility ---

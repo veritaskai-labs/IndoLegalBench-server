@@ -1663,6 +1663,32 @@
         }
       }
     },
+    "/reviews/assigned": {
+      "get": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Kasus yang ditugaskan ke reviewer yang login",
+        "description": "Active assignments in open rounds, with the case body and only your own verdict.",
+        "operationId": "list_assigned_reviews_assigned_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AssignedReview"
+                  },
+                  "type": "array",
+                  "title": "Response List Assigned Reviews Assigned Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/reviews/needs-reassignment": {
       "get": {
         "tags": [
@@ -1796,6 +1822,154 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reviews/{assignment_id}/verdict": {
+      "post": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Kirim penilaian review",
+        "description": "PBI-6 AC2-AC6. The response carries your own verdict only.\n\nWhen this is the last verdict of the round, the round is decided in the\nsame transaction and the case version becomes approved or needs_revision.",
+        "operationId": "submit_verdict_reviews__assignment_id__verdict_post",
+        "parameters": [
+          {
+            "name": "assignment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignment Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/VerdictWrite"
+              }
+            }
+          }
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/VerdictResult"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Penugasan milik reviewer lain (`NOT_YOUR_ASSIGNMENT`) atau reviewer adalah penulis kasus (`REVIEWER_IS_AUTHOR`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Penugasan tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Penugasan sudah replaced/void (`ASSIGNMENT_NOT_ACTIVE`), round tidak open (`ROUND_NOT_OPEN`), atau penilaian sudah dikirim (`VERDICT_ALREADY_SUBMITTED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Komentar kosong untuk decision = revise (`COMMENT_REQUIRED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cases/{case_id}/review": {
+      "get": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Review terakhir satu kasus",
+        "description": "PBI-6 AC3. While the round is open, another reviewer's verdict is null.\n\nAdmin sees every verdict at any time (client decision in SCRUM-145).",
+        "operationId": "get_case_review_cases__case_id__review_get",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseReview"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Tidak terlibat di kasus ini.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus tidak ditemukan, atau belum pernah diajukan (`NO_REVIEW_ROUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -2976,6 +3150,54 @@
         "title": "AnswerCriteria",
         "description": "Phrases the answer must or must not contain, plus an expected conclusion."
       },
+      "AssignedReview": {
+        "properties": {
+          "assignment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignment Id"
+          },
+          "round_no": {
+            "type": "integer",
+            "title": "Round No"
+          },
+          "assigned_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned At"
+          },
+          "case": {
+            "$ref": "#/components/schemas/ReviewCopy"
+          },
+          "my_verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VerdictView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "assignment_id",
+          "round_no",
+          "assigned_at",
+          "case",
+          "my_verdict"
+        ],
+        "title": "AssignedReview",
+        "description": "Satu baris GET /reviews/assigned."
+      },
       "AssignmentSource": {
         "type": "string",
         "enum": [
@@ -3336,6 +3558,81 @@
         ],
         "title": "CaseRead",
         "description": "Full case returned by create, read, and update."
+      },
+      "CaseReview": {
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Case Id"
+          },
+          "case_version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Case Version Id"
+          },
+          "round_no": {
+            "type": "integer",
+            "title": "Round No"
+          },
+          "status": {
+            "$ref": "#/components/schemas/RoundStatus"
+          },
+          "decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoundDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "opened_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Opened At"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "reviewers": {
+            "items": {
+              "$ref": "#/components/schemas/ReviewerSlot"
+            },
+            "type": "array",
+            "title": "Reviewers"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_id",
+          "case_version_id",
+          "round_no",
+          "status",
+          "decision",
+          "opened_at",
+          "decided_at",
+          "reviewers"
+        ],
+        "title": "CaseReview",
+        "description": "GET /cases/{case_id}/review: round terakhir kasus ini."
       },
       "CaseStatus": {
         "type": "string",
@@ -4018,6 +4315,75 @@
         "title": "ReplaceReviewerResponse",
         "description": "Response sukses POST /reviews/{assignment_id}/replace."
       },
+      "ReviewCopy": {
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Case Id"
+          },
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          },
+          "author_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Author Id"
+          },
+          "case_version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Case Version Id"
+          },
+          "version_no": {
+            "type": "integer",
+            "title": "Version No"
+          },
+          "split_tag": {
+            "$ref": "#/components/schemas/SplitTag"
+          },
+          "identity": {
+            "$ref": "#/components/schemas/CaseIdentity"
+          },
+          "legal_refs": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Legal Refs"
+          },
+          "answer_criteria": {
+            "additionalProperties": true,
+            "type": "object",
+            "title": "Answer Criteria"
+          },
+          "traps": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Traps"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_id",
+          "case_code",
+          "author_id",
+          "case_version_id",
+          "version_no",
+          "split_tag",
+          "identity",
+          "legal_refs",
+          "answer_criteria",
+          "traps"
+        ],
+        "title": "ReviewCopy",
+        "description": "One version as a reviewer reads it (PBI-6, SCRUM-145).\n\nsplit_tag is shown read-only and is not graded (PBI-9 AC2)."
+      },
       "ReviewSubmission": {
         "properties": {
           "case_id": {
@@ -4055,6 +4421,59 @@
         "title": "ReviewSubmission",
         "description": "POST /cases/{id}/submit-review. The version now waits for reviewers."
       },
+      "ReviewerRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name"
+        ],
+        "title": "ReviewerRead"
+      },
+      "ReviewerSlot": {
+        "properties": {
+          "assignment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignment Id"
+          },
+          "reviewer": {
+            "$ref": "#/components/schemas/ReviewerRead"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AssignmentStatus"
+          },
+          "verdict": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/VerdictView"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "assignment_id",
+          "reviewer",
+          "status",
+          "verdict"
+        ],
+        "title": "ReviewerSlot",
+        "description": "Satu reviewer aktif di round. verdict null bila belum ada atau belum boleh dilihat."
+      },
       "Role": {
         "type": "string",
         "enum": [
@@ -4064,6 +4483,14 @@
           "viewer"
         ],
         "title": "Role"
+      },
+      "RoundDecision": {
+        "type": "string",
+        "enum": [
+          "approved",
+          "revise"
+        ],
+        "title": "RoundDecision"
       },
       "RoundStatus": {
         "type": "string",
@@ -4452,6 +4879,137 @@
           "type"
         ],
         "title": "ValidationError"
+      },
+      "VerdictDecision": {
+        "type": "string",
+        "enum": [
+          "approve",
+          "revise"
+        ],
+        "title": "VerdictDecision"
+      },
+      "VerdictResult": {
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/VerdictDecision"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          },
+          "assignment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignment Id"
+          },
+          "round_status": {
+            "$ref": "#/components/schemas/RoundStatus"
+          },
+          "round_decision": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/RoundDecision"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision",
+          "comment",
+          "submitted_at",
+          "assignment_id",
+          "round_status",
+          "round_decision"
+        ],
+        "title": "VerdictResult",
+        "description": "201 dari pengiriman verdict: verdict milik sendiri saja (AC3, D3 langkah 26)."
+      },
+      "VerdictView": {
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/VerdictDecision"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment"
+          },
+          "submitted_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Submitted At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision",
+          "comment",
+          "submitted_at"
+        ],
+        "title": "VerdictView",
+        "description": "Satu verdict yang boleh dilihat peminta."
+      },
+      "VerdictWrite": {
+        "properties": {
+          "decision": {
+            "$ref": "#/components/schemas/VerdictDecision"
+          },
+          "comment": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 5000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Comment",
+            "description": "Wajib bila decision = revise (COMMENT_REQUIRED)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "decision"
+        ],
+        "title": "VerdictWrite",
+        "description": "POST /reviews/{assignment_id}/verdict."
       },
       "VersionCompare": {
         "properties": {

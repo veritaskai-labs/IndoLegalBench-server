@@ -122,6 +122,21 @@ def approved_for_suite(db: Session, suite_id: uuid.UUID) -> list[tuple[Case, Cas
     )
 
 
+def get_version_by_id(db: Session, version_id: uuid.UUID) -> CaseVersion | None:
+    """One version by its id, or None."""
+    return db.get(CaseVersion, version_id)
+
+
+def versions_with_case(db: Session, version_ids: set[uuid.UUID]) -> list[tuple[CaseVersion, Case]]:
+    """Each requested version together with its case row."""
+    return (
+        db.query(CaseVersion, Case)
+        .join(Case, Case.id == CaseVersion.case_id)
+        .filter(CaseVersion.id.in_(version_ids))
+        .all()
+    )
+
+
 def max_version_no(db: Session, case_id: uuid.UUID) -> int:
     """Highest version_no stored for the case, or 0 when it has none."""
     tertinggi = (

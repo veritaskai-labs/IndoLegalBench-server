@@ -161,6 +161,8 @@ class ReviewAssignment(Base):
     # Dipakai audit tracker (D6a) supaya case_id tersedia tanpa lazy-load di after_flush.
     review_round: Mapped["ReviewRound"] = relationship(foreign_keys=[review_round_id])
 
+    verdict: Mapped["ReviewVerdict | None"] = relationship(back_populates="assignment")
+
 
 class ReviewVerdict(Base):
     """Penilaian satu assignment. Komentar wajib bila revise (D4a)."""
@@ -192,4 +194,10 @@ class ReviewVerdict(Base):
     )
     submitted_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+    # load_on_pending: pencatat audit membaca assignment.review_round.case_id di
+    # after_flush, saat verdict baru masih berstatus pending.
+    assignment: Mapped[ReviewAssignment] = relationship(
+        back_populates="verdict", load_on_pending=True
     )

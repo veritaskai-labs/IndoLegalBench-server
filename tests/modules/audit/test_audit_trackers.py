@@ -45,6 +45,7 @@ def test_tabel_di_luar_katalog_tidak_dilacak():
         ("cases", AuditEntityType.CASE),
         ("case_versions", AuditEntityType.CASE),
         ("review_rounds", AuditEntityType.CASE),
+        ("review_verdicts", AuditEntityType.REVIEW),
         ("review_assignments", AuditEntityType.REVIEW),
         ("ai_products", AuditEntityType.AI_PRODUCT),
         ("users", AuditEntityType.USER),
@@ -285,6 +286,43 @@ def test_perubahan_round_tidak_dicatat_sendiri():
     # Assert
     assert events == []
     assert tracker_for("review_rounds").fields == ()
+
+
+# --- Review verdict (SCRUM-145) --------------------------------------------------
+
+
+def _verdict_row(decision="revise", comment="Pasal 151 sudah diubah"):
+    assignment_id = uuid.UUID("00000000-0000-0000-0000-0000000000e1")
+    ronde = SimpleNamespace(case_id=KASUS_ID)
+    assignment = SimpleNamespace(id=assignment_id, review_round=ronde)
+    return _row(
+        assignment_id=assignment_id, assignment=assignment, decision=decision, comment=comment
+    )
+
+
+def test_verdict_dicatat_di_assignmentnya_dengan_kasus():
+    # Act
+    event = _satu(tracker_for("review_verdicts").created(_verdict_row()))
+
+    # Assert
+    assert event.action == "review.verdict_submitted"
+    assert event.entity_id == uuid.UUID("00000000-0000-0000-0000-0000000000e1")
+    assert event.case_id == KASUS_ID
+
+
+def test_komentar_verdict_tidak_disalin_ke_audit():
+    """D6a: after hanya decision, komentar tidak disalin."""
+    # Act
+    event = _satu(tracker_for("review_verdicts").created(_verdict_row()))
+
+    # Assert
+    assert event.after == {"decision": "revise"}
+    assert "Pasal 151" not in str(event.after)
+
+
+def test_verdict_tidak_pernah_diubah_jadi_tidak_dipantau():
+    # Act + Assert
+    assert tracker_for("review_verdicts").fields == ()
 
 
 # --- Review assignment (SCRUM-144, D6a) ----------------------------------------

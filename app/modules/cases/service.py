@@ -23,6 +23,7 @@ from app.modules.cases.schemas import (
     CaseRead,
     CaseSummary,
     CaseWrite,
+    ReviewCopy,
     ReviewSubmission,
     VersionCompare,
     VersionSections,
@@ -42,6 +43,7 @@ NO_APPROVED_VERSION = "NO_APPROVED_VERSION"
 CASE_NOT_READY = "CASE_NOT_READY"
 VERSION_NOT_SUBMITTABLE = "VERSION_NOT_SUBMITTABLE"
 NO_OPEN_VERSION = "NO_OPEN_VERSION"
+VERSION_NOT_IN_REVIEW = "VERSION_NOT_IN_REVIEW"
 
 _EDITABLE = frozenset({CaseStatus.DRAFT, CaseStatus.NEEDS_REVISION})
 _IN_PROGRESS = frozenset({CaseStatus.DRAFT, CaseStatus.IN_REVIEW, CaseStatus.NEEDS_REVISION})
@@ -326,6 +328,60 @@ def approved_copies_for_suite(db: Session, suite_id: uuid.UUID) -> list[dict]:
             }
         )
     return copies
+
+
+def review_copies(db: Session, version_ids: set[uuid.UUID]) -> dict[uuid.UUID, ReviewCopy]:
+    """Isi versi untuk halaman reviewer, per case_version_id (PBI-6, SCRUM-145).
+
+    Dipanggil reviews.service, yang tidak boleh membaca tabel cases sendiri.
+    """
+    if not version_ids:
+        return {}
+    copies: dict[uuid.UUID, ReviewCopy] = {}
+    for version, case in repository.versions_with_case(db, version_ids):
+        isi = version.content or {}
+        copies[version.id] = ReviewCopy(
+            case_id=case.id,
+            case_code=version.case_code,
+            author_id=case.created_by,
+            case_version_id=version.id,
+            version_no=version.version_no,
+            split_tag=version.split_tag,
+            identity={
+                "title": isi.get("title") or "",
+                "question": isi.get("question") or "",
+                "category": isi.get("category"),
+            },
+            legal_refs=isi.get("legal_refs") or [],
+            answer_criteria=isi.get("answer_criteria") or {},
+            traps=isi.get("traps") or [],
+        )
+    return copies
+
+
+def case_author(db: Session, case_id: uuid.UUID) -> uuid.UUID:
+    """Penulis kasus, yaitu pembuatnya. Dipakai aturan "reviewer bukan penulis" (AC2)."""
+    return _require_case(db, case_id).created_by
+
+
+def apply_review_decision(db: Session, case_version_id: uuid.UUID, *, approved: bool) -> None:
+    """Terapkan keputusan round ke versi yang sedang direview (AC4-AC6, D3 langkah 31/36).
+
+    Disetujui: versi jadi approved dan menjadi versi yang berlaku. Revisi:
+    versi kembali ke penulis sebagai needs_revision. Tidak commit, karena
+    verdict dan keputusannya harus tersimpan bersama di transaksi reviews.
+    """
+    version = repository.get_version_by_id(db, case_version_id)
+    if version is None:
+        raise NotFoundError("Versi tidak ditemukan")
+    if version.status != CaseStatus.IN_REVIEW:
+        raise ConflictError("Versi ini tidak sedang ditinjau", code=VERSION_NOT_IN_REVIEW)
+    if not approved:
+        version.status = CaseStatus.NEEDS_REVISION
+        return
+    version.status = CaseStatus.APPROVED
+    case = repository.get_by_id(db, version.case_id)
+    case.latest_approved_version_id = version.id
 
 
 def count_for_suite(db: Session, suite_id: uuid.UUID) -> int:

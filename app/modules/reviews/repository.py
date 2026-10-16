@@ -68,14 +68,80 @@ def case_ids_assigned_to(db: Session, reviewer_id: uuid.UUID) -> Sequence[uuid.U
     ).all()
 
 
-def get_assignment(db: Session, assignment_id: uuid.UUID) -> ReviewAssignment | None:
-    """Satu penugasan beserta round-nya, atau None bila id-nya tidak ada."""
-    return (
-        db.query(ReviewAssignment)
-        .options(joinedload(ReviewAssignment.review_round))
-        .filter(ReviewAssignment.id == assignment_id)
-        .one_or_none()
+def get_assignment(
+    db: Session, assignment_id: uuid.UUID, *, fresh: bool = False
+) -> ReviewAssignment | None:
+    """Satu assignment beserta round dan verdict-nya, atau None.
+
+    fresh=True menimpa nilai yang sudah ada di session dengan isi database
+    saat ini. Dipakai setelah round dikunci, supaya penggantian reviewer
+    yang baru di-commit transaksi lain ikut terlihat.
+    """
+    query = (
+        select(ReviewAssignment)
+        .options(joinedload(ReviewAssignment.review_round), joinedload(ReviewAssignment.verdict))
+        .where(ReviewAssignment.id == assignment_id)
     )
+    if fresh:
+        query = query.execution_options(populate_existing=True)
+    return db.scalar(query)
+
+
+def lock_round(db: Session, round_id: uuid.UUID) -> ReviewRound:
+    """Kunci baris round sampai transaksi selesai (SELECT ... FOR UPDATE).
+
+    Dua verdict untuk round yang sama jadi antre, jadi verdict kedua selalu
+    melihat verdict pertama saat menghitung keputusan. SQLite mengabaikan
+    FOR UPDATE; perilakunya diuji di PostgreSQL.
+    """
+    return db.scalars(
+        select(ReviewRound)
+        .where(ReviewRound.id == round_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    ).one()
+
+
+def assignments_in_round(db: Session, round_id: uuid.UUID) -> Sequence[ReviewAssignment]:
+    """Semua assignment satu round, apa pun statusnya, beserta verdict-nya."""
+    return db.scalars(
+        select(ReviewAssignment)
+        .options(joinedload(ReviewAssignment.verdict))
+        .where(ReviewAssignment.review_round_id == round_id)
+        .order_by(ReviewAssignment.assigned_at, ReviewAssignment.id)
+        .execution_options(populate_existing=True)
+    ).all()
+
+
+def open_assignments_for(db: Session, reviewer_id: uuid.UUID) -> Sequence[ReviewAssignment]:
+    """Tugas aktif reviewer ini di round yang masih open, round terlama lebih dulu."""
+    return db.scalars(
+        select(ReviewAssignment)
+        .join(ReviewAssignment.review_round)
+        .options(joinedload(ReviewAssignment.review_round), joinedload(ReviewAssignment.verdict))
+        .where(
+            ReviewAssignment.reviewer_id == reviewer_id,
+            ReviewAssignment.status == AssignmentStatus.ACTIVE,
+            ReviewRound.status == RoundStatus.OPEN,
+        )
+        .order_by(ReviewRound.opened_at, ReviewAssignment.id)
+    ).all()
+
+
+def latest_round_for_case(db: Session, case_id: uuid.UUID) -> ReviewRound | None:
+    """Round yang paling baru dibuka untuk kasus ini, lintas versi."""
+    return db.scalars(
+        select(ReviewRound)
+        .where(ReviewRound.case_id == case_id)
+        .order_by(ReviewRound.opened_at.desc(), ReviewRound.round_no.desc())
+        .limit(1)
+    ).first()
+
+
+def add_verdict(db: Session, verdict: ReviewVerdict) -> None:
+    """Tambahkan verdict lalu flush supaya UQ assignment_id langsung ketahuan."""
+    db.add(verdict)
+    db.flush()
 
 
 def get_active_assignments_by_reviewer(
@@ -83,36 +149,39 @@ def get_active_assignments_by_reviewer(
 ) -> list[ReviewAssignment]:
     """Semua penugasan active reviewer beserta round-nya."""
     return list(
-        db.query(ReviewAssignment)
-        .options(joinedload(ReviewAssignment.review_round))
-        .filter(
-            ReviewAssignment.reviewer_id == reviewer_id,
-            ReviewAssignment.status == AssignmentStatus.ACTIVE,
-        )
-        .all()
+        db.scalars(
+            select(ReviewAssignment)
+            .options(joinedload(ReviewAssignment.review_round))
+            .where(
+                ReviewAssignment.reviewer_id == reviewer_id,
+                ReviewAssignment.status == AssignmentStatus.ACTIVE,
+            )
+        ).all()
     )
 
 
 def get_assignments_for_round(db: Session, round_id: uuid.UUID) -> list[ReviewAssignment]:
     """Seluruh assignment dalam satu round, diurutkan waktu penugasan."""
     return list(
-        db.query(ReviewAssignment)
-        .filter(ReviewAssignment.review_round_id == round_id)
-        .order_by(ReviewAssignment.assigned_at.asc())
-        .all()
+        db.scalars(
+            select(ReviewAssignment)
+            .where(ReviewAssignment.review_round_id == round_id)
+            .order_by(ReviewAssignment.assigned_at.asc(), ReviewAssignment.id.asc())
+        ).all()
     )
 
 
 def get_active_assignments_for_round(db: Session, round_id: uuid.UUID) -> list[ReviewAssignment]:
     """Assignment aktif dalam satu round."""
     return list(
-        db.query(ReviewAssignment)
-        .filter(
-            ReviewAssignment.review_round_id == round_id,
-            ReviewAssignment.status == AssignmentStatus.ACTIVE,
-        )
-        .order_by(ReviewAssignment.assigned_at.asc())
-        .all()
+        db.scalars(
+            select(ReviewAssignment)
+            .where(
+                ReviewAssignment.review_round_id == round_id,
+                ReviewAssignment.status == AssignmentStatus.ACTIVE,
+            )
+            .order_by(ReviewAssignment.assigned_at.asc(), ReviewAssignment.id.asc())
+        ).all()
     )
 
 
