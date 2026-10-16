@@ -1663,6 +1663,146 @@
         }
       }
     },
+    "/reviews/needs-reassignment": {
+      "get": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Daftar kasus yang memerlukan penugasan reviewer ulang (AC8)",
+        "description": "Mengembalikan daftar kasus dengan round aktif yang memerlukan penugasan ulang reviewer.\n\nKasus yang reviewer-nya dinonaktifkan (void) otomatis muncul di antrean ini (AC8).",
+        "operationId": "get_needs_reassignment_reviews_needs_reassignment_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NeedsReassignmentResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get Needs Reassignment Reviews Needs Reassignment Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Tidak ada sesi aktif.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya admin yang boleh mengakses antrean ini.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reviews/{assignment_id}/replace": {
+      "post": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Ganti reviewer pada sebuah kasus (AC7)",
+        "description": "Admin mengganti reviewer yang ditugaskan pada sebuah kasus (AC7).\n\nAssignment lama diubah statusnya menjadi replaced dan penilaiannya tidak dihitung.\nReviewer baru ditugaskan dan dinotifikasi.",
+        "operationId": "replace_reviewer_reviews__assignment_id__replace_post",
+        "parameters": [
+          {
+            "name": "assignment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignment Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceReviewerRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplaceReviewerResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Tidak ada sesi aktif.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya admin yang boleh mengganti reviewer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Penugasan review atau reviewer baru tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Penugasan sudah pernah diganti atau putaran review sudah diputuskan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Reviewer baru tidak boleh penulis kasus, tidak boleh reviewer lain di round itu, atau bukan akun reviewer yang aktif.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/providers": {
       "post": {
         "tags": [
@@ -2836,6 +2976,24 @@
         "title": "AnswerCriteria",
         "description": "Phrases the answer must or must not contain, plus an expected conclusion."
       },
+      "AssignmentSource": {
+        "type": "string",
+        "enum": [
+          "system",
+          "admin"
+        ],
+        "title": "AssignmentSource"
+      },
+      "AssignmentStatus": {
+        "type": "string",
+        "enum": [
+          "active",
+          "replaced",
+          "void"
+        ],
+        "title": "AssignmentStatus",
+        "description": "replaced: diganti Admin (AC7). void: reviewer dinonaktifkan (AC8)."
+      },
       "AuditEntityType": {
         "type": "string",
         "enum": [
@@ -3543,6 +3701,67 @@
         ],
         "title": "MeResponse"
       },
+      "NeedsReassignmentResponse": {
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Case Id"
+          },
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          },
+          "case_title": {
+            "type": "string",
+            "title": "Case Title"
+          },
+          "round_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Round Id"
+          },
+          "round_no": {
+            "type": "integer",
+            "title": "Round No"
+          },
+          "round_status": {
+            "$ref": "#/components/schemas/RoundStatus"
+          },
+          "active_reviewers_count": {
+            "type": "integer",
+            "title": "Active Reviewers Count"
+          },
+          "void_assignments": {
+            "items": {
+              "$ref": "#/components/schemas/ReassignmentAssignmentRead"
+            },
+            "type": "array",
+            "title": "Void Assignments"
+          },
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/ReassignmentAssignmentRead"
+            },
+            "type": "array",
+            "title": "Assignments"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_id",
+          "case_code",
+          "case_title",
+          "round_id",
+          "round_no",
+          "round_status",
+          "active_reviewers_count",
+          "void_assignments",
+          "assignments"
+        ],
+        "title": "NeedsReassignmentResponse",
+        "description": "Satu kasus pada antrean penugasan ulang (GET /reviews/needs-reassignment)."
+      },
       "Page_AuditLogRead_": {
         "properties": {
           "items": {
@@ -3646,6 +3865,159 @@
         "title": "ProviderType",
         "description": "ProviderType:\n- openai_compatible: OpenAI chat completions (DeepSeek, GPT). Bearer auth. The stored URL is posted as-is.\n- gemini_interactions: Gemini Interactions API. Header x-goog-api-key.\n- anthropic_messages: Anthropic Messages API. Headers x-api-key and anthropic-version."
       },
+      "ReassignmentAssignmentRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "reviewer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Reviewer Id"
+          },
+          "reviewer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer Name"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AssignmentStatus"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AssignmentSource"
+          },
+          "assigned_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Assigned At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "end_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "reviewer_id",
+          "status",
+          "source",
+          "assigned_at"
+        ],
+        "title": "ReassignmentAssignmentRead",
+        "description": "Ringkasan satu penugasan dalam putaran review."
+      },
+      "ReplaceReviewerRequest": {
+        "properties": {
+          "new_reviewer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "New Reviewer Id",
+            "description": "ID reviewer pengganti (harus reviewer aktif, bukan pembuat kasus atau reviewer lain di round ini)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Reason",
+            "description": "Alasan penggantian reviewer (wajib untuk jejak audit)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_reviewer_id",
+          "reason"
+        ],
+        "title": "ReplaceReviewerRequest",
+        "description": "Payload untuk POST /reviews/{assignment_id}/replace."
+      },
+      "ReplaceReviewerResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "ID penugasan baru"
+          },
+          "review_round_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Review Round Id"
+          },
+          "reviewer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Reviewer Id"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AssignmentSource"
+          },
+          "assigned_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned By"
+          },
+          "assigned_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Assigned At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AssignmentStatus"
+          },
+          "replaced_assignment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Replaced Assignment Id",
+            "description": "ID penugasan lama yang digantikan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "review_round_id",
+          "reviewer_id",
+          "source",
+          "assigned_at",
+          "status",
+          "replaced_assignment_id"
+        ],
+        "title": "ReplaceReviewerResponse",
+        "description": "Response sukses POST /reviews/{assignment_id}/replace."
+      },
       "ReviewSubmission": {
         "properties": {
           "case_id": {
@@ -3692,6 +4064,16 @@
           "viewer"
         ],
         "title": "Role"
+      },
+      "RoundStatus": {
+        "type": "string",
+        "enum": [
+          "awaiting_assignment",
+          "open",
+          "decided"
+        ],
+        "title": "RoundStatus",
+        "description": "awaiting_assignment sampai dua reviewer aktif terpasang (SCRUM-144)."
       },
       "SnapshotItemRead": {
         "properties": {
