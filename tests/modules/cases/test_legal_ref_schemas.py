@@ -168,12 +168,14 @@ def test_kode_jenis_terpanjang_di_seed_diterima():
 
 
 def test_batas_panjang_tepat_diterima():
+    """Sama dengan kolom legal_ref_links di SCRUM-159: number 100, angka 40."""
     link = LegalRefLinkWrite.model_validate(
-        _link(regulation_type="x" * 150, number="1" * 40, year=9999)
+        _link(regulation_type="x" * 150, number="1" * 100, angka="1" * 40, year=9999)
     )
 
     assert len(link.regulation_type) == 150
-    assert len(link.number) == 40
+    assert len(link.number) == 100
+    assert len(link.angka or "") == 40
 
 
 def test_display_text_dari_client_diabaikan():
@@ -247,11 +249,11 @@ def test_tahun_di_luar_rentang_skema_ditolak(tahun):
     ("nama", "nilai"),
     [
         ("regulation_type", "x" * 151),
-        ("number", "1" * 41),
+        ("number", "1" * 101),
         ("about", "x" * 501),
         ("ayat", "1" * 21),
         ("huruf", "a" * 9),
-        ("angka", "1" * 21),
+        ("angka", "1" * 41),
         ("pasal", "1" * 41),
     ],
 )
