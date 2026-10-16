@@ -86,8 +86,10 @@ def create_case(
     _catat_versi_baru(version)
     try:
         tersimpan = repository.create(db, case, version)
-    except IntegrityError:
+    except IntegrityError as galat:
         db.rollback()
+        if not _code_clash(galat):
+            raise
         raise _code_taken(db, payload.case_code) from None
     return _to_read(tersimpan, version, katalog=katalog)
 
@@ -150,8 +152,10 @@ def update_case(
     _write_version(db, case, version, payload, actor_id=actor_id)
     try:
         tersimpan = repository.save(db, case)
-    except IntegrityError:
+    except IntegrityError as galat:
         db.rollback()
+        if not _code_clash(galat):
+            raise
         raise _code_taken(db, payload.case_code) from None
     return _to_read(tersimpan, version, katalog=katalog)
 
@@ -656,6 +660,17 @@ def _require_free_code(db: Session, case_code: str) -> None:
     """Reject a case_code that another suite already owns."""
     if repository.get_by_code(db, case_code) is not None:
         raise _code_taken(db, case_code)
+
+
+# Only this constraint means two cases want the same code: its name on
+# PostgreSQL, its column on SQLite. Since PBI-21 the same commit also writes the
+# legal_refs rows, and their errors must not be reported as a code clash.
+_BENTROK_KODE = ("uq_cases_case_code", "cases.case_code")
+
+
+def _code_clash(galat: IntegrityError) -> bool:
+    pesan = str(galat.orig)
+    return any(tanda in pesan for tanda in _BENTROK_KODE)
 
 
 def _code_taken(db: Session, case_code: str) -> ConflictError:
