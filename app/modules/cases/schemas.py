@@ -85,10 +85,11 @@ class _LegalRefLinkBase(BaseModel):
         max_length=150,
         description="Kode dari GET /regulation-types, bukan label",
     )
-    number: str = Field(min_length=1, max_length=40, description="Boleh alfanumerik")
+    # Panjang mengikuti kolom legal_ref_links (SCRUM-159): number 100, angka 40.
+    number: str = Field(min_length=1, max_length=100, description="Boleh alfanumerik")
     about: str | None = Field(default=None, max_length=500, description="Tentang, opsional")
     pasal: str | None = Field(default=None, max_length=40)
-    angka: str | None = Field(default=None, max_length=20)
+    angka: str | None = Field(default=None, max_length=40)
     ayat: str | None = Field(default=None, max_length=20)
     huruf: str | None = Field(default=None, max_length=8)
 
@@ -114,7 +115,7 @@ class LegalRefLinkWrite(_LegalRefLinkBase):
 
     year: int = Field(ge=1, le=9999)
     pasal: str | None = Field(default=None, max_length=40, pattern=PASAL_PATTERN)
-    angka: str | None = Field(default=None, max_length=20, pattern=ANGKA_PATTERN)
+    angka: str | None = Field(default=None, max_length=40, pattern=ANGKA_PATTERN)
 
 
 class LegalRefLinkRead(_LegalRefLinkBase):

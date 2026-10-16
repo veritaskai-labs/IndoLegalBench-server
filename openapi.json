@@ -3784,7 +3784,7 @@
           },
           "number": {
             "type": "string",
-            "maxLength": 40,
+            "maxLength": 100,
             "minLength": 1,
             "title": "Number",
             "description": "Boleh alfanumerik"
@@ -3818,7 +3818,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 20
+                "maxLength": 40
               },
               {
                 "type": "null"
@@ -3901,7 +3901,7 @@
           },
           "number": {
             "type": "string",
-            "maxLength": 40,
+            "maxLength": 100,
             "minLength": 1,
             "title": "Number",
             "description": "Boleh alfanumerik"
@@ -3936,7 +3936,7 @@
             "anyOf": [
               {
                 "type": "string",
-                "maxLength": 20,
+                "maxLength": 40,
                 "pattern": "^[1-9][0-9]*$"
               },
               {
