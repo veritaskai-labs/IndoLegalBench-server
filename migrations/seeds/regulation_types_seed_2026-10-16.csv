@@ -1,0 +1,267 @@
+urutan,code,label,singkatan,is_active
+1,uud,Undang-undang Dasar Tahun 1945 dan Amandemen,UUD,true
+2,ketetapan_mpr,Ketetapan MPR,,true
+3,uu,Undang-undang,UU,true
+4,undang_undang_darurat,Undang-undang Darurat,,true
+5,perpu,Peraturan Pemerintah Pengganti Undang-Undang,Perpu,true
+6,pp,Peraturan Pemerintah,PP,true
+7,perpres,Peraturan Presiden,Perpres,true
+8,keppres,Keputusan Presiden,Keppres,true
+9,inpres,Instruksi Presiden,Inpres,true
+10,surat_edaran,Surat Edaran,,true
+11,peraturan_badan_pemeriksa_keuangan,Peraturan Badan Pemeriksa Keuangan,,true
+12,peraturan_menteri_koordinator_bidang_kesejahteraan_rakyat,Peraturan Menteri Koordinator Bidang Kesejahteraan Rakyat,,true
+13,keputusan_badan_pemeriksa_keuangan,Keputusan Badan Pemeriksa Keuangan,,true
+14,permen,Peraturan Kementerian,Permen,true
+15,kepmen,Keputusan Menteri,Kepmen,true
+16,peraturan_menteri_dalam_negeri,Peraturan Menteri Dalam Negeri,,true
+17,peraturan_menteri_keuangan,Peraturan Menteri Keuangan,,true
+18,peraturan_menteri_koordinator_bidang_politik_hukum_dan_keamanan,"Peraturan Menteri Koordinator Bidang Politik, Hukum, dan Keamanan",,true
+19,peraturan_menteri_luar_negeri,Peraturan Menteri Luar Negeri,,true
+20,peraturan_menteri_hukum_dan_ham,Peraturan Menteri Hukum dan HAM,,true
+21,peraturan_menteri_pertahanan,Peraturan Menteri Pertahanan,,true
+22,peraturan_menteri_perhubungan,Peraturan Menteri Perhubungan,,true
+23,peraturan_menteri_ekonomi_kreatif_kepala_badan_ekonomi_kreatif,Peraturan Menteri Ekonomi Kreatif/Kepala Badan Ekonomi Kreatif,,true
+24,peraturan_kejaksaan_republik_indonesia,Peraturan Kejaksaan Republik Indonesia,,true
+25,peraturan_kepala_kepolisian_negara_republik_indonesia,Peraturan Kepala Kepolisian Negara Republik Indonesia,,true
+26,peraturan_kepala_bin,Peraturan Kepala BIN,,true
+27,peraturan_kepala_badan_narkotika_nasional,Peraturan Kepala Badan Narkotika Nasional,,true
+28,peraturan_kepala_badan_meteorologi_klimatologi_dan_geofisika,"Peraturan Kepala Badan Meteorologi, Klimatologi, dan Geofisika",,true
+29,peraturan_badan_siber_dan_sandi_negara,Peraturan Badan Siber dan Sandi Negara,,true
+30,peraturan_kepala_lembaga_sandi_negara,Peraturan Kepala Lembaga Sandi Negara,,true
+31,peraturan_komisi_nasional_hak_asasi_manusia,Peraturan Komisi Nasional Hak Asasi Manusia,,true
+32,peraturan_sekretaris_jenderal_komisi_nasional_hukum_asasi_manusia,Peraturan Sekretaris Jenderal Komisi Nasional Hukum Asasi Manusia,,true
+33,peraturan_komisi_pemberantasan_korupsi,Peraturan Komisi Pemberantasan Korupsi,,true
+34,peraturan_komisi_pemilihan_umum,Peraturan Komisi Pemilihan Umum,,true
+35,peraturan_badan_sar_nasional,Peraturan Badan SAR Nasional,,true
+36,peraturan_badan_nasional_penanggulangan_terorisme,Peraturan Badan Nasional Penanggulangan Terorisme,,true
+37,peraturan_badan_pengawas_pemilihan_umum,Peraturan Badan Pengawas Pemilihan Umum,,true
+38,peraturan_menteri_koordinator,Peraturan Menteri Koordinator,,true
+39,keputusan_menteri_koordinator,Keputusan Menteri Koordinator,,true
+40,peraturan_badan_koordinasi_penanaman_modal,Peraturan Badan Koordinasi Penanaman Modal,,true
+41,keputusan_menteri_keuangan,Keputusan Menteri Keuangan,,true
+42,peraturan_menteri_perdagangan,Peraturan Menteri Perdagangan,,true
+43,keputusan_menteri_perdagangan,Keputusan Menteri Perdagangan,,true
+44,peraturan_menteri_perindustrian,Peraturan Menteri Perindustrian,,true
+45,keputusan_menteri_perindustrian,Keputusan Menteri Perindustrian,,true
+46,peraturan_menteri_negara_perencanaan_pembangunan_nasional_kepala_badan_perencanaan_pembangunan_nasional,Peraturan Menteri Negara Perencanaan Pembangunan Nasional/Kepala Badan Perencanaan Pembangunan Nasional,,true
+47,keputusan_menteri_negara_perencanaan_pembangunan_nasional_kepala_badan_perencanaan_pembangunan_nasional,Keputusan Menteri Negara Perencanaan Pembangunan Nasional/Kepala Badan Perencanaan Pembangunan Nasional,,true
+48,peraturan_menteri_koperasi_dan_usaha_kecil_dan_menengah,Peraturan Menteri Koperasi dan Usaha Kecil dan Menengah,,true
+49,keputusan_menteri_koperasi_dan_usaha_kecil_dan_menengah,Keputusan Menteri Koperasi dan Usaha Kecil dan Menengah,,true
+50,peraturan_badan_pusat_statistik,Peraturan Badan Pusat Statistik,,true
+51,peraturan_kepala_badan_pusat_statistik,Peraturan Kepala Badan Pusat Statistik,,true
+52,keputusan_kepala_badan_pusat_statistik,Keputusan Kepala Badan Pusat Statistik,,true
+53,peraturan_bank_indonesia,Peraturan Bank Indonesia,,true
+54,surat_edaran_bank_indonesia,Surat Edaran Bank Indonesia,,true
+55,peraturan_otoritas_jasa_keuangan,Peraturan Otoritas Jasa Keuangan,,true
+56,peraturan_kepala_pusat_pelaporan_dan_analisis_transaksi_keuangan,Peraturan Kepala Pusat Pelaporan dan Analisis Transaksi Keuangan,,true
+57,surat_edaran_kepala_pusat_pelaporan_dan_analisis_transaksi_keuangan,Surat Edaran Kepala Pusat Pelaporan dan Analisis Transaksi Keuangan,,true
+58,peraturan_lembaga_penjamin_simpanan,Peraturan Lembaga Penjamin Simpanan,,true
+59,keputusan_kepala_eksekutif_lembaga_penjamin_simpanan,Keputusan Kepala Eksekutif Lembaga Penjamin Simpanan,,true
+60,peraturan_badan_standardisasi_nasional,Peraturan Badan Standardisasi Nasional,,true
+61,keputusan_kepala_badan_standardisasi_nasional,Keputusan Kepala Badan Standardisasi Nasional,,true
+62,peraturan_kepala_lembaga_kebijakan_pengadaan_barang_jasa_pemerintah,Peraturan Kepala Lembaga Kebijakan Pengadaan Barang/Jasa Pemerintah,,true
+63,keputusan_kepala_lembaga_kebijakan_pengadaan_barang_jasa_pemerintah,Keputusan Kepala Lembaga Kebijakan Pengadaan Barang/Jasa Pemerintah,,true
+64,peraturan_komisi_pengawas_persaingan_usaha,Peraturan Komisi Pengawas Persaingan Usaha,,true
+65,keputusan_komisi_pengawas_persaingan_usaha,Keputusan Komisi Pengawas Persaingan Usaha,,true
+66,peraturan_badan_tenaga_nuklir_nasional,Peraturan Badan Tenaga Nuklir Nasional,,true
+67,peraturan_dewan_perwakilan_rakyat,Peraturan Dewan Perwakilan Rakyat,,true
+68,peraturan_dewan_perwakilan_daerah,Peraturan Dewan Perwakilan Daerah,,true
+69,keputusan_dewan_perwakilan_daerah,Keputusan Dewan Perwakilan Daerah,,true
+70,peraturan_mahkamah_agung,Peraturan Mahkamah Agung,,true
+71,surat_edaran_mahkamah_agung,Surat Edaran Mahkamah Agung,,true
+72,peraturan_perpustakaan_nasional,Peraturan Perpustakaan Nasional,,true
+73,peraturan_mahkamah_konstitusi,Peraturan Mahkamah Konstitusi,,true
+74,peraturan_komisi_yudisial,Peraturan Komisi Yudisial,,true
+75,peraturan_menteri_koordinator_bidang_pembangunan_manusia_dan_kebudayaan,Peraturan Menteri Koordinator Bidang Pembangunan Manusia Dan Kebudayaan,,true
+76,peraturan_menteri_sekretaris_negara_republik_indonesia,Peraturan Menteri Sekretaris Negara Republik Indonesia,,true
+77,keputusan_sekretaris_kabinet_republik_indonesia,Keputusan Sekretaris Kabinet Republik Indonesia,,true
+78,peraturan_menteri_sosial,Peraturan Menteri Sosial,,true
+79,peraturan_menteri_pariwisata_dan_ekonomi_kreatif,Peraturan Menteri Pariwisata Dan Ekonomi Kreatif,,true
+80,peraturan_menteri_ketenagakerjaan,Peraturan Menteri Ketenagakerjaan,,true
+81,peraturan_menteri_komunikasi_dan_informatika,Peraturan Menteri Komunikasi dan Informatika,,true
+82,peraturan_menteri_pendayagunaan_aparatur_negara_dan_reformasi_birokrasi,Peraturan Menteri Pendayagunaan Aparatur Negara dan Reformasi Birokrasi,,true
+83,peraturan_menteri_pemberdayaan_perempuan_dan_perlindungan_anak,Peraturan Menteri Pemberdayaan Perempuan Dan Perlindungan Anak,,true
+84,peraturan_menteri_pemuda_dan_olahraga,Peraturan Menteri Pemuda dan Olahraga,,true
+85,peraturan_menteri_riset_teknologi_dan_pendidikan_tinggi_republik_indonesia,"Peraturan Menteri Riset, Teknologi, Dan Pendidikan Tinggi Republik Indonesia",,true
+86,peraturan_menteri_agraria_dan_tata_ruang_kepala_badan_pertanahan_nasional_republik_indonesia,Peraturan Menteri Agraria dan Tata Ruang/ Kepala Badan Pertanahan Nasional Republik Indonesia,,true
+87,peraturan_menteri_desa_pembangunan_daerah_tertinggal_dan_transmigrasi,"Peraturan Menteri Desa, Pembangunan Daerah Tertinggal, dan Transmigrasi",,true
+88,peraturan_badan_pengawas_tenaga_nuklir,Peraturan Badan Pengawas Tenaga Nuklir,,true
+89,peraturan_kepala_badan_tenaga_nuklir_nasional,Peraturan Kepala Badan Tenaga Nuklir Nasional,,true
+90,peraturan_kepala_badan_pengkajian_dan_penerapan_teknologi,Peraturan Kepala Badan Pengkajian Dan Penerapan Teknologi,,true
+91,peraturan_lembaga_ilmu_pengetahuan_indonesia,Peraturan Lembaga Ilmu Pengetahuan Indonesia,,true
+92,peraturan_kepala_lembaga_penerbangan_dan_antariksa_nasional,Peraturan Kepala Lembaga Penerbangan dan Antariksa Nasional,,true
+93,peraturan_kepala_perpustakaan_nasional,Peraturan Kepala Perpustakaan Nasional,,true
+94,peraturan_kepala_badan_nasional_penanggulangan_bencana,Peraturan Kepala Badan Nasional Penanggulangan Bencana,,true
+95,peraturan_badan_riset_dan_inovasi_nasional,Peraturan Badan Riset dan Inovasi Nasional,,true
+96,peraturan_kepala_badan_kependudukan_dan_keluarga_berencana_nasional,Peraturan Kepala Badan Kependudukan dan Keluarga Berencana Nasional,,true
+97,peraturan_kepala_badan_kepegawaian_negara,Peraturan Kepala Badan Kepegawaian Negara,,true
+98,peraturan_kepala_badan_pengawasan_keuangan_dan_pembangunan,Peraturan Kepala Badan Pengawasan Keuangan dan Pembangunan,,true
+99,peraturan_kepala_lembaga_administrasi_negara,Peraturan Kepala Lembaga Administrasi Negara,,true
+100,peraturan_kepala_arsip_nasional_republik_indonesia,Peraturan Kepala Arsip Nasional Republik Indonesia,,true
+101,peraturan_badan_nasional_penempatan_dan_perlindungan_tenaga_kerja_indonesia,Peraturan Badan Nasional Penempatan dan Perlindungan Tenaga Kerja Indonesia,,true
+102,peraturan_direktur_utama_lembaga_penyiaran_publik_radio_republik_indonesia,Peraturan Direktur Utama Lembaga Penyiaran Publik Radio Republik Indonesia,,true
+103,peraturan_direksi_lembaga_penyiaran_publik_radio_republik_indonesia,Peraturan Direksi Lembaga Penyiaran Publik Radio Republik Indonesia,,true
+104,peraturan_badan_informasi_geospasial,Peraturan Badan Informasi Geospasial,,true
+105,peraturan_ombudsman_republik_indonesia,Peraturan Ombudsman Republik Indonesia,,true
+106,peraturan_ketua_ombudsman_republik_indonesia,Peraturan Ketua Ombudsman Republik Indonesia,,true
+107,peraturan_kepala_badan_ekonomi_kreatif,Peraturan Kepala Badan Ekonomi Kreatif,,true
+108,peraturan_menteri_koordinator_bidang_kemaritiman_dan_investasi,Peraturan Menteri Koordinator Bidang Kemaritiman dan Investasi,,true
+109,peraturan_menteri_pertanian,Peraturan Menteri Pertanian,,true
+110,keputusan_menteri_pertanian,Keputusan Menteri Pertanian,,true
+111,instruksi_menteri_pertanian,Instruksi Menteri Pertanian,,true
+112,keputusan_bersama_menteri_pertanian,Keputusan Bersama Menteri Pertanian,,true
+113,keputusan_direktur_jenderal_kepala_badan,Keputusan Direktur Jenderal/Kepala Badan,,true
+114,peraturan_menteri_kependudukan_dan_pembangunan_keluarga_kepala_badan_kependudukan_dan_keluarga_berencana_nasional,Peraturan Menteri Kependudukan dan Pembangunan Keluarga/Kepala Badan Kependudukan dan Keluarga Berencana Nasional,,true
+115,peraturan_menteri_kelautan_dan_perikanan,Peraturan Menteri Kelautan dan Perikanan,,true
+116,keputusan_menteri_kelautan_dan_perikanan,Keputusan Menteri Kelautan dan Perikanan,,true
+117,peraturan_sekretaris_jenderal,Peraturan Sekretaris Jenderal,,true
+118,peraturan_dirjen_ka_badan_irjen,Peraturan Dirjen/Ka.Badan/Irjen,,true
+119,keputusan_sekretaris_jenderal,Keputusan Sekretaris Jenderal,,true
+120,keputusan_dirjen_ka_badan_irjen,Keputusan Dirjen/Ka.Badan/Irjen,,true
+121,peraturan_bersama_menteri_kelautan_dan_perikanan,Peraturan Bersama Menteri Kelautan dan Perikanan,,true
+122,peraturan_menteri_energi_dan_sumber_daya_mineral,Peraturan Menteri Energi dan Sumber Daya Mineral,,true
+123,keputusan_menteri_energi_dan_sumber_daya_mineral,Keputusan Menteri Energi dan Sumber Daya Mineral,,true
+124,peraturan_menteri_desa_dan_pembangunan_daerah_tertinggal,Peraturan Menteri Desa dan Pembangunan Daerah Tertinggal,,true
+125,keputusan_sekjen_energi_dan_sumber_daya_mineral,Keputusan Sekjen Energi dan Sumber Daya Mineral,,true
+126,peraturan_dan_keputusan_dirjen,Peraturan dan Keputusan Dirjen,,true
+127,peraturan_bph_migas,Peraturan BPH Migas,,true
+128,surat_edaran_menteri_energi_dan_sumber_daya_mineral,Surat Edaran Menteri Energi Dan Sumber Daya Mineral,,true
+129,surat_edaran_dirjen_mineral_dan_batubara,Surat Edaran Dirjen Mineral Dan Batubara,,true
+130,peraturan_menteri_pekerjaan_umum_dan_perumahan_rakyat,Peraturan Menteri Pekerjaan Umum dan Perumahan Rakyat,,true
+131,keputusan_menteri_pekerjaan_umum_dan_perumahan_rakyat,Keputusan Menteri Pekerjaan Umum dan Perumahan Rakyat,,true
+132,instruksi_menteri_pekerjaan_umum_dan_perumahan_rakyat,Instruksi Menteri Pekerjaan Umum dan Perumahan Rakyat,,true
+133,surat_edaran_menteri_pekerjaan_umum_dan_perumahan_rakyat,Surat Edaran Menteri Pekerjaan Umum dan Perumahan Rakyat,,true
+134,surat_edaran_sekretaris_jenderal_kementerian_pekerjaan_umum_dan_perumahan_rakyat,Surat Edaran Sekretaris Jenderal Kementerian Pekerjaan Umum dan Perumahan Rakyat,,true
+135,surat_edaran_direktur_jenderal_di_lingkungan_kementerian_pekerjaan_umum_dan_perumahan_rakyat,Surat Edaran Direktur Jenderal di lingkungan Kementerian Pekerjaan Umum dan Perumahan Rakyat,,true
+136,surat_edaran_kepala_biro_kementerian_pekerjaan_umum_dan_perumahan_rakyat,Surat Edaran Kepala Biro Kementerian Pekerjaan Umum dan Perumahan Rakyat,,true
+137,peraturan_badan_penyelenggara_jaminan_sosial_ketenagakerjaan,Peraturan Badan Penyelenggara Jaminan Sosial Ketenagakerjaan,,true
+138,peraturan_menteri_kehutanan,Peraturan Menteri Kehutanan,,true
+139,peraturan_menteri_lingkungan_hidup,Peraturan Menteri Lingkungan Hidup,,true
+140,peraturan_menteri_lingkungan_hidup_dan_kehutanan,Peraturan Menteri Lingkungan Hidup Dan Kehutanan,,true
+141,keputusan_kepala_satuan_kerja_khusus_pelaksana_kegiatan_usaha_hulu_minyak_dan_gas_bumi,Keputusan Kepala Satuan Kerja Khusus Pelaksana Kegiatan Usaha Hulu Minyak dan Gas Bumi,,true
+142,surat_edaran_bph_migas,Surat Edaran BPH Migas,,true
+143,keputusan_kepala_badan_penanggulangan_lumpur_sidoarjo,Keputusan Kepala Badan Penanggulangan Lumpur Sidoarjo,,true
+144,peraturan_badan_kependudukan_dan_keluarga_berencana_nasional,Peraturan Badan Kependudukan dan Keluarga Berencana Nasional,,true
+145,instruksi_menteri_dalam_negeri,Instruksi Menteri Dalam Negeri,,true
+146,keputusan_menteri_dalam_negeri,Keputusan Menteri Dalam Negeri,,true
+147,peraturan_menteri_agama,Peraturan Menteri Agama,,true
+148,keputusan_menteri_agama,Keputusan Menteri Agama,,true
+149,keputusan_dirjen_penyelenggaraan_haji_dan_umrah,Keputusan Dirjen Penyelenggaraan Haji Dan Umrah,,true
+150,instruksi_menteri_agama,Instruksi Menteri Agama,,true
+151,surat_edaran_menteri_agama,Surat Edaran Menteri Agama,,true
+152,keputusan_bersama,Keputusan Bersama,,true
+153,peraturan_kepala_badan_pengusahaan_kawasan_perdagangan_dan_pelabuhan_bebas_sabang,Peraturan Kepala Badan Pengusahaan Kawasan Perdagangan dan Pelabuhan Bebas Sabang,,true
+154,peraturan_kepala_badan_pengusahaan_kawasan_perdagangan_bebas_dan_pelabuhan_bebas_batam,Peraturan Kepala Badan Pengusahaan Kawasan Perdagangan Bebas dan Pelabuhan Bebas Batam,,true
+155,peraturan_kepala_bpws,Peraturan Kepala BPWS,,true
+156,peraturan_badan_nasional_pengelola_perbatasan,Peraturan Badan Nasional Pengelola Perbatasan,,true
+157,peraturan_kepala_badan_nasional_pengelola_perbatasan,Peraturan Kepala Badan Nasional Pengelola Perbatasan,,true
+158,peraturan_menteri_kesehatan,Peraturan Menteri Kesehatan,,true
+159,keputusan_menteri_kesehatan,Keputusan Menteri Kesehatan,,true
+160,surat_edaran_menteri_kesehatan,Surat Edaran Menteri Kesehatan,,true
+161,perjanjian_kerjasama,Perjanjian Kerjasama,,true
+162,peraturan_menteri_pendidikan_dan_kebudayaan,Peraturan Menteri Pendidikan dan Kebudayaan,,true
+163,keputusan_menteri_pendidikan_dan_kebudayaan,Keputusan Menteri Pendidikan dan Kebudayaan,,true
+164,instruksi_menteri_pendidikan_dan_kebudayaan,Instruksi Menteri Pendidikan dan Kebudayaan,,true
+165,surat_edaran_menteri_pendidikan_dan_kebudayaan,Surat Edaran Menteri Pendidikan dan Kebudayaan,,true
+166,nota_kesepahaman,Nota Kesepahaman,,true
+167,kesepakatan_bersama,Kesepakatan Bersama,,true
+168,peraturan_bersama,Peraturan Bersama,,true
+169,surat_edaran_bersama,Surat Edaran Bersama,,true
+170,peraturan_badan_penyelenggara_jaminan_sosial_kesehatan,Peraturan Badan Penyelenggara Jaminan Sosial Kesehatan,,true
+171,peraturan_bpjs_ketenagakerjaan,Peraturan BPJS Ketenagakerjaan,,true
+172,peraturan_direksi,Peraturan Direksi,,true
+173,peraturan_kepala_badan_pengawas_obat_dan_makanan,Peraturan Kepala Badan Pengawas Obat dan Makanan,,true
+174,keputusan_kepala_badan_pengawas_obat_dan_makanan,Keputusan Kepala Badan Pengawas Obat dan Makanan,,true
+175,petunjuk_teknis,Petunjuk Teknis,,true
+176,peraturan_menteri_badan_usaha_milik_negara,Peraturan Menteri Badan Usaha Milik Negara,,true
+177,surat_edaran_menteri_badan_usaha_milik_negara,Surat Edaran Menteri Badan Usaha Milik Negara,,true
+178,keputusan_menteri_bumn,Keputusan Menteri BUMN,,true
+179,instruksi_menteri_bumn,Instruksi Menteri BUMN,,true
+180,keputusan_direksi_badan_usaha_milik_negara,Keputusan Direksi Badan Usaha Milik Negara,,true
+181,peraturan_menteri_koordinator_bidang_perekonomian,Peraturan Menteri Koordinator Bidang Perekonomian,,true
+182,peraturan_badan_kepegawaian_negara,Peraturan Badan Kepegawaian Negara,,true
+183,peraturan_lembaga_kebijakan_pengadaan_barang_jasa_pemerintah,Peraturan Lembaga Kebijakan Pengadaan Barang/Jasa Pemerintah,,true
+184,surat_edaran_menteri_dalam_negeri,Surat Edaran Menteri Dalam Negeri,,true
+185,surat_edaran_otoritas_jasa_keuangan,Surat Edaran Otoritas Jasa Keuangan,,true
+186,surat_edaran_kepala_lembaga_kebijakan_pengadaan_barang_jasa_pemerintah,Surat Edaran Kepala Lembaga Kebijakan Pengadaan Barang/Jasa Pemerintah,,true
+187,surat_edaran_komisi_pemberantasan_korupsi,Surat Edaran Komisi Pemberantasan Korupsi,,true
+188,peraturan_lembaga_perlindungan_saksi_dan_korban,Peraturan Lembaga Perlindungan Saksi dan Korban,,true
+189,keputusan_menteri_ketenagakerjaan,Keputusan Menteri Ketenagakerjaan,,true
+190,peraturan_jaksa_agung,Peraturan Jaksa Agung,,true
+191,peraturan_arsip_nasional_republik_indonesia,Peraturan Arsip Nasional Republik Indonesia,,true
+192,peraturan_ketua_komisi_nasional_hak_asasi_manusia,Peraturan Ketua Komisi Nasional Hak Asasi Manusia,,true
+193,peraturan_badan_pengawas_obat_dan_makanan,Peraturan Badan Pengawas Obat dan Makanan,,true
+194,peraturan_badan_meteorologi_klimatologi_dan_geofisika,"Peraturan Badan Meteorologi, Klimatologi, dan Geofisika",,true
+195,peraturan_lembaga_administrasi_negara,Peraturan Lembaga Administrasi Negara,,true
+196,peraturan_gubernur_lembaga_ketahanan_nasional,Peraturan Gubernur Lembaga Ketahanan Nasional,,true
+197,peraturan_kepala_badan_keamanan_laut,Peraturan Kepala Badan Keamanan Laut,,true
+198,peraturan_badan_keamanan_laut,Peraturan Badan Keamanan Laut,,true
+199,surat_edaran_menteri_pendayagunaan_aparatur_negara_dan_reformasi_birokrasi,Surat Edaran Menteri Pendayagunaan Aparatur Negara dan Reformasi Birokrasi,,true
+200,peraturan_sekretaris_kabinet,Peraturan Sekretaris Kabinet,,true
+201,peraturan_sekretaris_kabinet_reformasi_birokrasi,Peraturan Sekretaris Kabinet Reformasi Birokrasi,,true
+202,peraturan_badan_nasional_penanggulangan_bencana,Peraturan Badan Nasional Penanggulangan Bencana,,true
+203,peraturan_kepala_otorita_ibukota_nusantara,Peraturan Kepala Otorita Ibukota Nusantara,,true
+204,keputusan_kepala_badan_nasional_penanggulangan_bencana,Keputusan Kepala Badan Nasional Penanggulangan Bencana,,true
+205,peraturan_kepolisian_negara_republik_indonesia,Peraturan Kepolisian Negara Republik Indonesia,,true
+206,peraturan_menteri_pendidikan_kebudayaan_riset_dan_teknologi,"Peraturan Menteri Pendidikan, Kebudayaan, Riset, dan Teknologi",,true
+207,peraturan_badan_pengawasan_keuangan_dan_pembangunan,Peraturan Badan Pengawasan Keuangan dan Pembangunan,,true
+208,peraturan_badan_intelijen_negara,Peraturan Badan Intelijen Negara,,true
+209,peraturan_menteri_komunikasi_dan_digital,Peraturan Menteri Komunikasi dan Digital,,true
+210,peraturan_pusat_pelaporan_dan_analisis_transaksi_keuangan,Peraturan Pusat Pelaporan dan Analisis Transaksi Keuangan,,true
+211,peraturan_majelis_permusyawaratan_rakyat,Peraturan Majelis Permusyawaratan Rakyat,,true
+212,peraturan_menteri_pendidikan_dasar_dan_menengah,Peraturan Menteri Pendidikan Dasar dan Menengah,,true
+213,surat_edaran_mendagri,Surat Edaran Mendagri,,true
+214,keputusan_menteri_luar_negeri,Keputusan Menteri Luar Negeri,,true
+215,peraturan_badan_narkotika_nasional,Peraturan Badan Narkotika Nasional,,true
+216,peraturan_kepala_badan_koordinasi_penanaman_modal,Peraturan Kepala Badan Koordinasi Penanaman Modal,,true
+217,peraturan_kepala_badan_standardisasi_nasional,Peraturan Kepala Badan Standardisasi Nasional,,true
+218,peraturan_kepala_badan_pengawas_tenaga_nuklir,Peraturan Kepala Badan Pengawas Tenaga Nuklir,,true
+219,peraturan_kepala_badan_informasi_geospasial,Peraturan Kepala Badan Informasi Geospasial,,true
+220,peraturan_badan_pembinaan_ideologi_pancasila,Peraturan Badan Pembinaan Ideologi Pancasila,,true
+221,peraturan_dewan_direksi_lembaga_penyiaran_publik_televisi_republik_indonesia,Peraturan Dewan Direksi Lembaga Penyiaran Publik Televisi Republik Indonesia,,true
+222,keputusan_menteri_pendayagunaan_aparatur_negara_dan_reformasi_birokrasi,Keputusan Menteri Pendayagunaan Aparatur Negara dan Reformasi Birokrasi,,true
+223,peraturan_direksi_badan_penyelenggara_jaminan_sosial_kesehatan,Peraturan Direksi Badan Penyelenggara Jaminan Sosial Kesehatan,,true
+224,peraturan_badan_pangan_nasional,Peraturan Badan Pangan Nasional,,true
+225,keputusan_menteri_sosial,Keputusan Menteri Sosial,,true
+226,peraturan_kepala_badan_pelaksana_badan_bank_tanah,Peraturan Kepala Badan Pelaksana Badan Bank Tanah,,true
+227,peraturan_menteri_hukum,Peraturan Menteri Hukum,,true
+228,peraturan_menteri_koordinator_bidang_hukum_hak_asasi_manusia_imigrasi_dan_pemasyarakatan,"Peraturan Menteri Koordinator Bidang Hukum, Hak Asasi Manusia, Imigrasi, dan Pemasyarakatan",,true
+229,peraturan_menteri_pariwisata,Peraturan Menteri Pariwisata,,true
+230,peraturan_badan_nasional_pencarian_dan_pertolongan,Peraturan Badan Nasional Pencarian dan Pertolongan,,true
+231,peraturan_badan_pelindungan_pekerja_migran_indonesia,Peraturan Badan Pelindungan Pekerja Migran Indonesia,,true
+232,peraturan_sekretariat_jenderal_dewan_ketahanan_nasional,Peraturan Sekretariat Jenderal Dewan Ketahanan Nasional,,true
+233,peraturan_kepala_badan_nasional_penanggulangan_terorisme,Peraturan Kepala Badan Nasional Penanggulangan Terorisme,,true
+234,keputusan_menteri_desa_pembangunan_daerah_tertinggal_dan_transmigrasi,"Keputusan Menteri Desa, Pembangunan Daerah Tertinggal, dan Transmigrasi",,true
+235,peraturan_badan_pengelola_tabungan_perumahan_rakyat,Peraturan Badan Pengelola Tabungan Perumahan Rakyat,,true
+236,keputusan_menteri_badan_usaha_milik_negara,Keputusan Menteri Badan Usaha Milik Negara,,true
+237,peraturan_menteri_investasi_dan_hilirisasi_badan_koordinasi_penanaman_modal,Peraturan Menteri Investasi dan Hilirisasi/Badan Koordinasi Penanaman Modal,,true
+238,peraturan_menteri_koperasi,Peraturan Menteri Koperasi,,true
+239,peraturan_menteri_usaha_mikro_kecil_dan_menengah,Peraturan Menteri Usaha Mikro Kecil dan Menengah,,true
+240,peraturan_menteri_hak_asasi_manusia,Peraturan Menteri Hak Asasi Manusia,,true
+241,peraturan_menteri_imigrasi_dan_pemasyarakatan,Peraturan Menteri Imigrasi dan Pemasyarakatan,,true
+242,peraturan_menteri_ekonomi_kreatif,Peraturan Menteri Ekonomi Kreatif,,true
+243,peraturan_badan_pengelola_keuangan_haji,Peraturan Badan Pengelola Keuangan Haji,,true
+244,peraturan_badan_karantina_indonesia,Peraturan Badan Karantina Indonesia,,true
+245,peraturan_menteri_pelindungan_pekerja_migran_indonesia_badan_pelindungan_pekerja_migran_indonesia,Peraturan Menteri Pelindungan Pekerja Migran Indonesia/Badan Pelindungan Pekerja Migran Indonesia,,true
+246,peraturan_badan_gizi_nasional,Peraturan Badan Gizi Nasional,,true
+247,peraturan_panglima_tentara_nasional_indonesia,Peraturan Panglima Tentara Nasional Indonesia,,true
+248,peraturan_menteri_lingkungan_hidup_badan_pengendalian_lingkungan_hidup,Peraturan Menteri Lingkungan Hidup/Badan Pengendalian Lingkungan Hidup,,true
+249,peraturan_badan_penyelenggara_jaminan_produk_halal,Peraturan Badan Penyelenggara Jaminan Produk Halal,,true
+250,peraturan_badan_penyelenggara_haji,Peraturan Badan Penyelenggara Haji,,true
+251,peraturan_menteri_koordinator_bidang_politik_dan_keamanan,Peraturan Menteri Koordinator Bidang Politik dan Keamanan,,true
+252,peraturan_menteri_perumahan_dan_kawasan_permukiman,Peraturan Menteri Perumahan dan Kawasan Permukiman,,true
+253,peraturan_menteri_pendidikan_tinggi_sains_dan_teknologi,"Peraturan Menteri Pendidikan Tinggi, Sains, dan Teknologi",,true
+254,peraturan_menteri_kebudayaan,Peraturan Menteri Kebudayaan,,true
+255,peraturan_badan_ekonomi_kreatif,Peraturan Badan Ekonomi Kreatif,,true
+256,peraturan_menteri_koordinator_bidang_infrastruktur_dan_pembangunan_kewilayahan,Peraturan Menteri Koordinator Bidang Infrastruktur dan Pembangunan Kewilayahan,,true
+257,peraturan_menteri_koordinator_bidang_pangan,Peraturan Menteri Koordinator Bidang Pangan,,true
+258,peraturan_menteri_pekerjaan_umum,Peraturan Menteri Pekerjaan Umum,,true
+259,peraturan_badan_pengatur_hilir_minyak_dan_gas_bumi,Peraturan Badan Pengatur Hilir Minyak dan Gas Bumi,,true
+260,perda,Peraturan Daerah,Perda,true
+261,qanun,Qanun,,true
+262,perdasus_papua,Peraturan Daerah Khusus Provinsi Papua,Perdasus Papua,true
+263,peraturan_daerah_istimewa,Peraturan Daerah Istimewa,,true
+264,pergub,Peraturan Gubernur,Pergub,true
+265,perbup,Peraturan Bupati,Perbup,true
+266,perwali,Peraturan Walikota,Perwali,true

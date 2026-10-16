@@ -1,7 +1,7 @@
 """allow the split tag of an approved version to change, add cases.was_dev
 
 Revision ID: b7e2d4f81c36
-Revises: a6d2f9c4e185
+Revises: d4f7a2c18b36
 Create Date: 2026-10-16 10:00:00.000000
 
 PBI-9 AC3, SCRUM-164. D4a rule 1: an approved row stays immutable except
@@ -18,7 +18,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision: str = "b7e2d4f81c36"  # pragma: allowlist secret
-down_revision: str | Sequence[str] | None = "a6d2f9c4e185"  # pragma: allowlist secret
+down_revision: str | Sequence[str] | None = "d4f7a2c18b36"  # pragma: allowlist secret
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 

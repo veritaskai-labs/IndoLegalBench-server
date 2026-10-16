@@ -17,6 +17,7 @@ from sqlalchemy import engine_from_config, pool
 from app.modules.audit import models as audit_models  # noqa: F401
 from app.modules.auth import models as auth_models  # noqa: F401
 from app.modules.cases import models as cases_models  # noqa: F401
+from app.modules.legal_refs import models as legal_refs_models  # noqa: F401
 from app.modules.providers import models as providers_models  # noqa: F401
 from app.modules.reviews import models as reviews_models  # noqa: F401
 from app.modules.suites import models as suites_models  # noqa: F401
