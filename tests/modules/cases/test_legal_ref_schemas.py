@@ -1,4 +1,7 @@
-"""Unit test schema link rujukan hukum (PBI-21, SCRUM-160).
+"""Unit test schema rujukan hukum dan link-nya (PBI-21, SCRUM-160).
+
+Model datar (keputusan PO 17 Okt): rujukan punya kind structured/free_text,
+setiap link punya form name_only/pasal/pasal_angka.
 
 Hanya aturan yang bisa ditulis di schema (dan ikut ke zod lewat OpenAPI):
 tipe, enum, panjang, pola pasal/angka, dan pembersihan spasi. Aturan lintas
@@ -14,11 +17,17 @@ input format sintetis, bukan contoh tim legal.
 import pytest
 from pydantic import ValidationError as KesalahanPydantic
 
-from app.modules.cases.schemas import LegalRefLinkRead, LegalRefLinkWrite
+from app.modules.cases.schemas import (
+    LegalRefLinkRead,
+    LegalRefLinkWrite,
+    LegalRefRead,
+    LegalRefWrite,
+)
 from app.modules.cases.validation import FIELD_REQUIRED, response_from_pydantic
 
 # KTK-001 (Sprint 1): Pasal 156 UU 13/2003.
 LINK_KTK_001 = {
+    "form": "pasal",
     "connector": "none",
     "regulation_type": "uu",
     "number": "13",
@@ -28,6 +37,7 @@ LINK_KTK_001 = {
 
 # Link kedua contoh AC10: "jo. Pasal II Angka 5 UU 6/2023".
 LINK_AC10_KEDUA = {
+    "form": "pasal_angka",
     "connector": "jo",
     "regulation_type": "uu",
     "number": "6",
@@ -67,6 +77,7 @@ def _gagal_di(data: dict) -> list[str]:
 def test_link_ktk_001_lolos():
     link = LegalRefLinkWrite.model_validate(LINK_KTK_001)
 
+    assert link.form == "pasal"
     assert link.connector == "none"
     assert link.regulation_type == "uu"
     assert link.number == "13"
@@ -81,9 +92,15 @@ def test_link_ktk_001_lolos():
 def test_link_kedua_ac10_pasal_romawi_dan_angka_lolos():
     link = LegalRefLinkWrite.model_validate(LINK_AC10_KEDUA)
 
+    assert link.form == "pasal_angka"
     assert link.connector == "jo"
     assert link.pasal == "II"
     assert link.angka == "5"
+
+
+@pytest.mark.parametrize("bentuk", ["name_only", "pasal", "pasal_angka"])
+def test_tiga_bentuk_link_diterima(bentuk):
+    assert LegalRefLinkWrite.model_validate(_link(form=bentuk)).form == bentuk
 
 
 @pytest.mark.parametrize("penghubung", ["none", "jo", "jis"])
@@ -169,7 +186,7 @@ def test_display_text_dari_client_diabaikan():
 # --- negatif -----------------------------------------------------------------
 
 
-@pytest.mark.parametrize("nama", ["connector", "regulation_type", "number", "year"])
+@pytest.mark.parametrize("nama", ["form", "connector", "regulation_type", "number", "year"])
 def test_field_wajib_hilang_ditolak(nama):
     assert _gagal_di(_link(**{nama: None})) == [nama]
 
@@ -194,6 +211,12 @@ def test_opsional_null_eksplisit_tetap_none():
     link = LegalRefLinkWrite.model_validate(data)
 
     assert (link.about, link.pasal) == (None, None)
+
+
+@pytest.mark.parametrize("bentuk", ["free_text", "structured", "Pasal", "pasal-angka", ""])
+def test_bentuk_link_di_luar_enum_ditolak(bentuk):
+    """free_text adalah kind rujukan, bukan bentuk link."""
+    assert _gagal_di(_link(form=bentuk)) == ["form"]
 
 
 @pytest.mark.parametrize("penghubung", ["jo.", "jis.", "JO", "dan", ""])
@@ -266,3 +289,108 @@ def test_baca_tidak_memakai_pola_pasal():
     link = LegalRefLinkRead.model_validate(_link(pasal="1a"))
 
     assert link.pasal == "1a"
+
+
+# --- rujukan (kind + links) ------------------------------------------------------
+
+# Contoh AC10: "Pasal 156 UU 13/2003 jo. Pasal II Angka 5 UU 6/2023".
+RUJUKAN_AC10 = {"kind": "structured", "links": [LINK_KTK_001, LINK_AC10_KEDUA]}
+
+
+def _rujukan_gagal_di(data: dict) -> list[str]:
+    """Lokasi field yang ditolak schema tulis rujukan."""
+    with pytest.raises(KesalahanPydantic) as info:
+        LegalRefWrite.model_validate(data)
+    return [".".join(str(bagian) for bagian in error["loc"]) for error in info.value.errors()]
+
+
+def test_rujukan_ac10_dua_link_dengan_jo_lolos():
+    rujukan = LegalRefWrite.model_validate(RUJUKAN_AC10)
+
+    assert rujukan.kind == "structured"
+    assert rujukan.free_text is None
+    assert [link.form for link in rujukan.links] == ["pasal", "pasal_angka"]
+    assert [link.connector for link in rujukan.links] == ["none", "jo"]
+    assert [(link.pasal, link.angka) for link in rujukan.links] == [("156", None), ("II", "5")]
+
+
+def test_rujukan_ktk_001_satu_link_lolos():
+    rujukan = LegalRefWrite.model_validate({"kind": "structured", "links": [LINK_KTK_001]})
+
+    assert len(rujukan.links) == 1
+    assert rujukan.links[0].number == "13"
+
+
+def test_rujukan_teks_bebas_disimpan_apa_adanya_tanpa_spasi_tepi():
+    """AC7. Isi teks bebas adalah input format sintetis."""
+    rujukan = LegalRefWrite.model_validate(
+        {"kind": "free_text", "links": [], "free_text": "  Format teks bebas  "}
+    )
+
+    assert rujukan.kind == "free_text"
+    assert rujukan.links == []
+    assert rujukan.free_text == "Format teks bebas"
+
+
+@pytest.mark.parametrize("kosong", ["", "   "])
+def test_teks_bebas_kosong_jadi_none(kosong):
+    rujukan = LegalRefWrite.model_validate({"kind": "free_text", "links": [], "free_text": kosong})
+
+    assert rujukan.free_text is None
+
+
+def test_teks_bebas_tepat_2000_karakter_diterima():
+    rujukan = LegalRefWrite.model_validate(
+        {"kind": "free_text", "links": [], "free_text": "x" * 2000}
+    )
+
+    assert len(rujukan.free_text or "") == 2000
+
+
+def test_display_text_rujukan_dari_client_diabaikan():
+    rujukan = LegalRefWrite.model_validate({**RUJUKAN_AC10, "display_text": "teks dari client"})
+
+    assert "display_text" not in rujukan.model_dump()
+
+
+@pytest.mark.parametrize("jenis", ["name_only", "pasal", "pasal_angka", "Structured", ""])
+def test_kind_di_luar_enum_ditolak(jenis):
+    """Bentuk link bukan kind rujukan."""
+    assert _rujukan_gagal_di({**RUJUKAN_AC10, "kind": jenis}) == ["kind"]
+
+
+@pytest.mark.parametrize("nama", ["kind", "links"])
+def test_kind_dan_links_wajib_dikirim(nama):
+    data = dict(RUJUKAN_AC10)
+    del data[nama]
+
+    assert _rujukan_gagal_di(data) == [nama]
+
+
+def test_links_bukan_list_ditolak():
+    assert _rujukan_gagal_di({**RUJUKAN_AC10, "links": LINK_KTK_001}) == ["links"]
+
+
+def test_teks_bebas_melebihi_2000_ditolak():
+    data = {"kind": "free_text", "links": [], "free_text": "x" * 2001}
+
+    assert _rujukan_gagal_di(data) == ["free_text"]
+
+
+def test_error_link_kedua_menunjuk_indeks_link():
+    """Lokasi error ikut indeks link, dasar path legal_refs[i].links[j].x (AC8)."""
+    rusak = dict(LINK_AC10_KEDUA, pasal="IIII")
+
+    assert _rujukan_gagal_di({**RUJUKAN_AC10, "links": [LINK_KTK_001, rusak]}) == ["links.1.pasal"]
+
+
+def test_baca_rujukan_lama_hasil_migrasi():
+    """AC9: rujukan lama tanpa tahun tetap terbaca."""
+    lama = dict(LINK_KTK_001, year=None)
+
+    rujukan = LegalRefRead.model_validate(
+        {"kind": "structured", "links": [lama], "free_text": None}
+    )
+
+    assert rujukan.links[0].year is None
+    assert isinstance(rujukan.links[0], LegalRefLinkRead)
