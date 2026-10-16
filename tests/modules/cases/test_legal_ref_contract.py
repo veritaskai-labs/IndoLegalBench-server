@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from app.modules.cases import validation
 from app.modules.cases.validation import ANGKA_PATTERN, PASAL_PATTERN
 from app.shared.security import Role
 from tests.legal_refs import rujukan_ac10, rujukan_ktk_001
@@ -331,3 +332,16 @@ def test_rantai_tanpa_penghubung_lewat_http(as_role):
     assert respons.status_code == 422
     assert respons.json()["code"] == "CONNECTOR_INVALID"
     assert respons.json()["field"] == "legal_refs[0].links[1].connector"
+
+
+def test_tahun_di_masa_depan_lewat_http(as_role, monkeypatch):
+    monkeypatch.setattr(validation, "current_year_wib", lambda now=None: 2026)
+    client = as_role(Role.AUTHOR)
+    rujukan = rujukan_ktk_001()
+    rujukan["links"][0]["year"] = 2027
+
+    respons = _buat(client, _suite(client), legal_refs=[rujukan])
+
+    assert respons.status_code == 422
+    assert respons.json()["code"] == "YEAR_IN_FUTURE"
+    assert respons.json()["field"] == "legal_refs[0].links[0].year"

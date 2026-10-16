@@ -28,6 +28,7 @@ import uuid
 import pytest
 
 from app.main import app
+from app.modules.cases import validation
 from app.modules.cases.models import CaseStatus
 from app.shared.security import Role
 from tests.legal_refs import rujukan_pasal
@@ -39,6 +40,13 @@ BATAS_PERTANYAAN = 20000
 BATAS_PASAL = 40
 BATAS_KODE = 64
 TAHUN_MIN, TAHUN_MAKS = 1, 9999
+# PBI-21: tahun rujukan paling tinggi tahun berjalan (WIB). Jam dipatok lewat fixture.
+TAHUN_BERJALAN = 2026
+
+
+@pytest.fixture
+def tahun_berjalan(monkeypatch):
+    monkeypatch.setattr(validation, "current_year_wib", lambda now=None: TAHUN_BERJALAN)
 
 
 def _badan(**ubah) -> dict:
@@ -287,8 +295,8 @@ def test_pertanyaan_tepat_di_batas_diterima(as_role):
     assert respons.status_code == 201
 
 
-@pytest.mark.parametrize("tahun", [TAHUN_MIN, TAHUN_MAKS])
-def test_tahun_di_kedua_ujung_rentang_diterima(as_role, tahun):
+@pytest.mark.parametrize("tahun", [TAHUN_MIN, TAHUN_BERJALAN])
+def test_tahun_di_kedua_ujung_rentang_diterima(as_role, tahun, tahun_berjalan):
     client = as_role(Role.AUTHOR)
     suite_id = _suite(client)
 
@@ -301,8 +309,8 @@ def test_tahun_di_kedua_ujung_rentang_diterima(as_role, tahun):
     assert respons.status_code == 201
 
 
-@pytest.mark.parametrize("tahun", [TAHUN_MIN - 1, TAHUN_MAKS + 1])
-def test_tahun_di_luar_rentang_ditolak(as_role, tahun):
+@pytest.mark.parametrize("tahun", [TAHUN_MIN - 1, TAHUN_BERJALAN + 1, TAHUN_MAKS, TAHUN_MAKS + 1])
+def test_tahun_di_luar_rentang_ditolak(as_role, tahun, tahun_berjalan):
     client = as_role(Role.AUTHOR)
     suite_id = _suite(client)
 

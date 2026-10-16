@@ -9,14 +9,18 @@ tim legal). Nilai ayat "1", huruf "a", angka "1", dan teks bebas adalah input
 format sintetis.
 """
 
+from datetime import UTC, datetime
 from typing import Any
 
 import pytest
 
+from app.modules.cases import validation
 from app.modules.cases.validation import (
     CONNECTOR_INVALID,
     FIELD_NOT_ALLOWED,
     FIELD_REQUIRED,
+    YEAR_IN_FUTURE,
+    current_year_wib,
     validate_payload,
 )
 from app.shared.exceptions import ValidationError
@@ -225,3 +229,73 @@ def test_penghubung_link_pertama_dilaporkan_sebelum_field_terlarang_link_kedua()
 
     assert salah.code == CONNECTOR_INVALID
     assert salah.field == "legal_refs[0].links[0].connector"
+
+
+# --- tahun <= tahun berjalan WIB (keputusan PO 17 Okt) ---------------------------
+
+
+def _tahun(*tahun: int) -> dict[str, Any]:
+    """Rantai jo dengan satu link per tahun. Nomor dan tahun input format sintetis."""
+    rujukan = _rantai("none", *(["jo"] * (len(tahun) - 1)))
+    for link, isi in zip(rujukan["links"], tahun, strict=True):
+        link["year"] = isi
+    return rujukan
+
+
+@pytest.mark.parametrize("tahun", [1, 2025, 2026], ids=["batas-bawah", "tahun-lalu", "tahun-ini"])
+def test_tahun_sampai_tahun_berjalan_diterima(tahun):
+    validate_payload(_body(_tahun(tahun)), tahun_ini=2026)
+
+
+def test_tahun_setelah_tahun_berjalan_ditolak():
+    with pytest.raises(ValidationError) as info:
+        validate_payload(_body(_tahun(2020, 2027)), tahun_ini=2026)
+
+    assert info.value.code == YEAR_IN_FUTURE
+    assert info.value.field == "legal_refs[0].links[1].year"
+    assert info.value.message == "Tahun tidak boleh melewati 2026"
+
+
+def test_contoh_ac10_ditolak_kalau_jam_mundur_sebelum_2023():
+    """Batas ikut jam yang diinjeksi, bukan angka yang ditulis di kode."""
+    with pytest.raises(ValidationError) as info:
+        validate_payload(_body(rujukan_ac10()), tahun_ini=2022)
+
+    assert info.value.field == "legal_refs[0].links[1].year"
+
+
+def test_penghubung_salah_dilaporkan_sebelum_tahun_di_link_yang_sama():
+    rujukan = _tahun(2020, 2027)
+    rujukan["links"][1]["connector"] = "none"
+
+    with pytest.raises(ValidationError) as info:
+        validate_payload(_body(rujukan), tahun_ini=2026)
+
+    assert info.value.code == CONNECTOR_INVALID
+
+
+@pytest.mark.parametrize(
+    ("utc", "tahun"),
+    [
+        (datetime(2026, 12, 31, 16, 59, 59, tzinfo=UTC), 2026),
+        (datetime(2026, 12, 31, 17, 0, 0, tzinfo=UTC), 2027),
+    ],
+    ids=["23.59.59-WIB", "00.00-WIB-tahun-baru"],
+)
+def test_tahun_berjalan_dihitung_di_wib(utc, tahun):
+    """31 Des 17.00 UTC sudah 1 Jan di WIB (UTC+7)."""
+    assert current_year_wib(utc) == tahun
+
+
+def test_tanpa_tahun_injeksi_memakai_jam_wib(monkeypatch):
+    monkeypatch.setattr(validation, "current_year_wib", lambda now=None: 2026)
+
+    with pytest.raises(ValidationError) as info:
+        validate_payload(_body(_tahun(2027)))
+
+    assert info.value.code == YEAR_IN_FUTURE
+
+
+def test_jam_sungguhan_mengembalikan_tahun_wib():
+    """Tanpa argumen: tahun dari jam sistem di Asia/Jakarta."""
+    assert current_year_wib() == datetime.now(validation.WIB).year
