@@ -19,6 +19,8 @@ from app.modules.cases.schemas import (
     CaseSummary,
     CaseWrite,
     ReviewSubmission,
+    SplitTagChange,
+    TagConfirmationBody,
     VersionCompare,
     VersionSummary,
 )
@@ -30,6 +32,8 @@ router = APIRouter(tags=["cases"])
 _can_write = require_roles(Role.AUTHOR, Role.ADMIN)
 # D5a: only an Author submits, and only their own case (checked in the service).
 _can_submit = require_roles(Role.AUTHOR)
+# D5a / PBI-9 AC3: after approval only the Admin changes the dev/test tag.
+_admin = require_roles(Role.ADMIN)
 # SCRUM-138: Viewer sees history, and a Reviewer re-reviews a new version.
 _can_read_versions = require_roles(Role.AUTHOR, Role.REVIEWER, Role.ADMIN, Role.VIEWER)
 
@@ -263,6 +267,40 @@ def get_open_version(
         case_id,
         actor_id=_user_id(user),
         is_admin=user.role == Role.ADMIN,
+    )
+
+
+@router.patch(
+    "/cases/{case_id}/split-tag",
+    response_model=CaseRead,
+    summary="Ubah tag dev/test kasus yang sudah disetujui",
+    responses={
+        403: {"model": ErrorBody, "description": "Bukan Admin."},
+        404: _ERROR_CODES[404],
+        409: {
+            "model": TagConfirmationBody,
+            "description": (
+                "Dev ke test tanpa confirm (`TAG_CHANGE_NEEDS_CONFIRMATION`, "
+                "`requires_confirmation` = true), atau kasus belum disetujui "
+                "(`NO_APPROVED_VERSION`)."
+            ),
+        },
+        422: {"model": ErrorBody, "description": "Suite tidak aktif (`SUITE_NOT_ACTIVE`)."},
+    },
+)
+def change_split_tag(
+    case_id: uuid.UUID,
+    payload: SplitTagChange,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(_admin),
+) -> CaseRead:
+    """PBI-9 AC3. Changes the approved version and any open version, and is audited.
+
+    Moving dev to test needs confirm = true, because AI developers have
+    already seen the case. The case is then marked was_dev for good.
+    """
+    return service.change_split_tag(
+        db, case_id, payload.split_tag, actor_id=_user_id(user), confirm=payload.confirm
     )
 
 

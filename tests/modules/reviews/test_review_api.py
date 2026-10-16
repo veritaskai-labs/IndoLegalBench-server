@@ -350,3 +350,23 @@ def test_review_kasus_yang_belum_diajukan(as_role):
 def test_tanpa_sesi_ditolak(client):
     # Act + Assert
     assert client.get("/reviews/assigned").status_code == 401
+
+
+# --- Tag hanya informasi (PBI-9 AC2, SCRUM-164) --------------------------------------
+
+
+def test_verdict_tidak_menerima_tag(kasus, jadi):
+    """Reviewer menilai substansi kasus, bukan tag dev/test."""
+    # Arrange
+    client, _, tugas = kasus
+    jadi(Role.REVIEWER, REVIEWER_A)
+
+    # Act
+    response = client.post(
+        f"/reviews/{tugas[REVIEWER_A]}/verdict",
+        json={"decision": "approve", "split_tag": "test"},
+    )
+
+    # Assert
+    assert response.status_code == 422
+    assert client.get("/reviews/assigned").json()[0]["my_verdict"] is None
