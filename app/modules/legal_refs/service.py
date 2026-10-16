@@ -3,10 +3,47 @@
 Modul lain memakai fungsi di sini, bukan tabel legal_refs secara langsung.
 """
 
+from collections.abc import Sequence
+from typing import Any
+
 from sqlalchemy.orm import Session
 
 from app.modules.legal_refs import repository
+from app.modules.legal_refs.citations import to_citations
+from app.modules.legal_refs.models import RegulationType
 from app.modules.legal_refs.schemas import RegulationTypeRead
+from app.modules.legal_refs.seed import RegulationTypeSeed
+from app.modules.legal_refs.type_lookup import RegulationTypeIndex
+
+
+class TypeCatalog:
+    """Semua jenis peraturan, aktif dan nonaktif, dimuat sekali per request."""
+
+    def __init__(self, jenis: Sequence[RegulationType]) -> None:
+        # code -> aktif, dipakai cek jenis saat menyimpan (AC2).
+        self.active: dict[str, bool] = {item.code: item.is_active for item in jenis}
+        # code -> (label, singkatan), dipakai penulisan display_text.
+        self.names: dict[str, tuple[str, str | None]] = {
+            item.code: (item.label, item.singkatan) for item in jenis
+        }
+        self._lookup = RegulationTypeIndex(
+            RegulationTypeSeed(
+                code=item.code,
+                label=item.label,
+                singkatan=item.singkatan,
+                urutan=item.urutan,
+                is_active=item.is_active,
+            )
+            for item in jenis
+        )
+
+    def citations(self, raw: Any) -> list[dict[str, Any]]:
+        """content["legal_refs"] dalam bentuk PBI-21, termasuk rujukan Sprint 1 (AC9)."""
+        return to_citations(raw, self._lookup)
+
+
+def load_catalog(db: Session) -> TypeCatalog:
+    return TypeCatalog(repository.regulation_types(db, include_inactive=True))
 
 
 def list_regulation_types(

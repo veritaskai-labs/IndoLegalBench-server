@@ -29,6 +29,7 @@ from app.modules.cases.schemas import (
     VersionSide,
     VersionSummary,
 )
+from app.modules.legal_refs import service as legal_refs_service
 from app.modules.reviews import service as reviews_service
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
 
@@ -53,6 +54,7 @@ def create_case(
 ) -> CaseRead:
     """Store a new case as draft version 1. An inactive suite is rejected."""
     _require_active_suite(db, suite_id)
+    _require_known_types(db, payload, stored=None)
     _require_free_code(db, payload.case_code)
     case_id = uuid.uuid4()
     version_id = uuid.uuid4()
@@ -133,6 +135,7 @@ def update_case(
     version = case.current_version
     _require_editable(version)
     _require_can_update(case, version, payload, actor_id=actor_id, is_admin=is_admin)
+    _require_known_types(db, payload, stored=(version.content or {}).get("legal_refs"))
     if payload.case_code != case.case_code:
         _require_free_code(db, payload.case_code)
     _write_version(case, version, payload, actor_id=actor_id)
@@ -590,6 +593,18 @@ def _require_active_suite(db: Session, suite_id: uuid.UUID) -> None:
             "Kasus hanya bisa ditulis di suite yang aktif",
             code=SUITE_NOT_ACTIVE,
         )
+
+
+def _require_known_types(db: Session, payload: CaseWrite, *, stored: object) -> None:
+    """AC2: link types are in the list; a deactivated one only if this version stored it."""
+    katalog = legal_refs_service.load_catalog(db)
+    tersimpan = {
+        link["regulation_type"]
+        for rujukan in katalog.citations(stored)
+        for link in rujukan["links"]
+    }
+    data = payload.model_dump(mode="json")
+    validation.check_regulation_types(data["legal_refs"], katalog.active, tersimpan)
 
 
 def _require_free_code(db: Session, case_code: str) -> None:

@@ -11,6 +11,7 @@ TODO(SCRUM-103): adjust the field shape if the signed Case contract differs.
 """
 
 import re
+from collections.abc import Collection, Mapping
 from datetime import datetime
 from typing import Any, NoReturn
 from zoneinfo import ZoneInfo
@@ -29,6 +30,8 @@ FIELD_REQUIRED = "FIELD_REQUIRED"
 FIELD_NOT_ALLOWED = "FIELD_NOT_ALLOWED"
 CONNECTOR_INVALID = "CONNECTOR_INVALID"
 YEAR_IN_FUTURE = "YEAR_IN_FUTURE"
+REGULATION_TYPE_UNKNOWN = "REGULATION_TYPE_UNKNOWN"
+REGULATION_TYPE_INACTIVE = "REGULATION_TYPE_INACTIVE"
 
 # Tahun berjalan dihitung di zona waktu tim (keputusan PO 17 Okt).
 WIB = ZoneInfo("Asia/Jakarta")
@@ -51,6 +54,37 @@ def validate_payload(data: dict[str, Any], *, tahun_ini: int | None = None) -> N
     _require_split_tag(data.get("split_tag"))
     tahun = tahun_ini if tahun_ini is not None else current_year_wib()
     _require_legal_refs(data.get("legal_refs"), tahun)
+
+
+def check_regulation_types(
+    legal_refs: list[dict[str, Any]],
+    aktif: Mapping[str, bool],
+    tersimpan: Collection[str],
+) -> None:
+    """AC2: every link type is in the list (code -> is_active).
+
+    A deactivated type is accepted only when the version being saved already
+    stored it (PO decision 17 Oct), so an old citation can be saved again.
+    Runs after validate_payload, so the citations are well formed.
+    """
+    for indeks, rujukan in enumerate(legal_refs):
+        if rujukan["kind"] != "structured":
+            continue
+        for posisi, link in enumerate(rujukan["links"]):
+            code = link["regulation_type"]
+            field = f"legal_refs[{indeks}].links[{posisi}].regulation_type"
+            if code not in aktif:
+                raise ValidationError(
+                    "Jenis peraturan tidak ada di daftar",
+                    code=REGULATION_TYPE_UNKNOWN,
+                    field=field,
+                )
+            if not aktif[code] and code not in tersimpan:
+                raise ValidationError(
+                    "Jenis peraturan ini sudah tidak aktif. Pilih jenis lain.",
+                    code=REGULATION_TYPE_INACTIVE,
+                    field=field,
+                )
 
 
 def current_year_wib(now: datetime | None = None) -> int:
