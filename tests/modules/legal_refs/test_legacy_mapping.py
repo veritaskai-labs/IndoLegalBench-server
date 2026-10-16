@@ -48,15 +48,16 @@ def test_rujukan_ktk_001_menjadi_satu_rujukan_pasal_dengan_satu_link(lookup):
     assert hasil.skipped == 0
     assert len(hasil.refs) == 1
     rujukan = hasil.refs[0]
-    assert (rujukan.order, rujukan.form, rujukan.free_text) == (
+    assert (rujukan.order, rujukan.kind, rujukan.free_text) == (
         1,
-        models.LegalRefForm.PASAL,
+        models.LegalRefKind.STRUCTURED,
         None,
     )
     assert rujukan.links == [
         legacy_mapping.LegalRefLinkDraft(
             position=1,
             connector=models.LegalRefConnector.NONE,
+            form=models.LegalRefLinkForm.PASAL,
             regulation_type="uu",
             number="13",
             year=2003,
@@ -107,7 +108,8 @@ def test_tahun_kosong_tetap_terstruktur_dengan_tahun_none(lookup):
 
     # Assert
     assert hasil.free_text_fallbacks == 0
-    assert hasil.refs[0].form == models.LegalRefForm.PASAL
+    assert hasil.refs[0].kind == models.LegalRefKind.STRUCTURED
+    assert hasil.refs[0].links[0].form == models.LegalRefLinkForm.PASAL
     assert hasil.refs[0].links[0].year is None
 
 
@@ -118,7 +120,8 @@ def test_pasal_kosong_menjadi_bentuk_nama_peraturan_saja(lookup, pasal):
 
     # Assert
     rujukan = hasil.refs[0]
-    assert rujukan.form == models.LegalRefForm.NAME_ONLY
+    assert rujukan.kind == models.LegalRefKind.STRUCTURED
+    assert rujukan.links[0].form == models.LegalRefLinkForm.NAME_ONLY
     assert rujukan.links[0].pasal is None
 
 
@@ -162,7 +165,7 @@ def test_jenis_yang_tidak_dikenal_disimpan_sebagai_teks_bebas_dengan_semua_nilai
 
     # Assert
     rujukan = hasil.refs[0]
-    assert rujukan.form == models.LegalRefForm.FREE_TEXT
+    assert rujukan.kind == models.LegalRefKind.FREE_TEXT
     assert rujukan.links == []
     assert rujukan.free_text == (
         "Peraturan Gubernur Kuno Nomor 5 Tahun 2001, Pasal 3, Ayat 2, Huruf a"
@@ -187,7 +190,7 @@ def test_nomor_kosong_menjadi_teks_bebas(lookup, nomor):
     hasil = _petakan([_lama(regulation_number=nomor)], lookup)
 
     # Assert
-    assert hasil.refs[0].form == models.LegalRefForm.FREE_TEXT
+    assert hasil.refs[0].kind == models.LegalRefKind.FREE_TEXT
     assert hasil.refs[0].free_text == "uu Tahun 2003, Pasal 156"
     assert hasil.free_text_fallbacks == 1
 
@@ -198,7 +201,7 @@ def test_jenis_kosong_menjadi_teks_bebas(lookup, jenis):
     hasil = _petakan([_lama(regulation_type=jenis)], lookup)
 
     # Assert
-    assert hasil.refs[0].form == models.LegalRefForm.FREE_TEXT
+    assert hasil.refs[0].kind == models.LegalRefKind.FREE_TEXT
     assert hasil.refs[0].free_text == "Nomor 13 Tahun 2003, Pasal 156"
 
 
@@ -208,7 +211,7 @@ def test_tahun_yang_tidak_valid_menjadi_teks_bebas_agar_tidak_hilang(lookup, tah
     hasil = _petakan([_lama(year=tahun)], lookup)
 
     # Assert
-    assert hasil.refs[0].form == models.LegalRefForm.FREE_TEXT
+    assert hasil.refs[0].kind == models.LegalRefKind.FREE_TEXT
     assert f"Tahun {tahun}" in hasil.refs[0].free_text
     assert hasil.free_text_fallbacks == 1
 
@@ -225,7 +228,7 @@ def test_nilai_lebih_panjang_dari_kolom_baru_menjadi_teks_bebas(lookup, kolom, p
     hasil = _petakan(isi, lookup)
 
     # Assert
-    assert hasil.refs[0].form == models.LegalRefForm.FREE_TEXT
+    assert hasil.refs[0].kind == models.LegalRefKind.FREE_TEXT
     assert "9" * panjang in hasil.refs[0].free_text
 
 
@@ -237,7 +240,8 @@ def test_nilai_tepat_di_batas_panjang_kolom_masih_terstruktur(lookup):
     hasil = _petakan(isi, lookup)
 
     # Assert
-    assert hasil.refs[0].form == models.LegalRefForm.PASAL
+    assert hasil.refs[0].kind == models.LegalRefKind.STRUCTURED
+    assert hasil.refs[0].links[0].form == models.LegalRefLinkForm.PASAL
     assert hasil.free_text_fallbacks == 0
 
 
@@ -249,7 +253,7 @@ def test_entri_berupa_teks_disimpan_apa_adanya_sebagai_teks_bebas(lookup):
     hasil = _petakan(["  Pasal 156 UU 13/2003  "], lookup)
 
     # Assert
-    assert hasil.refs[0].form == models.LegalRefForm.FREE_TEXT
+    assert hasil.refs[0].kind == models.LegalRefKind.FREE_TEXT
     assert hasil.refs[0].free_text == "  Pasal 156 UU 13/2003  "
     assert hasil.free_text_fallbacks == 1
 
@@ -272,9 +276,9 @@ def test_urutan_tetap_rapat_setelah_entri_kosong_dilewati(lookup):
     hasil = _petakan(isi, lookup)
 
     # Assert
-    assert [(r.order, r.form) for r in hasil.refs] == [
-        (1, models.LegalRefForm.PASAL),
-        (2, models.LegalRefForm.FREE_TEXT),
+    assert [(r.order, r.kind) for r in hasil.refs] == [
+        (1, models.LegalRefKind.STRUCTURED),
+        (2, models.LegalRefKind.FREE_TEXT),
     ]
     assert hasil.skipped == 3
     assert hasil.free_text_fallbacks == 1

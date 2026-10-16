@@ -34,12 +34,13 @@ def _jenis(db_session, *, code: str = "uu", urutan: int = 3, **kolom):
 
 
 def _rujukan(db_session, *, order: int = 1, version=VERSI_A, **kolom):
-    kolom.setdefault("form", models.LegalRefForm.PASAL)
+    kolom.setdefault("kind", models.LegalRefKind.STRUCTURED)
     return _simpan(db_session, models.LegalRef(case_version_id=version, order=order, **kolom))
 
 
 def _link(db_session, rujukan_id, *, position: int = 1, **kolom):
     kolom.setdefault("connector", models.LegalRefConnector.NONE)
+    kolom.setdefault("form", models.LegalRefLinkForm.PASAL)
     kolom.setdefault("regulation_type", "uu")
     kolom.setdefault("number", "13")
     kolom.setdefault("year", 2003)
@@ -54,12 +55,12 @@ def test_tabel_terdaftar_di_metadata(tabel):
     assert tabel in Base.metadata.tables
 
 
-def test_nilai_enum_form_dan_connector_mengikuti_tiket():
-    assert [bentuk.value for bentuk in models.LegalRefForm] == [
+def test_nilai_enum_jenis_rujukan_bentuk_link_dan_connector():
+    assert [jenis.value for jenis in models.LegalRefKind] == ["structured", "free_text"]
+    assert [bentuk.value for bentuk in models.LegalRefLinkForm] == [
         "name_only",
         "pasal",
         "pasal_angka",
-        "free_text",
     ]
     assert [penghubung.value for penghubung in models.LegalRefConnector] == [
         "none",
@@ -122,15 +123,15 @@ def test_jenis_peraturan_bisa_dinonaktifkan_tanpa_menghapus_baris(db_session):
 # --- legal_refs ---------------------------------------------------------
 
 
-def test_rujukan_menyimpan_bentuk_dan_urutan_pada_versi_kasus(db_session):
+def test_rujukan_menyimpan_jenis_dan_urutan_pada_versi_kasus(db_session):
     # Act
-    baris = _rujukan(db_session, order=1, form=models.LegalRefForm.PASAL_ANGKA)
+    baris = _rujukan(db_session, order=1)
 
     # Assert
     assert baris.id is not None
     assert baris.case_version_id == VERSI_A
     assert baris.order == 1
-    assert baris.form == models.LegalRefForm.PASAL_ANGKA
+    assert baris.kind == models.LegalRefKind.STRUCTURED
     assert baris.free_text is None
 
 
@@ -165,22 +166,21 @@ def test_teks_bebas_disimpan_apa_adanya(db_session):
     isi = "  Putusan MA No. 12 K/Pdt/2020, hlm. 5  "
 
     # Act
-    baris = _rujukan(db_session, form=models.LegalRefForm.FREE_TEXT, free_text=isi)
+    baris = _rujukan(db_session, kind=models.LegalRefKind.FREE_TEXT, free_text=isi)
 
     # Assert
     assert baris.free_text == isi
 
 
 @pytest.mark.parametrize("isi", [None, "", "   "])
-def test_bentuk_teks_bebas_wajib_berisi_teks(db_session, isi):
+def test_rujukan_teks_bebas_wajib_berisi_teks(db_session, isi):
     with pytest.raises(IntegrityError):
-        _rujukan(db_session, form=models.LegalRefForm.FREE_TEXT, free_text=isi)
+        _rujukan(db_session, kind=models.LegalRefKind.FREE_TEXT, free_text=isi)
 
 
-@pytest.mark.parametrize("bentuk", ["NAME_ONLY", "PASAL", "PASAL_ANGKA"])
-def test_bentuk_terstruktur_tidak_boleh_membawa_teks_bebas(db_session, bentuk):
+def test_rujukan_terstruktur_tidak_boleh_membawa_teks_bebas(db_session):
     with pytest.raises(IntegrityError):
-        _rujukan(db_session, form=models.LegalRefForm[bentuk], free_text="sisa teks")
+        _rujukan(db_session, kind=models.LegalRefKind.STRUCTURED, free_text="sisa teks")
 
 
 # --- legal_ref_links ----------------------------------------------------
@@ -189,12 +189,13 @@ def test_bentuk_terstruktur_tidak_boleh_membawa_teks_bebas(db_session, bentuk):
 def test_link_menyimpan_seluruh_bagian_peraturan(db_session):
     # Arrange
     _jenis(db_session, code="uu", urutan=3)
-    rujukan = _rujukan(db_session, form=models.LegalRefForm.PASAL_ANGKA)
+    rujukan = _rujukan(db_session)
 
     # Act
     link = _link(
         db_session,
         rujukan.id,
+        form=models.LegalRefLinkForm.PASAL_ANGKA,
         about="Ketenagakerjaan",
         pasal="156",
         angka="5",
@@ -204,16 +205,17 @@ def test_link_menyimpan_seluruh_bagian_peraturan(db_session):
 
     # Assert
     assert (link.regulation_type, link.number, link.year) == ("uu", "13", 2003)
+    assert link.form == models.LegalRefLinkForm.PASAL_ANGKA
     assert (link.about, link.pasal, link.angka) == ("Ketenagakerjaan", "156", "5")
     assert (link.ayat, link.huruf) == ("2", "a")
 
 
 def test_bagian_opsional_link_kosong_secara_default(db_session):
     # Arrange
-    rujukan = _rujukan(db_session, form=models.LegalRefForm.NAME_ONLY)
+    rujukan = _rujukan(db_session)
 
     # Act
-    link = _link(db_session, rujukan.id)
+    link = _link(db_session, rujukan.id, form=models.LegalRefLinkForm.NAME_ONLY)
 
     # Assert
     assert link.about is None
@@ -255,11 +257,11 @@ def test_link_berikutnya_wajib_memakai_jo_atau_jis(db_session):
 
 
 @pytest.mark.parametrize("nama_penghubung", ["JO", "JIS"])
-def test_rujukan_bisa_merangkai_dua_peraturan(db_session, nama_penghubung):
-    # Arrange
+def test_rangkaian_boleh_berbeda_kedalaman_per_link(db_session, nama_penghubung):
+    # Arrange: Pasal 156 UU 13/2003 jo. Pasal II Angka 5 UU 6/2023
     penghubung = models.LegalRefConnector[nama_penghubung]
-    rujukan = _rujukan(db_session, form=models.LegalRefForm.PASAL_ANGKA)
-    _link(db_session, rujukan.id, position=1, pasal="156")
+    rujukan = _rujukan(db_session)
+    _link(db_session, rujukan.id, position=1, form=models.LegalRefLinkForm.PASAL, pasal="156")
 
     # Act
     kedua = _link(
@@ -267,6 +269,7 @@ def test_rujukan_bisa_merangkai_dua_peraturan(db_session, nama_penghubung):
         rujukan.id,
         position=2,
         connector=penghubung,
+        form=models.LegalRefLinkForm.PASAL_ANGKA,
         number="6",
         year=2023,
         pasal="II",
@@ -276,6 +279,11 @@ def test_rujukan_bisa_merangkai_dua_peraturan(db_session, nama_penghubung):
     # Assert
     assert kedua.connector == penghubung
     assert [link.position for link in rujukan.links] == [1, 2]
+    assert [link.form for link in rujukan.links] == [
+        models.LegalRefLinkForm.PASAL,
+        models.LegalRefLinkForm.PASAL_ANGKA,
+    ]
+    assert [link.angka for link in rujukan.links] == [None, "5"]
 
 
 def test_posisi_link_tidak_boleh_ganda_dalam_satu_rujukan(db_session):
@@ -303,8 +311,8 @@ def test_tahun_di_luar_rentang_ditolak(db_session, tahun):
         _link(db_session, rujukan.id, year=tahun)
 
 
-@pytest.mark.parametrize("kolom", ["regulation_type", "number"])
-def test_jenis_dan_nomor_link_wajib_ada(db_session, kolom):
+@pytest.mark.parametrize("kolom", ["regulation_type", "number", "form"])
+def test_jenis_nomor_dan_bentuk_link_wajib_ada(db_session, kolom):
     # Arrange
     rujukan = _rujukan(db_session)
 
