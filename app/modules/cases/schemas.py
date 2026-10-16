@@ -26,6 +26,11 @@ from app.modules.cases.validation import (
 # Penghubung antar peraturan dalam satu rujukan (PBI-21 AC6). Link pertama
 # memakai "none". Label "jo."/"jis." adalah urusan tampilan.
 Connector = Literal["none", "jo", "jis"]
+# Tingkat rujukan per link (AC4). Keputusan PO 17 Okt: bentuk ada di link,
+# karena contoh AC10 memakai pasal di link pertama dan pasal + angka di link kedua.
+LinkForm = Literal["name_only", "pasal", "pasal_angka"]
+# Rujukan terstruktur atau teks bebas yang disimpan apa adanya (AC7).
+LegalRefKind = Literal["structured", "free_text"]
 
 
 def _strip_whitespace(nilai: str) -> str:
@@ -99,6 +104,7 @@ class LegalRef(BaseModel):
 class _LegalRefLinkBase(BaseModel):
     """Fields shared by the write and read shape of one regulation in a citation (PBI-21)."""
 
+    form: LinkForm
     connector: Connector
     regulation_type: str = Field(
         min_length=1,
@@ -145,6 +151,35 @@ class LegalRefLinkRead(_LegalRefLinkBase):
     """
 
     year: int | None = None
+
+
+class _LegalRefBase(BaseModel):
+    """Fields shared by the write and read shape of one citation (PBI-21)."""
+
+    kind: LegalRefKind
+    free_text: str | None = Field(
+        default=None,
+        max_length=2000,
+        description="Hanya untuk kind free_text, disimpan apa adanya",
+    )
+
+    @field_validator("free_text", mode="before")
+    @classmethod
+    def clean_free_text(cls, nilai: Any) -> Any:
+        """Store stripped free text, or None when it is blank."""
+        return _blank_to_none(nilai)
+
+
+class LegalRefWrite(_LegalRefBase):
+    """One citation as the editor sends it. Links are in chain order."""
+
+    links: list[LegalRefLinkWrite]
+
+
+class LegalRefRead(_LegalRefBase):
+    """One citation as stored."""
+
+    links: list[LegalRefLinkRead]
 
 
 class AnswerCriteria(BaseModel):
