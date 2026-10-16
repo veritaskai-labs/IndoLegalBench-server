@@ -55,7 +55,7 @@ def dep():
         patch.object(service, "_require_active_suite") as suite,
     ):
         repo.get_by_id.return_value = kasus
-        reviews.open_round.return_value = SimpleNamespace(round_no=1, status="awaiting_assignment")
+        reviews.open_round.return_value = SimpleNamespace(round_no=1, status="open")
         yield SimpleNamespace(repo=repo, reviews=reviews, suite=suite, kasus=kasus)
 
 
@@ -68,10 +68,13 @@ def test_versi_jadi_in_review_lalu_round_dibuka_dalam_satu_commit(dep):
 
     # Assert
     assert dep.kasus.current_version.status == CaseStatus.IN_REVIEW
-    dep.reviews.open_round.assert_called_once_with(db, case_id=KASUS, case_version_id=VERSI)
+    dep.reviews.open_round.assert_called_once_with(
+        db, case_id=KASUS, case_version_id=VERSI, author_id=PEMBUAT
+    )
     dep.repo.save.assert_called_once_with(db, dep.kasus)
     assert hasil.status == CaseStatus.IN_REVIEW
     assert hasil.round_no == 1
+    assert hasil.round_status == "open"
 
 
 def test_suite_diperiksa_aktif(dep):

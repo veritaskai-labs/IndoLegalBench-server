@@ -4,7 +4,11 @@ Provider HTTP is httpx.MockTransport. No live network.
 """
 
 import json
+import socket
+import threading
+import time
 import uuid
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
 import httpx
 import pytest
@@ -565,3 +569,241 @@ def test_successful_test_clears_error_category(client, db_session, encryption_ke
     db_session.expire_all()
     stored = db_session.get(AiProduct, uuid.UUID(product_id))
     assert stored.last_test_error_category is None
+
+
+def _wrong_key(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(401, json={"error": "invalid api key"})
+
+
+def _wrong_model(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(404, json={"error": "model not found"})
+
+
+def _host_down(request: httpx.Request) -> httpx.Response:
+    raise httpx.ConnectError("name or service not known", request=request)
+
+
+def _slow_server(request: httpx.Request) -> httpx.Response:
+    raise httpx.ReadTimeout("read timed out", request=request)
+
+
+@pytest.mark.parametrize(
+    "provider_type", ["openai_compatible", "gemini_interactions", "anthropic_messages"]
+)
+@pytest.mark.parametrize(
+    ("provider_reply", "category"),
+    [
+        pytest.param(_wrong_key, "access_denied", id="api-key-salah"),
+        pytest.param(_wrong_model, "model_not_found", id="model-salah"),
+        pytest.param(_host_down, "unreachable", id="url-host-mati"),
+        pytest.param(_slow_server, "timeout", id="server-lambat"),
+    ],
+)
+def test_failed_connection_test_reports_the_scenario_category(
+    client, db_session, encryption_key, monkeypatch, provider_type, provider_reply, category
+):
+    _mock_transport(monkeypatch, provider_reply)
+    complete_login(client, db_session, ADMIN_SUB)
+    created = client.post(
+        "/admin/providers",
+        json=_payload(name=f"Retest {provider_type}", provider_type=provider_type),
+    )
+    product_id = created.json()["id"]
+
+    tested = client.post(f"/admin/providers/{product_id}/test-connection")
+    reopened = client.get(f"/admin/providers/{product_id}")
+
+    assert tested.status_code == 200
+    assert tested.json()["status"] == "failed"
+    assert tested.json()["error_category"] == category
+    assert reopened.json()["last_test_status"] == "failed"
+    assert reopened.json()["last_test_error_category"] == category
+
+
+_SLOW_REPLY_SECONDS = 2.0
+_SHORT_READ_TIMEOUT = httpx.Timeout(15.0, read=0.3)
+
+
+class _SilentUntilTooLate(BaseHTTPRequestHandler):
+    def do_POST(self):
+        time.sleep(_SLOW_REPLY_SECONDS)
+
+    def log_message(self, format, *args):
+        pass
+
+
+@pytest.fixture
+def slow_provider_url():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _SilentUntilTooLate)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_port}/v1/chat/completions"
+    server.shutdown()
+    server.server_close()
+
+
+@pytest.fixture
+def closed_port_url():
+    with socket.socket() as probe:
+        probe.bind(("127.0.0.1", 0))
+        port = probe.getsockname()[1]
+    return f"http://127.0.0.1:{port}/v1/chat/completions"
+
+
+def _run_connection_test(client, db_session, base_url: str) -> dict:
+    complete_login(client, db_session, ADMIN_SUB)
+    created = client.post("/admin/providers", json=_payload(name="Real", base_url=base_url))
+    return client.post(f"/admin/providers/{created.json()['id']}/test-connection").json()
+
+
+def test_real_provider_answering_too_late_reads_as_timeout(
+    client, db_session, encryption_key, monkeypatch, slow_provider_url
+):
+    monkeypatch.setattr(provider_http, "TIMEOUT", _SHORT_READ_TIMEOUT)
+
+    result = _run_connection_test(client, db_session, slow_provider_url)
+
+    assert result["status"] == "failed"
+    assert result["error_category"] == "timeout"
+
+
+def test_real_closed_port_reads_as_unreachable(client, db_session, encryption_key, closed_port_url):
+    result = _run_connection_test(client, db_session, closed_port_url)
+
+    assert result["status"] == "failed"
+    assert result["error_category"] == "unreachable"
+
+
+def test_timeout_matches_the_15_seconds_the_admin_is_told():
+    assert httpx.Timeout(15.0) == provider_http.TIMEOUT
+
+
+def _error_status_echoing_key(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(404, text=f"model not found for key {_SECRET}")
+
+
+def _unknown_body_echoing_key(request: httpx.Request) -> httpx.Response:
+    return httpx.Response(200, text=f"<html>key {_SECRET} accepted</html>")
+
+
+@pytest.mark.parametrize(
+    "provider_type", ["openai_compatible", "gemini_interactions", "anthropic_messages"]
+)
+@pytest.mark.parametrize(
+    "provider_reply",
+    [
+        pytest.param(_error_status_echoing_key, id="status-gagal"),
+        pytest.param(_unknown_body_echoing_key, id="badan-tak-dikenal"),
+    ],
+)
+def test_key_echoed_by_the_provider_never_leaves_the_server(
+    client, db_session, encryption_key, monkeypatch, provider_type, provider_reply
+):
+    _mock_transport(monkeypatch, provider_reply)
+    complete_login(client, db_session, ADMIN_SUB)
+    created = client.post(
+        "/admin/providers",
+        json=_payload(name=f"Echo {provider_type}", provider_type=provider_type),
+    )
+    product_id = created.json()["id"]
+
+    tested = client.post(f"/admin/providers/{product_id}/test-connection")
+    reopened = client.get(f"/admin/providers/{product_id}")
+    listed = client.get("/admin/providers")
+
+    db_session.expire_all()
+    stored = db_session.get(AiProduct, uuid.UUID(product_id))
+    assert tested.json()["status"] == "failed"
+    assert "key" in stored.last_test_message
+    for leaked_into in (tested.text, reopened.text, listed.text, stored.last_test_message):
+        assert _SECRET not in leaked_into
+
+
+class _KeyEchoingProvider(BaseHTTPRequestHandler):
+    def do_POST(self):
+        self.rfile.read(int(self.headers.get("Content-Length", 0)))
+        sent = (
+            self.headers.get("Authorization")
+            or self.headers.get("x-api-key")
+            or self.headers.get("x-goog-api-key")
+            or ""
+        )
+        token = sent.removeprefix("Bearer").strip()
+        body = json.dumps({"error": {"invalid_key": token}}).encode()
+        self.send_response(401)
+        self.send_header("Content-Length", str(len(body)))
+        self.end_headers()
+        self.wfile.write(body)
+
+    def log_message(self, format, *args):
+        pass
+
+
+@pytest.fixture
+def key_echoing_provider_url():
+    server = ThreadingHTTPServer(("127.0.0.1", 0), _KeyEchoingProvider)
+    server.daemon_threads = True
+    threading.Thread(target=server.serve_forever, daemon=True).start()
+    yield f"http://127.0.0.1:{server.server_port}/v1/chat/completions"
+    server.shutdown()
+    server.server_close()
+
+
+def _registered_with(client, base_url: str, provider_type: str, key: str) -> str:
+    created = client.post(
+        "/admin/providers",
+        json=_payload(
+            name=f"Pasted {provider_type}",
+            provider_type=provider_type,
+            base_url=base_url,
+            credential=key,
+        ),
+    )
+    return created.json()["id"]
+
+
+def _replaced_with(client, base_url: str, provider_type: str, key: str) -> str:
+    product_id = _registered_with(client, base_url, provider_type, _SECRET)
+    replaced = client.patch(f"/admin/providers/{product_id}", json={"credential": key})
+    assert replaced.status_code == 200
+    return product_id
+
+
+@pytest.mark.parametrize(
+    "provider_type", ["openai_compatible", "gemini_interactions", "anthropic_messages"]
+)
+@pytest.mark.parametrize(
+    "pasted_key",
+    [
+        pytest.param(f"{_SECRET} ", id="spasi-belakang"),
+        pytest.param(f" {_SECRET}", id="spasi-depan"),
+        pytest.param(f"\t{_SECRET}", id="tab-depan"),
+    ],
+)
+@pytest.mark.parametrize(
+    "enter_key",
+    [
+        pytest.param(_registered_with, id="daftar"),
+        pytest.param(_replaced_with, id="ubah"),
+    ],
+)
+def test_key_pasted_with_surrounding_whitespace_behaves_like_the_clean_key(
+    client,
+    db_session,
+    encryption_key,
+    key_echoing_provider_url,
+    provider_type,
+    pasted_key,
+    enter_key,
+):
+    complete_login(client, db_session, ADMIN_SUB)
+    product_id = enter_key(client, key_echoing_provider_url, provider_type, pasted_key)
+
+    tested = client.post(f"/admin/providers/{product_id}/test-connection")
+    reopened = client.get(f"/admin/providers/{product_id}")
+
+    db_session.expire_all()
+    stored = db_session.get(AiProduct, uuid.UUID(product_id))
+    assert tested.json()["error_category"] == "access_denied"
+    for leaked_into in (tested.text, reopened.text, stored.last_test_message):
+        assert _SECRET not in leaked_into

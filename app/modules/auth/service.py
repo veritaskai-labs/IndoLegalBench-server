@@ -155,6 +155,11 @@ def find_user_ids(db: DbSession, text: str) -> list[uuid.UUID]:
     return repository.find_user_ids_matching(db, text)
 
 
+def active_reviewer_ids(db: DbSession) -> list[uuid.UUID]:
+    """Reviewer aktif yang boleh ditugaskan review (PBI-6 AC2)."""
+    return repository.get_active_reviewer_ids(db)
+
+
 def user_names(db: DbSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
     """Display names for audit, version history, and snapshot authors.
 

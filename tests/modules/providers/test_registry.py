@@ -106,6 +106,8 @@ def test_create_accepts_each_provider_type(client, db_session, encryption_key, p
         {"monthly_budget_idr": "0"},
         {"monthly_budget_idr": "-1"},
         {"credential": "abc"},
+        {"credential": "      "},
+        {"credential": "  ab  "},
         {"base_url": "not-a-url"},
         {"base_url": "ftp://files.example.test/v1"},
         {"provider_type": "custom_http"},
@@ -204,6 +206,21 @@ def test_patch_keeps_credential_when_omitted(client, db_session, encryption_key)
     assert response.json()["credential_hint"] == _SECRET[-4:]
     assert response.json()["rate_limit_per_minute"] == 60
 
+    db_session.expire_all()
+    stored = db_session.get(AiProduct, uuid.UUID(product_id))
+    assert decrypt_credential(stored.credential_encrypted) == _SECRET
+
+
+@pytest.mark.parametrize("credential", ["      ", "  ab  "])
+def test_invalid_credential_on_patch_is_unprocessable(
+    client, db_session, encryption_key, credential
+):
+    complete_login(client, db_session, ADMIN_SUB)
+    product_id = client.post("/admin/providers", json=_payload()).json()["id"]
+
+    response = client.patch(f"/admin/providers/{product_id}", json={"credential": credential})
+
+    assert response.status_code == 422
     db_session.expire_all()
     stored = db_session.get(AiProduct, uuid.UUID(product_id))
     assert decrypt_credential(stored.credential_encrypted) == _SECRET

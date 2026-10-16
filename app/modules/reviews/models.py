@@ -28,7 +28,7 @@ from sqlalchemy import (
     func,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.database import Base
 
@@ -158,6 +158,8 @@ class ReviewAssignment(Base):
     )
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     end_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # Dipakai audit tracker (D6a) supaya case_id tersedia tanpa lazy-load di after_flush.
+    review_round: Mapped["ReviewRound"] = relationship(foreign_keys=[review_round_id])
 
 
 class ReviewVerdict(Base):

@@ -45,6 +45,7 @@ def test_tabel_di_luar_katalog_tidak_dilacak():
         ("cases", AuditEntityType.CASE),
         ("case_versions", AuditEntityType.CASE),
         ("review_rounds", AuditEntityType.CASE),
+        ("review_assignments", AuditEntityType.REVIEW),
         ("ai_products", AuditEntityType.AI_PRODUCT),
         ("users", AuditEntityType.USER),
         ("suite_snapshots", AuditEntityType.SUITE),
@@ -284,6 +285,29 @@ def test_perubahan_round_tidak_dicatat_sendiri():
     # Assert
     assert events == []
     assert tracker_for("review_rounds").fields == ()
+
+
+# --- Review assignment (SCRUM-144, D6a) ----------------------------------------
+
+
+def test_penugasan_baru_dicatat_per_assignment():
+    """D6a: review.reviewer_assigned, entity_id = assignment id, after reviewer_id+source."""
+    # Arrange
+    reviewer_id = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
+    tugas = _row(
+        reviewer_id=reviewer_id,
+        source="system",
+        review_round=_row(case_id=KASUS_ID),
+    )
+
+    # Act
+    event = _satu(tracker_for("review_assignments").created(tugas))
+
+    # Assert
+    assert event.action == "review.reviewer_assigned"
+    assert event.entity_id == ROW_ID
+    assert event.case_id == KASUS_ID
+    assert event.after == {"reviewer_id": str(reviewer_id), "source": "system"}
 
 
 def test_nilai_kolom_diubah_jadi_aman_untuk_jsonb():

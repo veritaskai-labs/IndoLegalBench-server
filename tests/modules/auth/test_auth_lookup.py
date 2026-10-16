@@ -77,3 +77,26 @@ def test_nama_untuk_sekumpulan_id(db_session, pengguna):
 def test_nama_untuk_himpunan_kosong_tidak_query(db_session):
     # Act + Assert
     assert service.user_names(db_session, set()) == {}
+
+
+def test_reviewer_aktif_untuk_penugasan(db_session, pengguna):
+    """PBI-6 AC2: hanya reviewer aktif yang boleh ditugaskan."""
+    # Arrange
+    sari = User(email="sari@veritask.ai", name="Sari Reviewer", role=Role.REVIEWER)
+    nonaktif = User(
+        email="tono@veritask.ai", name="Tono Reviewer", role=Role.REVIEWER, is_active=False
+    )
+    admin = User(email="admin@veritask.ai", name="Admin", role=Role.ADMIN)
+    db_session.add_all([sari, nonaktif, admin])
+    db_session.commit()
+
+    # Act
+    hasil = service.active_reviewer_ids(db_session)
+
+    # Assert
+    assert set(hasil) == {pengguna["budi"].id, sari.id}
+
+
+def test_tanpa_reviewer_aktif(db_session):
+    # Act + Assert
+    assert service.active_reviewer_ids(db_session) == []
