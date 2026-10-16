@@ -17,6 +17,13 @@ TAG_SAH = frozenset({"dev", "test"})
 FIELD_LINK = ("regulation_type", "number", "year")
 FIELD_PER_BENTUK = {"name_only": (), "pasal": ("pasal",), "pasal_angka": ("pasal", "angka")}
 KIND_RUJUKAN = frozenset({"structured", "free_text"})
+# Field unit yang tidak boleh diisi menurut bentuk link (keputusan PO 17 Okt).
+# Ayat dan huruf bagian dari pasal, jadi ikut terlarang di name_only.
+FIELD_TERLARANG_PER_BENTUK = {
+    "name_only": ("pasal", "angka", "ayat", "huruf"),
+    "pasal": ("angka",),
+    "pasal_angka": (),
+}
 
 # PBI-21 AC5: pasal angka biasa atau Romawi yang sah (huruf besar). Akhiran
 # satu huruf besar ("1A", pasal sisipan) usulan PO, menunggu konfirmasi Steven.

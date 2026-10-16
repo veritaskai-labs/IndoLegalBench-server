@@ -11,7 +11,7 @@ TODO(SCRUM-103): adjust the field shape if the signed Case contract differs.
 """
 
 import re
-from typing import Any
+from typing import Any, NoReturn
 
 from app.modules.cases import completeness as completeness_module
 from app.shared.exceptions import ValidationError
@@ -24,9 +24,13 @@ _POLA_KODE = re.compile(PLACEHOLDER_CASE_CODE_PATTERN)
 SPLIT_TAG_REQUIRED = "SPLIT_TAG_REQUIRED"
 CASE_CODE_INVALID = "CASE_CODE_INVALID"
 FIELD_REQUIRED = "FIELD_REQUIRED"
+FIELD_NOT_ALLOWED = "FIELD_NOT_ALLOWED"
 VALIDATION_ERROR = "VALIDATION_ERROR"
 
 _TAG_SAH = completeness_module.TAG_SAH
+_FIELD_TERLARANG = completeness_module.FIELD_TERLARANG_PER_BENTUK
+# Nama bentuk seperti di editor (PBI-21 AC4), untuk pesan error.
+_LABEL_BENTUK = {"name_only": "Nama Peraturan", "pasal": "Pasal", "pasal_angka": "Pasal + Angka"}
 
 
 def validate_payload(data: dict[str, Any]) -> None:
@@ -122,6 +126,32 @@ def _require_legal_refs(nilai: Any) -> None:
         if kurang is not None:
             field = f"legal_refs[{indeks}]{kurang}"
             raise ValidationError(f"Field {field} wajib diisi", code=FIELD_REQUIRED, field=field)
+        _reject_unused_fields(f"legal_refs[{indeks}]", rujukan)
+
+
+def _reject_unused_fields(awalan: str, rujukan: dict[str, Any]) -> None:
+    """Reject a field that the citation kind or the link form does not use.
+
+    Runs after missing_in_ref, so kind, links, and every form are known to be valid.
+    """
+    if rujukan["kind"] == "free_text":
+        if rujukan.get("links"):
+            _not_allowed(f"{awalan}.links", "harus kosong untuk Teks Bebas")
+        return
+    if _text(rujukan.get("free_text")):
+        _not_allowed(f"{awalan}.free_text", "hanya untuk Teks Bebas")
+    for posisi, link in enumerate(rujukan["links"]):
+        bentuk = link["form"]
+        for nama in _FIELD_TERLARANG[bentuk]:
+            if _text(link.get(nama)):
+                _not_allowed(
+                    f"{awalan}.links[{posisi}].{nama}",
+                    f"tidak boleh diisi untuk bentuk {_LABEL_BENTUK[bentuk]}",
+                )
+
+
+def _not_allowed(field: str, alasan: str) -> NoReturn:
+    raise ValidationError(f"Field {field} {alasan}", code=FIELD_NOT_ALLOWED, field=field)
 
 
 def _text(nilai: Any) -> str:
