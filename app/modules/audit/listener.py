@@ -100,6 +100,7 @@ def _write(session: Session, _flush_context: Any) -> None:
                 case_id=item.case_id,
                 before=item.before,
                 after=item.after,
+                reason=item.reason,
             )
         except Exception:
             logger.exception(
