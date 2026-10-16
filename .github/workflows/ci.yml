@@ -9,6 +9,8 @@ on:
 
 permissions:
   contents: read
+  # Lets the SonarQube step post its gate result as its own row on the PR.
+  statuses: write
 
 jobs:
   # Branch protection uses this job name as the required check. Do not rename it.
@@ -111,6 +113,39 @@ jobs:
           api "hotspots/search?projectKey=$key&status=TO_REVIEW&ps=100" | jq -r "
             .hotspots[] | \"::warning file=\(.component | $strip),line=\(.line // 1)::Security hotspot: \(.message)\"" \
             || echo "  could not list hotspots"
+
+      # Shows the gate as its own row on the PR, next to build, and writes every
+      # gate condition to the run's summary page. The row links to this run, not
+      # to the campus SonarQube, so the server address stays out of public pages.
+      - name: Report the quality gate on the PR
+        if: always() && github.event_name == 'pull_request' && steps.sonar.outcome != 'skipped'
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          key=$(sed -n 's/^sonar.projectKey=//p' sonar-project.properties)
+          gate=$(curl -fsS -u "$SONAR_TOKEN:" \
+            "$SONAR_HOST_URL/api/qualitygates/project_status?projectKey=$key&pullRequest=$PR" || echo '{}')
+          status=$(jq -r '.projectStatus.status // "NONE"' <<<"$gate")
+          failed=$(jq -r '[.projectStatus.conditions[]? | select(.status == "ERROR")
+            | "\(.metricKey) \(.actualValue)"] | join(", ")' <<<"$gate")
+          case "$status" in
+            OK)    state=success; desc="Passed" ;;
+            ERROR) state=failure; desc="Failed: $failed" ;;
+            *)     state=error;   desc="No gate result, see the SonarQube scan step" ;;
+          esac
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" \
+            -f state="$state" -f context="SonarQube Quality Gate" \
+            -f description="${desc:0:140}" -f target_url="$RUN_URL" > /dev/null
+          {
+            echo "### SonarQube Quality Gate: $status"
+            echo
+            echo "| Condition | Value | Threshold | Result |"
+            echo "|---|---|---|---|"
+            jq -r '.projectStatus.conditions[]? | "| \(.metricKey) | \(.actualValue) | \(if .comparator == "LT" then "at least" else "at most" end) \(.errorThreshold) | \(.status) |"' <<<"$gate"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Catches a changed schemas.py where openapi.json was not regenerated.
       - name: Check OpenAPI contract is up to date
