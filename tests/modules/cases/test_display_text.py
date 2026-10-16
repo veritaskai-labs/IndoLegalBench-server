@@ -12,7 +12,7 @@ input format sintetis.
 import pytest
 
 from app.modules.cases.display_text import TypeName, citation_text
-from app.modules.cases.schemas import LegalRefRead
+from app.modules.cases.schemas import LegalRefStored
 from tests.legal_refs import link_pasal, rujukan_ac10, rujukan_ktk_001
 
 # Label dan singkatan diambil dari seed regulation_types (SCRUM-159).
@@ -27,7 +27,7 @@ TANPA_SINGKATAN = "peraturan_menteri_ketenagakerjaan"
 
 
 def _teks(rujukan: dict) -> str:
-    return citation_text(LegalRefRead.model_validate(rujukan), JENIS)
+    return citation_text(LegalRefStored.model_validate(rujukan), JENIS)
 
 
 def _nama_saja(regulation_type: str, number: str, year: int | None) -> dict:

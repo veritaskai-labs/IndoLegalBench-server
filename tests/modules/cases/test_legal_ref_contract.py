@@ -15,6 +15,7 @@ from typing import Any
 import pytest
 from sqlalchemy import update
 
+from app.modules.cases import service as cases_service
 from app.modules.cases import validation
 from app.modules.cases.models import Case
 from app.modules.cases.validation import ANGKA_PATTERN, PASAL_PATTERN
@@ -52,12 +53,18 @@ def _link_terbaca(link: dict[str, Any]) -> dict[str, Any]:
     return {**kosong, **link}
 
 
-def _rujukan_terbaca(rujukan: dict[str, Any]) -> dict[str, Any]:
+def _rujukan_terbaca(rujukan: dict[str, Any], teks: str) -> dict[str, Any]:
+    """Rujukan seperti dikembalikan server, dengan display_text yang dibentuk server."""
     return {
         "kind": rujukan["kind"],
         "free_text": rujukan.get("free_text"),
         "links": [_link_terbaca(link) for link in rujukan["links"]],
+        "display_text": teks,
     }
+
+
+TEKS_AC10 = "Pasal 156 UU 13/2003 jo. Pasal II Angka 5 UU 6/2023"
+TEKS_KTK_001 = "Pasal 156 UU 13/2003"
 
 
 # --- positif -----------------------------------------------------------------
@@ -69,7 +76,7 @@ def test_buat_kasus_dengan_contoh_ac10_mengembalikan_bentuk_baru(as_role):
     respons = _buat(client, _suite(client), legal_refs=[rujukan_ac10()])
 
     assert respons.status_code == 201, respons.text
-    assert respons.json()["legal_refs"] == [_rujukan_terbaca(rujukan_ac10())]
+    assert respons.json()["legal_refs"] == [_rujukan_terbaca(rujukan_ac10(), TEKS_AC10)]
 
 
 def test_lebih_dari_satu_rujukan_tersimpan_berurutan(as_role):
@@ -81,7 +88,11 @@ def test_lebih_dari_satu_rujukan_tersimpan_berurutan(as_role):
     detail = client.get(f"/cases/{case_id}").json()
     kelengkapan = client.get(f"/cases/{case_id}/completeness").json()
 
-    assert detail["legal_refs"] == [_rujukan_terbaca(item) for item in daftar]
+    assert detail["legal_refs"] == [
+        _rujukan_terbaca(rujukan_ktk_001(), TEKS_KTK_001),
+        _rujukan_terbaca(rujukan_ac10(), TEKS_AC10),
+        _rujukan_terbaca(TEKS_BEBAS, "Format teks bebas"),
+    ]
     assert kelengkapan["legal_ref_count"] == 3
 
 
@@ -94,7 +105,7 @@ def test_ubah_kasus_mengganti_rujukan(as_role):
     respons = client.put(f"/cases/{case_id}", json=badan)
 
     assert respons.status_code == 200, respons.text
-    assert respons.json()["legal_refs"] == [_rujukan_terbaca(rujukan_ktk_001())]
+    assert respons.json()["legal_refs"] == [_rujukan_terbaca(rujukan_ktk_001(), TEKS_KTK_001)]
 
 
 def test_display_text_dari_client_tidak_disimpan(as_role):
@@ -273,6 +284,14 @@ def test_response_kasus_dan_salinan_review_memakai_rujukan_baca(spec):
     assert {"type": "null"} in tahun["anyOf"]
 
 
+def test_rujukan_baca_selalu_membawa_display_text(spec):
+    """Satu penulisan dari server untuk editor, review, dan riwayat (keputusan 16 Okt)."""
+    baca = _skema(spec, "LegalRefRead")
+
+    assert baca["properties"]["display_text"]["type"] == "string"
+    assert "display_text" in baca["required"]
+
+
 def test_nama_field_sprint_1_hilang_dari_kontrak(spec):
     teks = json.dumps(spec)
 
@@ -424,3 +443,81 @@ def test_jenis_nonaktif_dari_rujukan_sprint_1_ikut_dianggap_tersimpan(as_role, d
     respons = client.put(f"/cases/{case_id}", json=_badan(legal_refs=[rujukan_ktk_001()]))
 
     assert respons.status_code == 200, respons.text
+
+
+# --- bacaan rujukan Sprint 1 dan display_text (AC6, AC9) ----------------------
+
+LAMA_KTK_001 = {"regulation_type": "uu", "regulation_number": "13", "year": 2003, "pasal": "156"}
+
+
+def _kasus_dengan_isi_lama(client, db_session, *rujukan_lama: dict) -> str:
+    """Kasus yang content-nya masih bentuk Sprint 1, seperti versi sebelum PBI-21."""
+    case_id = _buat(client, _suite(client)).json()["id"]
+    versi = db_session.get(Case, uuid.UUID(case_id)).current_version
+    versi.content = {**versi.content, "legal_refs": list(rujukan_lama)}
+    db_session.commit()
+    return case_id
+
+
+def test_ktk_001_sprint_1_tampil_sama_dalam_bentuk_baru(as_role, db_session):
+    """AC9: rujukan lama tampil benar dan siap diedit tanpa ditulis ulang."""
+    client = as_role(Role.AUTHOR)
+    case_id = _kasus_dengan_isi_lama(client, db_session, LAMA_KTK_001)
+
+    detail = client.get(f"/cases/{case_id}").json()
+    kelengkapan = client.get(f"/cases/{case_id}/completeness").json()
+
+    assert detail["legal_refs"] == [_rujukan_terbaca(rujukan_ktk_001(), TEKS_KTK_001)]
+    assert kelengkapan["legal_ref_count"] == 1
+    assert detail["completeness_pct"] == 100
+
+
+def test_rujukan_lama_tanpa_tahun_tampil_tapi_belum_lengkap(as_role, db_session):
+    """Keputusan PO 17 Okt: rujukan lama tanpa tahun dianggap belum lengkap."""
+    client = as_role(Role.AUTHOR)
+    case_id = _kasus_dengan_isi_lama(client, db_session, {**LAMA_KTK_001, "year": None})
+
+    detail = client.get(f"/cases/{case_id}").json()
+    kelengkapan = client.get(f"/cases/{case_id}/completeness").json()
+    daftar = client.get(f"/suites/{detail['suite_id']}/cases").json()
+
+    assert detail["legal_refs"][0]["display_text"] == "Pasal 156 UU 13"
+    assert detail["legal_refs"][0]["links"][0]["year"] is None
+    assert kelengkapan["legal_ref_count"] == 0
+    assert "legal_refs" in [item["field"] for item in kelengkapan["missing"]]
+    assert daftar[0]["completeness_pct"] < 100
+
+
+def test_pengajuan_review_membaca_rujukan_lama(as_role, db_session):
+    """Guard pengajuan memakai bacaan yang sama: rujukan lama lengkap tidak menghalangi."""
+    client = as_role(Role.AUTHOR)
+    lengkap = _kasus_dengan_isi_lama(client, db_session, LAMA_KTK_001)
+    tanpa_tahun = _kasus_dengan_isi_lama(client, db_session, {**LAMA_KTK_001, "year": None})
+
+    diterima = client.post(f"/cases/{lengkap}/submit-review")
+    ditolak = client.post(f"/cases/{tanpa_tahun}/submit-review")
+
+    assert diterima.status_code == 200, diterima.text
+    assert ditolak.status_code == 422
+    assert "legal_refs" in [item["field"] for item in ditolak.json()["missing"]]
+
+
+def test_salinan_review_membawa_display_text(as_role, db_session):
+    client = as_role(Role.AUTHOR)
+    case_id = _buat(client, _suite(client), legal_refs=[rujukan_ac10()]).json()["id"]
+    versi_id = db_session.get(Case, uuid.UUID(case_id)).current_version_id
+
+    salinan = cases_service.review_copies(db_session, {versi_id})[versi_id]
+
+    assert salinan.legal_refs[0].display_text == TEKS_AC10
+
+
+def test_draf_terbuka_membawa_display_text(as_role, db_session):
+    """GET versi yang sedang dikerjakan memakai pembaca yang sama dengan detail."""
+    client = as_role(Role.AUTHOR)
+    case_id = _kasus_dengan_isi_lama(client, db_session, LAMA_KTK_001)
+
+    respons = client.get(f"/cases/{case_id}/versions/current")
+
+    assert respons.status_code == 200, respons.text
+    assert respons.json()["legal_refs"][0]["display_text"] == TEKS_KTK_001
