@@ -139,7 +139,9 @@ class LegalRefLink(Base):
         nullable=False,
     )
     number: Mapped[str] = mapped_column(String(100), nullable=False)
-    year: Mapped[int] = mapped_column(Integer, nullable=False)
+    # Kosong hanya untuk rujukan Sprint 1 yang dulu boleh tanpa tahun (AC9).
+    # Penyimpanan baru wajib berisi tahun, dijaga validasi API, bukan DB.
+    year: Mapped[int | None] = mapped_column(Integer, nullable=True)
     about: Mapped[str | None] = mapped_column(Text, nullable=True)
     pasal: Mapped[str | None] = mapped_column(String(40), nullable=True)
     angka: Mapped[str | None] = mapped_column(String(40), nullable=True)
