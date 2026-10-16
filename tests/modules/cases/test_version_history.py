@@ -12,6 +12,7 @@ from sqlalchemy.orm import Session
 from app.modules.auth.models import User
 from app.modules.cases.models import Case, CaseVersion
 from app.shared.security import Role
+from tests.legal_refs import rujukan_pasal
 from tests.modules.cases.test_cases import _badan, _buat, _ganti, _setujui, _suite
 from tests.modules.conftest import USER_ID_QA
 
@@ -71,7 +72,7 @@ def test_perbandingan_menyebut_kategori_dan_rujukan(as_role, db_session):
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
     badan = _badan()
     badan["identity"] = {**badan["identity"], "category": "pidana"}
-    badan["legal_refs"] = [{**badan["legal_refs"][0], "pasal": "152"}]
+    badan["legal_refs"] = [rujukan_pasal("152")]
     assert client.put(f"/cases/{case_id}", json=badan).status_code == 200
 
     compared = client.get(f"/cases/{case_id}/versions/compare", params={"a": 1, "b": 2})
@@ -82,7 +83,7 @@ def test_perbandingan_menyebut_kategori_dan_rujukan(as_role, db_session):
     assert body["a"]["sections"]["identity.title"] == body["b"]["sections"]["identity.title"]
     assert body["a"]["sections"]["category"] == "ketenagakerjaan"
     assert body["b"]["sections"]["category"] == "pidana"
-    assert body["b"]["sections"]["legal_refs"][0]["pasal"] == "152"
+    assert body["b"]["sections"]["legal_refs"][0]["links"][0]["pasal"] == "152"
     assert "identity.title" not in body["changed"]
 
 

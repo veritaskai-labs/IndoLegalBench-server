@@ -30,6 +30,7 @@ import pytest
 from app.main import app
 from app.modules.cases.models import CaseStatus
 from app.shared.security import Role
+from tests.legal_refs import rujukan_pasal
 
 TIDAK_ADA = uuid.UUID("00000000-0000-0000-0000-0000000000ff")
 
@@ -48,9 +49,7 @@ def _badan(**ubah) -> dict:
             "question": "Apakah PHK tanpa surat sah?",
             "category": "ketenagakerjaan",
         },
-        "legal_refs": [
-            {"regulation_type": "uu", "regulation_number": "13", "year": 2003, "pasal": "151"}
-        ],
+        "legal_refs": [rujukan_pasal("151")],
         "answer_criteria": {
             "must_contain": ["surat"],
             "must_not_contain": [],
@@ -296,9 +295,7 @@ def test_tahun_di_kedua_ujung_rentang_diterima(as_role, tahun):
     respons = _buat(
         client,
         suite_id,
-        legal_refs=[
-            {"regulation_type": "uu", "regulation_number": "13", "year": tahun, "pasal": "151"}
-        ],
+        legal_refs=[rujukan_pasal("151", year=tahun)],
     )
 
     assert respons.status_code == 201
@@ -312,9 +309,7 @@ def test_tahun_di_luar_rentang_ditolak(as_role, tahun):
     respons = _buat(
         client,
         suite_id,
-        legal_refs=[
-            {"regulation_type": "uu", "regulation_number": "13", "year": tahun, "pasal": "151"}
-        ],
+        legal_refs=[rujukan_pasal("151", year=tahun)],
     )
 
     assert respons.status_code == 422
@@ -327,14 +322,8 @@ def test_pasal_tepat_di_batas_diterima(as_role):
     respons = _buat(
         client,
         suite_id,
-        legal_refs=[
-            {
-                "regulation_type": "uu",
-                "regulation_number": "13",
-                "year": 2003,
-                "pasal": "p" * BATAS_PASAL,
-            }
-        ],
+        # PBI-21: pasal harus angka atau Romawi, jadi isi batasnya pakai digit.
+        legal_refs=[rujukan_pasal("1" * BATAS_PASAL)],
     )
 
     assert respons.status_code == 201

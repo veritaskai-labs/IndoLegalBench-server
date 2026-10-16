@@ -47,7 +47,7 @@ def test_salinan_review_memuat_isi_tag_dan_penulis(as_role, db_session):
     assert salinan.version_no == 1
     assert salinan.split_tag == "dev"
     assert salinan.identity.title == "PHK sepihak"
-    assert salinan.legal_refs[0]["pasal"] == "151"
+    assert salinan.legal_refs[0].links[0].pasal == "151"
 
 
 def test_salinan_review_tanpa_id_tidak_query(db_session):

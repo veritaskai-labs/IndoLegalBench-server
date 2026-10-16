@@ -17,6 +17,7 @@ from app.modules.cases.router import _user_id
 from app.modules.cases.validation import PLACEHOLDER_CASE_CODE_PATTERN
 from app.shared.exceptions import ForbiddenError
 from app.shared.security import Role, get_current_user
+from tests.legal_refs import rujukan_pasal
 from tests.modules.conftest import USER_ID_QA
 
 AUTHOR_LAIN = uuid.UUID("00000000-0000-0000-0000-00000000b000")
@@ -37,14 +38,7 @@ def _badan(**ubah) -> dict:
             "question": "Apakah PHK tanpa surat sah?",
             "category": "ketenagakerjaan",
         },
-        "legal_refs": [
-            {
-                "regulation_type": "uu",
-                "regulation_number": "13",
-                "year": 2003,
-                "pasal": "151",
-            }
-        ],
+        "legal_refs": [rujukan_pasal("151")],
         "answer_criteria": {
             "must_contain": ["surat"],
             "must_not_contain": [],
@@ -107,7 +101,7 @@ def test_detail_kasus(as_role):
 
     assert response.status_code == 200
     assert response.json()["id"] == case_id
-    assert response.json()["legal_refs"][0]["pasal"] == "151"
+    assert response.json()["legal_refs"][0]["links"][0]["pasal"] == "151"
 
 
 def test_kasus_tidak_ditemukan(as_role):
@@ -181,12 +175,12 @@ def test_pasal_kosong_menyebut_field(as_role):
     client = as_role(Role.AUTHOR)
     suite_id = _suite(client)
     badan = _badan()
-    del badan["legal_refs"][0]["pasal"]
+    del badan["legal_refs"][0]["links"][0]["pasal"]
 
     response = client.post(f"/suites/{suite_id}/cases", json=badan)
 
     assert response.status_code == 422
-    assert response.json()["field"] == "legal_refs[0].pasal"
+    assert response.json()["field"] == "legal_refs[0].links[0].pasal"
     assert response.json()["code"] == "FIELD_REQUIRED"
 
 
@@ -233,14 +227,14 @@ def test_tahun_nol_bukan_wajib(as_role):
     client = as_role(Role.AUTHOR)
     suite_id = _suite(client)
     badan = _badan()
-    badan["legal_refs"][0]["year"] = 0
+    badan["legal_refs"][0]["links"][0]["year"] = 0
 
     response = client.post(f"/suites/{suite_id}/cases", json=badan)
 
     assert response.status_code == 422
     body = response.json()
     assert body["code"] == "VALIDATION_ERROR"
-    assert body["field"] == "legal_refs[0].year"
+    assert body["field"] == "legal_refs[0].links[0].year"
     assert "wajib diisi" not in response.text
 
 
@@ -524,8 +518,11 @@ def test_openapi_memakai_pola_placeholder(client):
     assert "split_tag" in tulis["required"]
     assert "legal_refs" in tulis["required"]
     assert tulis["properties"]["legal_refs"]["minItems"] == 1
-    rujukan = spec["components"]["schemas"]["LegalRef"]
-    assert rujukan["required"] == ["regulation_type", "regulation_number", "pasal"]
+    rujukan = spec["components"]["schemas"]["LegalRefWrite"]
+    assert set(rujukan["required"]) == {"kind", "links"}
+    link = spec["components"]["schemas"]["LegalRefLinkWrite"]
+    assert set(link["required"]) == {"form", "connector", "regulation_type", "number", "year"}
+    assert "LegalRef" not in spec["components"]["schemas"]
     assert "/suites/{suite_id}/cases" in spec["paths"]
     assert "/cases/{case_id}" in spec["paths"]
 
