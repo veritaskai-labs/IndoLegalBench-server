@@ -180,6 +180,22 @@ def test_field_wajib_kosong_atau_spasi_ditolak(nama):
         assert _gagal_di(_link(**{nama: kosong})) == [nama]
 
 
+@pytest.mark.parametrize("nama", ["regulation_type", "number", "pasal", "angka"])
+def test_tipe_json_bukan_string_ditolak(nama):
+    """Angka JSON (13, bukan "13") tidak diubah diam-diam jadi teks."""
+    assert _gagal_di(_link(**{nama: 13})) == [nama]
+
+
+def test_opsional_null_eksplisit_tetap_none():
+    data = _link()
+    data["about"] = None
+    data["pasal"] = None
+
+    link = LegalRefLinkWrite.model_validate(data)
+
+    assert (link.about, link.pasal) == (None, None)
+
+
 @pytest.mark.parametrize("penghubung", ["jo.", "jis.", "JO", "dan", ""])
 def test_penghubung_di_luar_enum_ditolak(penghubung):
     assert _gagal_di(_link(connector=penghubung)) == ["connector"]

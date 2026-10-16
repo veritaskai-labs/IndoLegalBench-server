@@ -11,17 +11,40 @@ PHK-001 and phk-001 are both allowed today.
 
 import uuid
 from datetime import datetime
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.modules.cases.models import CaseStatus, SplitTag
-from app.modules.cases.validation import PLACEHOLDER_CASE_CODE_PATTERN, validate_payload
+from app.modules.cases.validation import (
+    ANGKA_PATTERN,
+    PASAL_PATTERN,
+    PLACEHOLDER_CASE_CODE_PATTERN,
+    validate_payload,
+)
+
+# Penghubung antar peraturan dalam satu rujukan (PBI-21 AC6). Link pertama
+# memakai "none". Label "jo."/"jis." adalah urusan tampilan.
+Connector = Literal["none", "jo", "jis"]
 
 
 def _strip_whitespace(nilai: str) -> str:
     """Strip surrounding whitespace."""
     return nilai.strip()
+
+
+def _strip_any(nilai: Any) -> Any:
+    """Strip a string before the length and pattern checks run. Other types pass through."""
+    if isinstance(nilai, str):
+        return nilai.strip()
+    return nilai
+
+
+def _blank_to_none(nilai: Any) -> Any:
+    """Strip a string, and turn a blank one into None, before the pattern check runs."""
+    if isinstance(nilai, str):
+        return nilai.strip() or None
+    return nilai
 
 
 class CaseIdentity(BaseModel):
@@ -71,6 +94,57 @@ class LegalRef(BaseModel):
             return None
         bersih = nilai.strip()
         return bersih or None
+
+
+class _LegalRefLinkBase(BaseModel):
+    """Fields shared by the write and read shape of one regulation in a citation (PBI-21)."""
+
+    connector: Connector
+    regulation_type: str = Field(
+        min_length=1,
+        max_length=150,
+        description="Kode dari GET /regulation-types, bukan label",
+    )
+    number: str = Field(min_length=1, max_length=40, description="Boleh alfanumerik")
+    about: str | None = Field(default=None, max_length=500, description="Tentang, opsional")
+    pasal: str | None = Field(default=None, max_length=40)
+    angka: str | None = Field(default=None, max_length=20)
+    ayat: str | None = Field(default=None, max_length=20)
+    huruf: str | None = Field(default=None, max_length=8)
+
+    @field_validator("regulation_type", "number", mode="before")
+    @classmethod
+    def strip_required(cls, nilai: Any) -> Any:
+        """Strip before min_length, so a whitespace-only value is rejected as blank."""
+        return _strip_any(nilai)
+
+    @field_validator("about", "pasal", "angka", "ayat", "huruf", mode="before")
+    @classmethod
+    def clean_optional(cls, nilai: Any) -> Any:
+        """Store a stripped optional field, or None when it is blank."""
+        return _blank_to_none(nilai)
+
+
+class LegalRefLinkWrite(_LegalRefLinkBase):
+    """One regulation in a citation, as the editor sends it.
+
+    Cross-field rules (which form needs pasal or angka, the jo./jis. chain,
+    year not after the current year) live in validation.py.
+    """
+
+    year: int = Field(ge=1, le=9999)
+    pasal: str | None = Field(default=None, max_length=40, pattern=PASAL_PATTERN)
+    angka: str | None = Field(default=None, max_length=20, pattern=ANGKA_PATTERN)
+
+
+class LegalRefLinkRead(_LegalRefLinkBase):
+    """One regulation in a citation, as stored.
+
+    A migrated Sprint 1 citation may have no year and a free-form pasal (AC9).
+    The Author fixes both when the case is saved again.
+    """
+
+    year: int | None = None
 
 
 class AnswerCriteria(BaseModel):

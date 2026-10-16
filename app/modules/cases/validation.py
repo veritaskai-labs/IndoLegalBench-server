@@ -17,6 +17,8 @@ from app.modules.cases import completeness as completeness_module
 from app.shared.exceptions import ValidationError
 
 PLACEHOLDER_CASE_CODE_PATTERN = completeness_module.PLACEHOLDER_CASE_CODE_PATTERN
+PASAL_PATTERN = completeness_module.POLA_PASAL
+ANGKA_PATTERN = completeness_module.POLA_ANGKA
 _POLA_KODE = re.compile(PLACEHOLDER_CASE_CODE_PATTERN)
 
 SPLIT_TAG_REQUIRED = "SPLIT_TAG_REQUIRED"
@@ -172,8 +174,14 @@ def _map_error(error: dict[str, Any]) -> dict[str, str]:
 
 
 def _missing_or_blank(error: dict[str, Any]) -> bool:
-    """True when the field was omitted or the input is blank after strip."""
+    """True when the field was omitted, sent as null, or blank after strip.
+
+    A null year on an old Sprint 1 citation must read as "wajib diisi"
+    (PBI-21, PO decision 17 Oct), not as a type error.
+    """
     if str(error.get("type", "")) == "missing":
+        return True
+    if "input" in error and error["input"] is None:
         return True
     nilai = error.get("input")
     return isinstance(nilai, str) and not nilai.strip()

@@ -15,6 +15,15 @@ PLACEHOLDER_CASE_CODE_PATTERN = r"^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$"
 TAG_SAH = frozenset({"dev", "test"})
 FIELD_RUJUKAN = ("regulation_type", "regulation_number", "pasal")
 
+# PBI-21 AC5: pasal angka biasa atau Romawi yang sah (huruf besar). Akhiran
+# satu huruf besar ("1A", pasal sisipan) usulan PO, menunggu konfirmasi Steven.
+# Tanpa lookaround supaya sama di regex Pydantic (Rust) dan zod (JavaScript).
+POLA_PASAL = (
+    r"^(?:[1-9][0-9]*[A-Z]?"
+    r"|M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))$"
+)
+POLA_ANGKA = r"^[1-9][0-9]*$"
+
 _POLA_KODE = re.compile(PLACEHOLDER_CASE_CODE_PATTERN)
 
 
