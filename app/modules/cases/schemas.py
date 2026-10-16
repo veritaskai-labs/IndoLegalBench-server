@@ -253,3 +253,21 @@ class CaseNotReadyBody(BaseModel):
     code: str = Field(examples=["CASE_NOT_READY"])
     message: str
     missing: list[CompletenessIssue]
+
+
+class ReviewCopy(BaseModel):
+    """One version as a reviewer reads it (PBI-6, SCRUM-145).
+
+    split_tag is shown read-only and is not graded (PBI-9 AC2).
+    """
+
+    case_id: uuid.UUID
+    case_code: str
+    author_id: uuid.UUID
+    case_version_id: uuid.UUID
+    version_no: int
+    split_tag: SplitTag
+    identity: CaseIdentity
+    legal_refs: list[dict[str, Any]]
+    answer_criteria: dict[str, Any]
+    traps: list[dict[str, Any]]

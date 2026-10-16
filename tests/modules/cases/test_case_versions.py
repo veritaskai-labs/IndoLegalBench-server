@@ -8,6 +8,7 @@ import uuid
 
 import pytest
 
+from app.modules.cases import repository
 from app.modules.cases.models import Case, CaseStatus
 from app.shared.exceptions import ForbiddenError
 from app.shared.security import Role
@@ -194,3 +195,23 @@ def test_put_saat_ditinjau_ditolak(as_role, db_session):
 
     assert response.status_code == 409
     assert response.json()["code"] == "VERSION_LOCKED"
+
+
+def test_versi_baru_yang_kalah_balapan_dijawab_409_dan_versi_berlaku_tetap(
+    as_role, db_session, monkeypatch
+):
+    client = as_role(Role.AUTHOR)
+    suite_id = _suite(client)
+    dibuat = _buat(client, suite_id).json()
+    _setujui(db_session, dibuat["id"])
+    # Simulasi balapan; service wajib memanggil repository.max_version_no.
+    monkeypatch.setattr(repository, "max_version_no", lambda db, case_id: 0)
+
+    response = client.post(f"/cases/{dibuat['id']}/versions")
+
+    assert response.status_code == 409
+    assert response.json()["code"] == "VERSION_IN_PROGRESS"
+    berlaku = client.get(f"/cases/{dibuat['id']}").json()
+    assert berlaku["status"] == "approved"
+    assert berlaku["version"] == 1
+    assert berlaku["identity"]["title"] == dibuat["identity"]["title"]

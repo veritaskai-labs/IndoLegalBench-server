@@ -13,11 +13,13 @@ from unittest.mock import patch
 import pytest
 from cryptography.fernet import Fernet
 
+from app.main import app
 from app.modules.audit import listener
 from app.modules.audit.models import AuditLog
+from app.modules.reviews.models import ReviewAssignment, ReviewRound, RoundStatus
 from app.modules.suites.models import Suite
 from app.shared.config import get_settings
-from app.shared.security import Role
+from app.shared.security import CurrentUser, Role, get_current_user
 from tests.modules.conftest import USER_ID_QA
 
 _RAHASIA = "provider-token-value-7kPq"  # pragma: allowlist secret
@@ -364,3 +366,33 @@ def test_model_yang_dipetakan_belakangan_ikut_memuat_nilai_lama():
 
     assert event.contains(_UserLain.role, "set", listener._no_op)
     assert event.contains(_UserLain.is_active, "set", listener._no_op)
+
+
+def test_verdict_tercatat_tanpa_komentar_dan_bisa_dicari_per_kasus(as_role, db_session):
+    """SCRUM-145: review.verdict_submitted ditulis listener di transaksi verdict."""
+    # Arrange
+    client = as_role(Role.AUTHOR)
+    kasus = client.post(f"/suites/{_suite(client)}/cases", json=_kasus()).json()
+    assert client.post(f"/cases/{kasus['id']}/submit-review").status_code == 200
+    ronde = db_session.query(ReviewRound).one()
+    ronde.status = RoundStatus.OPEN
+    reviewer_id = uuid.uuid4()
+    tugas = ReviewAssignment(review_round_id=ronde.id, reviewer_id=reviewer_id)
+    db_session.add(tugas)
+    db_session.commit()
+    app.dependency_overrides[get_current_user] = lambda: CurrentUser(
+        user_id=reviewer_id, name="R", email="r@veritask.test", role=Role.REVIEWER
+    )
+
+    # Act
+    response = client.post(
+        f"/reviews/{tugas.id}/verdict", json={"decision": "revise", "comment": "Pasal salah"}
+    )
+
+    # Assert
+    assert response.status_code == 201
+    [baris] = [item for item in _log(db_session) if item.action == "review.verdict_submitted"]
+    assert baris.entity_type == "review"
+    assert baris.entity_id == tugas.id
+    assert str(baris.case_id) == kasus["id"]
+    assert baris.after == {"decision": "revise"}
