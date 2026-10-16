@@ -9,12 +9,16 @@ tim legal). Teks bebas dan nilai rusak adalah input format sintetis.
 """
 
 import json
+import uuid
 from typing import Any
 
 import pytest
+from sqlalchemy import update
 
 from app.modules.cases import validation
+from app.modules.cases.models import Case
 from app.modules.cases.validation import ANGKA_PATTERN, PASAL_PATTERN
+from app.modules.legal_refs.models import RegulationType
 from app.shared.security import Role
 from tests.legal_refs import rujukan_ac10, rujukan_ktk_001
 from tests.modules.cases.test_cases import _badan, _buat, _suite
@@ -345,3 +349,78 @@ def test_tahun_di_masa_depan_lewat_http(as_role, monkeypatch):
     assert respons.status_code == 422
     assert respons.json()["code"] == "YEAR_IN_FUTURE"
     assert respons.json()["field"] == "legal_refs[0].links[0].year"
+
+
+# --- jenis peraturan ada di daftar (AC2) -------------------------------------
+
+
+def _nonaktifkan(db_session, code: str) -> None:
+    db_session.execute(
+        update(RegulationType).where(RegulationType.code == code).values(is_active=False)
+    )
+    db_session.commit()
+
+
+def _dengan_jenis(code: str) -> dict:
+    rujukan = rujukan_ktk_001()
+    rujukan["links"][0]["regulation_type"] = code
+    return rujukan
+
+
+def test_jenis_di_luar_daftar_ditolak_lewat_http(as_role):
+    client = as_role(Role.AUTHOR)
+
+    respons = _buat(client, _suite(client), legal_refs=[_dengan_jenis("kode_lain")])
+
+    assert respons.status_code == 422
+    assert respons.json()["code"] == "REGULATION_TYPE_UNKNOWN"
+    assert respons.json()["field"] == "legal_refs[0].links[0].regulation_type"
+
+
+def test_kasus_baru_tidak_boleh_memakai_jenis_nonaktif(as_role, db_session):
+    client = as_role(Role.AUTHOR)
+    _nonaktifkan(db_session, "uu")
+
+    respons = _buat(client, _suite(client), legal_refs=[rujukan_ktk_001()])
+
+    assert respons.status_code == 422
+    assert respons.json()["code"] == "REGULATION_TYPE_INACTIVE"
+
+
+def test_jenis_yang_dinonaktifkan_setelah_dipakai_tetap_bisa_disimpan_ulang(as_role, db_session):
+    client = as_role(Role.AUTHOR)
+    case_id = _buat(client, _suite(client), legal_refs=[rujukan_ktk_001()]).json()["id"]
+    _nonaktifkan(db_session, "uu")
+
+    respons = client.put(f"/cases/{case_id}", json=_badan(legal_refs=[rujukan_ktk_001()]))
+
+    assert respons.status_code == 200, respons.text
+
+
+def test_jenis_nonaktif_lain_tetap_ditolak_saat_mengubah(as_role, db_session):
+    client = as_role(Role.AUTHOR)
+    case_id = _buat(client, _suite(client), legal_refs=[rujukan_ktk_001()]).json()["id"]
+    _nonaktifkan(db_session, "permen")
+
+    respons = client.put(
+        f"/cases/{case_id}", json=_badan(legal_refs=[rujukan_ktk_001(), _dengan_jenis("permen")])
+    )
+
+    assert respons.status_code == 422
+    assert respons.json()["code"] == "REGULATION_TYPE_INACTIVE"
+    assert respons.json()["field"] == "legal_refs[1].links[0].regulation_type"
+
+
+def test_jenis_nonaktif_dari_rujukan_sprint_1_ikut_dianggap_tersimpan(as_role, db_session):
+    """Versi lama menyimpan teks "UU"; setelah dibaca ulang itu code uu (AC9)."""
+    client = as_role(Role.AUTHOR)
+    case_id = _buat(client, _suite(client), legal_refs=[rujukan_ktk_001()]).json()["id"]
+    versi = db_session.get(Case, uuid.UUID(case_id)).current_version
+    lama = {"regulation_type": "UU", "regulation_number": "13", "year": 2003, "pasal": "156"}
+    versi.content = {**versi.content, "legal_refs": [lama]}
+    db_session.commit()
+    _nonaktifkan(db_session, "uu")
+
+    respons = client.put(f"/cases/{case_id}", json=_badan(legal_refs=[rujukan_ktk_001()]))
+
+    assert respons.status_code == 200, respons.text

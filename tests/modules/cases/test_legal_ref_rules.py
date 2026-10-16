@@ -19,7 +19,10 @@ from app.modules.cases.validation import (
     CONNECTOR_INVALID,
     FIELD_NOT_ALLOWED,
     FIELD_REQUIRED,
+    REGULATION_TYPE_INACTIVE,
+    REGULATION_TYPE_UNKNOWN,
     YEAR_IN_FUTURE,
+    check_regulation_types,
     current_year_wib,
     validate_payload,
 )
@@ -299,3 +302,65 @@ def test_tanpa_tahun_injeksi_memakai_jam_wib(monkeypatch):
 def test_jam_sungguhan_mengembalikan_tahun_wib():
     """Tanpa argumen: tahun dari jam sistem di Asia/Jakarta."""
     assert current_year_wib() == datetime.now(validation.WIB).year
+
+
+# --- jenis peraturan ada di daftar (AC2) -----------------------------------------
+# Keputusan PO 17 Okt: jenis nonaktif hanya diterima kalau kodenya sudah ada di
+# rujukan tersimpan pada versi yang sama.
+
+AKTIF = {"uu": True, "permen": False}
+
+
+def _jenis_ditolak(daftar: list, tersimpan: set[str]) -> ValidationError:
+    with pytest.raises(ValidationError) as info:
+        check_regulation_types(daftar, AKTIF, tersimpan)
+    return info.value
+
+
+def test_jenis_aktif_diterima():
+    check_regulation_types([rujukan_ktk_001(), rujukan_ac10()], AKTIF, set())
+
+
+def test_jenis_tidak_ada_di_daftar_ditolak():
+    rujukan = rujukan_ac10()
+    rujukan["links"][1]["regulation_type"] = "kode_lain"
+
+    salah = _jenis_ditolak([rujukan], set())
+
+    assert salah.code == REGULATION_TYPE_UNKNOWN
+    assert salah.field == "legal_refs[0].links[1].regulation_type"
+    assert salah.message == "Jenis peraturan tidak ada di daftar"
+
+
+def test_jenis_nonaktif_baru_ditolak():
+    rujukan = rujukan_ktk_001()
+    rujukan["links"][0]["regulation_type"] = "permen"
+
+    salah = _jenis_ditolak([rujukan_ac10(), rujukan], {"uu"})
+
+    assert salah.code == REGULATION_TYPE_INACTIVE
+    assert salah.field == "legal_refs[1].links[0].regulation_type"
+    assert salah.message == "Jenis peraturan ini sudah tidak aktif. Pilih jenis lain."
+
+
+def test_jenis_nonaktif_yang_sudah_tersimpan_di_versi_ini_diterima():
+    rujukan = rujukan_ktk_001()
+    rujukan["links"][0]["regulation_type"] = "permen"
+
+    check_regulation_types([rujukan], AKTIF, {"permen"})
+
+
+def test_teks_bebas_tidak_diperiksa_jenisnya():
+    check_regulation_types([TEKS_BEBAS], {}, set())
+
+
+def test_jenis_pertama_yang_salah_dilaporkan_lebih_dulu():
+    tidak_dikenal = rujukan_ktk_001()
+    tidak_dikenal["links"][0]["regulation_type"] = "kode_lain"
+    nonaktif = rujukan_ktk_001()
+    nonaktif["links"][0]["regulation_type"] = "permen"
+
+    salah = _jenis_ditolak([nonaktif, tidak_dikenal], set())
+
+    assert salah.code == REGULATION_TYPE_INACTIVE
+    assert salah.field == "legal_refs[0].links[0].regulation_type"
