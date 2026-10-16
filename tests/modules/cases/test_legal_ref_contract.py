@@ -319,3 +319,15 @@ def test_field_terlarang_lewat_http_memakai_kode_sendiri(as_role):
     assert respons.status_code == 422
     assert respons.json()["code"] == "FIELD_NOT_ALLOWED"
     assert respons.json()["field"] == "legal_refs[0].links[0].angka"
+
+
+def test_rantai_tanpa_penghubung_lewat_http(as_role):
+    client = as_role(Role.AUTHOR)
+    rujukan = rujukan_ac10()
+    rujukan["links"][1]["connector"] = "none"
+
+    respons = _buat(client, _suite(client), legal_refs=[rujukan])
+
+    assert respons.status_code == 422
+    assert respons.json()["code"] == "CONNECTOR_INVALID"
+    assert respons.json()["field"] == "legal_refs[0].links[1].connector"

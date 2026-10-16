@@ -13,9 +13,14 @@ from typing import Any
 
 import pytest
 
-from app.modules.cases.validation import FIELD_NOT_ALLOWED, FIELD_REQUIRED, validate_payload
+from app.modules.cases.validation import (
+    CONNECTOR_INVALID,
+    FIELD_NOT_ALLOWED,
+    FIELD_REQUIRED,
+    validate_payload,
+)
 from app.shared.exceptions import ValidationError
-from tests.legal_refs import rujukan_ac10, rujukan_ktk_001
+from tests.legal_refs import link_pasal, rujukan_ac10, rujukan_ktk_001
 
 TEKS_BEBAS = {"kind": "free_text", "links": [], "free_text": "Format teks bebas"}
 
@@ -156,3 +161,56 @@ def test_rujukan_sebelumnya_yang_salah_dilaporkan_lebih_dulu():
 
     assert salah.code == FIELD_NOT_ALLOWED
     assert salah.field == "legal_refs[0].links[0].pasal"
+
+
+# --- rantai penghubung (AC6) ----------------------------------------------------
+
+
+def _rantai(*penghubung: str) -> dict[str, Any]:
+    """Rujukan dengan satu link per penghubung. Nomor dan tahun input format sintetis."""
+    links = [
+        {**link_pasal("1", number=str(nomor), year=2020), "connector": hubung}
+        for nomor, hubung in enumerate(penghubung, start=1)
+    ]
+    return {"kind": "structured", "links": links}
+
+
+@pytest.mark.parametrize(
+    "penghubung",
+    [("none",), ("none", "jo"), ("none", "jis", "jis"), ("none", "jo", "jis")],
+    ids=["satu-link", "jo", "jis-tiga-peraturan", "jo-lalu-jis"],
+)
+def test_rantai_sah_lolos(penghubung):
+    validate_payload(_body(_rantai(*penghubung)))
+
+
+@pytest.mark.parametrize("penghubung", ["jo", "jis"])
+def test_link_pertama_tidak_boleh_memakai_penghubung(penghubung):
+    salah = _ditolak(_rantai(penghubung, "jo"))
+
+    assert salah.code == CONNECTOR_INVALID
+    assert salah.field == "legal_refs[0].links[0].connector"
+    assert salah.message == "Peraturan pertama tidak memakai penghubung"
+
+
+@pytest.mark.parametrize(
+    ("penghubung", "posisi"),
+    [(("none", "none"), 1), (("none", "jis", "none"), 2), (("none", "none", "jo"), 1)],
+    ids=["link-kedua", "link-terakhir", "link-tengah"],
+)
+def test_link_berikutnya_wajib_jo_atau_jis(penghubung, posisi):
+    salah = _ditolak(_rantai(*penghubung))
+
+    assert salah.code == CONNECTOR_INVALID
+    assert salah.field == f"legal_refs[0].links[{posisi}].connector"
+    assert salah.message == (f"Peraturan ke-{posisi + 1} wajib disambung dengan jo. atau jis.")
+
+
+def test_field_terlarang_di_link_sebelumnya_dilaporkan_lebih_dulu():
+    rujukan = _rantai("none", "none")
+    rujukan["links"][0]["angka"] = "1"
+
+    salah = _ditolak(rujukan)
+
+    assert salah.code == FIELD_NOT_ALLOWED
+    assert salah.field == "legal_refs[0].links[0].angka"
