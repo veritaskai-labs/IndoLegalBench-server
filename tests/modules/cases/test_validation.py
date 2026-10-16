@@ -94,6 +94,8 @@ def test_tanpa_rujukan_ditolak():
 
     assert info.value.code == FIELD_REQUIRED
     assert info.value.field == "legal_refs"
+    # PBI-21: Nama Peraturan saja juga sah, jadi pesannya tidak lagi menyebut pasal.
+    assert info.value.message == "Butuh minimal satu rujukan hukum."
 
 
 @pytest.mark.parametrize("hilang", ["regulation_type", "number", "year", "pasal"])

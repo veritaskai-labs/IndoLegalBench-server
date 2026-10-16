@@ -90,7 +90,9 @@ def test_rujukan_kosong_dilaporkan():
     hasil = evaluate(payload(legal_refs=[]))
 
     assert hasil["legal_ref_count"] == 0
-    assert "legal_refs" in missing_fields(hasil)
+    assert {"field": "legal_refs", "message": "Butuh minimal satu rujukan hukum."} in hasil[
+        "missing"
+    ]
 
 
 def test_beberapa_rujukan_dihitung_semua():
@@ -220,7 +222,7 @@ def test_rujukan_tidak_lengkap_tetap_menghalangi_walau_ada_yang_sah():
     assert hasil == [
         {
             "field": "legal_refs[1].links[0].pasal",
-            "message": "Rujukan hukum harus lengkap sampai pasal.",
+            "message": "Rujukan hukum belum lengkap.",
         }
     ]
 
