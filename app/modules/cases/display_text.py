@@ -8,11 +8,11 @@ Aturan nama peraturan (Jira SCRUM-160, keputusan PO 16 Okt):
 3. Nomor yang sudah berakhiran "/{tahun}" tidak ditulis ulang tahunnya.
 4. Akhiran nomor yang beda dengan tahun tetap ditambah tahun (menunggu Steven).
 
+Unit (keputusan PO 17 Okt): "Pasal {pasal} Angka {angka} ayat ({ayat}) huruf
+{huruf}" sebelum nama peraturan. Tentang tidak ditampilkan.
+
 Fungsi di sini murni. Label dan singkatan diberikan pemanggil, jadi modul ini
 tidak membaca tabel regulation_types.
-
-TODO(SCRUM-160 pertanyaan 5-6): posisi ayat, huruf, dan Tentang belum
-diputuskan, jadi belum ditulis.
 """
 
 from collections.abc import Mapping
@@ -45,12 +45,21 @@ def citation_text(rujukan: LegalRefRead, jenis: Mapping[str, TypeName]) -> str:
 
 def _link_text(link: LegalRefLinkRead, jenis: Mapping[str, TypeName]) -> str:
     """Unit yang dirujuk (kalau ada), lalu nama peraturannya."""
-    unit = ""
-    if link.form in ("pasal", "pasal_angka"):
-        unit = f"Pasal {link.pasal} "
+    return " ".join([*_unit_parts(link), _regulation_name(link, jenis)])
+
+
+def _unit_parts(link: LegalRefLinkRead) -> list[str]:
+    """Pasal, Angka, ayat, huruf. Link name_only tidak punya unit."""
+    if link.form == "name_only":
+        return []
+    bagian = [f"Pasal {link.pasal}"]
     if link.form == "pasal_angka":
-        unit += f"Angka {link.angka} "
-    return unit + _regulation_name(link, jenis)
+        bagian.append(f"Angka {link.angka}")
+    if link.ayat:
+        bagian.append(f"ayat ({link.ayat.strip('()')})")
+    if link.huruf:
+        bagian.append(f"huruf {link.huruf}")
+    return bagian
 
 
 def _regulation_name(link: LegalRefLinkRead, jenis: Mapping[str, TypeName]) -> str:
