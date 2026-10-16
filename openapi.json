@@ -2675,6 +2675,76 @@
           }
         }
       }
+    },
+    "/regulation-types": {
+      "get": {
+        "tags": [
+          "legal-refs"
+        ],
+        "summary": "Daftar jenis peraturan (JDIH BPK) untuk rujukan hukum",
+        "description": "Return the regulation types ordered by urutan, active ones unless asked otherwise.",
+        "operationId": "list_regulation_types_regulation_types_get",
+        "parameters": [
+          {
+            "name": "include_inactive",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Sertakan jenis nonaktif, untuk label rujukan lama yang masih memakainya.",
+              "default": false,
+              "title": "Include Inactive"
+            },
+            "description": "Sertakan jenis nonaktif, untuk label rujukan lama yang masih memakainya."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/RegulationTypeRead"
+                  },
+                  "title": "Response List Regulation Types Regulation Types Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Belum login.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Peran tidak dikenal.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4195,6 +4265,42 @@
         ],
         "title": "ProviderType",
         "description": "ProviderType:\n- openai_compatible: OpenAI chat completions (DeepSeek, GPT). Bearer auth. The stored URL is posted as-is.\n- gemini_interactions: Gemini Interactions API. Header x-goog-api-key.\n- anthropic_messages: Anthropic Messages API. Headers x-api-key and anthropic-version."
+      },
+      "RegulationTypeRead": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "singkatan": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Singkatan"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "label",
+          "singkatan",
+          "is_active"
+        ],
+        "title": "RegulationTypeRead",
+        "description": "Satu jenis peraturan untuk dropdown editor (AC2)."
       },
       "ReviewCopy": {
         "properties": {
