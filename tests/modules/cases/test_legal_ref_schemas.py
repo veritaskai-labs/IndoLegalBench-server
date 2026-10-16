@@ -24,7 +24,7 @@ from app.modules.cases.schemas import (
     LegalRefKind,
     LegalRefLinkRead,
     LegalRefLinkWrite,
-    LegalRefRead,
+    LegalRefStored,
     LegalRefWrite,
     LinkForm,
 )
@@ -396,7 +396,7 @@ def test_baca_rujukan_lama_hasil_migrasi():
     """AC9: rujukan lama tanpa tahun tetap terbaca."""
     lama = dict(LINK_KTK_001, year=None)
 
-    rujukan = LegalRefRead.model_validate(
+    rujukan = LegalRefStored.model_validate(
         {"kind": "structured", "links": [lama], "free_text": None}
     )
 

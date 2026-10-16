@@ -4086,15 +4086,21 @@
             },
             "type": "array",
             "title": "Links"
+          },
+          "display_text": {
+            "type": "string",
+            "title": "Display Text",
+            "description": "Ditulis server, misalnya \"Pasal 156 UU 13/2003 jo. Pasal II Angka 5 UU 6/2023\""
           }
         },
         "type": "object",
         "required": [
           "kind",
-          "links"
+          "links",
+          "display_text"
         ],
         "title": "LegalRefRead",
-        "description": "One citation as stored."
+        "description": "One citation as returned, written in legal style by the server (AC6)."
       },
       "LegalRefWrite": {
         "properties": {

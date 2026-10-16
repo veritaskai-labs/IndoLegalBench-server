@@ -450,9 +450,9 @@ def test_jenis_nonaktif_dari_rujukan_sprint_1_ikut_dianggap_tersimpan(as_role, d
 LAMA_KTK_001 = {"regulation_type": "uu", "regulation_number": "13", "year": 2003, "pasal": "156"}
 
 
-def _kasus_dengan_isi_lama(client, db_session, *rujukan_lama: dict) -> str:
+def _kasus_dengan_isi_lama(client, db_session, *rujukan_lama: dict, kode: str = "PHK-001") -> str:
     """Kasus yang content-nya masih bentuk Sprint 1, seperti versi sebelum PBI-21."""
-    case_id = _buat(client, _suite(client)).json()["id"]
+    case_id = _buat(client, _suite(client, f"Suite {kode}"), case_code=kode).json()["id"]
     versi = db_session.get(Case, uuid.UUID(case_id)).current_version
     versi.content = {**versi.content, "legal_refs": list(rujukan_lama)}
     db_session.commit()
@@ -492,7 +492,9 @@ def test_pengajuan_review_membaca_rujukan_lama(as_role, db_session):
     """Guard pengajuan memakai bacaan yang sama: rujukan lama lengkap tidak menghalangi."""
     client = as_role(Role.AUTHOR)
     lengkap = _kasus_dengan_isi_lama(client, db_session, LAMA_KTK_001)
-    tanpa_tahun = _kasus_dengan_isi_lama(client, db_session, {**LAMA_KTK_001, "year": None})
+    tanpa_tahun = _kasus_dengan_isi_lama(
+        client, db_session, {**LAMA_KTK_001, "year": None}, kode="PHK-002"
+    )
 
     diterima = client.post(f"/cases/{lengkap}/submit-review")
     ditolak = client.post(f"/cases/{tanpa_tahun}/submit-review")

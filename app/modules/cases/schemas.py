@@ -151,10 +151,18 @@ class LegalRefWrite(_LegalRefBase):
     links: list[LegalRefLinkWrite]
 
 
-class LegalRefRead(_LegalRefBase):
-    """One citation as stored."""
+class LegalRefStored(_LegalRefBase):
+    """One citation as stored, before the server writes its display_text."""
 
     links: list[LegalRefLinkRead]
+
+
+class LegalRefRead(LegalRefStored):
+    """One citation as returned, written in legal style by the server (AC6)."""
+
+    display_text: str = Field(
+        description='Ditulis server, misalnya "Pasal 156 UU 13/2003 jo. Pasal II Angka 5 UU 6/2023"',
+    )
 
 
 class AnswerCriteria(BaseModel):

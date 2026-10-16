@@ -18,7 +18,7 @@ tidak membaca tabel regulation_types.
 from collections.abc import Mapping
 from dataclasses import dataclass
 
-from app.modules.cases.schemas import LegalRefLinkRead, LegalRefRead
+from app.modules.cases.schemas import LegalRefLinkRead, LegalRefStored
 
 _PENGHUBUNG = {"jo": "jo.", "jis": "jis."}
 
@@ -31,7 +31,7 @@ class TypeName:
     singkatan: str | None
 
 
-def citation_text(rujukan: LegalRefRead, jenis: Mapping[str, TypeName]) -> str:
+def citation_text(rujukan: LegalRefStored, jenis: Mapping[str, TypeName]) -> str:
     """Tulis satu rujukan. Teks bebas dikembalikan apa adanya (AC7)."""
     if rujukan.kind == "free_text":
         return rujukan.free_text or ""

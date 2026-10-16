@@ -15,6 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.auth import service as auth_service
 from app.modules.cases import completeness, repository, sections, validation
+from app.modules.cases.display_text import TypeName, citation_text
 from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
 from app.modules.cases.schemas import (
     ActorRead,
@@ -22,6 +23,8 @@ from app.modules.cases.schemas import (
     CaseRead,
     CaseSummary,
     CaseWrite,
+    LegalRefRead,
+    LegalRefStored,
     ReviewCopy,
     ReviewSubmission,
     VersionCompare,
@@ -54,7 +57,8 @@ def create_case(
 ) -> CaseRead:
     """Store a new case as draft version 1. An inactive suite is rejected."""
     _require_active_suite(db, suite_id)
-    _require_known_types(db, payload, stored=None)
+    katalog = legal_refs_service.load_catalog(db)
+    _require_known_types(katalog, payload, stored=None)
     _require_free_code(db, payload.case_code)
     case_id = uuid.uuid4()
     version_id = uuid.uuid4()
@@ -85,12 +89,12 @@ def create_case(
     except IntegrityError:
         db.rollback()
         raise _code_taken(db, payload.case_code) from None
-    return _to_read(tersimpan, version)
+    return _to_read(tersimpan, version, katalog=katalog)
 
 
 def get_case(db: Session, case_id: uuid.UUID) -> CaseRead:
     """Return the version that is in effect, or raise when the id does not exist."""
-    return _to_read(_require_case(db, case_id))
+    return _to_read(_require_case(db, case_id), katalog=legal_refs_service.load_catalog(db))
 
 
 def get_completeness(db: Session, case_id: uuid.UUID) -> CaseCompleteness:
@@ -100,7 +104,10 @@ def get_completeness(db: Session, case_id: uuid.UUID) -> CaseCompleteness:
     yang tersimpan, supaya baris lama tetap menjawab dengan formula terbaru.
     """
     case = _require_case(db, case_id)
-    return CaseCompleteness(**completeness.from_row(case))
+    katalog = legal_refs_service.load_catalog(db)
+    return CaseCompleteness(
+        **completeness.from_row(case, _citations(case.current_version, katalog))
+    )
 
 
 def list_cases(
@@ -113,7 +120,8 @@ def list_cases(
     """Return the short list for a suite that exists. Filters use the in-effect version."""
     _require_suite(db, suite_id)
     baris = repository.list_for_suite(db, suite_id, status=status, split_tag=split_tag)
-    return [_to_summary(case, version) for case, version in baris]
+    katalog = legal_refs_service.load_catalog(db)
+    return [_to_summary(case, version, katalog) for case, version in baris]
 
 
 def update_case(
@@ -135,7 +143,8 @@ def update_case(
     version = case.current_version
     _require_editable(version)
     _require_can_update(case, version, payload, actor_id=actor_id, is_admin=is_admin)
-    _require_known_types(db, payload, stored=(version.content or {}).get("legal_refs"))
+    katalog = legal_refs_service.load_catalog(db)
+    _require_known_types(katalog, payload, stored=(version.content or {}).get("legal_refs"))
     if payload.case_code != case.case_code:
         _require_free_code(db, payload.case_code)
     _write_version(case, version, payload, actor_id=actor_id)
@@ -144,7 +153,7 @@ def update_case(
     except IntegrityError:
         db.rollback()
         raise _code_taken(db, payload.case_code) from None
-    return _to_read(tersimpan, version)
+    return _to_read(tersimpan, version, katalog=katalog)
 
 
 def start_new_version(
@@ -197,7 +206,7 @@ def start_new_version(
             "Sudah ada versi yang masih berupa draf atau sedang ditinjau",
             code=VERSION_IN_PROGRESS,
         ) from None
-    return _to_read(case, version)
+    return _to_read(case, version, katalog=legal_refs_service.load_catalog(db))
 
 
 def submit_for_review(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -> ReviewSubmission:
@@ -213,7 +222,10 @@ def submit_for_review(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -
         raise ForbiddenError("Hanya penulis kasus yang boleh mengajukannya untuk direview")
     version = case.current_version
     _require_submittable(version)
-    kurang = completeness.review_blockers(completeness.row_data(case))
+    katalog = legal_refs_service.load_catalog(db)
+    kurang = completeness.review_blockers(
+        completeness.row_data(case, version, _citations(version, katalog))
+    )
     if kurang:
         raise ValidationError(
             "Kasus belum siap diajukan. Lengkapi bagian yang disebut di `missing`.",
@@ -260,7 +272,7 @@ def get_open_version(
         raise NotFoundError(
             "Kasus ini tidak punya versi yang sedang dikerjakan", code=NO_OPEN_VERSION
         )
-    return _to_read(case, case.current_version)
+    return _to_read(case, case.current_version, katalog=legal_refs_service.load_catalog(db))
 
 
 def list_case_versions(db: Session, case_id: uuid.UUID) -> list[VersionSummary]:
@@ -340,6 +352,7 @@ def review_copies(db: Session, version_ids: set[uuid.UUID]) -> dict[uuid.UUID, R
     if not version_ids:
         return {}
     copies: dict[uuid.UUID, ReviewCopy] = {}
+    katalog = legal_refs_service.load_catalog(db)
     for version, case in repository.versions_with_case(db, version_ids):
         isi = version.content or {}
         copies[version.id] = ReviewCopy(
@@ -354,7 +367,7 @@ def review_copies(db: Session, version_ids: set[uuid.UUID]) -> dict[uuid.UUID, R
                 "question": isi.get("question") or "",
                 "category": isi.get("category"),
             },
-            legal_refs=isi.get("legal_refs") or [],
+            legal_refs=_legal_refs_read(version, katalog),
             answer_criteria=isi.get("answer_criteria") or {},
             traps=isi.get("traps") or [],
         )
@@ -449,7 +462,12 @@ def _write_version(
     }
 
 
-def _to_read(case: Case, version: CaseVersion | None = None) -> CaseRead:
+def _to_read(
+    case: Case,
+    version: CaseVersion | None = None,
+    *,
+    katalog: legal_refs_service.TypeCatalog,
+) -> CaseRead:
     """Build the full read model. Status stays server-owned.
 
     Without an explicit version, the response is the version in effect.
@@ -465,7 +483,7 @@ def _to_read(case: Case, version: CaseVersion | None = None) -> CaseRead:
             "question": isi.get("question") or "",
             "category": isi.get("category"),
         },
-        legal_refs=isi.get("legal_refs") or [],
+        legal_refs=_legal_refs_read(versi, katalog),
         answer_criteria=isi.get("answer_criteria") or {},
         traps=isi.get("traps") or [],
         split_tag=versi.split_tag,
@@ -477,7 +495,9 @@ def _to_read(case: Case, version: CaseVersion | None = None) -> CaseRead:
     )
 
 
-def _to_summary(case: Case, version: CaseVersion) -> CaseSummary:
+def _to_summary(
+    case: Case, version: CaseVersion, katalog: legal_refs_service.TypeCatalog
+) -> CaseSummary:
     """Build the short list item from the version that is in effect.
 
     Completeness is recalculated. A stored pct can be stale after the
@@ -490,7 +510,7 @@ def _to_summary(case: Case, version: CaseVersion) -> CaseSummary:
         title=isi.get("title") or "",
         split_tag=version.split_tag,
         status=version.status,
-        completeness_pct=_pct_from_version(case, version),
+        completeness_pct=_pct_from_version(case, version, katalog),
         updated_at=version.updated_at,
     )
 
@@ -502,22 +522,34 @@ def _in_effect(case: Case) -> CaseVersion:
     return case.current_version
 
 
-def _pct_from_version(case: Case, version: CaseVersion) -> int:
+def _pct_from_version(
+    case: Case, version: CaseVersion, katalog: legal_refs_service.TypeCatalog
+) -> int:
     """Recalculate completeness from the version being shown."""
-    isi = version.content or {}
-    tag = version.split_tag
-    return int(
-        completeness.evaluate(
-            {
-                "case_code": case.case_code,
-                "identity": {"title": isi.get("title"), "question": isi.get("question")},
-                "legal_refs": isi.get("legal_refs") or [],
-                "answer_criteria": isi.get("answer_criteria") or {},
-                "traps": isi.get("traps") or [],
-                "split_tag": str(tag) if tag else None,
-            }
-        )["pct"]
-    )
+    data = completeness.row_data(case, version, _citations(version, katalog))
+    return int(completeness.evaluate(data)["pct"])
+
+
+def _citations(version: CaseVersion, katalog: legal_refs_service.TypeCatalog) -> list[dict]:
+    """The version's citations in the PBI-21 shape, Sprint 1 content included (AC9)."""
+    return katalog.citations((version.content or {}).get("legal_refs"))
+
+
+def _legal_refs_read(
+    version: CaseVersion, katalog: legal_refs_service.TypeCatalog
+) -> list[LegalRefRead]:
+    """Citations as returned by the API, each with its display_text (AC6, AC10)."""
+    nama = {
+        code: TypeName(label=label, singkatan=singkatan)
+        for code, (label, singkatan) in katalog.names.items()
+    }
+    hasil: list[LegalRefRead] = []
+    for isi in _citations(version, katalog):
+        tersimpan = LegalRefStored.model_validate(isi)
+        hasil.append(
+            LegalRefRead(**tersimpan.model_dump(), display_text=citation_text(tersimpan, nama))
+        )
+    return hasil
 
 
 def _completeness_pct(mentah: dict | None) -> int:
@@ -595,9 +627,10 @@ def _require_active_suite(db: Session, suite_id: uuid.UUID) -> None:
         )
 
 
-def _require_known_types(db: Session, payload: CaseWrite, *, stored: object) -> None:
+def _require_known_types(
+    katalog: legal_refs_service.TypeCatalog, payload: CaseWrite, *, stored: object
+) -> None:
     """AC2: link types are in the list; a deactivated one only if this version stored it."""
-    katalog = legal_refs_service.load_catalog(db)
     tersimpan = {
         link["regulation_type"]
         for rujukan in katalog.citations(stored)

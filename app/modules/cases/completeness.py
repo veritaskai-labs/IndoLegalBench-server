@@ -104,23 +104,26 @@ def review_blockers(data: dict[str, Any]) -> list[dict[str, str]]:
     return blockers
 
 
-def from_row(case: Any) -> dict[str, Any]:
+def from_row(case: Any, legal_refs: list[dict[str, Any]]) -> dict[str, Any]:
     """Hitung ulang dari versi yang sedang dikerjakan, bukan dari salinan tersimpan.
 
     Isi ada di `current_version.content`. Kode kasus tetap di baris identitas.
     """
-    return evaluate(row_data(case))
+    return evaluate(row_data(case, case.current_version, legal_refs))
 
 
-def row_data(case: Any) -> dict[str, Any]:
-    """Bentuk body kasus dari versi yang sedang dikerjakan."""
-    versi = case.current_version
+def row_data(case: Any, versi: Any, legal_refs: list[dict[str, Any]]) -> dict[str, Any]:
+    """Bentuk body kasus dari satu versi.
+
+    legal_refs diberikan pemanggil dalam bentuk PBI-21, karena content versi
+    lama masih bentuk Sprint 1 dan pembacanya butuh daftar jenis (SCRUM-160).
+    """
     isi = versi.content or {}
     tag = versi.split_tag
     return {
         "case_code": case.case_code,
         "identity": {"title": isi.get("title"), "question": isi.get("question")},
-        "legal_refs": isi.get("legal_refs") or [],
+        "legal_refs": legal_refs,
         "answer_criteria": isi.get("answer_criteria") or {},
         "traps": isi.get("traps") or [],
         "split_tag": str(tag) if tag else None,
