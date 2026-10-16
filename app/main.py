@@ -137,6 +137,7 @@ app.include_router(snapshot_router)  # SCRUM-137 suite snapshots
 app.include_router(cases_router)  # PBI-3
 app.include_router(reviews_router)  # PBI-6
 app.include_router(providers_router)  # PBI-10
+app.include_router(reviews_router)  # PBI-6
 app.include_router(runs_router)  # Sprint 3
 app.include_router(reports_router)  # Sprint 4
 app.include_router(audit_router)  # PBI-18
