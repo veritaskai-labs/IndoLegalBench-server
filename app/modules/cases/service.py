@@ -82,7 +82,7 @@ def create_case(
         created_by=actor_id,
         based_on_version_id=None,
     )
-    _write_version(case, version, payload, actor_id=actor_id)
+    _write_version(db, case, version, payload, actor_id=actor_id)
     _catat_versi_baru(version)
     try:
         tersimpan = repository.create(db, case, version)
@@ -147,7 +147,7 @@ def update_case(
     _require_known_types(katalog, payload, stored=(version.content or {}).get("legal_refs"))
     if payload.case_code != case.case_code:
         _require_free_code(db, payload.case_code)
-    _write_version(case, version, payload, actor_id=actor_id)
+    _write_version(db, case, version, payload, actor_id=actor_id)
     try:
         tersimpan = repository.save(db, case)
     except IntegrityError:
@@ -197,6 +197,12 @@ def start_new_version(
     )
     case.current_version_id = version_id
     case.updated_by = actor_id
+    katalog = legal_refs_service.load_catalog(db)
+    # The new draft gets its own rows, built from the approved content by the
+    # same writer as a save, so Sprint 1 content lands in the PBI-21 shape.
+    legal_refs_service.replace_for_version(
+        db, version_id, katalog.citations((approved.content or {}).get("legal_refs"))
+    )
     _catat_versi_baru(version)
     try:
         repository.create(db, case, version)
@@ -206,7 +212,7 @@ def start_new_version(
             "Sudah ada versi yang masih berupa draf atau sedang ditinjau",
             code=VERSION_IN_PROGRESS,
         ) from None
-    return _to_read(case, version, katalog=legal_refs_service.load_catalog(db))
+    return _to_read(case, version, katalog=katalog)
 
 
 def submit_for_review(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -> ReviewSubmission:
@@ -443,9 +449,14 @@ def _catat_versi_baru(version: CaseVersion) -> None:
 
 
 def _write_version(
-    case: Case, version: CaseVersion, payload: CaseWrite, *, actor_id: uuid.UUID
+    db: Session, case: Case, version: CaseVersion, payload: CaseWrite, *, actor_id: uuid.UUID
 ) -> None:
-    """Copy the write body onto the version and store the completeness indicator."""
+    """Copy the write body onto the version, with its completeness and its citation rows.
+
+    The one place a save writes: content["legal_refs"] (what the API reads)
+    and the SCRUM-159 tables go into the same session, so the caller's
+    commit stores both or neither (PBI-21 dual write).
+    """
     data = payload.model_dump(mode="json")
     case.case_code = payload.case_code
     case.updated_by = actor_id
@@ -460,6 +471,7 @@ def _write_version(
         "traps": data["traps"],
         "completeness": validation.completeness(data),
     }
+    legal_refs_service.replace_for_version(db, version.id, data["legal_refs"])
 
 
 def _to_read(
