@@ -48,7 +48,7 @@ def dep():
         id=TUGAS,
         reviewer_id=SAYA,
         review_round_id=ronde.id,
-        round=ronde,
+        review_round=ronde,
         status=AssignmentStatus.ACTIVE,
         verdict=None,
     )

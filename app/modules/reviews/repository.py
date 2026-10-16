@@ -34,6 +34,30 @@ def add_round(db: Session, ronde: ReviewRound) -> None:
     db.flush()
 
 
+def get_round(db: Session, round_id: uuid.UUID) -> ReviewRound | None:
+    """Satu round, atau None bila id-nya tidak ada."""
+    return db.get(ReviewRound, round_id)
+
+
+def reviewer_assignments(
+    db: Session, reviewer_ids: Sequence[uuid.UUID]
+) -> Sequence[tuple[ReviewAssignment, bool]]:
+    """Setiap penugasan reviewer ini, plus apakah sudah punya verdict."""
+    if not reviewer_ids:
+        return []
+    baris = db.execute(
+        select(ReviewAssignment, ReviewVerdict.id.is_not(None))
+        .outerjoin(ReviewVerdict, ReviewVerdict.assignment_id == ReviewAssignment.id)
+        .where(ReviewAssignment.reviewer_id.in_(reviewer_ids))
+    ).all()
+    return [(tugas, bool(punya_verdict)) for tugas, punya_verdict in baris]
+
+
+def add_assignment(db: Session, tugas: ReviewAssignment) -> None:
+    """Tambahkan penugasan. Pemanggil yang flush, supaya satu round cukup sekali."""
+    db.add(tugas)
+
+
 def case_ids_assigned_to(db: Session, reviewer_id: uuid.UUID) -> Sequence[uuid.UUID]:
     """Kasus yang pernah ditugaskan ke reviewer ini, apa pun status assignment-nya."""
     return db.scalars(
@@ -55,7 +79,7 @@ def get_assignment(
     """
     query = (
         select(ReviewAssignment)
-        .options(joinedload(ReviewAssignment.round), joinedload(ReviewAssignment.verdict))
+        .options(joinedload(ReviewAssignment.review_round), joinedload(ReviewAssignment.verdict))
         .where(ReviewAssignment.id == assignment_id)
     )
     if fresh:
@@ -93,8 +117,8 @@ def open_assignments_for(db: Session, reviewer_id: uuid.UUID) -> Sequence[Review
     """Tugas aktif reviewer ini di round yang masih open, round terlama lebih dulu."""
     return db.scalars(
         select(ReviewAssignment)
-        .join(ReviewAssignment.round)
-        .options(joinedload(ReviewAssignment.round), joinedload(ReviewAssignment.verdict))
+        .join(ReviewAssignment.review_round)
+        .options(joinedload(ReviewAssignment.review_round), joinedload(ReviewAssignment.verdict))
         .where(
             ReviewAssignment.reviewer_id == reviewer_id,
             ReviewAssignment.status == AssignmentStatus.ACTIVE,

@@ -1,8 +1,9 @@
 """Blind verdict dan keputusan review lewat HTTP. PBI-6 AC2-AC7, SCRUM-145.
 
-Alur D3 langkah 16-41. Penugasan otomatis (SCRUM-144) belum memasang
-reviewer saat pengajuan, jadi round dibuka dan dua assignment ditanam
-langsung di database setelah Author mengajukan.
+Alur D3 langkah 1-41 dari ujung ke ujung: Author mengajukan, penugasan
+otomatis SCRUM-144 memasang Reviewer A dan B lalu membuka round, kemudian
+keduanya menilai. Kasus di luar alur itu (penulis yang ditugaskan) masih
+menanam assignment langsung lewat _buka_round.
 """
 
 import uuid
@@ -54,9 +55,13 @@ def kasus(as_role, db_session):
     )
     db_session.commit()
     case_id = _buat(client, _suite(client)).json()["id"]
-    assert client.post(f"/cases/{case_id}/submit-review").status_code == 200
-    tugas = _buka_round(db_session, case_id, [REVIEWER_A, REVIEWER_B])
-    return client, case_id, tugas
+    diajukan = client.post(f"/cases/{case_id}/submit-review")
+    assert diajukan.status_code == 200
+    assert diajukan.json()["round_status"] == "open"
+    ronde = db_session.query(ReviewRound).filter_by(case_id=uuid.UUID(case_id)).one()
+    tugas = db_session.query(ReviewAssignment).filter_by(review_round_id=ronde.id).all()
+    assert {t.reviewer_id for t in tugas} == {REVIEWER_A, REVIEWER_B}
+    return client, case_id, {t.reviewer_id: str(t.id) for t in tugas}
 
 
 def _buka_round(db_session, case_id: str, reviewers: list[uuid.UUID]) -> dict[uuid.UUID, str]:

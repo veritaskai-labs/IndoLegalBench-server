@@ -1,9 +1,8 @@
-"""Ketergantungan penugasan reviewer yang belum ada di staging.
+"""Port penugasan reviewer dan notifikasi.
 
-PBI-6, SCRUM-144. Tabel review milik SCRUM-143 dan notifikasi milik
-SCRUM-153 belum tersedia, jadi service bergantung pada dua port ini.
-Port hanya memakai id dan nilai biasa, tanpa nama tabel atau kolom,
-supaya cocok dengan bentuk tabel apa pun yang dipilih SCRUM-143.
+PBI-6, SCRUM-144. Notifikasi milik SCRUM-153 belum ada, jadi pemanggilan
+notify lewat port. Penyimpanan penugasan memakai tabel review lewat
+ReviewTableStore di reviews.service. Tes boleh menyuntik penyimpanan palsu.
 """
 
 import uuid
@@ -26,7 +25,7 @@ class ReviewerLoad:
 class AssignmentStore(Protocol):
     """Penyimpanan penugasan review.
 
-    TODO(SCRUM-143): implementasikan di atas review_rounds,
+    ReviewTableStore di reviews.service memakai review_rounds,
     review_assignments, dan review_verdicts.
     """
 
@@ -58,7 +57,7 @@ class Notifier(Protocol):
 
 
 class NoopNotifier:
-    """Pengganti sementara supaya SCRUM-143 bisa memanggil penugasan lebih dulu.
+    """Pengganti sementara supaya submit bisa memanggil penugasan lebih dulu.
 
     TODO(SCRUM-153): ganti dengan notification service.
     """

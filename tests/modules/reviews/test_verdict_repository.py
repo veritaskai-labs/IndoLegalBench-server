@@ -62,7 +62,7 @@ def test_assignment_dimuat_bersama_round_dan_verdict(db_session):
     hasil = repository.get_assignment(db_session, tugas.id)
 
     # Assert
-    assert hasil.round.case_id == KASUS
+    assert hasil.review_round.case_id == KASUS
     assert hasil.verdict.decision == VerdictDecision.APPROVE
 
 

@@ -1,8 +1,9 @@
 """Test penugasan reviewer otomatis, reviews.service.assign_on_submit().
 
-PBI-6 AC2 dan AC8, sub task SCRUM-144. Tabel review (SCRUM-143) dan
-notifikasi (SCRUM-153) belum ada, jadi keduanya diganti fake lewat port.
-Pengguna dan audit log memakai database uji yang asli.
+PBI-6 AC2 dan AC8, sub task SCRUM-144. Ranking dan antrean diuji lewat
+FakeStore. Penyimpanan nyata (ReviewTableStore) dan audit D6a
+(review.reviewer_assigned per assignment) diuji terpisah. Notifikasi
+masih port (SCRUM-153).
 """
 
 import uuid
@@ -123,8 +124,13 @@ def _tugaskan(db, store, notifier, *, author_id: uuid.UUID, round_id: uuid.UUID 
     )
 
 
-def _baris_audit(db) -> list[AuditLog]:
+def _baris_audit_lama(db) -> list[AuditLog]:
+    """Bentuk lama review.assigned + reviewer_ids; harus hilang setelah D6a."""
     return db.query(AuditLog).filter(AuditLog.action == "review.assigned").all()
+
+
+def _baris_reviewer_assigned(db) -> list[AuditLog]:
+    return db.query(AuditLog).filter(AuditLog.action == "review.reviewer_assigned").all()
 
 
 def test_penulis_tidak_pernah_terpilih_walau_reviewer_aktif(db_session, buat_user, store, notifier):
@@ -304,7 +310,8 @@ def test_kurang_dari_dua_masuk_antrean_penugasan(
     assert store.perlu_penugasan == [round_id]
     assert store.penugasan == []
     assert notifier.panggilan == []
-    assert _baris_audit(db_session) == []
+    assert _baris_audit_lama(db_session) == []
+    assert _baris_reviewer_assigned(db_session) == []
 
 
 def test_penulis_reviewer_dan_satu_reviewer_lain_masuk_antrean(
@@ -324,7 +331,10 @@ def test_penulis_reviewer_dan_satu_reviewer_lain_masuk_antrean(
     assert store.perlu_penugasan == [round_id]
 
 
-def test_dua_terpilih_disimpan_dinotifikasi_dan_diaudit(db_session, buat_user, store, notifier):
+def test_dua_terpilih_disimpan_dan_dinotifikasi_tanpa_audit_manual(
+    db_session, buat_user, store, notifier
+):
+    """FakeStore tidak menulis baris ORM; audit D6a datang dari tracker saat store nyata."""
     # Arrange
     penulis = buat_user(1, Role.AUTHOR)
     reviewer = [buat_user(2), buat_user(3)]
@@ -347,28 +357,131 @@ def test_dua_terpilih_disimpan_dinotifikasi_dan_diaudit(db_session, buat_user, s
     assert set(payload) == {"title", "body", "link"}
     assert payload["link"] == f"/cases/{CASE_ID}"
 
-    [baris] = _baris_audit(db_session)
-    assert baris.entity_type == "review"
-    assert baris.entity_id == round_id
-    assert baris.case_id == CASE_ID
-    assert baris.after == {"reviewer_ids": [str(r) for r in reviewer]}
-    assert baris.actor_user_id == penulis
-    assert baris.actor_role == "author"
+    assert _baris_audit_lama(db_session) == []
+    assert _baris_reviewer_assigned(db_session) == []
 
 
-def test_tidak_commit_sendiri(db_session, buat_user, store, notifier):
+def test_store_nyata_membuka_round_dan_mencatat_satu_audit_per_assignment(
+    db_session, buat_user, notifier
+):
+    """ReviewTableStore + D6a: round open, dua baris review.reviewer_assigned."""
+    from app.modules.reviews.models import (
+        AssignmentSource,
+        ReviewAssignment,
+        ReviewRound,
+        RoundStatus,
+    )
+
+    # Arrange
+    penulis = buat_user(1, Role.AUTHOR)
+    reviewer = [buat_user(2), buat_user(3)]
+    request_context.bind(db_session, user_id=penulis, role=Role.AUTHOR)
+    ronde = ReviewRound(
+        case_id=CASE_ID,
+        case_version_id=uuid.uuid4(),
+        round_no=1,
+        status=RoundStatus.AWAITING_ASSIGNMENT,
+    )
+    db_session.add(ronde)
+    db_session.flush()
+
+    # Act
+    terpilih = service.assign_on_submit(
+        db_session,
+        round_id=ronde.id,
+        case_id=CASE_ID,
+        author_id=penulis,
+        notifier=notifier,
+    )
+    db_session.commit()
+
+    # Assert
+    assert sorted(terpilih) == sorted(reviewer)
+    db_session.refresh(ronde)
+    assert ronde.status == RoundStatus.OPEN
+    tugas = (
+        db_session.query(ReviewAssignment)
+        .filter(ReviewAssignment.review_round_id == ronde.id)
+        .all()
+    )
+    assert {t.reviewer_id for t in tugas} == set(reviewer)
+    assert all(t.source == AssignmentSource.SYSTEM for t in tugas)
+
+    assert _baris_audit_lama(db_session) == []
+    baris = _baris_reviewer_assigned(db_session)
+    assert len(baris) == 2
+    assert {b.entity_id for b in baris} == {t.id for t in tugas}
+    assert all(b.entity_type == "review" for b in baris)
+    assert all(b.case_id == CASE_ID for b in baris)
+    assert {frozenset(b.after.items()) for b in baris} == {
+        frozenset({"reviewer_id": str(r), "source": "system"}.items()) for r in reviewer
+    }
+    assert all(b.actor_user_id == penulis for b in baris)
+
+
+def test_store_nyata_kurang_dari_dua_tetap_awaiting(db_session, buat_user, notifier):
+    from app.modules.reviews.models import ReviewRound, RoundStatus
+
+    # Arrange
+    penulis = buat_user(1, Role.AUTHOR)
+    buat_user(2)
+    ronde = ReviewRound(
+        case_id=CASE_ID,
+        case_version_id=uuid.uuid4(),
+        round_no=1,
+        status=RoundStatus.AWAITING_ASSIGNMENT,
+    )
+    db_session.add(ronde)
+    db_session.flush()
+
+    # Act
+    terpilih = service.assign_on_submit(
+        db_session,
+        round_id=ronde.id,
+        case_id=CASE_ID,
+        author_id=penulis,
+        notifier=notifier,
+    )
+    db_session.commit()
+
+    # Assert
+    assert terpilih == []
+    db_session.refresh(ronde)
+    assert ronde.status == RoundStatus.AWAITING_ASSIGNMENT
+    assert _baris_reviewer_assigned(db_session) == []
+
+
+def test_tidak_commit_sendiri(db_session, buat_user, notifier):
     """Submit SCRUM-143 memegang transaksi: gagal di sana, audit penugasan ikut batal."""
+    from app.modules.reviews.models import ReviewRound, RoundStatus
+
     # Arrange
     penulis = buat_user(1, Role.AUTHOR)
     buat_user(2)
     buat_user(3)
+    request_context.bind(db_session, user_id=penulis, role=Role.AUTHOR)
+    ronde = ReviewRound(
+        case_id=CASE_ID,
+        case_version_id=uuid.uuid4(),
+        round_no=1,
+        status=RoundStatus.AWAITING_ASSIGNMENT,
+    )
+    db_session.add(ronde)
+    db_session.flush()
 
     # Act
-    _tugaskan(db_session, store, notifier, author_id=penulis)
+    service.assign_on_submit(
+        db_session,
+        round_id=ronde.id,
+        case_id=CASE_ID,
+        author_id=penulis,
+        notifier=notifier,
+    )
     db_session.rollback()
 
     # Assert
-    assert _baris_audit(db_session) == []
+    assert _baris_audit_lama(db_session) == []
+    assert _baris_reviewer_assigned(db_session) == []
 
 
 def test_noop_notifier_menerima_panggilan_tanpa_efek():

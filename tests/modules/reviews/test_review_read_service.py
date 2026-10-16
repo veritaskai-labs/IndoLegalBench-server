@@ -41,7 +41,7 @@ def _tugas(reviewer_id, ronde, verdict=None, status=AssignmentStatus.ACTIVE):
     return SimpleNamespace(
         id=uuid.uuid4(),
         reviewer_id=reviewer_id,
-        round=ronde,
+        review_round=ronde,
         status=status,
         verdict=verdict,
         assigned_at=WAKTU,

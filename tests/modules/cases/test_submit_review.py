@@ -1,16 +1,17 @@
-"""Author mengajukan kasus untuk direview. PBI-6 AC1, SCRUM-143.
+"""Author mengajukan kasus untuk direview. PBI-6 AC1, SCRUM-143/144.
 
 Alur mengikuti D3 langkah 1-12: guard D2 (kelengkapan 100%, tag terisi,
-rujukan hukum valid), versi jadi in_review, dan round baru dibuat dalam
-satu transaksi.
+rujukan hukum valid), versi jadi in_review, round baru dibuat, dan
+SCRUM-144 menugaskan dua reviewer bila ada cukup kandidat.
 """
 
 import uuid
 
 import pytest
 
+from app.modules.auth.models import User
 from app.modules.cases.models import Case, CaseStatus
-from app.modules.reviews.models import ReviewRound, RoundStatus
+from app.modules.reviews.models import ReviewAssignment, ReviewRound, RoundStatus
 from app.shared.security import Role
 from tests.modules.cases.test_cases import AUTHOR_LAIN, _buat, _ganti, _setujui, _suite
 
@@ -34,6 +35,7 @@ def _status_versi(db_session, case_id: str) -> CaseStatus:
 
 
 def test_kasus_lengkap_diajukan_jadi_in_review_dengan_round_satu(as_role, db_session):
+    """Tanpa reviewer aktif lain, round tetap awaiting_assignment (AC8)."""
     # Arrange
     client = as_role(Role.AUTHOR)
     case_id = _buat(client, _suite(client)).json()["id"]
@@ -54,6 +56,38 @@ def test_kasus_lengkap_diajukan_jadi_in_review_dengan_round_satu(as_role, db_ses
     [ronde] = _rounds(db_session, case_id)
     assert ronde.round_no == 1
     assert ronde.status == RoundStatus.AWAITING_ASSIGNMENT
+
+
+def test_dua_reviewer_aktif_membuka_round_dan_menyimpan_assignment(as_role, db_session):
+    """SCRUM-144 / D3: dua reviewer tersimpan → round status open."""
+    # Arrange
+    client = as_role(Role.AUTHOR)
+    case_id = _buat(client, _suite(client)).json()["id"]
+    for i in (1, 2):
+        db_session.add(
+            User(
+                email=f"reviewer{i}@veritask.test",
+                name=f"Reviewer {i}",
+                role=Role.REVIEWER,
+                is_active=True,
+            )
+        )
+    db_session.commit()
+
+    # Act
+    response = _ajukan(client, case_id)
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json()["round_status"] == "open"
+    [ronde] = _rounds(db_session, case_id)
+    assert ronde.status == RoundStatus.OPEN
+    tugas = (
+        db_session.query(ReviewAssignment)
+        .filter(ReviewAssignment.review_round_id == ronde.id)
+        .all()
+    )
+    assert len(tugas) == 2
 
 
 def test_kasus_belum_lengkap_ditolak_dengan_daftar_kekurangan(as_role, db_session):

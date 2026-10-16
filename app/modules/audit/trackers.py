@@ -211,6 +211,28 @@ class ReviewRoundTracker(Tracker):
         ]
 
 
+class ReviewAssignmentTracker(Tracker):
+    """Penugasan reviewer (PBI-6 AC2, SCRUM-144, katalog D6a).
+
+    Satu baris audit per assignment: review.reviewer_assigned, entity_id
+    = assignment id, after = {reviewer_id, source}. replaced / voided
+    menyusul di SCRUM-147.
+    """
+
+    entity_type = AuditEntityType.REVIEW
+    prefix = "review"
+    created_action = "reviewer_assigned"
+    created_fields = ("reviewer_id", "source")
+
+    def case_id(self, row: Any) -> uuid.UUID | None:
+        # Prefer the in-memory relationship set by ReviewTableStore so
+        # after_flush does not lazy-load mid-flush.
+        ronde = row.__dict__.get("review_round")
+        if ronde is not None:
+            return ronde.case_id
+        return None
+
+
 class ReviewVerdictTracker(Tracker):
     """Penilaian reviewer (PBI-6 AC4, SCRUM-145), catatan D6a review.verdict_submitted.
 
@@ -227,7 +249,7 @@ class ReviewVerdictTracker(Tracker):
     def case_id(self, row: Any) -> uuid.UUID | None:
         # Assignment dan round sudah dimuat service sebelum verdict disimpan,
         # jadi ini dibaca dari identity map tanpa query di tengah flush.
-        return row.assignment.round.case_id
+        return row.assignment.review_round.case_id
 
     def created(self, row: Any) -> list[AuditEvent]:
         return [
@@ -307,6 +329,7 @@ TRACKERS: dict[str, Tracker] = {
     "cases": CaseTracker(),
     "case_versions": CaseVersionTracker(),
     "review_rounds": ReviewRoundTracker(),
+    "review_assignments": ReviewAssignmentTracker(),
     "review_verdicts": ReviewVerdictTracker(),
     "ai_products": AiProductTracker(),
     "users": UserTracker(),

@@ -1,13 +1,19 @@
 """Query reviews.repository terhadap database uji.
 
-PBI-6, SCRUM-143. Yang diuji di sini adalah query-nya sendiri, jadi
+PBI-6, SCRUM-143/144. Yang diuji di sini adalah query-nya sendiri, jadi
 memakai SQLite in-memory, bukan mock.
 """
 
 import uuid
 
 from app.modules.reviews import repository
-from app.modules.reviews.models import AssignmentStatus, ReviewAssignment, ReviewRound
+from app.modules.reviews.models import (
+    AssignmentStatus,
+    ReviewAssignment,
+    ReviewRound,
+    ReviewVerdict,
+    VerdictDecision,
+)
 
 KASUS_1 = uuid.UUID("00000000-0000-0000-0000-0000000000c1")
 KASUS_2 = uuid.UUID("00000000-0000-0000-0000-0000000000c2")
@@ -99,3 +105,44 @@ def test_kasus_yang_direview_di_beberapa_round_muncul_sekali(db_session):
 
     # Assert
     assert hasil == [KASUS_1]
+
+
+def test_get_round_mengembalikan_ronde_atau_none(db_session):
+    # Arrange
+    ronde = _round(db_session, KASUS_1)
+
+    # Act + Assert
+    assert repository.get_round(db_session, ronde.id) is ronde
+    assert repository.get_round(db_session, uuid.uuid4()) is None
+
+
+def test_reviewer_assignments_menandai_yang_sudah_punya_verdict(db_session):
+    # Arrange
+    ronde = _round(db_session, KASUS_1)
+    tugas = ReviewAssignment(review_round_id=ronde.id, reviewer_id=REVIEWER)
+    db_session.add(tugas)
+    db_session.flush()
+    db_session.add(ReviewVerdict(assignment_id=tugas.id, decision=VerdictDecision.APPROVE))
+    db_session.flush()
+    _tugaskan(db_session, _round(db_session, KASUS_2), REVIEWER)
+
+    # Act
+    hasil = list(repository.reviewer_assignments(db_session, [REVIEWER]))
+
+    # Assert
+    assert len(hasil) == 2
+    by_round = {tugas.review_round_id: punya for tugas, punya in hasil}
+    assert by_round[ronde.id] is True
+    assert False in by_round.values()
+
+
+def test_add_assignment_tidak_flush(db_session):
+    # Arrange
+    ronde = _round(db_session, KASUS_1)
+    tugas = ReviewAssignment(review_round_id=ronde.id, reviewer_id=REVIEWER)
+
+    # Act
+    repository.add_assignment(db_session, tugas)
+
+    # Assert
+    assert tugas in db_session.new

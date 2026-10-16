@@ -220,7 +220,9 @@ def submit_for_review(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -
     version.status = CaseStatus.IN_REVIEW
     case.updated_by = actor_id
     try:
-        ronde = reviews_service.open_round(db, case_id=case.id, case_version_id=version.id)
+        ronde = reviews_service.open_round(
+            db, case_id=case.id, case_version_id=version.id, author_id=actor_id
+        )
         repository.save(db, case)
     except IntegrityError:
         # Pengajuan lain untuk versi yang sama menang lebih dulu.
