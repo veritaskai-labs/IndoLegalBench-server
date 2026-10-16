@@ -71,6 +71,7 @@ jobs:
       # staging it only refreshes the dashboard and never fails the build.
       # The step skips itself while the SONAR_TOKEN secret is unset.
       - name: SonarQube scan
+        id: sonar
         if: >-
           env.SONAR_TOKEN != '' && (
             (github.event_name == 'pull_request' && github.base_ref == 'staging') ||
@@ -81,6 +82,35 @@ jobs:
           args: >-
             -Dsonar.qualitygate.wait=${{ github.event_name == 'pull_request' }}
             -Dsonar.qualitygate.timeout=300
+
+      # Most of us cannot open the campus SonarQube from home, so a red gate
+      # prints its failed conditions, new issues and unreviewed hotspots here.
+      # Issues and hotspots also show up as annotations on the PR's changed files.
+      # Only reviewing a hotspot still needs the SonarQube page.
+      - name: Explain a red quality gate
+        if: failure() && steps.sonar.outcome == 'failure'
+        env:
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          key=$(sed -n 's/^sonar.projectKey=//p' sonar-project.properties)
+          api() { curl -fsS -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/$1&pullRequest=$PR"; }
+          strip='sub("^[^:]*:"; "")'
+
+          echo "Failed quality gate conditions:"
+          api "qualitygates/project_status?projectKey=$key" | jq -r '
+            .projectStatus.conditions[] | select(.status == "ERROR")
+            | "  \(.metricKey) is \(.actualValue), fails when \(if .comparator == "LT" then "below" else "above" end) \(.errorThreshold)"' \
+            || echo "  could not reach SonarQube, the scan itself may have failed (see the step above)"
+
+          echo "New issues:"
+          api "issues/search?componentKeys=$key&resolved=false&ps=100" | jq -r "
+            .issues[] | \"::warning file=\(.component | $strip),line=\(.line // 1)::\(.message) (\(.rule))\"" \
+            || echo "  could not list issues"
+
+          echo "Security hotspots to review on the SonarQube page:"
+          api "hotspots/search?projectKey=$key&status=TO_REVIEW&ps=100" | jq -r "
+            .hotspots[] | \"::warning file=\(.component | $strip),line=\(.line // 1)::Security hotspot: \(.message)\"" \
+            || echo "  could not list hotspots"
 
       # Catches a changed schemas.py where openapi.json was not regenerated.
       - name: Check OpenAPI contract is up to date
