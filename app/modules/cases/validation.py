@@ -11,7 +11,9 @@ TODO(SCRUM-103): adjust the field shape if the signed Case contract differs.
 """
 
 import re
+from datetime import datetime
 from typing import Any, NoReturn
+from zoneinfo import ZoneInfo
 
 from app.modules.cases import completeness as completeness_module
 from app.shared.exceptions import ValidationError
@@ -26,6 +28,10 @@ CASE_CODE_INVALID = "CASE_CODE_INVALID"
 FIELD_REQUIRED = "FIELD_REQUIRED"
 FIELD_NOT_ALLOWED = "FIELD_NOT_ALLOWED"
 CONNECTOR_INVALID = "CONNECTOR_INVALID"
+YEAR_IN_FUTURE = "YEAR_IN_FUTURE"
+
+# Tahun berjalan dihitung di zona waktu tim (keputusan PO 17 Okt).
+WIB = ZoneInfo("Asia/Jakarta")
 VALIDATION_ERROR = "VALIDATION_ERROR"
 
 _TAG_SAH = completeness_module.TAG_SAH
@@ -34,12 +40,23 @@ _FIELD_TERLARANG = completeness_module.FIELD_TERLARANG_PER_BENTUK
 _LABEL_BENTUK = {"name_only": "Nama Peraturan", "pasal": "Pasal", "pasal_angka": "Pasal + Angka"}
 
 
-def validate_payload(data: dict[str, Any]) -> None:
-    """Reject a payload that breaks the save rules. A clean return may be stored."""
+def validate_payload(data: dict[str, Any], *, tahun_ini: int | None = None) -> None:
+    """Reject a payload that breaks the save rules. A clean return may be stored.
+
+    tahun_ini is the current year for the citation year rule. Tests pass it;
+    otherwise it comes from current_year_wib().
+    """
     _require_case_code(data.get("case_code"))
     _require_identity(data.get("identity"))
     _require_split_tag(data.get("split_tag"))
-    _require_legal_refs(data.get("legal_refs"))
+    tahun = tahun_ini if tahun_ini is not None else current_year_wib()
+    _require_legal_refs(data.get("legal_refs"), tahun)
+
+
+def current_year_wib(now: datetime | None = None) -> int:
+    """The current year in Asia/Jakarta. `now` must be timezone-aware when given."""
+    saat = now if now is not None else datetime.now(WIB)
+    return saat.astimezone(WIB).year
 
 
 def completeness(data: dict[str, Any]) -> dict[str, Any]:
@@ -114,7 +131,7 @@ def _require_split_tag(nilai: Any) -> None:
         )
 
 
-def _require_legal_refs(nilai: Any) -> None:
+def _require_legal_refs(nilai: Any, tahun_ini: int) -> None:
     """Require at least one citation, each complete for its kind and link forms (PBI-21)."""
     if not isinstance(nilai, list) or len(nilai) < 1:
         raise ValidationError(
@@ -127,10 +144,10 @@ def _require_legal_refs(nilai: Any) -> None:
         if kurang is not None:
             field = f"legal_refs[{indeks}]{kurang}"
             raise ValidationError(f"Field {field} wajib diisi", code=FIELD_REQUIRED, field=field)
-        _check_ref_rules(f"legal_refs[{indeks}]", rujukan)
+        _check_ref_rules(f"legal_refs[{indeks}]", rujukan, tahun_ini)
 
 
-def _check_ref_rules(awalan: str, rujukan: dict[str, Any]) -> None:
+def _check_ref_rules(awalan: str, rujukan: dict[str, Any], tahun_ini: int) -> None:
     """Rules that need a complete citation, link by link in reading order.
 
     Runs after missing_in_ref, so kind, links, and every form are known to be valid.
@@ -142,25 +159,36 @@ def _check_ref_rules(awalan: str, rujukan: dict[str, Any]) -> None:
     if _text(rujukan.get("free_text")):
         _not_allowed(f"{awalan}.free_text", "hanya untuk Teks Bebas")
     for posisi, link in enumerate(rujukan["links"]):
-        _check_link(f"{awalan}.links[{posisi}]", posisi, link)
+        _check_link(f"{awalan}.links[{posisi}]", posisi, link, tahun_ini)
 
 
-def _check_link(awalan: str, posisi: int, link: dict[str, Any]) -> None:
-    """Unused fields for the form, then the connector (AC6)."""
+def _check_link(awalan: str, posisi: int, link: dict[str, Any], tahun_ini: int) -> None:
+    """Unused fields for the form, the connector (AC6), then the year."""
     bentuk = link["form"]
     for nama in _FIELD_TERLARANG[bentuk]:
         if _text(link.get(nama)):
             _not_allowed(
                 f"{awalan}.{nama}", f"tidak boleh diisi untuk bentuk {_LABEL_BENTUK[bentuk]}"
             )
-    tanpa_penghubung = link.get("connector") == "none"
-    if posisi == 0 and not tanpa_penghubung:
-        pesan = "Peraturan pertama tidak memakai penghubung"
-    elif posisi > 0 and tanpa_penghubung:
-        pesan = f"Peraturan ke-{posisi + 1} wajib disambung dengan jo. atau jis."
-    else:
-        return
-    raise ValidationError(pesan, code=CONNECTOR_INVALID, field=f"{awalan}.connector")
+    pesan = _connector_problem(posisi, link.get("connector"))
+    if pesan is not None:
+        raise ValidationError(pesan, code=CONNECTOR_INVALID, field=f"{awalan}.connector")
+    # Setelah missing_in_ref dan schema, year pasti int.
+    if link["year"] > tahun_ini:
+        raise ValidationError(
+            f"Tahun tidak boleh melewati {tahun_ini}",
+            code=YEAR_IN_FUTURE,
+            field=f"{awalan}.year",
+        )
+
+
+def _connector_problem(posisi: int, penghubung: Any) -> str | None:
+    """AC6: the first link has no connector, every next link uses jo or jis."""
+    if posisi == 0 and penghubung != "none":
+        return "Peraturan pertama tidak memakai penghubung"
+    if posisi > 0 and penghubung == "none":
+        return f"Peraturan ke-{posisi + 1} wajib disambung dengan jo. atau jis."
+    return None
 
 
 def _not_allowed(field: str, alasan: str) -> NoReturn:
