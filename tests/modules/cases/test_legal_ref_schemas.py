@@ -14,16 +14,22 @@ dikonfirmasi tim legal). Nilai lain ("1", "1A", "IV", 2020, dst.) adalah
 input format sintetis, bukan contoh tim legal.
 """
 
+from typing import get_args
+
 import pytest
 from pydantic import ValidationError as KesalahanPydantic
 
 from app.modules.cases.schemas import (
+    Connector,
+    LegalRefKind,
     LegalRefLinkRead,
     LegalRefLinkWrite,
     LegalRefRead,
     LegalRefWrite,
+    LinkForm,
 )
 from app.modules.cases.validation import FIELD_REQUIRED, response_from_pydantic
+from app.modules.legal_refs import models as tabel
 
 # KTK-001 (Sprint 1): Pasal 156 UU 13/2003.
 LINK_KTK_001 = {
@@ -396,3 +402,32 @@ def test_baca_rujukan_lama_hasil_migrasi():
 
     assert rujukan.links[0].year is None
     assert isinstance(rujukan.links[0], LegalRefLinkRead)
+
+
+# --- penjaga: kontrak sama dengan tabel SCRUM-159 ------------------------------
+# models.py legal_refs hanya boleh diimpor dari modulnya sendiri, jadi schema
+# cases menulis nilainya sendiri. Tes ini yang memastikan keduanya tidak menyimpang.
+
+
+def _nilai_literal(tipe) -> set[str]:
+    return set(get_args(tipe))
+
+
+def test_enum_kontrak_sama_dengan_enum_tabel():
+    assert _nilai_literal(LegalRefKind) == {item.value for item in tabel.LegalRefKind}
+    assert _nilai_literal(LinkForm) == {item.value for item in tabel.LegalRefLinkForm}
+    assert _nilai_literal(Connector) == {item.value for item in tabel.LegalRefConnector}
+
+
+def _batas_skema(properti: dict) -> int:
+    if "maxLength" in properti:
+        return properti["maxLength"]
+    return next(cabang["maxLength"] for cabang in properti["anyOf"] if "maxLength" in cabang)
+
+
+@pytest.mark.parametrize("skema", [LegalRefLinkWrite, LegalRefLinkRead])
+@pytest.mark.parametrize("kolom", ["regulation_type", "number", "pasal", "angka", "ayat", "huruf"])
+def test_batas_panjang_kontrak_sama_dengan_kolom_tabel(skema, kolom):
+    properti = skema.model_json_schema()["properties"][kolom]
+
+    assert _batas_skema(properti) == tabel.LegalRefLink.__table__.c[kolom].type.length
