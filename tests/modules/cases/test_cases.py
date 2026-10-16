@@ -421,9 +421,14 @@ def test_peran_lain_ditolak(as_role, role):
     assert response.json()["code"] == ForbiddenError.code
 
 
+# Pesan asli PostgreSQL untuk uq_cases_case_code (SCRUM-160: hanya constraint ini
+# yang berarti kode kasus bentrok; constraint lain tidak disamarkan jadi 409).
+BENTROK_KODE_PG = 'duplicate key value violates unique constraint "uq_cases_case_code"'
+
+
 def test_bentrok_unik_saat_simpan_tetap_case_code_taken(as_role, monkeypatch):
     def bentrok(*_args, **_kwargs):
-        raise IntegrityError("INSERT", {}, Exception("unique"))
+        raise IntegrityError("INSERT", {}, Exception(BENTROK_KODE_PG))
 
     monkeypatch.setattr(repository, "create", bentrok)
     client = as_role(Role.AUTHOR)
@@ -437,7 +442,7 @@ def test_bentrok_unik_saat_simpan_tetap_case_code_taken(as_role, monkeypatch):
 
 def test_bentrok_unik_saat_ubah_tetap_case_code_taken(as_role, monkeypatch):
     def bentrok(*_args, **_kwargs):
-        raise IntegrityError("UPDATE", {}, Exception("unique"))
+        raise IntegrityError("UPDATE", {}, Exception(BENTROK_KODE_PG))
 
     client = as_role(Role.AUTHOR)
     suite_id = _suite(client)

@@ -10,8 +10,11 @@ Contoh hukum hanya KTK-001 dan contoh AC10 (belum dikonfirmasi tim legal).
 
 import uuid
 
+import pytest
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
+from app.modules.cases import repository
 from app.modules.cases.models import Case
 from app.modules.legal_refs.models import LegalRef
 from app.shared.security import Role
@@ -162,3 +165,55 @@ def test_versi_baru_dari_isi_sprint_1_ditulis_dalam_bentuk_baru(as_role, db_sess
     client.post(f"/cases/{case_id}/versions")
 
     assert _baris(db_session, _versi(db_session, case_id).id) == [BARIS_KTK_001]
+
+
+# --- error database lain tidak disamarkan jadi "kode kasus sudah dipakai" -------
+# Satu commit sekarang juga menulis baris legal_refs. Hanya uq_cases_case_code
+# (PostgreSQL) atau cases.case_code (SQLite) yang berarti kode bentrok.
+
+PELANGGARAN_LAIN = (
+    'new row for relation "legal_refs" violates check constraint '
+    '"ck_legal_refs_free_text_only_for_free_text_kind"'
+)
+
+
+def _gagal_dengan(pesan: str):
+    def gagal(*_args, **_kwargs):
+        raise IntegrityError("INSERT", {}, Exception(pesan))
+
+    return gagal
+
+
+def test_pelanggaran_constraint_lain_saat_membuat_tidak_dilaporkan_sebagai_kode_bentrok(
+    as_role, monkeypatch
+):
+    client = as_role(Role.AUTHOR)
+    suite_id = _suite(client)
+    monkeypatch.setattr(repository, "create", _gagal_dengan(PELANGGARAN_LAIN))
+
+    with pytest.raises(IntegrityError, match="ck_legal_refs_free_text_only_for_free_text_kind"):
+        _buat(client, suite_id)
+
+
+def test_pelanggaran_constraint_lain_saat_mengubah_tidak_dilaporkan_sebagai_kode_bentrok(
+    as_role, monkeypatch
+):
+    client = as_role(Role.AUTHOR)
+    case_id = _buat(client, _suite(client)).json()["id"]
+    monkeypatch.setattr(repository, "save", _gagal_dengan(PELANGGARAN_LAIN))
+
+    with pytest.raises(IntegrityError, match="ck_legal_refs"):
+        client.put(f"/cases/{case_id}", json=_badan())
+
+
+def test_bentrok_kode_versi_sqlite_tetap_case_code_taken(as_role, monkeypatch):
+    client = as_role(Role.AUTHOR)
+    suite_id = _suite(client)
+    monkeypatch.setattr(
+        repository, "create", _gagal_dengan("UNIQUE constraint failed: cases.case_code")
+    )
+
+    respons = _buat(client, suite_id)
+
+    assert respons.status_code == 409
+    assert respons.json()["code"] == "CASE_CODE_TAKEN"
