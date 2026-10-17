@@ -12,6 +12,7 @@ UNKNOWN_FIELD = "UNKNOWN_FIELD"
 FIELD_REQUIRED = "FIELD_REQUIRED"
 VALIDATION_ERROR = "VALIDATION_ERROR"
 
+_INVALID_MESSAGE = "Isian penilaian tidak valid"
 _TAG_MESSAGE = (
     "Tag dev/test bukan bagian penilaian. Tag kasus hanya ditampilkan sebagai info; "
     "kirim decision dan comment saja."
@@ -24,7 +25,7 @@ def verdict_error_from_pydantic(errors: list[dict[str, Any]]) -> dict[str, str]:
         if error.get("type") == "extra_forbidden" and _field(error) == "split_tag":
             return {"code": SPLIT_TAG_NOT_REVIEWED, "message": _TAG_MESSAGE, "field": "split_tag"}
     if not errors:
-        return {"code": VALIDATION_ERROR, "message": "Isian penilaian tidak valid"}
+        return {"code": VALIDATION_ERROR, "message": _INVALID_MESSAGE}
     return _map(errors[0])
 
 
@@ -50,10 +51,10 @@ def _map(error: dict[str, Any]) -> dict[str, str]:
             "field": field,
         }
     if not field:
-        return {"code": VALIDATION_ERROR, "message": "Isian penilaian tidak valid"}
+        return {"code": VALIDATION_ERROR, "message": _INVALID_MESSAGE}
     return {
         "code": VALIDATION_ERROR,
-        "message": str(error.get("msg") or "Isian penilaian tidak valid"),
+        "message": str(error.get("msg") or _INVALID_MESSAGE),
         "field": field,
     }
 
