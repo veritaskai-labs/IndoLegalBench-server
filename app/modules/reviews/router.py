@@ -150,7 +150,11 @@ def replace_reviewer(
         },
         422: {
             "model": ErrorBody,
-            "description": "Komentar kosong untuk decision = revise (`COMMENT_REQUIRED`).",
+            "description": (
+                "Komentar kosong untuk decision = revise (`COMMENT_REQUIRED`), tag dev/test "
+                "ikut dikirim (`SPLIT_TAG_NOT_REVIEWED`, PBI-9 AC2), field lain yang tidak "
+                "dikenal (`UNKNOWN_FIELD`), atau decision kosong/tidak sah."
+            ),
         },
     },
 )

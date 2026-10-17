@@ -1017,7 +1017,7 @@
             }
           },
           "409": {
-            "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), kode diubah setelah ada versi yang disetujui (`CASE_CODE_LOCKED`), versi yang disetujui atau sedang ditinjau diubah (`VERSION_LOCKED`), versi baru diminta saat draf atau tinjauan masih berjalan (`VERSION_IN_PROGRESS`), atau versi baru diminta sebelum ada versi yang disetujui (`NO_APPROVED_VERSION`).",
+            "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), kode diubah setelah ada versi yang disetujui (`CASE_CODE_LOCKED`), tag diubah lewat PUT setelah disetujui (`SPLIT_TAG_LOCKED`), versi yang disetujui atau sedang ditinjau diubah (`VERSION_LOCKED`), versi baru diminta saat draf atau tinjauan masih berjalan (`VERSION_IN_PROGRESS`), atau versi baru diminta sebelum ada versi yang disetujui (`NO_APPROVED_VERSION`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1241,7 +1241,7 @@
             }
           },
           "409": {
-            "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), kode diubah setelah ada versi yang disetujui (`CASE_CODE_LOCKED`), versi yang disetujui atau sedang ditinjau diubah (`VERSION_LOCKED`), versi baru diminta saat draf atau tinjauan masih berjalan (`VERSION_IN_PROGRESS`), atau versi baru diminta sebelum ada versi yang disetujui (`NO_APPROVED_VERSION`).",
+            "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), kode diubah setelah ada versi yang disetujui (`CASE_CODE_LOCKED`), tag diubah lewat PUT setelah disetujui (`SPLIT_TAG_LOCKED`), versi yang disetujui atau sedang ditinjau diubah (`VERSION_LOCKED`), versi baru diminta saat draf atau tinjauan masih berjalan (`VERSION_IN_PROGRESS`), atau versi baru diminta sebelum ada versi yang disetujui (`NO_APPROVED_VERSION`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1315,7 +1315,7 @@
             }
           },
           "409": {
-            "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), kode diubah setelah ada versi yang disetujui (`CASE_CODE_LOCKED`), versi yang disetujui atau sedang ditinjau diubah (`VERSION_LOCKED`), versi baru diminta saat draf atau tinjauan masih berjalan (`VERSION_IN_PROGRESS`), atau versi baru diminta sebelum ada versi yang disetujui (`NO_APPROVED_VERSION`).",
+            "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), kode diubah setelah ada versi yang disetujui (`CASE_CODE_LOCKED`), tag diubah lewat PUT setelah disetujui (`SPLIT_TAG_LOCKED`), versi yang disetujui atau sedang ditinjau diubah (`VERSION_LOCKED`), versi baru diminta saat draf atau tinjauan masih berjalan (`VERSION_IN_PROGRESS`), atau versi baru diminta sebelum ada versi yang disetujui (`NO_APPROVED_VERSION`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1602,6 +1602,90 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cases/{case_id}/split-tag": {
+      "patch": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Ubah tag dev/test kasus yang sudah disetujui",
+        "description": "PBI-9 AC3. Changes the approved version and any open version, and is audited.\n\nMoving dev to test needs confirm = true, because AI developers have\nalready seen the case. The case is then marked was_dev for good.",
+        "operationId": "change_split_tag_cases__case_id__split_tag_patch",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SplitTagChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus atau suite tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Dev ke test tanpa confirm (`TAG_CHANGE_NEEDS_CONFIRMATION`, `requires_confirmation` = true), atau kasus belum disetujui (`NO_APPROVED_VERSION`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagConfirmationBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Suite tidak aktif (`SUITE_NOT_ACTIVE`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -2330,7 +2414,7 @@
             }
           },
           "422": {
-            "description": "Komentar kosong untuk decision = revise (`COMMENT_REQUIRED`).",
+            "description": "Komentar kosong untuk decision = revise (`COMMENT_REQUIRED`), tag dev/test ikut dikirim (`SPLIT_TAG_NOT_REVIEWED`, PBI-9 AC2), field lain yang tidak dikenal (`UNKNOWN_FIELD`), atau decision kosong/tidak sah.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3589,6 +3673,11 @@
           "status": {
             "$ref": "#/components/schemas/CaseStatus"
           },
+          "was_dev": {
+            "type": "boolean",
+            "title": "Was Dev",
+            "description": "Kasus ini pernah berada di dev set (PBI-9 AC3); tidak pernah kembali false"
+          },
           "completeness_pct": {
             "type": "integer",
             "maximum": 100.0,
@@ -3621,6 +3710,7 @@
           "traps",
           "split_tag",
           "status",
+          "was_dev",
           "completeness_pct",
           "version",
           "created_at",
@@ -4961,6 +5051,25 @@
         "title": "SplitTag",
         "description": "Dataset split stored on a version. Only dev and test are valid."
       },
+      "SplitTagChange": {
+        "properties": {
+          "split_tag": {
+            "$ref": "#/components/schemas/SplitTag"
+          },
+          "confirm": {
+            "type": "boolean",
+            "title": "Confirm",
+            "description": "Wajib true untuk dev ke test. Tanpa itu jawabannya 409 TAG_CHANGE_NEEDS_CONFIRMATION dengan requires_confirmation = true.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "split_tag"
+        ],
+        "title": "SplitTagChange",
+        "description": "PATCH /cases/{id}/split-tag (PBI-9 AC3). Admin only, after approval."
+      },
       "SuiteCreate": {
         "properties": {
           "name": {
@@ -5095,6 +5204,33 @@
         },
         "type": "object",
         "title": "SuiteUpdate"
+      },
+      "TagConfirmationBody": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "examples": [
+              "TAG_CHANGE_NEEDS_CONFIRMATION"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "requires_confirmation": {
+            "type": "boolean",
+            "title": "Requires Confirmation",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "TagConfirmationBody",
+        "description": "409 TAG_CHANGE_NEEDS_CONFIRMATION: tampilkan peringatan lalu kirim ulang dengan confirm."
       },
       "Trap": {
         "properties": {
@@ -5358,12 +5494,13 @@
             "description": "Wajib bila decision = revise (COMMENT_REQUIRED)"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "decision"
         ],
         "title": "VerdictWrite",
-        "description": "POST /reviews/{assignment_id}/verdict."
+        "description": "POST /reviews/{assignment_id}/verdict.\n\nField lain ditolak (422), termasuk split_tag: reviewer menilai substansi\nkasus, bukan tag dev/test (PBI-9 AC2)."
       },
       "VersionCompare": {
         "properties": {

@@ -21,7 +21,13 @@ from app.modules.reviews.models import (
 
 
 class VerdictWrite(BaseModel):
-    """POST /reviews/{assignment_id}/verdict."""
+    """POST /reviews/{assignment_id}/verdict.
+
+    Field lain ditolak (422), termasuk split_tag: reviewer menilai substansi
+    kasus, bukan tag dev/test (PBI-9 AC2).
+    """
+
+    model_config = ConfigDict(extra="forbid")
 
     decision: VerdictDecision
     comment: str | None = Field(

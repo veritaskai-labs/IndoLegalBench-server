@@ -47,6 +47,7 @@ CASE_NOT_READY = "CASE_NOT_READY"
 VERSION_NOT_SUBMITTABLE = "VERSION_NOT_SUBMITTABLE"
 NO_OPEN_VERSION = "NO_OPEN_VERSION"
 VERSION_NOT_IN_REVIEW = "VERSION_NOT_IN_REVIEW"
+TAG_CHANGE_NEEDS_CONFIRMATION = "TAG_CHANGE_NEEDS_CONFIRMATION"
 
 _EDITABLE = frozenset({CaseStatus.DRAFT, CaseStatus.NEEDS_REVISION})
 _IN_PROGRESS = frozenset({CaseStatus.DRAFT, CaseStatus.IN_REVIEW, CaseStatus.NEEDS_REVISION})
@@ -293,6 +294,52 @@ def get_open_version(
     return _to_read(case, case.current_version, katalog=legal_refs_service.load_catalog(db))
 
 
+def change_split_tag(
+    db: Session,
+    case_id: uuid.UUID,
+    split_tag: SplitTag,
+    *,
+    actor_id: uuid.UUID,
+    confirm: bool,
+) -> CaseRead:
+    """Ubah tag dev/test kasus yang sudah disetujui (PBI-9 AC3, D4a aturan 1).
+
+    Hanya Admin; router yang menjaga perannya. Versi yang berlaku dan versi
+    yang masih terbuka ikut diubah, supaya menyetujui versi berikutnya tidak
+    membawa kembali tag lama. Dev ke test harus dikonfirmasi karena kasusnya
+    sudah pernah terlihat developer AI, dan kasus ditandai was_dev
+    selamanya. Perubahan tercatat sebagai case.tag_changed lewat audit.
+    """
+    case = _require_case(db, case_id)
+    _require_active_suite(db, case.suite_id)
+    approved = case.latest_approved_version
+    if approved is None:
+        raise ConflictError(
+            "Kasus ini belum disetujui. Sebelum disetujui, tag diubah penulisnya "
+            "lewat PUT /cases/{id}.",
+            code=NO_APPROVED_VERSION,
+        )
+    if approved.split_tag == split_tag:
+        return _to_read(case, katalog=legal_refs_service.load_catalog(db))
+    ke_test = approved.split_tag == SplitTag.DEV and split_tag == SplitTag.TEST
+    if ke_test and not confirm:
+        raise ConflictError(
+            "Kasus ini sudah pernah terlihat developer AI sebagai dev case. "
+            "Kirim ulang dengan confirm = true untuk tetap memindahkannya ke test.",
+            code=TAG_CHANGE_NEEDS_CONFIRMATION,
+            details={"requires_confirmation": True},
+        )
+    approved.split_tag = split_tag
+    terbuka = case.current_version
+    if terbuka.id != approved.id and terbuka.status in _IN_PROGRESS:
+        terbuka.split_tag = split_tag
+    if ke_test:
+        case.was_dev = True
+    case.updated_by = actor_id
+    repository.save(db, case)
+    return _to_read(case, katalog=legal_refs_service.load_catalog(db))
+
+
 def list_case_versions(db: Session, case_id: uuid.UUID) -> list[VersionSummary]:
     """Every version, with the sections that differ from the previous one.
 
@@ -373,27 +420,54 @@ def review_copies(db: Session, version_ids: set[uuid.UUID]) -> dict[uuid.UUID, R
     """
     if not version_ids:
         return {}
-    copies: dict[uuid.UUID, ReviewCopy] = {}
     katalog = legal_refs_service.load_catalog(db)
-    for version, case in repository.versions_with_case(db, version_ids):
-        isi = version.content or {}
-        copies[version.id] = ReviewCopy(
-            case_id=case.id,
-            case_code=version.case_code,
-            author_id=case.created_by,
-            case_version_id=version.id,
-            version_no=version.version_no,
-            split_tag=version.split_tag,
-            identity={
-                "title": isi.get("title") or "",
-                "question": isi.get("question") or "",
-                "category": isi.get("category"),
-            },
-            legal_refs=_legal_refs_read(version, katalog),
-            answer_criteria=isi.get("answer_criteria") or {},
-            traps=isi.get("traps") or [],
-        )
-    return copies
+    return {
+        version.id: _review_copy(case, version, katalog)
+        for version, case in repository.versions_with_case(db, version_ids)
+    }
+
+
+def official_cases(db: Session, suite_id: uuid.UUID) -> list[ReviewCopy]:
+    """Kasus yang masuk skor resmi: versi berlaku yang disetujui dan bertag test.
+
+    PBI-9 AC4. Fondasi untuk penilaian dan laporan (Sprint 3): dev case
+    tidak pernah masuk official accuracy, dan kasus yang belum disetujui
+    belum menjadi bagian benchmark. Urut case_code supaya hasilnya stabil.
+
+    Kasus yang pernah dev lalu dipindah ke test (cases.was_dev) tetap ikut,
+    tanpa penanda tambahan di laporan. Ini keputusan klien (Kak Mario, lewat
+    PO di review #53): setiap eksekusi berjalan pada snapshot kasus, jadi
+    perubahan tag atau isi kasus yang hidup tidak pernah mengubah hasil
+    yang sudah ada (PBI-11, SCRUM-76).
+    """
+    katalog = legal_refs_service.load_catalog(db)
+    return [
+        _review_copy(case, version, katalog)
+        for case, version in repository.approved_for_suite(db, suite_id, split_tag=SplitTag.TEST)
+    ]
+
+
+def _review_copy(
+    case: Case, version: CaseVersion, katalog: legal_refs_service.TypeCatalog
+) -> ReviewCopy:
+    """Isi satu versi beserta kode, penulis, tag, dan rujukan dalam bentuk API (SCRUM-160)."""
+    isi = version.content or {}
+    return ReviewCopy(
+        case_id=case.id,
+        case_code=version.case_code,
+        author_id=case.created_by,
+        case_version_id=version.id,
+        version_no=version.version_no,
+        split_tag=version.split_tag,
+        identity={
+            "title": isi.get("title") or "",
+            "question": isi.get("question") or "",
+            "category": isi.get("category"),
+        },
+        legal_refs=_legal_refs_read(version, katalog),
+        answer_criteria=isi.get("answer_criteria") or {},
+        traps=isi.get("traps") or [],
+    )
 
 
 def case_author(db: Session, case_id: uuid.UUID) -> uuid.UUID:
@@ -526,6 +600,8 @@ def _to_read(
         traps=isi.get("traps") or [],
         split_tag=versi.split_tag,
         status=versi.status,
+        # None pada objek Case yang belum di-flush; default kolomnya false.
+        was_dev=bool(case.was_dev),
         completeness_pct=_completeness_pct(isi.get("completeness")),
         version=versi.version_no,
         created_at=versi.created_at,
@@ -730,7 +806,8 @@ def _require_can_update(
     actor_id: uuid.UUID,
     is_admin: bool,
 ) -> None:
-    """Allow the creator or an admin. Lock split_tag until the case has been approved.
+    """Allow the creator or an admin. split_tag belongs to the creator before
+    approval and to the Admin PATCH after it (PBI-9 AC3).
 
     Once a version is approved, case_code stays on the shared case row. A
     draft must not rename it, or GET would show the approved wording under
@@ -743,7 +820,19 @@ def _require_can_update(
             "Kode kasus tidak bisa diubah setelah ada versi yang disetujui",
             code=CASE_CODE_LOCKED,
         )
-    if payload.split_tag != version.split_tag and belum_disetujui and case.created_by != actor_id:
+    if payload.split_tag == version.split_tag:
+        return
+    if not belum_disetujui:
+        # PBI-9 AC3: setelah disetujui, tag hanya diubah Admin lewat PATCH,
+        # yang meminta konfirmasi dev ke test dan mencatat penanda was_dev.
+        # 409 seperti CASE_CODE_LOCKED: biasanya ini state basi (Admin baru saja
+        # mengubah tag), bukan soal izin, jadi client tetap di halaman.
+        raise ConflictError(
+            "Tag kasus ini dikunci setelah disetujui dan mungkin baru saja diubah Admin. "
+            "Muat ulang halaman lalu simpan lagi.",
+            code=SPLIT_TAG_LOCKED,
+        )
+    if case.created_by != actor_id:
         raise ForbiddenError(
             "Sebelum kasus disetujui, hanya pembuat yang boleh mengubah split_tag",
             code=SPLIT_TAG_LOCKED,
