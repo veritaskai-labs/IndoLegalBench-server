@@ -6,12 +6,13 @@ Sub task ini menuntut satu hal yang tidak dimiliki repo mana pun sendirian:
 Frontend membaca badan error lewat `parseError` di src/lib/apiClient.ts dan
 hanya mengenal tiga kunci: `code`, `message`, dan `field`. Nilai `field`
 dipakai untuk menempelkan pesan ke baris yang tepat di editor, misalnya
-`legal_refs[1].pasal` menandai baris rujukan kedua.
+`legal_refs[1].links[0].pasal` menandai link pertama di rujukan kedua
+(PBI-21; sebelumnya `legal_refs[1].pasal`).
 
 Test editor di repo client membuktikan pesan itu tampil di tempat yang benar,
 tetapi memakai respons tiruan yang ditulis tangan. Tidak ada satu pun test
 yang membuktikan backend benar-benar mengirim bentuk itu. Kalau format jalur
-berubah menjadi `legal_refs.1.pasal`, atau kunci `field` hilang, editor tetap
+berubah menjadi `legal_refs.1.links.0.pasal`, atau kunci `field` hilang, editor tetap
 menampilkan pesan tetapi di tempat yang salah, atau tidak sama sekali, dan
 seluruh test di kedua repo tetap hijau.
 
@@ -25,6 +26,7 @@ import re
 import pytest
 
 from app.shared.security import Role
+from tests.legal_refs import rujukan_pasal
 
 # Kunci yang dibaca parseError di client. Tidak boleh berkurang.
 KUNCI_WAJIB = {"code", "message"}
@@ -35,10 +37,7 @@ POLA_FIELD = re.compile(r"^[a-z_]+(\[\d+\])?(\.[a-z_]+(\[\d+\])?)*$")
 BADAN = {
     "case_code": "QA-001",
     "identity": {"title": "PHK sepihak", "question": "Apakah sah?", "category": None},
-    "legal_refs": [
-        {"regulation_type": "uu", "regulation_number": "13", "year": 2003, "pasal": "151"},
-        {"regulation_type": "uu", "regulation_number": "13", "year": 2003, "pasal": "152"},
-    ],
+    "legal_refs": [rujukan_pasal("151"), rujukan_pasal("152")],
     "answer_criteria": {
         "must_contain": ["surat"],
         "must_not_contain": [],
@@ -63,7 +62,7 @@ def _suite(client, nama: str) -> str:
 
 def _tanpa_pasal(baris: int) -> list[dict]:
     refs = json.loads(json.dumps(BADAN["legal_refs"]))
-    refs[baris].pop("pasal")
+    refs[baris]["links"][0].pop("pasal")
     return refs
 
 
@@ -106,8 +105,8 @@ class TestBentukBadanError:
     def test_jalur_field_memakai_kurung_siku_bukan_titik(self, as_role):
         """Editor menempelkan pesan ke baris lewat jalur ini.
 
-        `legal_refs[1].pasal` menandai baris rujukan kedua. Kalau formatnya
-        berubah jadi `legal_refs.1.pasal`, pesannya tetap muncul tetapi tidak
+        `legal_refs[1].links[0].pasal` menandai link pertama di rujukan kedua.
+        Kalau formatnya berubah jadi `legal_refs.1.links.0.pasal`, pesannya tetap muncul tetapi tidak
         lagi menempel di baris mana pun, dan tidak ada yang merah.
         """
         client = as_role(Role.AUTHOR)
@@ -115,7 +114,7 @@ class TestBentukBadanError:
 
         respons = client.post(f"/suites/{suite_id}/cases", json=_badan(legal_refs=_tanpa_pasal(1)))
 
-        assert respons.json()["field"] == "legal_refs[1].pasal"
+        assert respons.json()["field"] == "legal_refs[1].links[0].pasal"
 
     @pytest.mark.parametrize("baris", [0, 1])
     def test_jalur_menunjuk_baris_yang_benar_bukan_selalu_yang_pertama(self, as_role, baris):
@@ -126,7 +125,7 @@ class TestBentukBadanError:
             f"/suites/{suite_id}/cases", json=_badan(legal_refs=_tanpa_pasal(baris))
         )
 
-        assert respons.json()["field"] == f"legal_refs[{baris}].pasal"
+        assert respons.json()["field"] == f"legal_refs[{baris}].links[0].pasal"
 
     def test_jalur_bersarang_tetap_terbaca(self, as_role):
         client = as_role(Role.AUTHOR)

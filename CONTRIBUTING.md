@@ -158,6 +158,11 @@ Everything goes through a Pull Request, no exceptions, including one-line fixes.
 **4. Every PR needs one approval and green CI.**
 Do not merge your own PR unreviewed. Do not approve without actually reading.
 
+Green CI includes the SonarQube quality gate. On a PR into `staging` the `build` check waits for the gate and fails when it is red. The `SonarQube Quality Gate` row on the PR shows the result, and the run log lists the failed conditions and new issues, so you do not need the campus network to see why.
+
+- **Open your PR from a branch in this repo, not from a fork.** GitHub does not give secrets to fork PRs, so the scan skips itself and `build` goes green without any quality gate.
+- **If the campus SonarQube is down,** every PR fails at the `SonarQube scan` step (connection error or a 5 minute timeout), even with clean code. Say so in the group chat. Only the repo admin (Rafa) may merge past it, and only when the log shows SonarQube was unreachable. A red gate is never bypassed: fix the code instead.
+
 **5. Oversized PRs will be sent back to be split.**
 If your PR changes more than roughly 400 lines, consider splitting it. A reviewer cannot read a giant PR seriously, and a careless review is the same as no review.
 

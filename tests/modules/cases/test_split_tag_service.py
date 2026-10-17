@@ -39,9 +39,17 @@ def dep():
         patch.object(service, "repository") as repo,
         patch.object(service, "_require_active_suite") as suite,
         patch.object(service, "_to_read") as baca,
+        patch.object(service.legal_refs_service, "load_catalog") as katalog,
     ):
         repo.get_by_id.return_value = kasus
-        yield SimpleNamespace(repo=repo, suite=suite, baca=baca, kasus=kasus, disetujui=disetujui)
+        yield SimpleNamespace(
+            repo=repo,
+            suite=suite,
+            baca=baca,
+            katalog=katalog.return_value,
+            kasus=kasus,
+            disetujui=disetujui,
+        )
 
 
 def _ubah(tag, *, confirm=False, db=None):
@@ -73,7 +81,7 @@ def test_dev_ke_test_dengan_konfirmasi_menandai_pernah_dev(dep):
     assert dep.kasus.was_dev is True
     assert dep.kasus.updated_by == ADMIN
     dep.repo.save.assert_called_once_with(db, dep.kasus)
-    dep.baca.assert_called_once_with(dep.kasus)
+    dep.baca.assert_called_once_with(dep.kasus, katalog=dep.katalog)
 
 
 def test_test_ke_dev_tidak_perlu_konfirmasi(dep):
@@ -123,7 +131,7 @@ def test_tag_sama_tidak_menyimpan_apa_pun(dep):
 
     # Assert
     dep.repo.save.assert_not_called()
-    dep.baca.assert_called_once_with(dep.kasus)
+    dep.baca.assert_called_once_with(dep.kasus, katalog=dep.katalog)
 
 
 def test_kasus_yang_belum_disetujui_diubah_lewat_put(dep):

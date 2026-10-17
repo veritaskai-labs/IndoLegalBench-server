@@ -11,17 +11,45 @@ PHK-001 and phk-001 are both allowed today.
 
 import uuid
 from datetime import datetime
-from typing import Any, Self
+from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from app.modules.cases.models import CaseStatus, SplitTag
-from app.modules.cases.validation import PLACEHOLDER_CASE_CODE_PATTERN, validate_payload
+from app.modules.cases.validation import (
+    ANGKA_PATTERN,
+    PASAL_PATTERN,
+    PLACEHOLDER_CASE_CODE_PATTERN,
+    validate_payload,
+)
+
+# Penghubung antar peraturan dalam satu rujukan (PBI-21 AC6). Link pertama
+# memakai "none". Label "jo."/"jis." adalah urusan tampilan.
+Connector = Literal["none", "jo", "jis"]
+# Tingkat rujukan per link (AC4). Keputusan PO 17 Okt: bentuk ada di link,
+# karena contoh AC10 memakai pasal di link pertama dan pasal + angka di link kedua.
+LinkForm = Literal["name_only", "pasal", "pasal_angka"]
+# Rujukan terstruktur atau teks bebas yang disimpan apa adanya (AC7).
+LegalRefKind = Literal["structured", "free_text"]
 
 
 def _strip_whitespace(nilai: str) -> str:
     """Strip surrounding whitespace."""
     return nilai.strip()
+
+
+def _strip_any(nilai: Any) -> Any:
+    """Strip a string before the length and pattern checks run. Other types pass through."""
+    if isinstance(nilai, str):
+        return nilai.strip()
+    return nilai
+
+
+def _blank_to_none(nilai: Any) -> Any:
+    """Strip a string, and turn a blank one into None, before the pattern check runs."""
+    if isinstance(nilai, str):
+        return nilai.strip() or None
+    return nilai
 
 
 class CaseIdentity(BaseModel):
@@ -47,30 +75,94 @@ class CaseIdentity(BaseModel):
         return bersih or None
 
 
-class LegalRef(BaseModel):
-    """One citation. regulation_type, regulation_number, and pasal are required."""
+class _LegalRefLinkBase(BaseModel):
+    """Fields shared by the write and read shape of one regulation in a citation (PBI-21)."""
 
-    regulation_type: str = Field(min_length=1, max_length=40)
-    regulation_number: str = Field(min_length=1, max_length=40)
-    year: int | None = Field(default=None, ge=1, le=9999)
-    pasal: str = Field(min_length=1, max_length=40)
+    form: LinkForm
+    connector: Connector
+    regulation_type: str = Field(
+        min_length=1,
+        max_length=150,
+        description="Kode dari GET /regulation-types, bukan label",
+    )
+    # Panjang mengikuti kolom legal_ref_links (SCRUM-159): number 100, angka 40.
+    number: str = Field(min_length=1, max_length=100, description="Boleh alfanumerik")
+    about: str | None = Field(default=None, max_length=500, description="Tentang, opsional")
+    pasal: str | None = Field(default=None, max_length=40)
+    angka: str | None = Field(default=None, max_length=40)
     ayat: str | None = Field(default=None, max_length=20)
     huruf: str | None = Field(default=None, max_length=8)
 
-    @field_validator("regulation_type", "regulation_number", "pasal")
+    @field_validator("regulation_type", "number", mode="before")
     @classmethod
-    def wajib_berisi(cls, nilai: str) -> str:
-        """Strip the required citation fields."""
-        return _strip_whitespace(nilai)
+    def strip_required(cls, nilai: Any) -> Any:
+        """Strip before min_length, so a whitespace-only value is rejected as blank."""
+        return _strip_any(nilai)
 
-    @field_validator("ayat", "huruf")
+    @field_validator("about", "pasal", "angka", "ayat", "huruf", mode="before")
     @classmethod
-    def clean_optional(cls, nilai: str | None) -> str | None:
+    def clean_optional(cls, nilai: Any) -> Any:
         """Store a stripped optional field, or None when it is blank."""
-        if nilai is None:
-            return None
-        bersih = nilai.strip()
-        return bersih or None
+        return _blank_to_none(nilai)
+
+
+class LegalRefLinkWrite(_LegalRefLinkBase):
+    """One regulation in a citation, as the editor sends it.
+
+    Cross-field rules (which form needs pasal or angka, the jo./jis. chain,
+    year not after the current year) live in validation.py.
+    """
+
+    year: int = Field(ge=1, le=9999)
+    pasal: str | None = Field(default=None, max_length=40, pattern=PASAL_PATTERN)
+    angka: str | None = Field(default=None, max_length=40, pattern=ANGKA_PATTERN)
+
+
+class LegalRefLinkRead(_LegalRefLinkBase):
+    """One regulation in a citation, as stored.
+
+    A migrated Sprint 1 citation may have no year and a free-form pasal (AC9).
+    The Author fixes both when the case is saved again.
+    """
+
+    year: int | None = None
+
+
+class _LegalRefBase(BaseModel):
+    """Fields shared by the write and read shape of one citation (PBI-21)."""
+
+    kind: LegalRefKind
+    free_text: str | None = Field(
+        default=None,
+        max_length=2000,
+        description="Hanya untuk kind free_text, disimpan apa adanya",
+    )
+
+    @field_validator("free_text", mode="before")
+    @classmethod
+    def clean_free_text(cls, nilai: Any) -> Any:
+        """Store stripped free text, or None when it is blank."""
+        return _blank_to_none(nilai)
+
+
+class LegalRefWrite(_LegalRefBase):
+    """One citation as the editor sends it. Links are in chain order."""
+
+    links: list[LegalRefLinkWrite]
+
+
+class LegalRefStored(_LegalRefBase):
+    """One citation as stored, before the server writes its display_text."""
+
+    links: list[LegalRefLinkRead]
+
+
+class LegalRefRead(LegalRefStored):
+    """One citation as returned, written in legal style by the server (AC6)."""
+
+    display_text: str = Field(
+        description='Ditulis server, misalnya "Pasal 156 UU 13/2003 jo. Pasal II Angka 5 UU 6/2023"',
+    )
 
 
 class AnswerCriteria(BaseModel):
@@ -109,9 +201,9 @@ class CaseWrite(BaseModel):
         ),
     )
     identity: CaseIdentity
-    legal_refs: list[LegalRef] = Field(
+    legal_refs: list[LegalRefWrite] = Field(
         min_length=1,
-        description="Minimal satu rujukan, masing-masing sampai level pasal.",
+        description="Minimal satu rujukan. Isi wajib tiap link mengikuti bentuknya (PBI-21).",
     )
     answer_criteria: AnswerCriteria = Field(default_factory=AnswerCriteria)
     traps: list[Trap] = Field(default_factory=list)
@@ -141,7 +233,7 @@ class CaseRead(BaseModel):
     suite_id: uuid.UUID
     case_code: str
     identity: CaseIdentity
-    legal_refs: list[LegalRef]
+    legal_refs: list[LegalRefRead]
     answer_criteria: AnswerCriteria
     traps: list[Trap]
     split_tag: SplitTag
@@ -215,7 +307,7 @@ class VersionSections(BaseModel):
     category: str | None = None
     case_code: str
     split_tag: str
-    legal_refs: list[Any]
+    legal_refs: list[LegalRefRead]
     answer_criteria: dict[str, Any]
     traps: list[Any]
 
@@ -271,7 +363,7 @@ class ReviewCopy(BaseModel):
     version_no: int
     split_tag: SplitTag
     identity: CaseIdentity
-    legal_refs: list[dict[str, Any]]
+    legal_refs: list[LegalRefRead]
     answer_criteria: dict[str, Any]
     traps: list[dict[str, Any]]
 

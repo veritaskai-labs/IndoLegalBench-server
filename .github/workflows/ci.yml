@@ -14,6 +14,12 @@ jobs:
   # Branch protection uses this job name as the required check. Do not rename it.
   build:
     runs-on: ubuntu-latest
+    # Job level, so only this job's token can write commit statuses. Job
+    # permissions replace the workflow ones, so contents: read is repeated.
+    permissions:
+      contents: read
+      # Lets the SonarQube step post its gate result as its own row on the PR.
+      statuses: write
     services:
       # Same image as docker compose. pytest uses SQLite and never runs ENUM DDL.
       postgres:
@@ -63,16 +69,90 @@ jobs:
       - name: Test
         run: pytest --cov-report=xml
 
-      # Community Build keeps one dashboard per project, so the analysis only
-      # runs on merges to staging. Running it per PR would let a PR branch
-      # overwrite the staging result.
-      # The step skips itself while the SONAR_TOKEN secret is unset, and
-      # continue-on-error keeps an unreachable SonarQube from failing the
-      # required build check.
+      # The campus SonarQube runs the community branch plugin, which detects
+      # GitHub Actions on its own: a PR gets its own analysis and never touches
+      # the staging dashboard.
+      # On a PR into staging the step waits for the quality gate, and a red gate
+      # fails the required build check, so the PR cannot merge. On a merge to
+      # staging it only refreshes the dashboard and never fails the build.
+      # The step skips itself while the SONAR_TOKEN secret is unset.
       - name: SonarQube scan
-        if: github.event_name == 'push' && github.ref == 'refs/heads/staging' && env.SONAR_TOKEN != ''
-        continue-on-error: true
+        id: sonar
+        if: >-
+          env.SONAR_TOKEN != '' && (
+            (github.event_name == 'pull_request' && github.base_ref == 'staging') ||
+            (github.event_name == 'push' && github.ref == 'refs/heads/staging'))
+        continue-on-error: ${{ github.event_name != 'pull_request' }}
         uses: SonarSource/sonarqube-scan-action@v6
+        with:
+          args: >-
+            -Dsonar.qualitygate.wait=${{ github.event_name == 'pull_request' }}
+            -Dsonar.qualitygate.timeout=300
+
+      # Most of us cannot open the campus SonarQube from home, so a red gate
+      # prints its failed conditions, new issues and unreviewed hotspots here.
+      # Issues and hotspots also show up as annotations on the PR's changed files.
+      # Only reviewing a hotspot still needs the SonarQube page.
+      - name: Explain a red quality gate
+        if: failure() && steps.sonar.outcome == 'failure'
+        # bash with pipefail, so a failed curl reaches the || echo fallbacks
+        # instead of being hidden behind jq's exit code.
+        shell: bash
+        env:
+          PR: ${{ github.event.pull_request.number }}
+        run: |
+          key=$(sed -n 's/^sonar.projectKey=//p' sonar-project.properties)
+          api() { curl -fsS -u "$SONAR_TOKEN:" "$SONAR_HOST_URL/api/$1&pullRequest=$PR"; }
+          strip='sub("^[^:]*:"; "")'
+
+          echo "Failed quality gate conditions:"
+          api "qualitygates/project_status?projectKey=$key" | jq -r '
+            .projectStatus.conditions[] | select(.status == "ERROR")
+            | "  \(.metricKey) is \(.actualValue), fails when \(if .comparator == "LT" then "below" else "above" end) \(.errorThreshold)"' \
+            || echo "  could not reach SonarQube, the scan itself may have failed (see the step above)"
+
+          echo "New issues:"
+          api "issues/search?componentKeys=$key&resolved=false&ps=100" | jq -r "
+            .issues[] | \"::warning file=\(.component | $strip),line=\(.line // 1)::\(.message) (\(.rule))\"" \
+            || echo "  could not list issues"
+
+          echo "Security hotspots to review on the SonarQube page:"
+          api "hotspots/search?projectKey=$key&status=TO_REVIEW&ps=100" | jq -r "
+            .hotspots[] | \"::warning file=\(.component | $strip),line=\(.line // 1)::Security hotspot: \(.message)\"" \
+            || echo "  could not list hotspots"
+
+      # Shows the gate as its own row on the PR, next to build, and writes every
+      # gate condition to the run's summary page. The row links to this run, not
+      # to the campus SonarQube, so the server address stays out of public pages.
+      - name: Report the quality gate on the PR
+        if: always() && github.event_name == 'pull_request' && steps.sonar.outcome != 'skipped'
+        env:
+          PR: ${{ github.event.pull_request.number }}
+          SHA: ${{ github.event.pull_request.head.sha }}
+          GH_TOKEN: ${{ github.token }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          key=$(sed -n 's/^sonar.projectKey=//p' sonar-project.properties)
+          gate=$(curl -fsS -u "$SONAR_TOKEN:" \
+            "$SONAR_HOST_URL/api/qualitygates/project_status?projectKey=$key&pullRequest=$PR" || echo '{}')
+          status=$(jq -r '.projectStatus.status // "NONE"' <<<"$gate")
+          failed=$(jq -r '[.projectStatus.conditions[]? | select(.status == "ERROR")
+            | "\(.metricKey) \(.actualValue)"] | join(", ")' <<<"$gate")
+          case "$status" in
+            OK)    state=success; desc="Passed" ;;
+            ERROR) state=failure; desc="Failed: $failed" ;;
+            *)     state=error;   desc="No gate result, see the SonarQube scan step" ;;
+          esac
+          gh api "repos/$GITHUB_REPOSITORY/statuses/$SHA" \
+            -f state="$state" -f context="SonarQube Quality Gate" \
+            -f description="${desc:0:140}" -f target_url="$RUN_URL" > /dev/null
+          {
+            echo "### SonarQube Quality Gate: $status"
+            echo
+            echo "| Condition | Value | Threshold | Result |"
+            echo "|---|---|---|---|"
+            jq -r '.projectStatus.conditions[]? | "| \(.metricKey) | \(.actualValue) | \(if .comparator == "LT" then "at least" else "at most" end) \(.errorThreshold) | \(.status) |"' <<<"$gate"
+          } >> "$GITHUB_STEP_SUMMARY"
 
       # Catches a changed schemas.py where openapi.json was not regenerated.
       - name: Check OpenAPI contract is up to date

@@ -15,6 +15,7 @@ from sqlalchemy.exc import IntegrityError
 from app.modules.cases import service
 from app.modules.cases.models import CaseStatus, SplitTag
 from app.shared.exceptions import ConflictError, ForbiddenError, ValidationError
+from tests.legal_refs import rujukan_pasal
 
 PEMBUAT = uuid.UUID("00000000-0000-0000-0000-00000000a000")
 ORANG_LAIN = uuid.UUID("00000000-0000-0000-0000-00000000b000")
@@ -23,7 +24,7 @@ VERSI = uuid.UUID("00000000-0000-0000-0000-0000000000d1")
 ISI_LENGKAP = {
     "title": "PHK sepihak",
     "question": "Apakah PHK tanpa surat sah?",
-    "legal_refs": [{"regulation_type": "UU", "regulation_number": "13", "pasal": "151"}],
+    "legal_refs": [rujukan_pasal("151")],
     "answer_criteria": {"expected_conclusion": "tidak sah"},
 }
 

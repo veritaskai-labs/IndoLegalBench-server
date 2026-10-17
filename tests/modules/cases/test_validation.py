@@ -21,20 +21,14 @@ from app.modules.cases.validation import (
     validate_payload,
 )
 from app.shared.exceptions import ValidationError
-
-RUJUKAN = {
-    "regulation_type": "uu",
-    "regulation_number": "13",
-    "year": 2003,
-    "pasal": "151",
-}
+from tests.legal_refs import rujukan_pasal
 
 
 def _data(**ubah):
     data = {
         "case_code": "PHK-001",
         "identity": {"title": "PHK sepihak", "question": "Apakah sah?", "category": None},
-        "legal_refs": [dict(RUJUKAN)],
+        "legal_refs": [rujukan_pasal("151")],
         "answer_criteria": {
             "must_contain": ["surat"],
             "must_not_contain": [],
@@ -100,17 +94,19 @@ def test_tanpa_rujukan_ditolak():
 
     assert info.value.code == FIELD_REQUIRED
     assert info.value.field == "legal_refs"
+    # PBI-21: Nama Peraturan saja juga sah, jadi pesannya tidak lagi menyebut pasal.
+    assert info.value.message == "Butuh minimal satu rujukan hukum."
 
 
-@pytest.mark.parametrize("hilang", ["regulation_type", "regulation_number", "pasal"])
-def test_rujukan_wajib_sampai_pasal(hilang):
-    rujukan = dict(RUJUKAN)
-    rujukan[hilang] = "  "
+@pytest.mark.parametrize("hilang", ["regulation_type", "number", "year", "pasal"])
+def test_link_berbentuk_pasal_wajib_jenis_nomor_tahun_dan_pasal(hilang):
+    rujukan = rujukan_pasal("151")
+    rujukan["links"][0][hilang] = "  "
     with pytest.raises(ValidationError) as info:
         validate_payload(_data(legal_refs=[rujukan]))
 
     assert info.value.code == FIELD_REQUIRED
-    assert info.value.field == f"legal_refs[0].{hilang}"
+    assert info.value.field == f"legal_refs[0].links[0].{hilang}"
 
 
 def test_kelengkapan_penuh_seratus_persen():
@@ -186,13 +182,12 @@ def test_judul_terlalu_panjang_bukan_wajib():
 
 
 def test_tahun_nol_bukan_wajib():
-    rujukan = dict(RUJUKAN)
-    rujukan["year"] = 0
+    rujukan = rujukan_pasal("151", year=0)
 
     body = _error_codes_skema(_data(legal_refs=[rujukan]))
 
     assert body["code"] == VALIDATION_ERROR
-    assert body["field"] == "legal_refs[0].year"
+    assert body["field"] == "legal_refs[0].links[0].year"
     assert "wajib diisi" not in body["message"]
 
 
@@ -208,14 +203,16 @@ def test_tipe_json_salah_bukan_wajib():
 
 
 def test_pasal_hilang_tetap_wajib():
-    rujukan = dict(RUJUKAN)
-    del rujukan["pasal"]
+    """Pasal opsional di schema (bentuk name_only), jadi validasi pusat yang menolak."""
+    rujukan = rujukan_pasal("151")
+    del rujukan["links"][0]["pasal"]
 
-    body = _error_codes_skema(_data(legal_refs=[rujukan]))
+    with pytest.raises(ValidationError) as info:
+        CaseWrite.model_validate(_data(legal_refs=[rujukan]))
 
-    assert body["code"] == FIELD_REQUIRED
-    assert body["field"] == "legal_refs[0].pasal"
-    assert body["message"] == "Field legal_refs[0].pasal wajib diisi"
+    assert info.value.code == FIELD_REQUIRED
+    assert info.value.field == "legal_refs[0].links[0].pasal"
+    assert info.value.message == "Field legal_refs[0].links[0].pasal wajib diisi"
 
 
 def test_string_kosong_tetap_wajib():

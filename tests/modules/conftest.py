@@ -9,12 +9,15 @@ tests/conftest.py.
 import uuid
 from collections.abc import Callable
 from contextlib import ExitStack
+from functools import cache
 
 import pytest
 from fastapi import Depends, Request
 from fastapi.testclient import TestClient
 
 from app.main import app
+from app.modules.legal_refs import seed
+from app.modules.legal_refs.models import RegulationType
 from app.shared import request_context
 from app.shared.database import get_db
 from app.shared.security import CurrentUser, Role, get_current_user
@@ -39,8 +42,33 @@ def buat_pengguna() -> Callable[..., CurrentUser]:
     return buat
 
 
+@cache
+def _seed_jenis() -> tuple[seed.RegulationTypeSeed, ...]:
+    """Isi file seed SCRUM-159, dibaca sekali per sesi pytest."""
+    return tuple(seed.load_regulation_types())
+
+
 @pytest.fixture
-def as_role(db_session, buat_pengguna) -> Callable[..., TestClient]:
+def jenis_peraturan(db_session) -> None:
+    """Daftar jenis peraturan seperti di database yang sudah dimigrasi (SCRUM-159).
+
+    Tidak autouse: test model legal_refs menyisipkan barisnya sendiri.
+    """
+    db_session.add_all(
+        RegulationType(
+            code=item.code,
+            label=item.label,
+            singkatan=item.singkatan,
+            urutan=item.urutan,
+            is_active=item.is_active,
+        )
+        for item in _seed_jenis()
+    )
+    db_session.commit()
+
+
+@pytest.fixture
+def as_role(db_session, jenis_peraturan, buat_pengguna) -> Callable[..., TestClient]:
     """Client yang sudah dianggap login sebagai peran tertentu.
 
     PBI-1, sub task [QA] SCRUM-96. Router suites dijaga require_roles

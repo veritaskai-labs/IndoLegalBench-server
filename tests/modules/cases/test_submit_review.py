@@ -118,7 +118,8 @@ def test_rujukan_rusak_di_versi_tersimpan_ditolak(as_role, db_session):
     case_id = _buat(client, _suite(client)).json()["id"]
     versi = db_session.get(Case, uuid.UUID(case_id)).current_version
     rujukan = versi.content["legal_refs"][0]
-    versi.content = {**versi.content, "legal_refs": [rujukan, {**rujukan, "pasal": ""}]}
+    rusak = {**rujukan, "links": [{**rujukan["links"][0], "pasal": ""}]}
+    versi.content = {**versi.content, "legal_refs": [rujukan, rusak]}
     db_session.commit()
 
     # Act
@@ -126,7 +127,9 @@ def test_rujukan_rusak_di_versi_tersimpan_ditolak(as_role, db_session):
 
     # Assert
     assert response.status_code == 422
-    assert [item["field"] for item in response.json()["missing"]] == ["legal_refs[1].pasal"]
+    assert [item["field"] for item in response.json()["missing"]] == [
+        "legal_refs[1].links[0].pasal"
+    ]
 
 
 def test_author_lain_tidak_boleh_mengajukan(as_role, buat_pengguna, db_session):
