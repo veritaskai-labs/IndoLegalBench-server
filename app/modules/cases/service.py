@@ -434,11 +434,11 @@ def official_cases(db: Session, suite_id: uuid.UUID) -> list[ReviewCopy]:
     tidak pernah masuk official accuracy, dan kasus yang belum disetujui
     belum menjadi bagian benchmark. Urut case_code supaya hasilnya stabil.
 
-    Kasus yang pernah dev lalu dipindah ke test (cases.was_dev) saat ini
-    tetap ikut: tagnya diubah Admin dengan konfirmasi peringatan, dan tag
-    adalah keputusan metodologi tim legal (PBI-9 AC1). Menunggu keputusan PO
-    sebelum PBI-11/13; bila harus dikeluarkan atau ditandai di laporan,
-    cukup satu filter pada Case.was_dev di sini.
+    Kasus yang pernah dev lalu dipindah ke test (cases.was_dev) tetap ikut,
+    tanpa penanda tambahan di laporan. Ini keputusan klien (Kak Mario, lewat
+    PO di review #53): setiap eksekusi berjalan pada snapshot kasus, jadi
+    perubahan tag atau isi kasus yang hidup tidak pernah mengubah hasil
+    yang sudah ada (PBI-11, SCRUM-76).
     """
     katalog = legal_refs_service.load_catalog(db)
     return [
