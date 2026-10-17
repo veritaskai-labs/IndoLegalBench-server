@@ -31,6 +31,7 @@ from app.modules.health.router import router as health_router
 from app.modules.providers.router import router as providers_router
 from app.modules.reports.router import router as reports_router
 from app.modules.reviews.router import router as reviews_router
+from app.modules.reviews.validation import verdict_error_from_pydantic
 from app.modules.runs.router import router as runs_router
 from app.modules.suites.router import router as suites_router
 from app.modules.suites.router import snapshot_router
@@ -116,11 +117,27 @@ def _tulisan_kasus(request: Request) -> bool:
     return len(bagian) == 3 and bagian[0] == "suites" and bagian[2] == "cases"
 
 
+def _penilaian(request: Request) -> bool:
+    """True for POST /reviews/{assignment_id}/verdict, which uses the reviews error codes."""
+    bagian = request.url.path.strip("/").split("/")
+    return (
+        request.method == "POST"
+        and len(bagian) == 3
+        and bagian[0] == "reviews"
+        and bagian[2] == "verdict"
+    )
+
+
 @app.exception_handler(RequestValidationError)
 async def case_validation_handler(request: Request, exc: RequestValidationError):
-    """Map case-body failures through the cases module. Other routes keep FastAPI's detail."""
+    """Map case and verdict body failures to the team's error shape.
+
+    Other routes keep FastAPI's detail.
+    """
     if _tulisan_kasus(request):
         return JSONResponse(status_code=422, content=response_from_pydantic(exc.errors()))
+    if _penilaian(request):
+        return JSONResponse(status_code=422, content=verdict_error_from_pydantic(exc.errors()))
     return await request_validation_exception_handler(request, exc)
 
 

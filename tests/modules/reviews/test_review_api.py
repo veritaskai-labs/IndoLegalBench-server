@@ -369,4 +369,23 @@ def test_verdict_tidak_menerima_tag(kasus, jadi):
 
     # Assert
     assert response.status_code == 422
+    assert response.json()["code"] == "SPLIT_TAG_NOT_REVIEWED"
+    assert response.json()["field"] == "split_tag"
     assert client.get("/reviews/assigned").json()[0]["my_verdict"] is None
+
+
+def test_body_penilaian_lain_tetap_pakai_error_bawaan_tim(kasus, jadi):
+    # Arrange
+    client, _, tugas = kasus
+    jadi(Role.REVIEWER, REVIEWER_A)
+
+    # Act
+    response = client.post(f"/reviews/{tugas[REVIEWER_A]}/verdict", json={"decision": "tolak"})
+
+    # Assert
+    assert response.status_code == 422
+    assert response.json() == {
+        "code": "VALIDATION_ERROR",
+        "message": "decision harus approve atau revise.",
+        "field": "decision",
+    }
