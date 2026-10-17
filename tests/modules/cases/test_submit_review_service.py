@@ -72,6 +72,7 @@ def test_versi_jadi_in_review_lalu_round_dibuka_dalam_satu_commit(dep):
     dep.reviews.open_round.assert_called_once_with(
         db, case_id=KASUS, case_version_id=VERSI, author_id=PEMBUAT
     )
+    dep.reviews.resume_after_revision.assert_not_called()
     dep.repo.save.assert_called_once_with(db, dep.kasus)
     assert hasil.status == CaseStatus.IN_REVIEW
     assert hasil.round_no == 1
@@ -115,14 +116,21 @@ def test_versi_yang_tidak_terbuka_ditolak(dep, status):
 
 
 def test_versi_needs_revision_boleh_diajukan_ulang(dep):
+    """Pengajuan ulang tidak memilih reviewer baru. Approval yang lama dibawa."""
     # Arrange
     dep.kasus.current_version.status = CaseStatus.NEEDS_REVISION
+    dep.reviews.resume_after_revision.return_value = SimpleNamespace(round_no=2, status="open")
+    db = MagicMock()
 
     # Act
-    service.submit_for_review(MagicMock(), KASUS, actor_id=PEMBUAT)
+    hasil = service.submit_for_review(db, KASUS, actor_id=PEMBUAT)
 
     # Assert
     assert dep.kasus.current_version.status == CaseStatus.IN_REVIEW
+    dep.reviews.resume_after_revision.assert_called_once()
+    dep.reviews.open_round.assert_not_called()
+    dep.reviews.assign_on_submit.assert_not_called()
+    assert hasil.round_no == 2
 
 
 def test_belum_lengkap_ditolak_dengan_daftar_kekurangan(dep):

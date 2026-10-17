@@ -224,8 +224,9 @@ def submit_for_review(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -
     """Ajukan versi yang sedang dikerjakan untuk direview (PBI-6 AC1, D3 langkah 1-12).
 
     Hanya pembuat kasus, hanya versi draft atau needs_revision, dan hanya
-    bila guard D2 lolos. Status versi dan round baru disimpan dalam satu
-    commit, jadi tidak ada versi in_review tanpa round.
+    bila guard D2 lolos. Draf membuka round lalu menugaskan dua reviewer.
+    Versi needs_revision membuka round berikutnya dan membawa approval yang
+    masih berlaku. Status versi dan round baru disimpan dalam satu commit.
     """
     case = _require_case(db, case_id)
     _require_active_suite(db, case.suite_id)
@@ -233,6 +234,7 @@ def submit_for_review(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -
         raise ForbiddenError("Hanya penulis kasus yang boleh mengajukannya untuk direview")
     version = case.current_version
     _require_submittable(version)
+    status_awal = version.status
     katalog = legal_refs_service.load_catalog(db)
     kurang = completeness.review_blockers(
         completeness.row_data(case, version, _citations(version, katalog))
@@ -246,9 +248,15 @@ def submit_for_review(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -
     version.status = CaseStatus.IN_REVIEW
     case.updated_by = actor_id
     try:
-        ronde = reviews_service.open_round(
-            db, case_id=case.id, case_version_id=version.id, author_id=actor_id
-        )
+        if status_awal == CaseStatus.NEEDS_REVISION:
+            ronde = reviews_service.resume_after_revision(
+                db, case_id=case.id, case_version_id=version.id
+            )
+        else:
+            # open_round assigns on round 1 (SCRUM-144); do not call assign_on_submit here.
+            ronde = reviews_service.open_round(
+                db, case_id=case.id, case_version_id=version.id, author_id=actor_id
+            )
         repository.save(db, case)
     except IntegrityError:
         # Pengajuan lain untuk versi yang sama menang lebih dulu.

@@ -158,8 +158,13 @@ class ReviewAssignment(Base):
     )
     ended_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     end_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
-    # Dipakai audit tracker (D6a) supaya case_id tersedia tanpa lazy-load di after_flush.
-    review_round: Mapped["ReviewRound"] = relationship(foreign_keys=[review_round_id])
+    # Dipakai audit tracker (D6a) supaya case_id tersedia di after_flush.
+    # load_on_pending=True: assignment yang baru dibuat (SCRUM-147 / resume)
+    # bisa baca case_id lewat FK tanpa ReviewTableStore mengisi relationship.
+    review_round: Mapped["ReviewRound"] = relationship(
+        foreign_keys=[review_round_id],
+        load_on_pending=True,
+    )
 
     verdict: Mapped["ReviewVerdict | None"] = relationship(back_populates="assignment")
 

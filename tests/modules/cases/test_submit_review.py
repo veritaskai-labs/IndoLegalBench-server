@@ -11,7 +11,7 @@ import pytest
 
 from app.modules.auth.models import User
 from app.modules.cases.models import Case, CaseStatus
-from app.modules.reviews.models import ReviewAssignment, ReviewRound, RoundStatus
+from app.modules.reviews.models import ReviewAssignment, ReviewRound, RoundDecision, RoundStatus
 from app.shared.security import Role
 from tests.modules.cases.test_cases import AUTHOR_LAIN, _buat, _ganti, _setujui, _suite
 
@@ -214,6 +214,9 @@ def test_pengajuan_ulang_setelah_revisi_membuka_round_dua(as_role, db_session):
     assert _ajukan(client, case_id).status_code == 200
     versi = db_session.get(Case, uuid.UUID(case_id)).current_version
     versi.status = CaseStatus.NEEDS_REVISION
+    ronde = _rounds(db_session, case_id)[0]
+    ronde.status = RoundStatus.DECIDED
+    ronde.decision = RoundDecision.REVISE
     db_session.commit()
 
     # Act

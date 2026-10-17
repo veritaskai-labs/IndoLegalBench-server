@@ -58,6 +58,16 @@ def add_assignment(db: Session, tugas: ReviewAssignment) -> None:
     db.add(tugas)
 
 
+def latest_round(db: Session, case_version_id: uuid.UUID) -> ReviewRound | None:
+    """Round dengan nomor tertinggi untuk versi ini, atau None."""
+    return db.scalar(
+        select(ReviewRound)
+        .where(ReviewRound.case_version_id == case_version_id)
+        .order_by(ReviewRound.round_no.desc())
+        .limit(1)
+    )
+
+
 def case_ids_assigned_to(db: Session, reviewer_id: uuid.UUID) -> Sequence[uuid.UUID]:
     """Kasus yang pernah ditugaskan ke reviewer ini, apa pun status assignment-nya."""
     return db.scalars(
