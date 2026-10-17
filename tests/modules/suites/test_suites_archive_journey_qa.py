@@ -26,6 +26,7 @@ import pytest
 
 from app.modules.cases.models import Case, CaseStatus
 from app.shared.security import Role
+from tests.legal_refs import rujukan_pasal
 
 
 def _suite(client, nama: str = "Ketenagakerjaan QA") -> str:
@@ -42,9 +43,7 @@ def _kasus(client, suite_id: str, kode: str = "QA-001") -> dict:
             "question": "Apakah PHK tanpa surat sah?",
             "category": "ketenagakerjaan",
         },
-        "legal_refs": [
-            {"regulation_type": "uu", "regulation_number": "13", "year": 2003, "pasal": "151"}
-        ],
+        "legal_refs": [rujukan_pasal("151")],
         "answer_criteria": {
             "must_contain": ["surat"],
             "must_not_contain": [],

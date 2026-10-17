@@ -58,5 +58,5 @@ class ErrorBody(BaseModel):
     message: str = Field(examples=["No platform account is mapped to this identity."])
     field: str | None = Field(
         default=None,
-        description="Lokasi field yang gagal, misalnya legal_refs[0].pasal",
+        description="Lokasi field yang gagal, misalnya legal_refs[0].links[0].pasal",
     )

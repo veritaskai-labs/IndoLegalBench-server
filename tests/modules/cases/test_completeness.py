@@ -2,7 +2,10 @@
 
 from typing import Any
 
+import pytest
+
 from app.modules.cases.completeness import evaluate, review_blockers
+from tests.legal_refs import rujukan_ac10, rujukan_ktk_001, rujukan_pasal
 
 
 def payload(**overrides: Any) -> dict[str, Any]:
@@ -14,14 +17,7 @@ def payload(**overrides: Any) -> dict[str, Any]:
             "question": "Apakah PHK tanpa surat peringatan sah?",
             "category": "ketenagakerjaan",
         },
-        "legal_refs": [
-            {
-                "regulation_type": "UU",
-                "regulation_number": "13",
-                "year": 2003,
-                "pasal": "151",
-            }
-        ],
+        "legal_refs": [rujukan_pasal("151")],
         "answer_criteria": {
             "must_contain": ["surat peringatan"],
             "must_not_contain": [],
@@ -81,9 +77,10 @@ def test_case_code_tidak_sesuai_pola_dilaporkan():
 
 
 def test_rujukan_tanpa_pasal_tidak_dihitung():
-    hasil = evaluate(
-        payload(legal_refs=[{"regulation_type": "UU", "regulation_number": "13", "year": 2003}])
-    )
+    rujukan = rujukan_pasal("151")
+    del rujukan["links"][0]["pasal"]
+
+    hasil = evaluate(payload(legal_refs=[rujukan]))
 
     assert hasil["legal_ref_count"] == 0
     assert "legal_refs" in missing_fields(hasil)
@@ -93,18 +90,13 @@ def test_rujukan_kosong_dilaporkan():
     hasil = evaluate(payload(legal_refs=[]))
 
     assert hasil["legal_ref_count"] == 0
-    assert "legal_refs" in missing_fields(hasil)
+    assert {"field": "legal_refs", "message": "Butuh minimal satu rujukan hukum."} in hasil[
+        "missing"
+    ]
 
 
 def test_beberapa_rujukan_dihitung_semua():
-    hasil = evaluate(
-        payload(
-            legal_refs=[
-                {"regulation_type": "UU", "regulation_number": "13", "pasal": "151"},
-                {"regulation_type": "PP", "regulation_number": "35", "pasal": "40"},
-            ]
-        )
-    )
+    hasil = evaluate(payload(legal_refs=[rujukan_ktk_001(), rujukan_ac10()]))
 
     assert hasil["legal_ref_count"] == 2
 
@@ -200,10 +192,8 @@ def test_setengah_terisi_memberi_persentase_di_antaranya():
 # --- Guard pengajuan review (SCRUM-143) ---------------------------------------
 
 
-def _ref(**ubah: Any) -> dict[str, Any]:
-    rujukan = {"regulation_type": "UU", "regulation_number": "13", "year": 2003, "pasal": "151"}
-    rujukan.update(ubah)
-    return rujukan
+def _ref(pasal: str = "151") -> dict[str, Any]:
+    return rujukan_pasal(pasal)
 
 
 def test_kasus_lengkap_tidak_punya_penghalang():
@@ -222,7 +212,7 @@ def test_penghalang_memuat_bagian_yang_kurang():
 def test_rujukan_tidak_lengkap_tetap_menghalangi_walau_ada_yang_sah():
     """Kelengkapan hanya butuh satu rujukan sah, guard menolak satu pun yang rusak."""
     # Arrange
-    data = payload(legal_refs=[_ref(), _ref(pasal="  ")])
+    data = payload(legal_refs=[_ref(), _ref("  ")])
 
     # Act
     hasil = review_blockers(data)
@@ -230,7 +220,10 @@ def test_rujukan_tidak_lengkap_tetap_menghalangi_walau_ada_yang_sah():
     # Assert
     assert evaluate(data)["is_complete"] is True
     assert hasil == [
-        {"field": "legal_refs[1].pasal", "message": "Rujukan hukum harus lengkap sampai pasal."}
+        {
+            "field": "legal_refs[1].links[0].pasal",
+            "message": "Rujukan hukum belum lengkap.",
+        }
     ]
 
 
@@ -248,3 +241,117 @@ def test_tanpa_rujukan_sah_tidak_mengulang_pesan_per_field():
 
     # Assert
     assert [item["field"] for item in hasil] == ["legal_refs"]
+
+
+# --- PBI-21: isi wajib per kind rujukan dan bentuk link (SCRUM-160) -------------
+
+
+def _penghalang(rujukan: Any) -> list[str]:
+    """Field penghalang review untuk satu rujukan di samping rujukan sah."""
+    hasil = review_blockers(payload(legal_refs=[rujukan_ktk_001(), rujukan]))
+    return [item["field"] for item in hasil]
+
+
+def _jumlah(rujukan: Any) -> int:
+    return evaluate(payload(legal_refs=[rujukan]))["legal_ref_count"]
+
+
+def test_contoh_ac10_dihitung_lengkap():
+    # Act + Assert
+    assert _jumlah(rujukan_ac10()) == 1
+    assert _penghalang(rujukan_ac10()) == []
+
+
+def test_link_name_only_tanpa_pasal_dihitung_lengkap():
+    # Arrange
+    rujukan = rujukan_ktk_001()
+    rujukan["links"][0]["form"] = "name_only"
+    # Act
+    del rujukan["links"][0]["pasal"]
+
+    # Assert
+    assert _jumlah(rujukan) == 1
+    assert _penghalang(rujukan) == []
+
+
+def test_teks_bebas_terisi_dihitung_lengkap():
+    """AC7. Isinya input format sintetis."""
+    # Act
+    rujukan = {"kind": "free_text", "links": [], "free_text": "Format teks bebas"}
+
+    # Assert
+    assert _jumlah(rujukan) == 1
+    assert _penghalang(rujukan) == []
+
+
+@pytest.mark.parametrize(
+    ("ubah", "field"),
+    [
+        (lambda r: r["links"][1].pop("angka"), "legal_refs[1].links[1].angka"),
+        (lambda r: r["links"][1].update(angka="  "), "legal_refs[1].links[1].angka"),
+        (lambda r: r["links"][1].pop("pasal"), "legal_refs[1].links[1].pasal"),
+        (lambda r: r["links"][0].pop("pasal"), "legal_refs[1].links[0].pasal"),
+        (lambda r: r["links"][0].pop("regulation_type"), "legal_refs[1].links[0].regulation_type"),
+        (lambda r: r["links"][0].pop("number"), "legal_refs[1].links[0].number"),
+        (lambda r: r["links"][0].update(year=None), "legal_refs[1].links[0].year"),
+        (lambda r: r["links"][0].update(form="lain"), "legal_refs[1].links[0].form"),
+        (lambda r: r["links"].__setitem__(1, "rusak"), "legal_refs[1].links[1]"),
+        (lambda r: r.update(links=[]), "legal_refs[1].links"),
+        (lambda r: r.update(links="uu 13"), "legal_refs[1].links"),
+        (lambda r: r.pop("kind"), "legal_refs[1].kind"),
+    ],
+    ids=[
+        "pasal_angka-tanpa-angka",
+        "pasal_angka-angka-spasi",
+        "pasal_angka-tanpa-pasal",
+        "pasal-tanpa-pasal",
+        "tanpa-jenis",
+        "tanpa-nomor",
+        "tahun-null-data-lama",
+        "bentuk-tidak-dikenal",
+        "link-bukan-objek",
+        "structured-tanpa-link",
+        "links-bukan-daftar",
+        "tanpa-kind-bentuk-sprint-1",
+    ],
+)
+def test_rujukan_tidak_lengkap_menunjuk_field_pertama_yang_kurang(ubah, field):
+    # Arrange
+    rujukan = rujukan_ac10()
+    # Act
+    ubah(rujukan)
+
+    # Assert
+    assert _jumlah(rujukan) == 0
+    assert _penghalang(rujukan) == [field]
+
+
+def test_link_pertama_yang_rusak_dilaporkan_lebih_dulu():
+    # Arrange
+    rujukan = rujukan_ac10()
+    del rujukan["links"][0]["pasal"]
+    # Act
+    del rujukan["links"][1]["angka"]
+
+    # Assert
+    assert _penghalang(rujukan) == ["legal_refs[1].links[0].pasal"]
+
+
+@pytest.mark.parametrize("isi", [None, "", "   "])
+def test_teks_bebas_kosong_menghalangi(isi):
+    # Act
+    rujukan = {"kind": "free_text", "links": [], "free_text": isi}
+
+    # Assert
+    assert _jumlah(rujukan) == 0
+    assert _penghalang(rujukan) == ["legal_refs[1].free_text"]
+
+
+def test_rujukan_bentuk_sprint_1_tersimpan_tidak_meledak():
+    """Konten lama di JSONB belum punya kind/links: dihitung belum lengkap, bukan error."""
+    # Act
+    lama = {"regulation_type": "uu", "regulation_number": "13", "year": 2003, "pasal": "151"}
+
+    # Assert
+    assert _jumlah(lama) == 0
+    assert _penghalang(lama) == ["legal_refs[1].kind"]

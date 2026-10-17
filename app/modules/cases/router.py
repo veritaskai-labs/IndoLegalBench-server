@@ -167,7 +167,9 @@ def start_case_version(
         409: {
             "model": ErrorBody,
             "description": (
-                "Versi sedang ditinjau atau sudah disetujui (`VERSION_NOT_SUBMITTABLE`)."
+                "Versi sedang ditinjau atau sudah disetujui (`VERSION_NOT_SUBMITTABLE`), "
+                "atau pengajuan ulang tanpa putusan revisi pada round terakhir "
+                "(`ROUND_NOT_REVISED`)."
             ),
         },
         422: {

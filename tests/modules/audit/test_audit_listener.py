@@ -20,6 +20,7 @@ from app.modules.reviews.models import ReviewAssignment, ReviewRound, RoundStatu
 from app.modules.suites.models import Suite
 from app.shared.config import get_settings
 from app.shared.security import CurrentUser, Role, get_current_user
+from tests.legal_refs import rujukan_pasal
 from tests.modules.conftest import USER_ID_QA
 
 _RAHASIA = "provider-token-value-7kPq"  # pragma: allowlist secret
@@ -56,9 +57,7 @@ def _kasus(**ubah) -> dict:
             "question": "Apakah PHK tanpa surat sah?",
             "category": "ketenagakerjaan",
         },
-        "legal_refs": [
-            {"regulation_type": "uu", "regulation_number": "13", "year": 2003, "pasal": "151"}
-        ],
+        "legal_refs": [rujukan_pasal("151")],
         "answer_criteria": {
             "must_contain": ["surat"],
             "must_not_contain": [],

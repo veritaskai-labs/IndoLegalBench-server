@@ -291,12 +291,21 @@ def test_perubahan_round_tidak_dicatat_sendiri():
 # --- Review verdict (SCRUM-145) --------------------------------------------------
 
 
-def _verdict_row(decision="revise", comment="Pasal 151 sudah diubah"):
+def _verdict_row(
+    decision="revise",
+    comment="Pasal 151 sudah diubah",
+    *,
+    carried_from_verdict_id=None,
+):
     assignment_id = uuid.UUID("00000000-0000-0000-0000-0000000000e1")
     ronde = SimpleNamespace(case_id=KASUS_ID)
     assignment = SimpleNamespace(id=assignment_id, review_round=ronde)
     return _row(
-        assignment_id=assignment_id, assignment=assignment, decision=decision, comment=comment
+        assignment_id=assignment_id,
+        assignment=assignment,
+        decision=decision,
+        comment=comment,
+        carried_from_verdict_id=carried_from_verdict_id,
     )
 
 
@@ -325,6 +334,25 @@ def test_verdict_tidak_pernah_diubah_jadi_tidak_dipantau():
     assert tracker_for("review_verdicts").fields == ()
 
 
+def test_approve_yang_dibawa_dicatat_sebagai_approval_carried():
+    """SCRUM-146: jangan catat carried approve sebagai verdict_submitted Author."""
+    # Arrange
+    sumber = uuid.UUID("00000000-0000-0000-0000-0000000000f1")
+    row = _verdict_row(decision="approve", comment=None, carried_from_verdict_id=sumber)
+
+    # Act
+    event = _satu(tracker_for("review_verdicts").created(row))
+
+    # Assert
+    assert event.action == "review.approval_carried"
+    assert event.entity_id == uuid.UUID("00000000-0000-0000-0000-0000000000e1")
+    assert event.case_id == KASUS_ID
+    assert event.after == {
+        "decision": "approve",
+        "carried_from_verdict_id": str(sumber),
+    }
+
+
 # --- Review assignment (SCRUM-144, D6a) ----------------------------------------
 
 
@@ -346,6 +374,36 @@ def test_penugasan_baru_dicatat_per_assignment():
     assert event.entity_id == ROW_ID
     assert event.case_id == KASUS_ID
     assert event.after == {"reviewer_id": str(reviewer_id), "source": "system"}
+
+
+def test_case_id_penugasan_membaca_atribut_review_round():
+    """Jangan andalkan __dict__ saja: load_on_pending mengisi lewat atribut.
+
+    SCRUM-147 akan membuat assignment tanpa ReviewTableStore. Kalau tracker
+    hanya membaca row.__dict__['review_round'], case_id hilang dan baris
+    audit keluar dari scope reviewer (SCRUM-167).
+    """
+
+    class _TugasLewatAtribut:
+        def __init__(self) -> None:
+            self.id = ROW_ID
+            self.reviewer_id = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
+            self.source = "system"
+            self._ronde = _row(case_id=KASUS_ID)
+
+        @property
+        def review_round(self):
+            return self._ronde
+
+    # Arrange
+    tugas = _TugasLewatAtribut()
+    assert "review_round" not in tugas.__dict__
+
+    # Act
+    event = _satu(tracker_for("review_assignments").created(tugas))
+
+    # Assert
+    assert event.case_id == KASUS_ID
 
 
 def test_penggantian_reviewer_dicatat():

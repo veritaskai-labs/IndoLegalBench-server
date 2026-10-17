@@ -11,7 +11,7 @@ import pytest
 
 from app.modules.auth.models import User
 from app.modules.cases.models import Case, CaseStatus
-from app.modules.reviews.models import ReviewAssignment, ReviewRound, RoundStatus
+from app.modules.reviews.models import ReviewAssignment, ReviewRound, RoundDecision, RoundStatus
 from app.shared.security import Role
 from tests.modules.cases.test_cases import AUTHOR_LAIN, _buat, _ganti, _setujui, _suite
 
@@ -118,7 +118,8 @@ def test_rujukan_rusak_di_versi_tersimpan_ditolak(as_role, db_session):
     case_id = _buat(client, _suite(client)).json()["id"]
     versi = db_session.get(Case, uuid.UUID(case_id)).current_version
     rujukan = versi.content["legal_refs"][0]
-    versi.content = {**versi.content, "legal_refs": [rujukan, {**rujukan, "pasal": ""}]}
+    rusak = {**rujukan, "links": [{**rujukan["links"][0], "pasal": ""}]}
+    versi.content = {**versi.content, "legal_refs": [rujukan, rusak]}
     db_session.commit()
 
     # Act
@@ -126,7 +127,9 @@ def test_rujukan_rusak_di_versi_tersimpan_ditolak(as_role, db_session):
 
     # Assert
     assert response.status_code == 422
-    assert [item["field"] for item in response.json()["missing"]] == ["legal_refs[1].pasal"]
+    assert [item["field"] for item in response.json()["missing"]] == [
+        "legal_refs[1].links[0].pasal"
+    ]
 
 
 def test_author_lain_tidak_boleh_mengajukan(as_role, buat_pengguna, db_session):
@@ -211,6 +214,9 @@ def test_pengajuan_ulang_setelah_revisi_membuka_round_dua(as_role, db_session):
     assert _ajukan(client, case_id).status_code == 200
     versi = db_session.get(Case, uuid.UUID(case_id)).current_version
     versi.status = CaseStatus.NEEDS_REVISION
+    ronde = _rounds(db_session, case_id)[0]
+    ronde.status = RoundStatus.DECIDED
+    ronde.decision = RoundDecision.REVISE
     db_session.commit()
 
     # Act

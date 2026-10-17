@@ -484,6 +484,100 @@ def test_tidak_commit_sendiri(db_session, buat_user, notifier):
     assert _baris_reviewer_assigned(db_session) == []
 
 
+def test_store_nyata_open_queue_menghitung_beban_dengan_benar(db_session, buat_user):
+    """ReviewTableStore.open_queue: active tanpa verdict = open; judged/replaced/void tidak.
+
+    Fairness tests memakai FakeStore. Aturan hitungan store nyata harus
+    terpasang sendiri (catatan review Astha di #38).
+    """
+    from app.modules.reviews.models import (
+        AssignmentSource,
+        AssignmentStatus,
+        ReviewAssignment,
+        ReviewRound,
+        ReviewVerdict,
+        RoundStatus,
+        VerdictDecision,
+    )
+
+    # Arrange
+    penulis = buat_user(1, Role.AUTHOR)
+    ringan = buat_user(2)
+    berat = buat_user(3)
+    jam = AWAL
+
+    def _ronde(nomor: int) -> ReviewRound:
+        ronde = ReviewRound(
+            case_id=CASE_ID,
+            case_version_id=uuid.uuid4(),
+            round_no=nomor,
+            status=RoundStatus.OPEN,
+        )
+        db_session.add(ronde)
+        db_session.flush()
+        return ronde
+
+    def _tugas(
+        ronde: ReviewRound,
+        reviewer_id: uuid.UUID,
+        *,
+        status: AssignmentStatus = AssignmentStatus.ACTIVE,
+        assigned_at: datetime | None = None,
+        verdict: VerdictDecision | None = None,
+    ) -> None:
+        nonlocal jam
+        jam = assigned_at or (jam + timedelta(minutes=1))
+        tugas = ReviewAssignment(
+            review_round_id=ronde.id,
+            reviewer_id=reviewer_id,
+            source=AssignmentSource.SYSTEM,
+            status=status,
+            assigned_at=jam,
+        )
+        tugas.review_round = ronde
+        db_session.add(tugas)
+        db_session.flush()
+        if verdict is not None:
+            db_session.add(ReviewVerdict(assignment_id=tugas.id, decision=verdict, comment=None))
+            db_session.flush()
+
+    # ringan: one judged (not open) + one replaced (not open); last = later row
+    r1, r2 = _ronde(1), _ronde(2)
+    _tugas(r1, ringan, verdict=VerdictDecision.APPROVE, assigned_at=AWAL + timedelta(hours=1))
+    _tugas(
+        r2,
+        ringan,
+        status=AssignmentStatus.REPLACED,
+        assigned_at=AWAL + timedelta(hours=2),
+    )
+    # berat: one active unjudged (open=1) + one void (still in total)
+    r3, r4 = _ronde(3), _ronde(4)
+    _tugas(r3, berat, assigned_at=AWAL + timedelta(hours=3))
+    _tugas(
+        r4,
+        berat,
+        status=AssignmentStatus.VOID,
+        assigned_at=AWAL + timedelta(hours=4),
+    )
+    db_session.commit()
+
+    # Act
+    beban = service.ReviewTableStore(db_session).open_queue([ringan, berat, penulis])
+
+    # Assert
+    # SQLite may drop tzinfo on DateTime(timezone=True); compare as naive UTC.
+    def _utc(nilai: datetime) -> datetime:
+        return nilai.replace(tzinfo=None) if nilai.tzinfo else nilai
+
+    assert beban[ringan].open_count == 0
+    assert beban[ringan].total_count == 2
+    assert _utc(beban[ringan].last_assigned_at) == _utc(AWAL + timedelta(hours=2))
+    assert beban[berat].open_count == 1
+    assert beban[berat].total_count == 2
+    assert _utc(beban[berat].last_assigned_at) == _utc(AWAL + timedelta(hours=4))
+    assert penulis not in beban
+
+
 def test_noop_notifier_menerima_panggilan_tanpa_efek():
     # Act + Assert
     assert NoopNotifier().notify([uuid.uuid4()], "review_assigned", {"title": "t"}) is None

@@ -58,6 +58,7 @@ NOT_YOUR_ASSIGNMENT = "NOT_YOUR_ASSIGNMENT"
 REVIEWER_IS_AUTHOR = "REVIEWER_IS_AUTHOR"
 ASSIGNMENT_NOT_ACTIVE = "ASSIGNMENT_NOT_ACTIVE"
 ROUND_NOT_OPEN = "ROUND_NOT_OPEN"
+ROUND_NOT_REVISED = "ROUND_NOT_REVISED"
 VERDICT_ALREADY_SUBMITTED = "VERDICT_ALREADY_SUBMITTED"
 NO_REVIEW_ROUND = "NO_REVIEW_ROUND"
 
@@ -75,8 +76,9 @@ def open_round(
 ) -> ReviewRound:
     """Buat round berikutnya untuk versi yang baru diajukan.
 
-    Pengajuan pertama jadi round 1. Pengajuan ulang setelah revisi memakai
-    versi yang sama, jadi nomornya naik (D3 langkah 44).
+    Pengajuan pertama jadi round 1. Nomor dihitung pada versi yang sama,
+    jadi pemanggilan berikutnya menaikkan nomornya. Pengajuan ulang setelah
+    revisi tidak lewat sini; itu resume_after_revision.
 
     Round dimulai awaiting_assignment. Untuk round 1, assign_on_submit
     memasang dua reviewer dan membuka round bila kandidat cukup. Round > 1
@@ -145,10 +147,7 @@ class ReviewTableStore:
                 source=AssignmentSource.SYSTEM,
                 status=AssignmentStatus.ACTIVE,
             )
-            # Set relationship in memory so the D6a tracker can read case_id
-            # during after_flush without a lazy load mid-flush.
-            if ronde is not None:
-                tugas.review_round = ronde
+            # case_id audit uses load_on_pending on review_round; no hand-set.
             repository.add_assignment(self._db, tugas)
         if ronde is not None:
             ronde.status = RoundStatus.OPEN
@@ -204,17 +203,107 @@ def assign_on_submit(
     # Notifier runs inside the submit transaction today (NoopNotifier).
     # SCRUM-153 should keep notify non-blocking so a delivery failure does
     # not roll back the assignment rows already flushed in this txn.
-    pemberitahu.notify(
-        terpilih,
-        REVIEW_ASSIGNED,
-        {
-            "title": "Tugas review baru",
-            "body": "Anda ditugaskan mereview sebuah kasus.",
-            # TODO(SCRUM-153): sesuaikan dengan rute halaman review di client.
-            "link": f"/cases/{case_id}",
-        },
-    )
+    pemberitahu.notify(terpilih, REVIEW_ASSIGNED, _payload_tugas(case_id))
     return terpilih
+
+
+def resume_after_revision(
+    db: Session,
+    *,
+    case_id: uuid.UUID,
+    case_version_id: uuid.UUID,
+    notifier: Notifier | None = None,
+) -> ReviewRound:
+    """SCRUM-146: buka round berikutnya pada versi yang sama setelah revisi.
+
+    Approval yang assignment-nya masih active disalin, dengan
+    carried_from_verdict_id menunjuk verdict lama. Hanya reviewer yang
+    memilih revise mendapat assignment baru tanpa verdict, dan hanya mereka
+    yang diberi tahu. Verdict lama tidak diubah, jadi komentar revisi tetap
+    terbaca. Tidak memilih reviewer baru. Round terakhir harus sudah
+    decided dengan keputusan revise, kalau tidak pengajuan ditolak.
+    Perevisi yang sudah bukan reviewer aktif tidak diganti; round-nya
+    menunggu penugasan Admin.
+    """
+    pemberitahu = notifier if notifier is not None else NoopNotifier()
+    sebelumnya = repository.latest_round(db, case_version_id)
+    if (
+        sebelumnya is None
+        or sebelumnya.status != RoundStatus.DECIDED
+        or sebelumnya.decision != RoundDecision.REVISE
+    ):
+        raise ConflictError(
+            "Pengajuan ulang hanya bisa dilakukan setelah putaran review memutuskan revisi.",
+            code=ROUND_NOT_REVISED,
+        )
+    ronde = ReviewRound(
+        case_id=case_id,
+        case_version_id=case_version_id,
+        round_no=repository.max_round_no(db, case_version_id) + 1,
+        status=RoundStatus.OPEN,
+    )
+    repository.add_round(db, ronde)
+    dibawa = 0
+    revisi: list[uuid.UUID] = []
+    masih_aktif = set(auth_service.active_reviewer_ids(db))
+    for tugas in repository.assignments_in_round(db, sebelumnya.id):
+        if tugas.status != AssignmentStatus.ACTIVE:
+            continue
+        verdict = tugas.verdict
+        if verdict is not None and verdict.decision == VerdictDecision.APPROVE:
+            _bawa_approve(db, ronde, tugas.reviewer_id, verdict)
+            dibawa += 1
+        elif (
+            verdict is not None
+            and verdict.decision == VerdictDecision.REVISE
+            and tugas.reviewer_id in masih_aktif
+        ):
+            _tugaskan(db, ronde, tugas.reviewer_id)
+            revisi.append(tugas.reviewer_id)
+    if dibawa + len(revisi) < REVIEWERS_PER_ROUND:
+        ronde.status = RoundStatus.AWAITING_ASSIGNMENT
+    db.flush()
+    if revisi:
+        pemberitahu.notify(revisi, REVIEW_ASSIGNED, _payload_tugas(case_id))
+    return ronde
+
+
+def _bawa_approve(
+    db: Session, ronde: ReviewRound, reviewer_id: uuid.UUID, verdict: ReviewVerdict
+) -> None:
+    """Salin approve ke round baru. Baris verdict lama dibiarkan."""
+    tugas = _tugaskan(db, ronde, reviewer_id)
+    db.flush()
+    repository.add_verdict(
+        db,
+        ReviewVerdict(
+            assignment_id=tugas.id,
+            decision=VerdictDecision.APPROVE,
+            comment=verdict.comment,
+            carried_from_verdict_id=verdict.id,
+        ),
+    )
+
+
+def _tugaskan(db: Session, ronde: ReviewRound, reviewer_id: uuid.UUID) -> ReviewAssignment:
+    """Buat assignment aktif. case_id audit lewat load_on_pending pada review_round."""
+    tugas = ReviewAssignment(
+        review_round_id=ronde.id,
+        reviewer_id=reviewer_id,
+        source=AssignmentSource.SYSTEM,
+        status=AssignmentStatus.ACTIVE,
+    )
+    repository.add_assignment(db, tugas)
+    return tugas
+
+
+def _payload_tugas(case_id: uuid.UUID) -> dict[str, str]:
+    return {
+        "title": "Tugas review baru",
+        "body": "Anda ditugaskan mereview sebuah kasus.",
+        # TODO(SCRUM-153): sesuaikan dengan rute halaman review di client.
+        "link": f"/cases/{case_id}",
+    }
 
 
 def _urutan(reviewer_id: uuid.UUID, beban: ReviewerLoad) -> tuple[int, bool, float, int, str]:

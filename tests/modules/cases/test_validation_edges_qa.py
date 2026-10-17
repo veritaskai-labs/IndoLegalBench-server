@@ -32,13 +32,12 @@ from app.modules.cases.validation import (
 )
 from app.shared.exceptions import ValidationError
 from app.shared.security import Role
+from tests.legal_refs import rujukan_pasal
 
 LENGKAP = {
     "case_code": "QA-001",
     "identity": {"title": "PHK sepihak", "question": "Apakah sah?", "category": None},
-    "legal_refs": [
-        {"regulation_type": "uu", "regulation_number": "13", "year": 2003, "pasal": "151"}
-    ],
+    "legal_refs": [rujukan_pasal("151")],
     "answer_criteria": {
         "must_contain": ["surat"],
         "must_not_contain": [],
@@ -123,7 +122,7 @@ class TestBentukDataYangSamaSekaliSalah:
             validate_payload(
                 _payload(
                     legal_refs=[
-                        {"regulation_type": "uu", "regulation_number": "13", "pasal": "151"},
+                        rujukan_pasal("151"),
                         "rusak",
                     ]
                 )
@@ -164,7 +163,11 @@ class TestKelengkapanDariBentukYangTidakTerduga:
         assert hasil["missing"] == []
 
     def test_rujukan_yang_isinya_setengah_belum_dihitung_lengkap(self):
-        hasil = completeness(_payload(legal_refs=[{"regulation_type": "uu", "pasal": "151"}]))
+        setengah = rujukan_pasal("151")
+        del setengah["links"][0]["number"]
+        del setengah["links"][0]["year"]
+
+        hasil = completeness(_payload(legal_refs=[setengah]))
 
         assert "legal_refs" in _bagian_kurang(hasil)
 
@@ -203,24 +206,13 @@ class TestIsianOpsionalDibersihkan:
 
         respons = client.post(
             f"/suites/{suite_id}/cases",
-            json=_payload(
-                legal_refs=[
-                    {
-                        "regulation_type": "uu",
-                        "regulation_number": "13",
-                        "year": 2003,
-                        "pasal": "151",
-                        "ayat": "   ",
-                        "huruf": "  ",
-                    }
-                ]
-            ),
+            json=_payload(legal_refs=[rujukan_pasal("151", ayat="   ", huruf="  ")]),
         )
 
         assert respons.status_code == 201
-        rujukan = respons.json()["legal_refs"][0]
-        assert rujukan["ayat"] is None
-        assert rujukan["huruf"] is None
+        link = respons.json()["legal_refs"][0]["links"][0]
+        assert link["ayat"] is None
+        assert link["huruf"] is None
 
     def test_case_code_bukan_teks_diteruskan_apa_adanya_agar_pydantic_yang_menolak(self, as_role):
         """Pembersih hanya bekerja pada teks; tipe lain diserahkan ke schema.
