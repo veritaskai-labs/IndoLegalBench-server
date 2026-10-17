@@ -9,13 +9,17 @@ on:
 
 permissions:
   contents: read
-  # Lets the SonarQube step post its gate result as its own row on the PR.
-  statuses: write
 
 jobs:
   # Branch protection uses this job name as the required check. Do not rename it.
   build:
     runs-on: ubuntu-latest
+    # Job level, so only this job's token can write commit statuses. Job
+    # permissions replace the workflow ones, so contents: read is repeated.
+    permissions:
+      contents: read
+      # Lets the SonarQube step post its gate result as its own row on the PR.
+      statuses: write
     services:
       # Same image as docker compose. pytest uses SQLite and never runs ENUM DDL.
       postgres:
@@ -91,6 +95,9 @@ jobs:
       # Only reviewing a hotspot still needs the SonarQube page.
       - name: Explain a red quality gate
         if: failure() && steps.sonar.outcome == 'failure'
+        # bash with pipefail, so a failed curl reaches the || echo fallbacks
+        # instead of being hidden behind jq's exit code.
+        shell: bash
         env:
           PR: ${{ github.event.pull_request.number }}
         run: |
