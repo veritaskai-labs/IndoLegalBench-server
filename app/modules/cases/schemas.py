@@ -304,7 +304,7 @@ class VersionSections(BaseModel):
     category: str | None = None
     case_code: str
     split_tag: str
-    legal_refs: list[Any]
+    legal_refs: list[LegalRefRead]
     answer_criteria: dict[str, Any]
     traps: list[Any]
 

@@ -39,8 +39,19 @@ SECTIONS = (
 )
 
 
-def sections_from(*, case_code: str, split_tag: str, content: dict | None) -> dict[str, Any]:
-    """Map one version onto the eight section names."""
+def sections_from(
+    *,
+    case_code: str,
+    split_tag: str,
+    content: dict | None,
+    legal_refs: list[dict[str, Any]],
+) -> dict[str, Any]:
+    """Map one version onto the eight section names.
+
+    legal_refs is passed in already read in the PBI-21 shape with its
+    display_text (SCRUM-160), because the stored content of an older version
+    may still hold the Sprint 1 shape and reading it needs the type list.
+    """
     stored = content or {}
     return {
         "identity.title": stored.get("title") or "",
@@ -48,7 +59,7 @@ def sections_from(*, case_code: str, split_tag: str, content: dict | None) -> di
         "category": stored.get("category"),
         "case_code": case_code,
         "split_tag": split_tag,
-        "legal_refs": stored.get("legal_refs") or [],
+        "legal_refs": legal_refs,
         "answer_criteria": stored.get("answer_criteria") or {},
         "traps": stored.get("traps") or [],
     }
@@ -66,6 +77,7 @@ def snapshot_body(
     status: str,
     split_tag: str,
     content: dict | None,
+    legal_refs: list[dict[str, Any]],
 ) -> dict[str, Any]:
     """Frozen case body stored on a snapshot item.
 
@@ -75,5 +87,7 @@ def snapshot_body(
     return {
         "version_no": version_no,
         "status": status,
-        "sections": sections_from(case_code=case_code, split_tag=split_tag, content=content),
+        "sections": sections_from(
+            case_code=case_code, split_tag=split_tag, content=content, legal_refs=legal_refs
+        ),
     }

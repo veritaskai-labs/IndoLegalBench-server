@@ -5058,7 +5058,9 @@
             "title": "Split Tag"
           },
           "legal_refs": {
-            "items": {},
+            "items": {
+              "$ref": "#/components/schemas/LegalRefRead"
+            },
             "type": "array",
             "title": "Legal Refs"
           },

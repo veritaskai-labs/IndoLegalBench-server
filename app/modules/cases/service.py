@@ -293,10 +293,11 @@ def list_case_versions(db: Session, case_id: uuid.UUID) -> list[VersionSummary]:
     case = _require_case(db, case_id)
     versions = repository.list_versions(db, case.id)
     names = auth_service.user_names(db, {version.created_by for version in versions})
+    katalog = legal_refs_service.load_catalog(db)
     previous: dict | None = None
     rows: list[VersionSummary] = []
     for version in versions:
-        current = _section_values(version)
+        current = _section_values(version, katalog)
         changed = [] if previous is None else sections.changed_sections(previous, current)
         rows.append(
             VersionSummary(
@@ -321,8 +322,9 @@ def compare_case_versions(db: Session, case_id: uuid.UUID, a: int, b: int) -> Ve
     left = _require_version(db, case.id, a)
     right = _require_version(db, case.id, b)
     names = auth_service.user_names(db, {left.created_by, right.created_by})
-    left_sections = _section_values(left)
-    right_sections = _section_values(right)
+    katalog = legal_refs_service.load_catalog(db)
+    left_sections = _section_values(left, katalog)
+    right_sections = _section_values(right, katalog)
     changed = [] if a == b else sections.changed_sections(left_sections, right_sections)
     return VersionCompare(
         a=_version_side(left, names, left_sections),
@@ -337,6 +339,7 @@ def approved_copies_for_suite(db: Session, suite_id: uuid.UUID) -> list[dict]:
     Draft-only cases are left out.
     """
     copies: list[dict] = []
+    katalog = legal_refs_service.load_catalog(db)
     for case, version in repository.approved_for_suite(db, suite_id):
         copies.append(
             {
@@ -348,6 +351,7 @@ def approved_copies_for_suite(db: Session, suite_id: uuid.UUID) -> list[dict]:
                     status=version.status.value,
                     split_tag=version.split_tag.value,
                     content=version.content,
+                    legal_refs=_legal_refs_json(version, katalog),
                 ),
             }
         )
@@ -434,13 +438,23 @@ def _author(user_id: uuid.UUID, names: dict[uuid.UUID, str]) -> ActorRead:
     return ActorRead(id=user_id, name=names.get(user_id, ""))
 
 
-def _section_values(version: CaseVersion) -> dict:
-    """The eight sections for one version, including its stored case_code."""
+def _section_values(version: CaseVersion, katalog: legal_refs_service.TypeCatalog) -> dict:
+    """The eight sections for one version, including its stored case_code.
+
+    Citations are read like every other endpoint, so a Sprint 1 citation saved
+    again in the PBI-21 shape compares equal to its old self.
+    """
     return sections.sections_from(
         case_code=version.case_code,
         split_tag=version.split_tag.value,
         content=version.content,
+        legal_refs=_legal_refs_json(version, katalog),
     )
+
+
+def _legal_refs_json(version: CaseVersion, katalog: legal_refs_service.TypeCatalog) -> list[dict]:
+    """The read citations as plain JSON, for sections that are compared or frozen."""
+    return [rujukan.model_dump(mode="json") for rujukan in _legal_refs_read(version, katalog)]
 
 
 def _catat_versi_baru(version: CaseVersion) -> None:
