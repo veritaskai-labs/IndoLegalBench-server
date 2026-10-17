@@ -170,6 +170,11 @@ def user_names(db: DbSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
     return repository.get_names(db, user_ids)
 
 
+def get_user(db: DbSession, user_id: uuid.UUID) -> User | None:
+    """Return user by id, or None."""
+    return repository.get_user_by_id(db, user_id)
+
+
 class AuthService:
     def __init__(self, db: DbSession):
         self.db = db
@@ -218,4 +223,8 @@ class AuthService:
             raise NotFoundError("User not found")
 
         repository.delete_sessions_by_user_id(self.db, user.id)
+
+        from app.modules.reviews import service as reviews_service
+
+        reviews_service.void_reviewer_assignments(self.db, user.id)
         return repository.deactivate_user(self.db, user)

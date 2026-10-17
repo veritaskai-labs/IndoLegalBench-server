@@ -8,7 +8,7 @@ milik pemanggil di service.
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.modules.reviews.models import (
@@ -142,3 +142,67 @@ def add_verdict(db: Session, verdict: ReviewVerdict) -> None:
     """Tambahkan verdict lalu flush supaya UQ assignment_id langsung ketahuan."""
     db.add(verdict)
     db.flush()
+
+
+def get_active_assignments_by_reviewer(
+    db: Session, reviewer_id: uuid.UUID
+) -> list[ReviewAssignment]:
+    """Semua penugasan active reviewer beserta round-nya."""
+    return list(
+        db.scalars(
+            select(ReviewAssignment)
+            .options(joinedload(ReviewAssignment.review_round))
+            .where(
+                ReviewAssignment.reviewer_id == reviewer_id,
+                ReviewAssignment.status == AssignmentStatus.ACTIVE,
+            )
+        ).all()
+    )
+
+
+def get_assignments_for_round(db: Session, round_id: uuid.UUID) -> list[ReviewAssignment]:
+    """Seluruh assignment dalam satu round, diurutkan waktu penugasan."""
+    return list(
+        db.scalars(
+            select(ReviewAssignment)
+            .where(ReviewAssignment.review_round_id == round_id)
+            .order_by(ReviewAssignment.assigned_at.asc(), ReviewAssignment.id.asc())
+        ).all()
+    )
+
+
+def get_active_assignments_for_round(db: Session, round_id: uuid.UUID) -> list[ReviewAssignment]:
+    """Assignment aktif dalam satu round."""
+    return list(
+        db.scalars(
+            select(ReviewAssignment)
+            .where(
+                ReviewAssignment.review_round_id == round_id,
+                ReviewAssignment.status == AssignmentStatus.ACTIVE,
+            )
+            .order_by(ReviewAssignment.assigned_at.asc(), ReviewAssignment.id.asc())
+        ).all()
+    )
+
+
+def get_rounds_needing_reassignment(db: Session) -> list[ReviewRound]:
+    """Round aktif yang memerlukan penugasan ulang (AC8)."""
+    void_rounds = (
+        select(ReviewAssignment.review_round_id)
+        .where(ReviewAssignment.status == AssignmentStatus.VOID)
+        .scalar_subquery()
+    )
+    return list(
+        db.scalars(
+            select(ReviewRound)
+            .where(
+                ReviewRound.decision.is_(None),
+                ReviewRound.status != RoundStatus.DECIDED,
+                or_(
+                    ReviewRound.status == RoundStatus.AWAITING_ASSIGNMENT,
+                    ReviewRound.id.in_(void_rounds),
+                ),
+            )
+            .order_by(ReviewRound.opened_at.asc())
+        ).all()
+    )

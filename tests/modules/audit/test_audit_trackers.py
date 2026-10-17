@@ -348,6 +348,52 @@ def test_penugasan_baru_dicatat_per_assignment():
     assert event.after == {"reviewer_id": str(reviewer_id), "source": "system"}
 
 
+def test_penggantian_reviewer_dicatat():
+    """D6a: review.reviewer_replaced, wajib mencatat reason."""
+    # Arrange
+    tugas = _row(
+        status="replaced",
+        end_reason="Reviewer berhalangan hadir",
+        review_round=_row(case_id=KASUS_ID),
+    )
+
+    # Act
+    event = _satu(
+        tracker_for("review_assignments").updated(tugas, {"status": Change("active", "replaced")})
+    )
+
+    # Assert
+    assert event.action == "review.reviewer_replaced"
+    assert event.entity_id == ROW_ID
+    assert event.case_id == KASUS_ID
+    assert event.reason == "Reviewer berhalangan hadir"
+    assert event.before == {"status": "active"}
+    assert event.after == {"status": "replaced"}
+
+
+def test_penonaktifan_reviewer_dicatat():
+    """D6a: review.assignment_voided saat reviewer dinonaktifkan."""
+    # Arrange
+    tugas = _row(
+        status="void",
+        end_reason="Reviewer deactivated",
+        review_round=_row(case_id=KASUS_ID),
+    )
+
+    # Act
+    event = _satu(
+        tracker_for("review_assignments").updated(tugas, {"status": Change("active", "void")})
+    )
+
+    # Assert
+    assert event.action == "review.assignment_voided"
+    assert event.entity_id == ROW_ID
+    assert event.case_id == KASUS_ID
+    assert event.reason == "Reviewer deactivated"
+    assert event.before == {"status": "active"}
+    assert event.after == {"status": "void"}
+
+
 def test_nilai_kolom_diubah_jadi_aman_untuk_jsonb():
     """uuid dan Decimal tidak bisa disimpan langsung di kolom JSON."""
     # Arrange
