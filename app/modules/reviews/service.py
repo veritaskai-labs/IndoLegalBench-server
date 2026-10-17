@@ -61,6 +61,7 @@ ROUND_NOT_OPEN = "ROUND_NOT_OPEN"
 ROUND_NOT_REVISED = "ROUND_NOT_REVISED"
 VERDICT_ALREADY_SUBMITTED = "VERDICT_ALREADY_SUBMITTED"
 NO_REVIEW_ROUND = "NO_REVIEW_ROUND"
+ASSIGNMENT_NOT_FOUND = "Penugasan review tidak ditemukan"
 
 _BELUM_PERNAH = ReviewerLoad(open_count=0, last_assigned_at=None, total_count=0)
 
@@ -344,7 +345,7 @@ def submit_verdict(
         )
     tugas = repository.get_assignment(db, assignment_id)
     if tugas is None:
-        raise NotFoundError("Penugasan review tidak ditemukan")
+        raise NotFoundError(ASSIGNMENT_NOT_FOUND)
     if tugas.reviewer_id != reviewer_id:
         raise ForbiddenError("Penugasan ini milik reviewer lain", code=NOT_YOUR_ASSIGNMENT)
     salinan = _cases().review_copies(db, {tugas.review_round.case_version_id})[
@@ -552,6 +553,126 @@ def void_reviewer_assignments(
     return voided
 
 
+def _clean_reason(reason: str) -> str:
+    clean = reason.strip() if reason else ""
+    if not clean:
+        raise ValidationError(
+            "Alasan wajib diisi untuk aksi ini",
+            code="REASON_REQUIRED",
+            field="reason",
+        )
+    return clean
+
+
+def _ensure_assignment_replaceable(assignment: ReviewAssignment | None) -> ReviewAssignment:
+    if not assignment:
+        raise NotFoundError(ASSIGNMENT_NOT_FOUND)
+    if assignment.status == AssignmentStatus.REPLACED:
+        raise ConflictError(
+            "Penugasan ini sudah pernah diganti",
+            code="ASSIGNMENT_ALREADY_REPLACED",
+        )
+    return assignment
+
+
+def _ensure_round_not_decided(ronde: ReviewRound) -> None:
+    if ronde.status == RoundStatus.DECIDED or ronde.decision is not None:
+        raise ConflictError(
+            "Putaran review sudah selesai diputuskan",
+            code="ROUND_ALREADY_DECIDED",
+        )
+
+
+def _validate_new_reviewer(
+    db: Session,
+    new_reviewer_id: uuid.UUID,
+    ronde: ReviewRound,
+    old_assignment: ReviewAssignment,
+    active_assignments: list[ReviewAssignment],
+) -> None:
+    new_user = auth_service.get_user(db, new_reviewer_id)
+    if not new_user:
+        raise NotFoundError("Reviewer baru tidak ditemukan")
+
+    case_author_id = _cases().case_author(db, ronde.case_id)
+    if new_reviewer_id == case_author_id:
+        raise ValidationError(
+            "Reviewer baru tidak boleh penulis kasus",
+            code="CANNOT_ASSIGN_AUTHOR",
+            field="new_reviewer_id",
+        )
+
+    if not new_user.is_active or new_user.role != Role.REVIEWER:
+        raise ValidationError(
+            "Reviewer baru harus berupa akun reviewer yang aktif",
+            code="INVALID_REVIEWER",
+            field="new_reviewer_id",
+        )
+
+    other_active_ids = {a.reviewer_id for a in active_assignments if a.id != old_assignment.id}
+    if new_reviewer_id in other_active_ids:
+        raise ValidationError(
+            "Reviewer baru tidak boleh reviewer lain di round itu",
+            code="REVIEWER_ALREADY_ASSIGNED",
+            field="new_reviewer_id",
+        )
+    if new_reviewer_id == old_assignment.reviewer_id:
+        raise ValidationError(
+            "Reviewer baru tidak boleh reviewer yang sedang diganti",
+            code="REVIEWER_ALREADY_ASSIGNED",
+            field="new_reviewer_id",
+        )
+
+
+def _apply_reviewer_replacement(
+    db: Session,
+    ronde: ReviewRound,
+    old_assignment: ReviewAssignment,
+    new_reviewer_id: uuid.UUID,
+    admin_id: uuid.UUID,
+    reason: str,
+    active_assignments: list[ReviewAssignment],
+) -> ReviewAssignment:
+    old_assignment.status = AssignmentStatus.REPLACED
+    old_assignment.ended_at = datetime.now(UTC)
+    old_assignment.end_reason = reason
+    old_assignment.review_round = ronde
+
+    new_assignment = ReviewAssignment(
+        review_round_id=ronde.id,
+        reviewer_id=new_reviewer_id,
+        source=AssignmentSource.ADMIN,
+        assigned_by=admin_id,
+        status=AssignmentStatus.ACTIVE,
+    )
+    new_assignment.review_round = ronde
+    repository.add_assignment(db, new_assignment)
+
+    remaining_active = [a for a in active_assignments if a.id != old_assignment.id]
+    total_active_count = len(remaining_active) + 1
+    if total_active_count >= REVIEWERS_PER_ROUND:
+        ronde.status = RoundStatus.OPEN
+    else:
+        ronde.status = RoundStatus.AWAITING_ASSIGNMENT
+
+    return new_assignment
+
+
+def _notify_replacement(
+    notifier: Notifier | None, new_reviewer_id: uuid.UUID, case_id: uuid.UUID
+) -> None:
+    pemberitahu = notifier if notifier is not None else NoopNotifier()
+    pemberitahu.notify(
+        [new_reviewer_id],
+        REVIEW_ASSIGNED,
+        {
+            "title": "Tugas review baru",
+            "body": "Anda ditugaskan mereview sebuah kasus.",
+            "link": f"/cases/{case_id}",
+        },
+    )
+
+
 def replace_reviewer(
     db: Session,
     *,
@@ -572,119 +693,25 @@ def replace_reviewer(
       3. Bukan akun reviewer yang aktif (422 INVALID_REVIEWER)
     - Jejak audit dicatat otomatis (review.reviewer_replaced dengan reason dan review.reviewer_assigned).
     """
-    clean_reason = reason.strip() if reason else ""
-    if not clean_reason:
-        raise ValidationError(
-            "Alasan wajib diisi untuk aksi ini",
-            code="REASON_REQUIRED",
-            field="reason",
-        )
-
-    old_assignment = repository.get_assignment(db, assignment_id)
-    if not old_assignment:
-        raise NotFoundError("Penugasan review tidak ditemukan")
-
-    if old_assignment.status == AssignmentStatus.REPLACED:
-        raise ConflictError(
-            "Penugasan ini sudah pernah diganti",
-            code="ASSIGNMENT_ALREADY_REPLACED",
-        )
+    clean_reason = _clean_reason(reason)
+    old_assignment = _ensure_assignment_replaceable(repository.get_assignment(db, assignment_id))
 
     ronde = repository.lock_round(db, old_assignment.review_round_id)
 
     # Baca ulang sesudah kunci round: assignment dimuat sebelum antre kunci,
     # jadi statusnya bisa sudah 'replaced' bila di-replace oleh transaksi lain.
-    old_assignment = repository.get_assignment(db, assignment_id, fresh=True)
-    if not old_assignment:
-        raise NotFoundError("Penugasan review tidak ditemukan")
+    old_assignment = _ensure_assignment_replaceable(
+        repository.get_assignment(db, assignment_id, fresh=True)
+    )
+    _ensure_round_not_decided(ronde)
 
-    if old_assignment.status == AssignmentStatus.REPLACED:
-        raise ConflictError(
-            "Penugasan ini sudah pernah diganti",
-            code="ASSIGNMENT_ALREADY_REPLACED",
-        )
-
-    if ronde.status == RoundStatus.DECIDED or ronde.decision is not None:
-        raise ConflictError(
-            "Putaran review sudah selesai diputuskan",
-            code="ROUND_ALREADY_DECIDED",
-        )
-
-    # Validasi reviewer baru
-    new_user = auth_service.get_user(db, new_reviewer_id)
-    if not new_user:
-        raise NotFoundError("Reviewer baru tidak ditemukan")
-
-    # Validasi penulis kasus (AC7: Reviewer baru tidak boleh penulis)
-    case_author_id = _cases().case_author(db, ronde.case_id)
-    if new_reviewer_id == case_author_id:
-        raise ValidationError(
-            "Reviewer baru tidak boleh penulis kasus",
-            code="CANNOT_ASSIGN_AUTHOR",
-            field="new_reviewer_id",
-        )
-
-    if not new_user.is_active or new_user.role != Role.REVIEWER:
-        raise ValidationError(
-            "Reviewer baru harus berupa akun reviewer yang aktif",
-            code="INVALID_REVIEWER",
-            field="new_reviewer_id",
-        )
-
-    # Validasi reviewer lain di round itu (AC7: tidak boleh reviewer lain di round itu)
     active_assignments = repository.get_active_assignments_for_round(db, ronde.id)
-    other_active_reviewer_ids = {
-        a.reviewer_id for a in active_assignments if a.id != old_assignment.id
-    }
-    if new_reviewer_id in other_active_reviewer_ids:
-        raise ValidationError(
-            "Reviewer baru tidak boleh reviewer lain di round itu",
-            code="REVIEWER_ALREADY_ASSIGNED",
-            field="new_reviewer_id",
-        )
-    if new_reviewer_id == old_assignment.reviewer_id:
-        raise ValidationError(
-            "Reviewer baru tidak boleh reviewer yang sedang diganti",
-            code="REVIEWER_ALREADY_ASSIGNED",
-            field="new_reviewer_id",
-        )
+    _validate_new_reviewer(db, new_reviewer_id, ronde, old_assignment, active_assignments)
 
-    # Update assignment lama
-    old_assignment.status = AssignmentStatus.REPLACED
-    old_assignment.ended_at = datetime.now(UTC)
-    old_assignment.end_reason = clean_reason
-    old_assignment.review_round = ronde
-
-    # Buat assignment baru
-    new_assignment = ReviewAssignment(
-        review_round_id=ronde.id,
-        reviewer_id=new_reviewer_id,
-        source=AssignmentSource.ADMIN,
-        assigned_by=admin_id,
-        status=AssignmentStatus.ACTIVE,
+    new_assignment = _apply_reviewer_replacement(
+        db, ronde, old_assignment, new_reviewer_id, admin_id, clean_reason, active_assignments
     )
-    new_assignment.review_round = ronde
-    repository.add_assignment(db, new_assignment)
-
-    # Update status round: bila active reviewer sudah mencapai REVIEWERS_PER_ROUND -> OPEN
-    remaining_active = [a for a in active_assignments if a.id != old_assignment.id]
-    total_active_count = len(remaining_active) + 1
-    if total_active_count >= REVIEWERS_PER_ROUND:
-        ronde.status = RoundStatus.OPEN
-    else:
-        ronde.status = RoundStatus.AWAITING_ASSIGNMENT
-
-    # Notifikasi reviewer baru
-    pemberitahu = notifier if notifier is not None else NoopNotifier()
-    pemberitahu.notify(
-        [new_reviewer_id],
-        REVIEW_ASSIGNED,
-        {
-            "title": "Tugas review baru",
-            "body": "Anda ditugaskan mereview sebuah kasus.",
-            "link": f"/cases/{ronde.case_id}",
-        },
-    )
+    _notify_replacement(notifier, new_reviewer_id, ronde.case_id)
 
     db.flush()
     db.commit()
