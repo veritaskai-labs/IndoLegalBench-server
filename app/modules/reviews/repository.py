@@ -8,7 +8,7 @@ milik pemanggil di service.
 import uuid
 from collections.abc import Sequence
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.modules.reviews.models import (
@@ -136,6 +136,58 @@ def open_assignments_for(db: Session, reviewer_id: uuid.UUID) -> Sequence[Review
         )
         .order_by(ReviewRound.opened_at, ReviewAssignment.id)
     ).all()
+
+
+def count_cases_waiting(db: Session, *, slots: int) -> int:
+    """Kasus yang round berjalannya punya kurang dari `slots` verdict sah (PBI-19 AC1).
+
+    Round yang belum decided selalu milik versi in_review, karena keputusan
+    round ikut mengubah status versi. Verdict sah = verdict pada assignment
+    active, jadi verdict reviewer replaced (AC7) atau void tidak dihitung,
+    dan round tanpa reviewer (awaiting_assignment) ikut terhitung.
+    """
+    verdict_sah = (
+        select(func.count(ReviewVerdict.id))
+        .join(ReviewAssignment, ReviewAssignment.id == ReviewVerdict.assignment_id)
+        .where(
+            ReviewAssignment.review_round_id == ReviewRound.id,
+            ReviewAssignment.status == AssignmentStatus.ACTIVE,
+        )
+        .correlate(ReviewRound)
+        .scalar_subquery()
+    )
+    return int(
+        db.scalar(
+            select(func.count(func.distinct(ReviewRound.case_id))).where(
+                ReviewRound.status != RoundStatus.DECIDED,
+                verdict_sah < slots,
+            )
+        )
+        or 0
+    )
+
+
+def count_cases_needing_reassignment(db: Session) -> int:
+    """Kasus dengan round belum decided yang menunggu penugasan atau punya assignment void.
+
+    Aturan yang sama dengan antrean "perlu penugasan ulang" Admin (AC8), jadi
+    angkanya cocok dengan daftarnya.
+    """
+    void_rounds = select(ReviewAssignment.review_round_id).where(
+        ReviewAssignment.status == AssignmentStatus.VOID
+    )
+    return int(
+        db.scalar(
+            select(func.count(func.distinct(ReviewRound.case_id))).where(
+                ReviewRound.status != RoundStatus.DECIDED,
+                or_(
+                    ReviewRound.status == RoundStatus.AWAITING_ASSIGNMENT,
+                    ReviewRound.id.in_(void_rounds),
+                ),
+            )
+        )
+        or 0
+    )
 
 
 def latest_round_for_case(db: Session, case_id: uuid.UUID) -> ReviewRound | None:

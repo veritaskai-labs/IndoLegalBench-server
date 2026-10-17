@@ -421,6 +421,15 @@ def apply_review_decision(db: Session, case_version_id: uuid.UUID, *, approved: 
     case.latest_approved_version_id = version.id
 
 
+def count_by_status(db: Session) -> dict[CaseStatus, int]:
+    """Jumlah kasus per status versi yang berlaku. Dipanggil modul dashboard (SCRUM-154).
+
+    Setiap status selalu ada di hasil, nol bila tidak ada kasusnya.
+    """
+    counts = repository.count_by_status(db)
+    return {status: counts.get(status, 0) for status in CaseStatus}
+
+
 def count_for_suite(db: Session, suite_id: uuid.UUID) -> int:
     """Count cases in one suite. Called by the suites module."""
     return repository.count_for_suite(db, suite_id)

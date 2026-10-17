@@ -57,6 +57,21 @@ def list_for_suite(
     return query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc()).all()
 
 
+def count_by_status(db: Session) -> dict[CaseStatus, int]:
+    """Count every case by the status of its in-effect version, in one GROUP BY.
+
+    Same in-effect rule as list_for_suite, so the numbers match the case list.
+    """
+    in_effect_id = func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
+    rows = (
+        db.query(CaseVersion.status, func.count(Case.id))
+        .join(CaseVersion, CaseVersion.id == in_effect_id)
+        .group_by(CaseVersion.status)
+        .all()
+    )
+    return dict(rows)
+
+
 def count_for_suite(db: Session, suite_id: uuid.UUID) -> int:
     """Count every case in the suite, whatever its status."""
     return db.query(Case).filter(Case.suite_id == suite_id).count()
