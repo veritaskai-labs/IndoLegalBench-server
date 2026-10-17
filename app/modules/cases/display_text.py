@@ -16,19 +16,11 @@ tidak membaca tabel regulation_types.
 """
 
 from collections.abc import Mapping
-from dataclasses import dataclass
 
 from app.modules.cases.schemas import LegalRefLinkRead, LegalRefStored
+from app.modules.legal_refs.service import TypeName
 
 _PENGHUBUNG = {"jo": "jo.", "jis": "jis."}
-
-
-@dataclass(frozen=True)
-class TypeName:
-    """Nama satu jenis peraturan seperti di regulation_types."""
-
-    label: str
-    singkatan: str | None
 
 
 def citation_text(rujukan: LegalRefStored, jenis: Mapping[str, TypeName]) -> str:

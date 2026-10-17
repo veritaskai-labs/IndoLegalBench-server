@@ -5,7 +5,7 @@ Modul lain memakai fungsi di sini, bukan tabel legal_refs secara langsung.
 
 import uuid
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, NamedTuple
 
 from sqlalchemy.orm import Session
 
@@ -24,15 +24,23 @@ from app.modules.legal_refs.seed import RegulationTypeSeed
 from app.modules.legal_refs.type_lookup import RegulationTypeIndex
 
 
+class TypeName(NamedTuple):
+    """Nama satu jenis peraturan untuk penulisan display_text."""
+
+    label: str
+    singkatan: str | None
+
+
 class TypeCatalog:
     """Semua jenis peraturan, aktif dan nonaktif, dimuat sekali per request."""
 
     def __init__(self, jenis: Sequence[RegulationType]) -> None:
         # code -> aktif, dipakai cek jenis saat menyimpan (AC2).
         self.active: dict[str, bool] = {item.code: item.is_active for item in jenis}
-        # code -> (label, singkatan), dipakai penulisan display_text.
-        self.names: dict[str, tuple[str, str | None]] = {
-            item.code: (item.label, item.singkatan) for item in jenis
+        # code -> nama, dipakai penulisan display_text. Dibangun sekali per request,
+        # bukan sekali per versi di riwayat dan compare.
+        self.names: dict[str, TypeName] = {
+            item.code: TypeName(label=item.label, singkatan=item.singkatan) for item in jenis
         }
         self._lookup = RegulationTypeIndex(
             RegulationTypeSeed(

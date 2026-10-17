@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.auth import service as auth_service
 from app.modules.cases import completeness, repository, sections, validation
-from app.modules.cases.display_text import TypeName, citation_text
+from app.modules.cases.display_text import citation_text
 from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
 from app.modules.cases.schemas import (
     ActorRead,
@@ -569,15 +569,13 @@ def _legal_refs_read(
     version: CaseVersion, katalog: legal_refs_service.TypeCatalog
 ) -> list[LegalRefRead]:
     """Citations as returned by the API, each with its display_text (AC6, AC10)."""
-    nama = {
-        code: TypeName(label=label, singkatan=singkatan)
-        for code, (label, singkatan) in katalog.names.items()
-    }
     hasil: list[LegalRefRead] = []
     for isi in _citations(version, katalog):
         tersimpan = LegalRefStored.model_validate(isi)
         hasil.append(
-            LegalRefRead(**tersimpan.model_dump(), display_text=citation_text(tersimpan, nama))
+            LegalRefRead(
+                **tersimpan.model_dump(), display_text=citation_text(tersimpan, katalog.names)
+            )
         )
     return hasil
 
