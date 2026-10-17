@@ -523,3 +523,15 @@ def test_draf_terbuka_membawa_display_text(as_role, db_session):
 
     assert respons.status_code == 200, respons.text
     assert respons.json()["legal_refs"][0]["display_text"] == TEKS_KTK_001
+
+
+def test_contoh_jalur_error_di_kontrak_memakai_tingkat_link(spec):
+    """ErrorBody.field dibaca FE sebagai contoh jalur; sejak PBI-21 jalurnya sampai link."""
+    # Arrange
+    field = _skema(spec, "ErrorBody")["properties"]["field"]
+
+    # Act
+    deskripsi = field["description"]
+
+    # Assert
+    assert "legal_refs[0].links[0].pasal" in deskripsi
