@@ -38,6 +38,7 @@ from app.modules.reviews.ports import AssignmentStore, NoopNotifier, Notifier, R
 from app.modules.reviews.schemas import (
     AssignedReview,
     CaseReview,
+    PendingReview,
     ReviewerRead,
     ReviewerSlot,
     VerdictResult,
@@ -457,6 +458,47 @@ def list_assigned(db: Session, reviewer_id: uuid.UUID) -> list[AssignedReview]:
         )
         for tugas in tugas_list
     ]
+
+
+def pending_queue(db: Session, reviewer_id: uuid.UUID) -> list[PendingReview]:
+    """Antrean dashboard reviewer (PBI-19 AC6): tugas aktif yang belum dinilai, terlama dulu.
+
+    Sama dengan list_assigned tanpa tugas yang sudah dinilai, dan hanya
+    kode serta judul kasus, karena dashboard di-poll tiap menit.
+    """
+    tugas_list = [
+        tugas for tugas in repository.open_assignments_for(db, reviewer_id) if tugas.verdict is None
+    ]
+    salinan = _cases().review_copies(
+        db, {tugas.review_round.case_version_id for tugas in tugas_list}
+    )
+    return [
+        PendingReview(
+            assignment_id=tugas.id,
+            case_id=tugas.review_round.case_id,
+            case_code=salinan[tugas.review_round.case_version_id].case_code,
+            title=salinan[tugas.review_round.case_version_id].identity.title,
+            round_no=tugas.review_round.round_no,
+            waiting_since=tugas.review_round.opened_at,
+            assigned_at=tugas.assigned_at,
+        )
+        for tugas in tugas_list
+    ]
+
+
+def count_cases_waiting(db: Session) -> int:
+    """Jumlah kasus menunggu review untuk dashboard (PBI-19 AC1).
+
+    Kasus in_review yang round-nya belum punya verdict sah dari kedua slot
+    reviewer (Kak Aileen, 17 Okt). Kasus dengan 0 atau 1 reviewer ikut
+    terhitung, jadi angkanya bisa lebih besar dari total antrean reviewer.
+    """
+    return repository.count_cases_waiting(db, slots=REVIEWERS_PER_ROUND)
+
+
+def count_cases_needing_reassignment(db: Session) -> int:
+    """Jumlah kasus yang perlu penugasan ulang, untuk dashboard Admin (PBI-6 AC8)."""
+    return repository.count_cases_needing_reassignment(db)
 
 
 def get_case_review(db: Session, case_id: uuid.UUID, viewer: Viewer) -> CaseReview:
