@@ -257,23 +257,29 @@ def _jumlah(rujukan: Any) -> int:
 
 
 def test_contoh_ac10_dihitung_lengkap():
+    # Act + Assert
     assert _jumlah(rujukan_ac10()) == 1
     assert _penghalang(rujukan_ac10()) == []
 
 
 def test_link_name_only_tanpa_pasal_dihitung_lengkap():
+    # Arrange
     rujukan = rujukan_ktk_001()
     rujukan["links"][0]["form"] = "name_only"
+    # Act
     del rujukan["links"][0]["pasal"]
 
+    # Assert
     assert _jumlah(rujukan) == 1
     assert _penghalang(rujukan) == []
 
 
 def test_teks_bebas_terisi_dihitung_lengkap():
     """AC7. Isinya input format sintetis."""
+    # Act
     rujukan = {"kind": "free_text", "links": [], "free_text": "Format teks bebas"}
 
+    # Assert
     assert _jumlah(rujukan) == 1
     assert _penghalang(rujukan) == []
 
@@ -310,32 +316,42 @@ def test_teks_bebas_terisi_dihitung_lengkap():
     ],
 )
 def test_rujukan_tidak_lengkap_menunjuk_field_pertama_yang_kurang(ubah, field):
+    # Arrange
     rujukan = rujukan_ac10()
+    # Act
     ubah(rujukan)
 
+    # Assert
     assert _jumlah(rujukan) == 0
     assert _penghalang(rujukan) == [field]
 
 
 def test_link_pertama_yang_rusak_dilaporkan_lebih_dulu():
+    # Arrange
     rujukan = rujukan_ac10()
     del rujukan["links"][0]["pasal"]
+    # Act
     del rujukan["links"][1]["angka"]
 
+    # Assert
     assert _penghalang(rujukan) == ["legal_refs[1].links[0].pasal"]
 
 
 @pytest.mark.parametrize("isi", [None, "", "   "])
 def test_teks_bebas_kosong_menghalangi(isi):
+    # Act
     rujukan = {"kind": "free_text", "links": [], "free_text": isi}
 
+    # Assert
     assert _jumlah(rujukan) == 0
     assert _penghalang(rujukan) == ["legal_refs[1].free_text"]
 
 
 def test_rujukan_bentuk_sprint_1_tersimpan_tidak_meledak():
     """Konten lama di JSONB belum punya kind/links: dihitung belum lengkap, bukan error."""
+    # Act
     lama = {"regulation_type": "uu", "regulation_number": "13", "year": 2003, "pasal": "151"}
 
+    # Assert
     assert _jumlah(lama) == 0
     assert _penghalang(lama) == ["legal_refs[1].kind"]

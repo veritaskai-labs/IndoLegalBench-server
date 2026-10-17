@@ -53,45 +53,58 @@ def _link(**kolom):
 
 @pytest.mark.parametrize("isi", [None, "uu 13", {"kind": "structured"}])
 def test_bukan_daftar_dianggap_tanpa_rujukan(isi, lookup):
+    # Act + Assert
     assert to_citations(isi, lookup) == []
 
 
 def test_bentuk_baru_diteruskan_apa_adanya_tanpa_pemeta(lookup):
+    # Arrange
     daftar = [rujukan_ktk_001(), rujukan_ac10()]
 
+    # Act
     hasil = to_citations(daftar, lookup)
 
+    # Assert
     assert hasil == [rujukan_ktk_001(), rujukan_ac10()]
     lookup.resolve.assert_not_called()
 
 
 def test_ktk_001_bentuk_sprint_1_menjadi_bentuk_baru(lookup):
+    # Act + Assert
     assert to_citations([_lama()], lookup) == [
         {"kind": "structured", "free_text": None, "links": [_link()]}
     ]
 
 
 def test_ayat_dan_huruf_lama_ikut_terbawa(lookup):
+    # Act
     hasil = to_citations([_lama(ayat="1", huruf="a")], lookup)
 
+    # Assert
     assert hasil[0]["links"] == [_link(ayat="1", huruf="a")]
 
 
 def test_rujukan_lama_tanpa_tahun_tetap_terbaca(lookup):
+    # Act
     hasil = to_citations([_lama(year=None)], lookup)
 
+    # Assert
     assert hasil[0]["links"][0]["year"] is None
 
 
 def test_rujukan_lama_tanpa_pasal_menjadi_nama_peraturan(lookup):
+    # Act
     hasil = to_citations([_lama(pasal=None)], lookup)
 
+    # Assert
     assert hasil[0]["links"] == [_link(form="name_only", pasal=None)]
 
 
 def test_jenis_lama_yang_tidak_dikenal_menjadi_teks_bebas_tanpa_kehilangan_isi(lookup):
+    # Act
     hasil = to_citations([_lama(regulation_type="Format jenis lain")], lookup)
 
+    # Assert
     assert hasil == [
         {
             "kind": "free_text",
@@ -102,14 +115,18 @@ def test_jenis_lama_yang_tidak_dikenal_menjadi_teks_bebas_tanpa_kehilangan_isi(l
 
 
 def test_teks_lama_menjadi_teks_bebas_dan_entri_kosong_dilewati(lookup):
+    # Act
     hasil = to_citations(["Format teks lama", "   ", {}], lookup)
 
+    # Assert
     assert hasil == [{"kind": "free_text", "free_text": "Format teks lama", "links": []}]
 
 
 def test_campuran_bentuk_baru_dan_lama_menjaga_urutan(lookup):
+    # Act
     hasil = to_citations([rujukan_ac10(), _lama(), rujukan_ktk_001()], lookup)
 
+    # Assert
     assert hasil == [
         rujukan_ac10(),
         {"kind": "structured", "free_text": None, "links": [_link()]},

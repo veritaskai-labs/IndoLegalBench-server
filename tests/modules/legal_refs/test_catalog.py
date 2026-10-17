@@ -12,13 +12,16 @@ from app.modules.legal_refs.models import RegulationType
 
 
 def test_katalog_memuat_semua_jenis_dengan_status_aktif(db_session, jenis_peraturan):
+    # Arrange
     db_session.execute(
         update(RegulationType).where(RegulationType.code == "permen").values(is_active=False)
     )
     db_session.commit()
 
+    # Act
     katalog = service.load_catalog(db_session)
 
+    # Assert
     assert len(katalog.active) == 266
     assert katalog.active["uu"] is True
     assert katalog.active["permen"] is False
@@ -28,17 +31,22 @@ def test_katalog_memuat_semua_jenis_dengan_status_aktif(db_session, jenis_peratu
 
 def test_katalog_membaca_rujukan_sprint_1_dengan_daftar_asli(db_session, jenis_peraturan):
     """Teks jenis lama "UU" dicocokkan ke code uu lewat singkatan, seperti migrasi 159."""
+    # Arrange
     lama = [{"regulation_type": "UU", "regulation_number": "13", "year": 2003, "pasal": "156"}]
 
+    # Act
     hasil = service.load_catalog(db_session).citations(lama)
 
+    # Assert
     assert hasil[0]["kind"] == "structured"
     assert hasil[0]["links"][0]["regulation_type"] == "uu"
 
 
 def test_katalog_kosong_tanpa_jenis(db_session):
+    # Act
     katalog = service.load_catalog(db_session)
 
+    # Assert
     assert katalog.active == {}
     assert (
         katalog.citations([{"regulation_type": "UU", "regulation_number": "13"}])[0]["kind"]

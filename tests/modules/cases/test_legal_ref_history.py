@@ -54,13 +54,16 @@ def _versi_2_judul_baru(client, case_id: str, *rujukan: dict) -> None:
 
 
 def test_compare_versi_sprint_1_dengan_versi_baru_berisi_display_text(as_role, db_session):
+    # Arrange
     client = as_role(Role.AUTHOR)
     _pengguna(db_session)
     _, case_id = _kasus_sprint_1_approved(client, db_session)
     _versi_2_judul_baru(client, case_id, rujukan_ktk_001())
 
+    # Act
     body = client.get(f"/cases/{case_id}/versions/compare", params={"a": 1, "b": 2}).json()
 
+    # Assert
     for sisi in ("a", "b"):
         rujukan = body[sisi]["sections"]["legal_refs"]
         assert [item["display_text"] for item in rujukan] == [TEKS_KTK_001]
@@ -70,38 +73,47 @@ def test_compare_versi_sprint_1_dengan_versi_baru_berisi_display_text(as_role, d
 
 def test_rujukan_sprint_1_yang_disimpan_ulang_tidak_dihitung_berubah(as_role, db_session):
     """Bentuk penyimpanannya berbeda, isinya sama: yang berubah hanya judul."""
+    # Arrange
     client = as_role(Role.AUTHOR)
     _pengguna(db_session)
     _, case_id = _kasus_sprint_1_approved(client, db_session)
     _versi_2_judul_baru(client, case_id, rujukan_ktk_001())
 
+    # Act
     compare = client.get(f"/cases/{case_id}/versions/compare", params={"a": 1, "b": 2}).json()
     riwayat = client.get(f"/cases/{case_id}/versions").json()
 
+    # Assert
     assert compare["changed"] == ["identity.title"]
     assert riwayat[1]["changed"] == ["identity.title"]
 
 
 def test_rujukan_yang_benar_benar_berubah_tetap_tercatat(as_role, db_session):
+    # Arrange
     client = as_role(Role.AUTHOR)
     _pengguna(db_session)
     _, case_id = _kasus_sprint_1_approved(client, db_session)
     _versi_2_judul_baru(client, case_id, rujukan_ac10())
 
+    # Act
     body = client.get(f"/cases/{case_id}/versions/compare", params={"a": 1, "b": 2}).json()
 
+    # Assert
     assert body["changed"] == ["identity.title", "legal_refs"]
     assert body["b"]["sections"]["legal_refs"][0]["display_text"] == TEKS_AC10
 
 
 def test_snapshot_suite_menyimpan_rujukan_dalam_bentuk_baru(as_role, buat_pengguna, db_session):
+    # Arrange
     client = as_role(Role.AUTHOR)
     _pengguna(db_session)
     suite_id, _ = _kasus_sprint_1_approved(client, db_session)
     _ganti(client, buat_pengguna(Role.ADMIN, user_id=ADMIN_LAIN, name="Admin QA"))
 
+    # Act
     dibuat = client.post(f"/suites/{suite_id}/snapshots")
 
+    # Assert
     assert dibuat.status_code == 201, dibuat.text
     rujukan = dibuat.json()["items"][0]["body"]["sections"]["legal_refs"]
     assert [item["display_text"] for item in rujukan] == [TEKS_KTK_001]
@@ -109,7 +121,10 @@ def test_snapshot_suite_menyimpan_rujukan_dalam_bentuk_baru(as_role, buat_penggu
 
 
 def test_kontrak_compare_memakai_rujukan_baca(client):
+    # Arrange
     spec = client.get("/openapi.json").json()
+    # Act
     properti = spec["components"]["schemas"]["VersionSections"]["properties"]["legal_refs"]
 
+    # Assert
     assert properti["items"]["$ref"].endswith("/LegalRefRead")

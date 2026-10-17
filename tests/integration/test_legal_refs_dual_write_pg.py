@@ -115,10 +115,13 @@ def _setujui(sesi: Session, kasus: Case) -> uuid.UUID:
 
 
 def test_kasus_baru_tersimpan_di_content_dan_tabel_dengan_constraint_postgres(db):
+    # Arrange
     sesi, suite_id, user_id = db
 
+    # Act
     dibuat, kasus = _buat(sesi, suite_id, user_id, rujukan_ac10(), TEKS_BEBAS)
 
+    # Assert
     assert _baris(sesi, kasus.current_version_id) == [
         *AC10,
         (2, "free_text", "Format teks bebas", None, None, None, None, None, None, None, None),
@@ -129,23 +132,29 @@ def test_kasus_baru_tersimpan_di_content_dan_tabel_dengan_constraint_postgres(db
 
 
 def test_mengubah_kasus_mengganti_baris(db):
+    # Arrange
     sesi, suite_id, user_id = db
     _, kasus = _buat(sesi, suite_id, user_id, rujukan_ac10(), TEKS_BEBAS)
 
+    # Act
     service.update_case(sesi, kasus.id, _badan(rujukan_ktk_001()), actor_id=user_id, is_admin=False)
 
+    # Assert
     assert _baris(sesi, kasus.current_version_id) == [KTK_001]
 
 
 def test_versi_baru_mendapat_baris_sendiri_dan_baris_approved_tetap(db):
+    # Arrange
     sesi, suite_id, user_id = db
     _, kasus = _buat(sesi, suite_id, user_id, rujukan_ac10())
     approved_id = _setujui(sesi, kasus)
 
+    # Act
     service.start_new_version(sesi, kasus.id, actor_id=user_id, is_admin=False)
     sesi.refresh(kasus)
     service.update_case(sesi, kasus.id, _badan(rujukan_ktk_001()), actor_id=user_id, is_admin=False)
 
+    # Assert
     assert kasus.current_version_id != approved_id
     assert _baris(sesi, approved_id) == AC10
     assert _baris(sesi, kasus.current_version_id) == [KTK_001]
@@ -153,6 +162,7 @@ def test_versi_baru_mendapat_baris_sendiri_dan_baris_approved_tetap(db):
 
 def test_versi_baru_dari_isi_sprint_1_memakai_jenis_dari_seed(db):
     """Teks jenis "UU" dari Sprint 1 menjadi code uu milik seed 266 jenis di migrasi."""
+    # Arrange
     sesi, suite_id, user_id = db
     _, kasus = _buat(sesi, suite_id, user_id, rujukan_ktk_001())
     versi = kasus.current_version
@@ -161,7 +171,9 @@ def test_versi_baru_dari_isi_sprint_1_memakai_jenis_dari_seed(db):
     sesi.commit()
     _setujui(sesi, kasus)
 
+    # Act
     service.start_new_version(sesi, kasus.id, actor_id=user_id, is_admin=False)
     sesi.refresh(kasus)
 
+    # Assert
     assert _baris(sesi, kasus.current_version_id) == [KTK_001]
