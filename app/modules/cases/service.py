@@ -727,9 +727,11 @@ def _require_can_update(
     if not belum_disetujui:
         # PBI-9 AC3: setelah disetujui, tag hanya diubah Admin lewat PATCH,
         # yang meminta konfirmasi dev ke test dan mencatat penanda was_dev.
-        raise ForbiddenError(
-            "Setelah kasus disetujui, tag hanya bisa diubah Admin lewat "
-            "PATCH /cases/{id}/split-tag",
+        # 409 seperti CASE_CODE_LOCKED: biasanya ini state basi (Admin baru saja
+        # mengubah tag), bukan soal izin, jadi client tetap di halaman.
+        raise ConflictError(
+            "Tag kasus ini dikunci setelah disetujui dan mungkin baru saja diubah Admin. "
+            "Muat ulang halaman lalu simpan lagi.",
             code=SPLIT_TAG_LOCKED,
         )
     if case.created_by != actor_id:

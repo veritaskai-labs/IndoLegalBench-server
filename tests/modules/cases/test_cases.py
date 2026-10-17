@@ -409,7 +409,9 @@ def test_setelah_approved_tag_tidak_diubah_lewat_put(as_role, buat_pengguna, db_
     assert draf.status_code == 201
     response = client.put(f"/cases/{case_id}", json=_badan(split_tag="test"))
 
-    assert response.status_code == 403
+    # 409, bukan 403: biasanya tag baru saja diubah Admin di tab lain (review Roben
+    # di client #30). 403 membuat client pindah ke /forbidden dan suntingan hilang.
+    assert response.status_code == 409
     assert response.json()["code"] == "SPLIT_TAG_LOCKED"
     assert client.get(f"/cases/{case_id}").json()["split_tag"] == "dev"
 
