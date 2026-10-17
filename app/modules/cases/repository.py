@@ -7,7 +7,6 @@ Isi file ini murni query, tanpa logika bisnis.
 """
 
 import uuid
-from collections.abc import Sequence
 
 from sqlalchemy import func
 from sqlalchemy.orm import Session, selectinload
@@ -25,21 +24,6 @@ def get_by_id(db: Session, case_id: uuid.UUID) -> Case | None:
         )
         .filter(Case.id == case_id)
         .one_or_none()
-    )
-
-
-def get_by_ids(db: Session, case_ids: Sequence[uuid.UUID]) -> list[Case]:
-    """Return multiple cases with version pointers loaded."""
-    if not case_ids:
-        return []
-    return (
-        db.query(Case)
-        .options(
-            selectinload(Case.current_version),
-            selectinload(Case.latest_approved_version),
-        )
-        .filter(Case.id.in_(case_ids))
-        .all()
     )
 
 

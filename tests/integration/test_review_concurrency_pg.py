@@ -205,3 +205,64 @@ def test_penggantian_saat_verdict_menunggu_kunci_menolak_verdict(buat_sesi):
     assert galat[0].code == "ASSIGNMENT_NOT_ACTIVE"
     with buat_sesi() as db:
         assert db.query(ReviewVerdict).filter_by(assignment_id=assignment_id).count() == 0
+
+
+def test_dua_admin_mengganti_assignment_yang_sama_bersamaan(buat_sesi):
+    """Dua admin mengganti assignment yang sama secara bersamaan (AC7, SCRUM-147).
+
+    Satu berhasil, satu lagi ditolak ConflictError (ASSIGNMENT_ALREADY_REPLACED)
+    karena assignment sudah diganti setelah kunci round dilepas.
+    Round tetap memiliki tepat 2 assignment aktif (D4a).
+    """
+    # Arrange
+    _, round_id, tugas = _round_siap_dinilai(buat_sesi)
+    _, assignment_id = next(iter(tugas.items()))
+    with buat_sesi() as db:
+        admin_1 = _pengguna(db, Role.ADMIN)
+        admin_2 = _pengguna(db, Role.ADMIN)
+        baru_1 = _pengguna(db, Role.REVIEWER)
+        baru_2 = _pengguna(db, Role.REVIEWER)
+        db.commit()
+
+    gerbang = threading.Barrier(2)
+    hasil: list[tuple[str, BaseException | None]] = []
+
+    def ganti(admin_id, new_reviewer_id, tag):
+        with buat_sesi() as db:
+            gerbang.wait()
+            try:
+                service.replace_reviewer(
+                    db,
+                    assignment_id=assignment_id,
+                    new_reviewer_id=new_reviewer_id,
+                    reason=f"Penggantian oleh {tag}",
+                    admin_id=admin_id,
+                )
+                hasil.append((tag, None))
+            except BaseException as exc:  # noqa: BLE001 - dilaporkan ke thread utama
+                hasil.append((tag, exc))
+
+    t1 = threading.Thread(target=ganti, args=(admin_1, baru_1, "admin-1"))
+    t2 = threading.Thread(target=ganti, args=(admin_2, baru_2, "admin-2"))
+    t1.start()
+    t2.start()
+    t1.join(timeout=30)
+    t2.join(timeout=30)
+
+    # Assert: tepat satu sukses, satu ConflictError
+    sukses = [tag for tag, exc in hasil if exc is None]
+    gagal = [exc for tag, exc in hasil if exc is not None]
+
+    assert len(sukses) == 1
+    assert len(gagal) == 1
+    assert isinstance(gagal[0], ConflictError)
+    assert gagal[0].code == "ASSIGNMENT_ALREADY_REPLACED"
+
+    with buat_sesi() as db:
+        aktif = [
+            a
+            for a in repository.assignments_in_round(db, round_id)
+            if a.status == AssignmentStatus.ACTIVE
+        ]
+        # D4a: round harus memiliki tepat 2 assignment aktif
+        assert len(aktif) == 2

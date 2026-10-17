@@ -157,14 +157,17 @@ def add_verdict(db: Session, verdict: ReviewVerdict) -> None:
 def get_active_assignments_by_reviewer(
     db: Session, reviewer_id: uuid.UUID
 ) -> list[ReviewAssignment]:
-    """Semua penugasan active reviewer beserta round-nya."""
+    """Semua penugasan active reviewer pada round yang belum diputuskan (AC8)."""
     return list(
         db.scalars(
             select(ReviewAssignment)
+            .join(ReviewAssignment.review_round)
             .options(joinedload(ReviewAssignment.review_round))
             .where(
                 ReviewAssignment.reviewer_id == reviewer_id,
                 ReviewAssignment.status == AssignmentStatus.ACTIVE,
+                ReviewRound.decision.is_(None),
+                ReviewRound.status != RoundStatus.DECIDED,
             )
         ).all()
     )

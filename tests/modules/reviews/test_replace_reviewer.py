@@ -85,7 +85,7 @@ def case_data(db_session, users):
         version_no=1,
         split_tag=SplitTag.DEV,
         status=CaseStatus.IN_REVIEW,
-        content={"identity": {"title": "Kasus Lembur", "question": "Berapa upah lembur?"}},
+        content={"title": "Kasus Lembur", "question": "Berapa upah lembur?"},
         created_by=AUTHOR_ID,
     )
     db_session.add(version)
@@ -144,7 +144,6 @@ def test_replace_reviewer_service_berhasil(db_session, case_data):
         reason="Reviewer berhalangan hadir",
         admin_id=ADMIN_ID,
         notifier=notifier,
-        auto_commit=True,
     )
 
     assert old_tugas.status == AssignmentStatus.REPLACED
@@ -226,6 +225,7 @@ def test_replace_reviewer_service_validasi_alasan_kosong(db_session, case_data):
             admin_id=ADMIN_ID,
         )
     assert exc.value.field == "reason"
+    assert exc.value.code == "REASON_REQUIRED"
 
 
 def test_replace_reviewer_service_assignment_tidak_ditemukan(db_session, users):
@@ -378,9 +378,11 @@ def test_void_reviewer_assignments_abaikan_round_sudah_decided(db_session, case_
 
     voided = service.void_reviewer_assignments(db_session, REVIEWER_1)
 
-    assert len(voided) == 1
+    assert len(voided) == 0
     db_session.refresh(ronde)
     assert ronde.status == RoundStatus.DECIDED
+    db_session.refresh(case_data["tugas1"])
+    assert case_data["tugas1"].status == AssignmentStatus.ACTIVE
 
 
 def test_get_needs_reassignment_service(db_session, case_data):

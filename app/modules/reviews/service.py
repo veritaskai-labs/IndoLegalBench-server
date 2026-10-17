@@ -527,18 +527,29 @@ def void_reviewer_assignments(
     belum diputuskan (decided), status round dikembalikan ke awaiting_assignment.
     """
     assignments = repository.get_active_assignments_by_reviewer(db, reviewer_id)
+    voided: list[ReviewAssignment] = []
+    locked_rounds: set[uuid.UUID] = set()
     for assignment in assignments:
+        round_id = assignment.review_round_id
+        if round_id not in locked_rounds:
+            ronde = repository.lock_round(db, round_id)
+            locked_rounds.add(round_id)
+        else:
+            ronde = repository.get_round(db, round_id)
+
+        if ronde is None or ronde.status == RoundStatus.DECIDED or ronde.decision is not None:
+            continue
+
         assignment.status = AssignmentStatus.VOID
         assignment.ended_at = datetime.now(UTC)
         assignment.end_reason = reason
-        ronde = assignment.review_round or repository.get_round(db, assignment.review_round_id)
-        if ronde is not None:
-            assignment.review_round = ronde
-            if ronde.status != RoundStatus.DECIDED and ronde.decision is None:
-                ronde.status = RoundStatus.AWAITING_ASSIGNMENT
-    if assignments:
+        assignment.review_round = ronde
+        ronde.status = RoundStatus.AWAITING_ASSIGNMENT
+        voided.append(assignment)
+
+    if voided:
         db.flush()
-    return assignments
+    return voided
 
 
 def replace_reviewer(
@@ -548,9 +559,7 @@ def replace_reviewer(
     new_reviewer_id: uuid.UUID,
     reason: str,
     admin_id: uuid.UUID,
-    author_id: uuid.UUID | None = None,
     notifier: Notifier | None = None,
-    auto_commit: bool = True,
 ) -> tuple[ReviewAssignment, ReviewAssignment]:
     """Ganti reviewer pada assignment_id dengan new_reviewer_id (AC7, SCRUM-147).
 
@@ -565,7 +574,11 @@ def replace_reviewer(
     """
     clean_reason = reason.strip() if reason else ""
     if not clean_reason:
-        raise ValidationError("Alasan wajib diisi untuk aksi ini", field="reason")
+        raise ValidationError(
+            "Alasan wajib diisi untuk aksi ini",
+            code="REASON_REQUIRED",
+            field="reason",
+        )
 
     old_assignment = repository.get_assignment(db, assignment_id)
     if not old_assignment:
@@ -579,6 +592,18 @@ def replace_reviewer(
 
     ronde = repository.lock_round(db, old_assignment.review_round_id)
 
+    # Baca ulang sesudah kunci round: assignment dimuat sebelum antre kunci,
+    # jadi statusnya bisa sudah 'replaced' bila di-replace oleh transaksi lain.
+    old_assignment = repository.get_assignment(db, assignment_id, fresh=True)
+    if not old_assignment:
+        raise NotFoundError("Penugasan review tidak ditemukan")
+
+    if old_assignment.status == AssignmentStatus.REPLACED:
+        raise ConflictError(
+            "Penugasan ini sudah pernah diganti",
+            code="ASSIGNMENT_ALREADY_REPLACED",
+        )
+
     if ronde.status == RoundStatus.DECIDED or ronde.decision is not None:
         raise ConflictError(
             "Putaran review sudah selesai diputuskan",
@@ -591,12 +616,8 @@ def replace_reviewer(
         raise NotFoundError("Reviewer baru tidak ditemukan")
 
     # Validasi penulis kasus (AC7: Reviewer baru tidak boleh penulis)
-    case_author_id = author_id
-    if case_author_id is None:
-        case_info = _cases().get_case_for_review(db, ronde.case_id)
-        if case_info is not None:
-            _, _, case_author_id = case_info
-    if case_author_id is not None and new_reviewer_id == case_author_id:
+    case_author_id = _cases().case_author(db, ronde.case_id)
+    if new_reviewer_id == case_author_id:
         raise ValidationError(
             "Reviewer baru tidak boleh penulis kasus",
             code="CANNOT_ASSIGN_AUTHOR",
@@ -666,8 +687,7 @@ def replace_reviewer(
     )
 
     db.flush()
-    if auto_commit:
-        db.commit()
+    db.commit()
 
     return old_assignment, new_assignment
 
@@ -678,8 +698,8 @@ def get_needs_reassignment(db: Session) -> list[NeedsReassignmentResponse]:
     if not rounds:
         return []
 
-    case_ids = [r.case_id for r in rounds]
-    case_map = _cases().get_cases_for_review(db, case_ids)
+    version_ids = {r.case_version_id for r in rounds}
+    copies = _cases().review_copies(db, version_ids)
 
     result: list[NeedsReassignmentResponse] = []
     for ronde in rounds:
@@ -703,9 +723,10 @@ def get_needs_reassignment(db: Session) -> list[NeedsReassignmentResponse]:
         void_assignments = [a for a in assignments_read if a.status == AssignmentStatus.VOID]
         active_count = len([a for a in assignments if a.status == AssignmentStatus.ACTIVE])
 
-        case_info = case_map.get(ronde.case_id)
-        if case_info is not None:
-            case_code, case_title, _ = case_info
+        copy = copies.get(ronde.case_version_id)
+        if copy is not None:
+            case_code = copy.case_code
+            case_title = copy.identity.title
         else:
             case_code = str(ronde.case_id)[:8]
             case_title = ""

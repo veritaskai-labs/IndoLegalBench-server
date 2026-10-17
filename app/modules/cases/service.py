@@ -9,7 +9,6 @@ yang boleh mengubah kasus.
 
 import copy
 import uuid
-from collections.abc import Sequence
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -749,23 +748,3 @@ def _require_can_update(
             "Sebelum kasus disetujui, hanya pembuat yang boleh mengubah split_tag",
             code=SPLIT_TAG_LOCKED,
         )
-
-
-def get_cases_for_review(
-    db: Session, case_ids: Sequence[uuid.UUID]
-) -> dict[uuid.UUID, tuple[str, str, uuid.UUID]]:
-    """Return map of case_id -> (case_code, title, author_id) for review module."""
-    cases = repository.get_by_ids(db, case_ids)
-    hasil: dict[uuid.UUID, tuple[str, str, uuid.UUID]] = {}
-    for case in cases:
-        judul = ""
-        version = case.current_version
-        if version and isinstance(version.content, dict):
-            judul = version.content.get("identity", {}).get("title", "")
-        hasil[case.id] = (case.case_code, judul, case.created_by)
-    return hasil
-
-
-def get_case_for_review(db: Session, case_id: uuid.UUID) -> tuple[str, str, uuid.UUID] | None:
-    """Return (case_code, title, author_id) for one case."""
-    return get_cases_for_review(db, [case_id]).get(case_id)

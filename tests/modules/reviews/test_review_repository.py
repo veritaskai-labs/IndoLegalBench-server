@@ -165,12 +165,18 @@ def test_get_assignment_ditemukan_dan_memuat_round(db_session):
     assert repository.get_assignment(db_session, uuid.uuid4()) is None
 
 
-def test_get_active_assignments_by_reviewer_hanya_yang_aktif(db_session):
+def test_get_active_assignments_by_reviewer_hanya_yang_aktif_dan_belum_decided(db_session):
+    from app.modules.reviews.models import RoundDecision, RoundStatus
+
     # Arrange
     ronde1 = _round(db_session, KASUS_1)
     ronde2 = _round(db_session, KASUS_2)
+    ronde3 = _round(db_session, KASUS_3)
+    ronde3.status = RoundStatus.DECIDED
+    ronde3.decision = RoundDecision.APPROVED
     _tugaskan(db_session, ronde1, REVIEWER, AssignmentStatus.ACTIVE)
     _tugaskan(db_session, ronde2, REVIEWER, AssignmentStatus.VOID)
+    _tugaskan(db_session, ronde3, REVIEWER, AssignmentStatus.ACTIVE)
 
     # Act
     aktif = repository.get_active_assignments_by_reviewer(db_session, REVIEWER)
