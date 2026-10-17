@@ -182,6 +182,42 @@ def test_edge_konfirmasi_ditolak_tidak_meninggalkan_jejak(as_role, setujui, jadi
     assert _riwayat_tag(db_session, case_id) == []
 
 
+def test_edge_tag_diubah_saat_v2_direview_lalu_v2_disetujui(as_role, setujui, jadi):
+    """Usulan Roben di #57: perubahan tag ikut ke versi terbuka (#53) supaya menyetujui
+    v2 tidak membawa kembali tag lama. Di sini v2 benar-benar disetujui setelahnya."""
+    # Arrange: v1 dev disetujui, v2 diajukan
+    client = as_role(Role.AUTHOR)
+    case_id = _buat(client, _suite(client), split_tag="dev").json()["id"]
+    setujui(client, case_id)
+    assert client.post(f"/cases/{case_id}/versions").status_code == 201
+    assert client.post(f"/cases/{case_id}/submit-review").status_code == 200
+    jadi(Role.ADMIN, ADMIN)
+
+    # Act: tag berubah di tengah review, lalu kedua reviewer menyetujui v2
+    assert _ubah_tag(client, case_id, "test", confirm=True).status_code == 200
+    for reviewer in (REVIEWER_1, REVIEWER_2):
+        jadi(Role.REVIEWER, reviewer)
+        [tugas] = [
+            t for t in client.get("/reviews/assigned").json() if t["case"]["case_id"] == case_id
+        ]
+        assert tugas["case"]["version_no"] == 2
+        assert tugas["case"]["split_tag"] == "test"  # AC2: reviewer melihat tag terbaru
+        nilai = client.post(
+            f"/reviews/{tugas['assignment_id']}/verdict", json={"decision": "approve"}
+        )
+        assert nilai.status_code == 201
+    jadi(Role.AUTHOR, USER_ID_QA)
+
+    # Assert
+    kasus = client.get(f"/cases/{case_id}").json()
+    assert (kasus["version"], kasus["status"], kasus["split_tag"], kasus["was_dev"]) == (
+        2,
+        "approved",
+        "test",
+        True,
+    )
+
+
 # --- AC3: Author tidak boleh mengubah tag setelah disetujui ------------------------
 
 
@@ -222,6 +258,8 @@ def test_ac3_negatif_author_tidak_bisa_mengubah_tag_di_draf_versi_berikutnya(as_
 
 
 def test_ac2_negatif_reviewer_tidak_bisa_mengubah_tag_lewat_put(as_role, jadi):
+    """Jalur PUT ditolak oleh guard peran (require_roles AUTHOR, ADMIN), bukan oleh
+    aturan tag. Tetap dipertahankan supaya AC2 "tidak lewat jalur mana pun" tercakup."""
     # Arrange
     client = as_role(Role.AUTHOR)
     case_id = _buat(client, _suite(client)).json()["id"]
@@ -232,6 +270,7 @@ def test_ac2_negatif_reviewer_tidak_bisa_mengubah_tag_lewat_put(as_role, jadi):
 
     # Assert
     assert response.status_code == 403
+    assert response.json()["code"] == "FORBIDDEN"
     jadi(Role.AUTHOR, USER_ID_QA)
     assert client.get(f"/cases/{case_id}").json()["split_tag"] == "dev"
 
