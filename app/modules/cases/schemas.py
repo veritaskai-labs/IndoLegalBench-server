@@ -147,7 +147,6 @@ class CaseRead(BaseModel):
     split_tag: SplitTag
     status: CaseStatus
     was_dev: bool = Field(
-        default=False,
         description="Kasus ini pernah berada di dev set (PBI-9 AC3); tidak pernah kembali false",
     )
     completeness_pct: int = Field(ge=0, le=100)
@@ -295,4 +294,5 @@ class TagConfirmationBody(BaseModel):
 
     code: str = Field(examples=["TAG_CHANGE_NEEDS_CONFIRMATION"])
     message: str
-    requires_confirmation: bool = True
+    # False sebagai bawaan: NO_APPROVED_VERSION memakai body 409 yang sama tanpa field ini.
+    requires_confirmation: bool = False

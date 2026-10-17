@@ -8,6 +8,9 @@ PBI-9 AC3, SCRUM-164. D4a rule 1: an approved row stays immutable except
 split_tag, which an Admin may change (who may change it is checked in
 cases.service). updated_at moves with every update, so it is allowed too.
 
+The trigger compares the whole row minus those two columns, so a column
+added to case_versions later is locked on approved rows by default.
+
 cases.was_dev records that a case once sat in the dev set. It is set when
 an Admin moves an approved case from dev to test and is never cleared.
 """
@@ -27,13 +30,9 @@ CREATE OR REPLACE FUNCTION case_versions_reject_approved_mutation()
 RETURNS trigger AS $$
 BEGIN
     IF OLD.status::text = 'approved' THEN
-        IF TG_OP = 'DELETE' OR (
-            NEW.id, NEW.case_id, NEW.version_no, NEW.status, NEW.case_code,
-            NEW.content, NEW.created_by, NEW.created_at, NEW.based_on_version_id
-        ) IS DISTINCT FROM (
-            OLD.id, OLD.case_id, OLD.version_no, OLD.status, OLD.case_code,
-            OLD.content, OLD.created_by, OLD.created_at, OLD.based_on_version_id
-        ) THEN
+        IF TG_OP = 'DELETE'
+           OR to_jsonb(NEW) - 'split_tag' - 'updated_at'
+              IS DISTINCT FROM to_jsonb(OLD) - 'split_tag' - 'updated_at' THEN
             RAISE EXCEPTION 'approved case version is immutable';
         END IF;
     END IF;

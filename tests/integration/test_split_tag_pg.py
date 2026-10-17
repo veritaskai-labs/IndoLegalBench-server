@@ -70,3 +70,26 @@ def test_penanda_pernah_dev_bawaan_false(kasus):  # noqa: F811
 
     # Assert
     assert nilai is False
+
+
+def test_kolom_baru_di_versi_approved_tetap_terkunci(kasus):  # noqa: F811
+    """Review Roben di #53: trigger mengunci seluruh baris kecuali tag, bukan daftar kolom.
+
+    Kolom yang ditambahkan nanti otomatis ikut terkunci. DDL di PostgreSQL ikut
+    transaksi fixture, jadi kolomnya hilang lagi setelah test.
+    """
+    # Arrange
+    conn, _, _, disetujui, _ = kasus
+    # FK cases <-> case_versions ditunda; ALTER TABLE menolak tabel yang masih punya cek tertunda.
+    conn.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+    conn.execute(text("ALTER TABLE case_versions ADD COLUMN probe_note text"))
+
+    # Act
+    pesan = _ditolak(
+        conn,
+        "UPDATE case_versions SET probe_note = 'diubah' WHERE id = :id",
+        {"id": disetujui},
+    )
+
+    # Assert
+    assert PESAN_TRIGGER in pesan

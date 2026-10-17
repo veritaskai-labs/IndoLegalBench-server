@@ -169,3 +169,14 @@ def test_penulis_tetap_mengubah_tag_lewat_put_sebelum_disetujui(as_role):
     assert response.status_code == 200
     assert response.json()["split_tag"] == "test"
     assert response.json()["was_dev"] is False
+
+
+def test_kontrak_was_dev_wajib_dan_konfirmasi_bawaan_false(client):
+    """Review Roben di #53: server selalu mengirim was_dev, dan 409 NO_APPROVED_VERSION
+    memakai body yang sama tanpa requires_confirmation."""
+    # Act
+    skema = client.get("/openapi.json").json()["components"]["schemas"]
+
+    # Assert
+    assert "was_dev" in skema["CaseRead"]["required"]
+    assert skema["TagConfirmationBody"]["properties"]["requires_confirmation"]["default"] is False

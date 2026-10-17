@@ -3458,8 +3458,7 @@
           "was_dev": {
             "type": "boolean",
             "title": "Was Dev",
-            "description": "Kasus ini pernah berada di dev set (PBI-9 AC3); tidak pernah kembali false",
-            "default": false
+            "description": "Kasus ini pernah berada di dev set (PBI-9 AC3); tidak pernah kembali false"
           },
           "completeness_pct": {
             "type": "integer",
@@ -3493,6 +3492,7 @@
           "traps",
           "split_tag",
           "status",
+          "was_dev",
           "completeness_pct",
           "version",
           "created_at",
@@ -4505,7 +4505,7 @@
           "requires_confirmation": {
             "type": "boolean",
             "title": "Requires Confirmation",
-            "default": true
+            "default": false
           }
         },
         "type": "object",

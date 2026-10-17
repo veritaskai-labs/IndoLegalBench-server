@@ -395,6 +395,12 @@ def official_cases(db: Session, suite_id: uuid.UUID) -> list[ReviewCopy]:
     PBI-9 AC4. Fondasi untuk penilaian dan laporan (Sprint 3): dev case
     tidak pernah masuk official accuracy, dan kasus yang belum disetujui
     belum menjadi bagian benchmark. Urut case_code supaya hasilnya stabil.
+
+    Kasus yang pernah dev lalu dipindah ke test (cases.was_dev) saat ini
+    tetap ikut: tagnya diubah Admin dengan konfirmasi peringatan, dan tag
+    adalah keputusan metodologi tim legal (PBI-9 AC1). Menunggu keputusan PO
+    sebelum PBI-11/13; bila harus dikeluarkan atau ditandai di laporan,
+    cukup satu filter pada Case.was_dev di sini.
     """
     return [
         _review_copy(case, version)
