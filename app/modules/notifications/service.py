@@ -73,6 +73,12 @@ def mark_notification_read(
     return NotificationRead.model_validate(row)
 
 
+def mark_all_notifications_read(db: Session, user_id: uuid.UUID) -> UnreadCount:
+    repository.mark_all_read(db, user_id, when=datetime.now(UTC))
+    db.commit()
+    return UnreadCount(count=0)
+
+
 class DbNotifier:
     """Notifier yang menulis ke tabel notifications.
 

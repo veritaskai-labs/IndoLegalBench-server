@@ -63,6 +63,19 @@ def unread_count(
 
 
 @router.post(
+    "/read-all",
+    response_model=UnreadCount,
+    status_code=status.HTTP_200_OK,
+    summary="Tandai semua notifikasi sebagai dibaca",
+)
+def read_all(
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> UnreadCount:
+    return service.mark_all_notifications_read(db, _user_id(user))
+
+
+@router.post(
     "/{notification_id}/read",
     response_model=NotificationRead,
     status_code=status.HTTP_200_OK,
