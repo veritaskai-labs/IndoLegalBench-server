@@ -16,12 +16,14 @@ decision.py, aturan blind di visibility.py.
 """
 
 import uuid
+from collections.abc import Collection
 from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.auth import service as auth_service
+from app.modules.notifications.service import DbNotifier
 from app.modules.reviews import repository
 from app.modules.reviews.decision import counted_decisions, decide
 from app.modules.reviews.models import (
@@ -114,6 +116,20 @@ def assigned_case_ids(db: Session, reviewer_id: uuid.UUID) -> frozenset[uuid.UUI
     return frozenset(repository.case_ids_assigned_to(db, reviewer_id))
 
 
+def hidden_verdict_assignments(
+    db: Session, assignment_ids: Collection[uuid.UUID], *, viewer_id: uuid.UUID, viewer_role: Role
+) -> frozenset[uuid.UUID]:
+    """Assignment yang verdict-nya belum boleh dilihat viewer (PBI-6 AC3)."""
+    if not assignment_ids:
+        return frozenset()
+    viewer = Viewer(viewer_id, viewer_role)
+    return frozenset(
+        assignment_id
+        for assignment_id, owner_id, round_status in repository.verdict_owners(db, assignment_ids)
+        if not can_see_verdict(viewer, owner_id=owner_id, round_status=round_status)
+    )
+
+
 class ReviewTableStore:
     """AssignmentStore di atas tabel review SCRUM-143."""
 
@@ -184,7 +200,7 @@ def assign_on_submit(
     review.reviewer_assigned per baris), bukan dari record manual di sini.
     """
     penyimpanan = store if store is not None else ReviewTableStore(db)
-    pemberitahu = notifier if notifier is not None else NoopNotifier()
+    pemberitahu = notifier if notifier is not None else DbNotifier()
     kandidat = [
         reviewer_id
         for reviewer_id in auth_service.active_reviewer_ids(db)
@@ -201,9 +217,8 @@ def assign_on_submit(
     )[:REVIEWERS_PER_ROUND]
 
     penyimpanan.save_assignments(round_id, terpilih)
-    # Notifier runs inside the submit transaction today (NoopNotifier).
-    # SCRUM-153 should keep notify non-blocking so a delivery failure does
-    # not roll back the assignment rows already flushed in this txn.
+    # DbNotifier memakai sesi sendiri; kegagalan kirim tidak mengotori
+    # transaksi submit dan tidak melempar ke pemanggil.
     pemberitahu.notify(terpilih, REVIEW_ASSIGNED, _payload_tugas(case_id))
     return terpilih
 
@@ -226,7 +241,7 @@ def resume_after_revision(
     Perevisi yang sudah bukan reviewer aktif tidak diganti; round-nya
     menunggu penugasan Admin.
     """
-    pemberitahu = notifier if notifier is not None else NoopNotifier()
+    pemberitahu = notifier if notifier is not None else DbNotifier()
     sebelumnya = repository.latest_round(db, case_version_id)
     if (
         sebelumnya is None
@@ -375,7 +390,9 @@ def submit_verdict(
     db.commit()
 
     if keputusan is not None:
-        _notify_author(notifier or NoopNotifier(), salinan, keputusan, tugas_round)
+        _notify_author(
+            notifier if notifier is not None else DbNotifier(), salinan, keputusan, tugas_round
+        )
     return VerdictResult(
         assignment_id=tugas.id,
         decision=verdict.decision,

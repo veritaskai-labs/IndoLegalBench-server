@@ -7,7 +7,7 @@ versi dan round dalam satu commit.
 
 import uuid
 from types import SimpleNamespace
-from unittest.mock import MagicMock, patch
+from unittest.mock import ANY, MagicMock, patch
 
 import pytest
 from sqlalchemy.exc import IntegrityError
@@ -70,7 +70,11 @@ def test_versi_jadi_in_review_lalu_round_dibuka_dalam_satu_commit(dep):
     # Assert
     assert dep.kasus.current_version.status == CaseStatus.IN_REVIEW
     dep.reviews.open_round.assert_called_once_with(
-        db, case_id=KASUS, case_version_id=VERSI, author_id=PEMBUAT
+        db,
+        case_id=KASUS,
+        case_version_id=VERSI,
+        author_id=PEMBUAT,
+        notifier=ANY,
     )
     dep.reviews.resume_after_revision.assert_not_called()
     dep.repo.save.assert_called_once_with(db, dep.kasus)
@@ -162,3 +166,45 @@ def test_bentrok_nomor_round_dibatalkan_jadi_konflik(dep):
     assert info.value.code == "VERSION_NOT_SUBMITTABLE"
     db.rollback.assert_called_once()
     dep.repo.save.assert_not_called()
+
+
+REVIEWER = uuid.UUID("00000000-0000-0000-0000-00000000e000")
+
+
+def _open_round_yang_memberi_tahu(db, *, notifier, **_kwargs):
+    notifier.notify([REVIEWER], "review_assigned", {"title": "t", "body": "b", "link": "/"})
+    return SimpleNamespace(round_no=1, status="open")
+
+
+def test_notifikasi_penugasan_dikirim_setelah_commit(dep):
+    # Arrange
+    urutan: list[str] = []
+    dep.reviews.open_round.side_effect = _open_round_yang_memberi_tahu
+    dep.repo.save.side_effect = lambda db, case: urutan.append("commit")
+
+    # Act
+    with patch.object(service, "DbNotifier") as kelas:
+        kelas.return_value.notify.side_effect = lambda *args: urutan.append("notify")
+        service.submit_for_review(MagicMock(), KASUS, actor_id=PEMBUAT)
+
+    # Assert
+    assert urutan == ["commit", "notify"]
+    kelas.return_value.notify.assert_called_once_with(
+        [REVIEWER], "review_assigned", {"title": "t", "body": "b", "link": "/"}
+    )
+
+
+def test_rollback_saat_commit_tidak_mengirim_notifikasi(dep):
+    """Pengajuan yang kalah balapan tidak boleh meninggalkan notifikasi hantu."""
+    # Arrange
+    db = MagicMock()
+    dep.reviews.open_round.side_effect = _open_round_yang_memberi_tahu
+    dep.repo.save.side_effect = IntegrityError("update", {}, Exception("uq"))
+
+    # Act
+    with patch.object(service, "DbNotifier") as kelas, pytest.raises(ConflictError):
+        service.submit_for_review(db, KASUS, actor_id=PEMBUAT)
+
+    # Assert
+    db.rollback.assert_called_once()
+    kelas.return_value.notify.assert_not_called()

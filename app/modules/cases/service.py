@@ -41,7 +41,9 @@ from app.modules.cases.schemas import (
     VersionSummary,
 )
 from app.modules.legal_refs import service as legal_refs_service
+from app.modules.notifications.service import DbNotifier
 from app.modules.reviews import service as reviews_service
+from app.modules.reviews.ports import DeferredNotifier
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
 
 CASE_CODE_TAKEN = "CASE_CODE_TAKEN"
@@ -287,21 +289,27 @@ def submit_for_review(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -
         )
     version.status = CaseStatus.IN_REVIEW
     case.updated_by = actor_id
+    tertunda = DeferredNotifier()
     try:
         if status_awal == CaseStatus.NEEDS_REVISION:
             ronde = reviews_service.resume_after_revision(
-                db, case_id=case.id, case_version_id=version.id
+                db, case_id=case.id, case_version_id=version.id, notifier=tertunda
             )
         else:
             # open_round assigns on round 1 (SCRUM-144); do not call assign_on_submit here.
             ronde = reviews_service.open_round(
-                db, case_id=case.id, case_version_id=version.id, author_id=actor_id
+                db,
+                case_id=case.id,
+                case_version_id=version.id,
+                author_id=actor_id,
+                notifier=tertunda,
             )
         repository.save(db, case)
     except IntegrityError:
         # Pengajuan lain untuk versi yang sama menang lebih dulu.
         db.rollback()
         raise _not_submittable("Versi ini sudah diajukan dan sedang ditinjau.") from None
+    tertunda.send(DbNotifier())
     return ReviewSubmission(
         case_id=case.id,
         version=version.version_no,

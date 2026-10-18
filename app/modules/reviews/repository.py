@@ -6,7 +6,7 @@ milik pemanggil di service.
 """
 
 import uuid
-from collections.abc import Sequence
+from collections.abc import Collection, Sequence
 
 from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, joinedload
@@ -76,6 +76,21 @@ def case_ids_assigned_to(db: Session, reviewer_id: uuid.UUID) -> Sequence[uuid.U
         .where(ReviewAssignment.reviewer_id == reviewer_id)
         .distinct()
     ).all()
+
+
+def verdict_owners(
+    db: Session, assignment_ids: Collection[uuid.UUID]
+) -> Sequence[tuple[uuid.UUID, uuid.UUID, RoundStatus]]:
+    """Reviewer pemilik dan status round tiap assignment."""
+    return (
+        db.execute(
+            select(ReviewAssignment.id, ReviewAssignment.reviewer_id, ReviewRound.status)
+            .join(ReviewRound, ReviewRound.id == ReviewAssignment.review_round_id)
+            .where(ReviewAssignment.id.in_(assignment_ids))
+        )
+        .tuples()
+        .all()
+    )
 
 
 def get_assignment(

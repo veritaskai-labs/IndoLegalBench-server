@@ -272,7 +272,7 @@ class ReviewVerdictTracker(Tracker):
     review.approval_carried supaya Author yang mengajukan ulang tidak
     terlihat seperti mereview sendiri.
 
-    Aturan blind untuk pencarian audit Reviewer diurus SCRUM-167.
+    Blind di audit: audit.service mengosongkan after untuk reviewer lain.
     """
 
     entity_type = AuditEntityType.REVIEW

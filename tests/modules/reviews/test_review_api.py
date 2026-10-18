@@ -6,6 +6,8 @@ keduanya menilai. Kasus di luar alur itu (penulis yang ditugaskan) masih
 menanam assignment langsung lewat _buka_round.
 """
 
+import csv
+import io
 import uuid
 
 import pytest
@@ -19,12 +21,14 @@ from app.modules.reviews.models import AssignmentStatus, ReviewAssignment, Revie
 from app.shared import request_context
 from app.shared.database import get_db
 from app.shared.security import Role, get_current_user
-from tests.modules.cases.test_cases import _buat, _suite
+from tests.modules.cases.test_cases import _badan, _buat, _suite
 from tests.modules.conftest import USER_ID_QA
 
 REVIEWER_A = uuid.UUID("00000000-0000-0000-0000-0000000145a1")
 REVIEWER_B = uuid.UUID("00000000-0000-0000-0000-0000000145a2")
 ADMIN = uuid.UUID("00000000-0000-0000-0000-0000000145ad")
+VERDICT_SUBMITTED = "review.verdict_submitted"
+KOMENTAR_REVISI = "Pasal tidak sesuai"
 
 
 @pytest.fixture
@@ -138,6 +142,125 @@ def test_verdict_pertama_tersembunyi_dari_rekan_dan_penulis(kasus, jadi):
     assert _verdict_terlihat(client, case_id) == {"Reviewer A": None, "Reviewer B": None}
     jadi(Role.AUTHOR, USER_ID_QA)
     assert _verdict_terlihat(client, case_id) == {"Reviewer A": None, "Reviewer B": None}
+
+
+def _baca_audit(client, jalur: str, case_id: str, log_id: int):
+    match jalur:
+        case "daftar":
+            return client.get("/audit-logs", params={"case_id": case_id})
+        case "detail":
+            return client.get(f"/audit-logs/{log_id}")
+        case _:
+            return client.get("/audit-logs/export", params={"format": "csv", "case_id": case_id})
+
+
+def _sesudah_verdict(response, jalur: str, log_id: int) -> dict | str | None:
+    """Kolom after baris verdict di respons itu; sel CSV kosong dibaca None."""
+    match jalur:
+        case "daftar":
+            items = response.json()["items"]
+            return next(item["after"] for item in items if item["id"] == log_id)
+        case "detail":
+            return response.json()["after"]
+        case _:
+            baris = csv.DictReader(io.StringIO(response.content.decode("utf-8-sig")))
+            return next(b["Sesudah"] for b in baris if b["Aksi"] == VERDICT_SUBMITTED) or None
+
+
+@pytest.mark.parametrize("jalur", ["daftar", "detail", "ekspor-csv"])
+def test_reviewer_tidak_membaca_verdict_rekan_lewat_audit_log(kasus, jadi, db_session, jalur):
+    # Arrange
+    client, case_id, tugas = kasus
+    jadi(Role.REVIEWER, REVIEWER_A)
+    assert _nilai(client, tugas[REVIEWER_A], "revise", KOMENTAR_REVISI).status_code == 201
+    log_id = (
+        db_session.query(AuditLog.id)
+        .filter_by(case_id=uuid.UUID(case_id), action=VERDICT_SUBMITTED)
+        .scalar()
+    )
+    jadi(Role.REVIEWER, REVIEWER_B)
+
+    # Act
+    response = _baca_audit(client, jalur, case_id, log_id)
+
+    # Assert
+    assert response.status_code == 200
+    assert _sesudah_verdict(response, jalur, log_id) is None
+    assert "revise" not in response.text
+
+
+def _isi_audit(client, case_id: str, action: str) -> list[dict | None]:
+    items = client.get("/audit-logs", params={"case_id": case_id}).json()["items"]
+    return [item["after"] for item in items if item["action"] == action]
+
+
+def test_baris_verdict_rekan_tetap_ada_di_audit_tanpa_isinya(kasus, jadi):
+    # Arrange
+    client, case_id, tugas = kasus
+    jadi(Role.REVIEWER, REVIEWER_A)
+    _nilai(client, tugas[REVIEWER_A], "revise", KOMENTAR_REVISI)
+    jadi(Role.REVIEWER, REVIEWER_B)
+
+    # Act
+    isi = _isi_audit(client, case_id, VERDICT_SUBMITTED)
+
+    # Assert
+    assert isi == [None]
+
+
+@pytest.mark.parametrize(
+    ("role", "pembaca"),
+    [(Role.REVIEWER, REVIEWER_A), (Role.ADMIN, ADMIN)],
+    ids=["pemilik-verdict", "admin"],
+)
+def test_verdict_di_audit_terbuka_untuk_pemilik_dan_admin_selama_round_open(
+    kasus, jadi, role, pembaca
+):
+    # Arrange
+    client, case_id, tugas = kasus
+    jadi(Role.REVIEWER, REVIEWER_A)
+    _nilai(client, tugas[REVIEWER_A], "revise", KOMENTAR_REVISI)
+    jadi(role, pembaca)
+
+    # Act
+    isi = _isi_audit(client, case_id, VERDICT_SUBMITTED)
+
+    # Assert
+    assert isi == [{"decision": "revise"}]
+
+
+def test_verdict_rekan_di_audit_terbuka_setelah_round_decided(kasus, jadi):
+    # Arrange
+    client, case_id, tugas = kasus
+    jadi(Role.REVIEWER, REVIEWER_A)
+    _nilai(client, tugas[REVIEWER_A], "revise", KOMENTAR_REVISI)
+    jadi(Role.REVIEWER, REVIEWER_B)
+    _nilai(client, tugas[REVIEWER_B])
+
+    # Act
+    isi = _isi_audit(client, case_id, VERDICT_SUBMITTED)
+
+    # Assert
+    assert sorted(after["decision"] for after in isi) == ["approve", "revise"]
+
+
+def test_approve_yang_dibawa_ke_round_revisi_ikut_disamarkan(kasus, jadi):
+    # Arrange
+    client, case_id, tugas = kasus
+    jadi(Role.REVIEWER, REVIEWER_A)
+    _nilai(client, tugas[REVIEWER_A])
+    jadi(Role.REVIEWER, REVIEWER_B)
+    _nilai(client, tugas[REVIEWER_B], "revise", KOMENTAR_REVISI)
+    jadi(Role.AUTHOR, USER_ID_QA)
+    assert client.put(f"/cases/{case_id}", json=_badan()).status_code == 200
+    assert client.post(f"/cases/{case_id}/submit-review").json()["round_status"] == "open"
+    jadi(Role.REVIEWER, REVIEWER_B)
+
+    # Act
+    isi = _isi_audit(client, case_id, "review.approval_carried")
+
+    # Assert
+    assert isi == [None]
 
 
 def test_admin_melihat_verdict_selama_round_open(kasus, jadi):
