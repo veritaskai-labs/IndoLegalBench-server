@@ -181,6 +181,31 @@ class LegalRefPreviewItem(BaseModel):
     )
 
 
+class LegalRefPreviewRequest(BaseModel):
+    """Body POST /legal-refs/preview (SCRUM-162)."""
+
+    # Sengaja objek bebas, bukan LegalRefWrite: kalau schema menolak seluruh
+    # body, rujukan lain tidak mendapat hasilnya sendiri. Tiap rujukan
+    # diperiksa satu per satu di legal_ref_preview.py dengan schema yang sama.
+    legal_refs: list[dict[str, Any]] = Field(
+        max_length=100,
+        description="Rujukan seperti legal_refs di body kasus (LegalRefWrite), urut seperti di form",
+    )
+    case_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Kasus yang sedang diedit. Hanya untuk membaca kode jenis yang sudah tersimpan "
+            "di versi terbuka, supaya jenis nonaktif diperlakukan sama seperti saat simpan."
+        ),
+    )
+
+
+class LegalRefPreviewResponse(BaseModel):
+    """Satu item per rujukan yang dikirim, urutannya sama."""
+
+    items: list[LegalRefPreviewItem]
+
+
 class AnswerCriteria(BaseModel):
     """Phrases the answer must or must not contain, plus an expected conclusion."""
 

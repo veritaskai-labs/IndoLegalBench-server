@@ -2969,6 +2969,78 @@
           }
         }
       }
+    },
+    "/legal-refs/preview": {
+      "post": {
+        "tags": [
+          "legal-refs"
+        ],
+        "summary": "Pratinjau rujukan hukum saat mengetik",
+        "description": "Satu item per rujukan: display_text kalau rujukan itu akan diterima saat simpan, atau error pertamanya dengan code dan field yang sama seperti simpan. Rujukan yang salah tidak membuat request ini 422. Tidak menulis apa pun.",
+        "operationId": "preview_legal_refs_legal_refs_preview_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/LegalRefPreviewRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/LegalRefPreviewResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Belum login.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Author/Admin, atau case_id milik orang lain.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "case_id tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Body bukan daftar rujukan, atau lebih dari 100.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -4294,6 +4366,90 @@
         ],
         "title": "LegalRefLinkWrite",
         "description": "One regulation in a citation, as the editor sends it.\n\nCross-field rules (which form needs pasal or angka, the jo./jis. chain,\nyear not after the current year) live in validation.py."
+      },
+      "LegalRefPreviewItem": {
+        "properties": {
+          "display_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Display Text",
+            "description": "Sama dengan display_text setelah simpan; null selama rujukan ini masih salah"
+          },
+          "error": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ErrorBody"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Masalah pertama rujukan ini, dengan code dan field yang sama seperti simpan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "display_text",
+          "error"
+        ],
+        "title": "LegalRefPreviewItem",
+        "description": "Preview of one citation while the Author types (PBI-21 AC6, AC8, AC10).\n\nExactly one of the two fields is set: the text when the citation would be\nsaved, otherwise its first problem as a save would report it."
+      },
+      "LegalRefPreviewRequest": {
+        "properties": {
+          "legal_refs": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "maxItems": 100,
+            "title": "Legal Refs",
+            "description": "Rujukan seperti legal_refs di body kasus (LegalRefWrite), urut seperti di form"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id",
+            "description": "Kasus yang sedang diedit. Hanya untuk membaca kode jenis yang sudah tersimpan di versi terbuka, supaya jenis nonaktif diperlakukan sama seperti saat simpan."
+          }
+        },
+        "type": "object",
+        "required": [
+          "legal_refs"
+        ],
+        "title": "LegalRefPreviewRequest",
+        "description": "Body POST /legal-refs/preview (SCRUM-162)."
+      },
+      "LegalRefPreviewResponse": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/LegalRefPreviewItem"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items"
+        ],
+        "title": "LegalRefPreviewResponse",
+        "description": "Satu item per rujukan yang dikirim, urutannya sama."
       },
       "LegalRefRead": {
         "properties": {
