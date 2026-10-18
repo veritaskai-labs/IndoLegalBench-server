@@ -65,10 +65,10 @@ def _nama_saja(**link: Any) -> dict[str, Any]:
 
 @pytest.mark.parametrize(
     "tentang",
-    [None, "", "x" * TENTANG_MAKS],
-    ids=["tidak-dikirim", "kosong", "tepat-500"],
+    [None, "", "   ", "x" * TENTANG_MAKS],
+    ids=["tidak-dikirim", "kosong", "hanya-spasi", "tepat-500"],
 )
-def test_ac3_positif_tentang_kosong_atau_500_karakter_tersimpan(as_role, tentang):
+def test_ac3_positif_tentang_kosong_spasi_atau_500_karakter_tersimpan(as_role, tentang):
     # Arrange
     client = as_role(Role.AUTHOR)
     tambahan = {} if tentang is None else {"about": tentang}
@@ -80,7 +80,7 @@ def test_ac3_positif_tentang_kosong_atau_500_karakter_tersimpan(as_role, tentang
     # Assert
     assert respons.status_code == 201, respons.text
     link = respons.json()["legal_refs"][0]["links"][0]
-    assert link["about"] == (tentang or None)
+    assert link["about"] == ((tentang or "").strip() or None)
     assert respons.json()["legal_refs"][0]["display_text"] == "Pasal 156 UU 13/2003"
 
 
@@ -101,7 +101,7 @@ def test_ac3_negatif_tentang_501_karakter_ditolak_di_field_yang_tepat(as_role):
 # --- AC7: teks bebas apa adanya ---------------------------------------------------
 
 
-def test_ac7_positif_teks_bebas_tersimpan_apa_adanya_dan_ditandai_free_text(as_role):
+def test_ac7_positif_teks_bebas_tersimpan_utuh_tanpa_spasi_tepi_dan_ditandai_free_text(as_role):
     # Arrange
     client = as_role(Role.AUTHOR)
     isi = "Baris pertama format uji.\nBaris kedua  dua spasi; (kurung), titik."
