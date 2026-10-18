@@ -24,7 +24,7 @@ from app.modules.reviews.models import (
     RoundStatus,
     VerdictDecision,
 )
-from app.modules.reviews.ports import NoopNotifier
+from app.modules.notifications.service import DbNotifier
 from app.modules.suites.models import Suite, SuiteStatus
 from app.shared import request_context
 from app.shared.exceptions import ConflictError
@@ -131,7 +131,7 @@ def _ajukan(db, kasus, penulis: uuid.UUID):
             "assign_on_submit",
             wraps=reviews_service.assign_on_submit,
         ) as assign,
-        patch.object(NoopNotifier, "notify") as notify,
+        patch.object(DbNotifier, "notify") as notify,
     ):
         hasil = cases_service.submit_for_review(db, kasus.id, actor_id=penulis)
     return hasil, assign, notify

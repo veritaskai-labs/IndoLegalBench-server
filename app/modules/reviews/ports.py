@@ -1,8 +1,9 @@
 """Port penugasan reviewer dan notifikasi.
 
-PBI-6, SCRUM-144. Notifikasi milik SCRUM-153 belum ada, jadi pemanggilan
-notify lewat port. Penyimpanan penugasan memakai tabel review lewat
-ReviewTableStore di reviews.service. Tes boleh menyuntik penyimpanan palsu.
+PBI-6, SCRUM-144. Notifikasi diimplementasikan DbNotifier (SCRUM-153);
+pemanggilan tetap lewat port ini. Penyimpanan penugasan memakai tabel
+review lewat ReviewTableStore di reviews.service. Tes boleh menyuntik
+penyimpanan palsu dan NoopNotifier / FakeNotifier.
 """
 
 import uuid
@@ -57,10 +58,7 @@ class Notifier(Protocol):
 
 
 class NoopNotifier:
-    """Pengganti sementara supaya submit bisa memanggil penugasan lebih dulu.
-
-    TODO(SCRUM-153): ganti dengan notification service.
-    """
+    """Notifier kosong untuk tes atau pemanggil yang sengaja menonaktifkan kirim."""
 
     def notify(self, user_ids: Sequence[uuid.UUID], type: str, payload: Mapping[str, str]) -> None:
         return None
