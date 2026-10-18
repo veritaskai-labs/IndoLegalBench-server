@@ -12,12 +12,19 @@ import uuid
 
 import pytest
 from fastapi import Depends
+from sqlalchemy.orm import sessionmaker
 
 from app.main import app
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
 from app.modules.cases.models import Case
-from app.modules.reviews.models import AssignmentStatus, ReviewAssignment, ReviewRound, RoundStatus
+from app.modules.reviews.models import (
+    AssignmentStatus,
+    ReviewAssignment,
+    ReviewRound,
+    ReviewVerdict,
+    RoundStatus,
+)
 from app.shared import request_context
 from app.shared.database import get_db
 from app.shared.security import Role, get_current_user
@@ -66,6 +73,15 @@ def kasus(as_role, db_session):
     tugas = db_session.query(ReviewAssignment).filter_by(review_round_id=ronde.id).all()
     assert {t.reviewer_id for t in tugas} == {REVIEWER_A, REVIEWER_B}
     return client, case_id, {t.reviewer_id: str(t.id) for t in tugas}
+
+
+@pytest.fixture
+def notifikasi_tersimpan(db_session, monkeypatch):
+    """DbNotifier membuka sesi sendiri; arahkan ke database tes."""
+    monkeypatch.setattr(
+        "app.modules.notifications.service.get_session_factory",
+        lambda: sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False),
+    )
 
 
 def _buka_round(db_session, case_id: str, reviewers: list[uuid.UUID]) -> dict[uuid.UUID, str]:
@@ -142,6 +158,63 @@ def test_verdict_pertama_tersembunyi_dari_rekan_dan_penulis(kasus, jadi):
     assert _verdict_terlihat(client, case_id) == {"Reviewer A": None, "Reviewer B": None}
     jadi(Role.AUTHOR, USER_ID_QA)
     assert _verdict_terlihat(client, case_id) == {"Reviewer A": None, "Reviewer B": None}
+
+
+@pytest.mark.parametrize(
+    ("role", "user_id", "path"),
+    [
+        pytest.param(Role.REVIEWER, REVIEWER_B, "/reviews/assigned", id="reviewer-daftar-tugas"),
+        pytest.param(Role.REVIEWER, REVIEWER_B, "/cases/{id}/review", id="reviewer-review-kasus"),
+        pytest.param(
+            Role.REVIEWER, REVIEWER_B, "/cases/{id}/versions", id="reviewer-riwayat-versi"
+        ),
+        pytest.param(Role.AUTHOR, USER_ID_QA, "/cases/{id}", id="penulis-detail-kasus"),
+        pytest.param(Role.AUTHOR, USER_ID_QA, "/cases/{id}/review", id="penulis-review-kasus"),
+        pytest.param(Role.AUTHOR, USER_ID_QA, "/cases/{id}/versions", id="penulis-riwayat-versi"),
+    ],
+)
+def test_respons_mentah_tidak_memuat_verdict_rekan_selama_round_open(
+    kasus, jadi, role, user_id, path
+):
+    # Arrange
+    client, case_id, tugas = kasus
+    jadi(Role.REVIEWER, REVIEWER_A)
+    assert _nilai(client, tugas[REVIEWER_A], "revise", KOMENTAR_REVISI).status_code == 201
+    jadi(role, user_id)
+
+    # Act
+    response = client.get(path.format(id=case_id))
+
+    # Assert
+    assert response.status_code == 200
+    assert "revise" not in response.text
+    assert KOMENTAR_REVISI not in response.text
+
+
+@pytest.mark.parametrize(
+    ("role", "user_id"),
+    [
+        pytest.param(Role.REVIEWER, REVIEWER_B, id="reviewer"),
+        pytest.param(Role.AUTHOR, USER_ID_QA, id="penulis"),
+    ],
+)
+def test_review_kasus_memuat_verdict_rekan_setelah_round_decided(kasus, jadi, role, user_id):
+    """Kontrol positif: jalur yang sama membuka verdict begitu round selesai."""
+    # Arrange
+    client, case_id, tugas = kasus
+    jadi(Role.REVIEWER, REVIEWER_A)
+    _nilai(client, tugas[REVIEWER_A], "revise", KOMENTAR_REVISI)
+    jadi(Role.REVIEWER, REVIEWER_B)
+    _nilai(client, tugas[REVIEWER_B])
+    jadi(role, user_id)
+
+    # Act
+    response = client.get(f"/cases/{case_id}/review")
+
+    # Assert
+    assert response.status_code == 200
+    assert "revise" in response.text
+    assert KOMENTAR_REVISI in response.text
 
 
 def _baca_audit(client, jalur: str, case_id: str, log_id: int):
@@ -244,16 +317,22 @@ def test_verdict_rekan_di_audit_terbuka_setelah_round_decided(kasus, jadi):
     assert sorted(after["decision"] for after in isi) == ["approve", "revise"]
 
 
-def test_approve_yang_dibawa_ke_round_revisi_ikut_disamarkan(kasus, jadi):
-    # Arrange
-    client, case_id, tugas = kasus
+def _ajukan_ulang_setelah_revisi_b(client, jadi, case_id: str, tugas) -> None:
+    """Round 1: A setuju, B minta revisi; Author lalu mengajukan ulang (round 2)."""
     jadi(Role.REVIEWER, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A])
     jadi(Role.REVIEWER, REVIEWER_B)
     _nilai(client, tugas[REVIEWER_B], "revise", KOMENTAR_REVISI)
     jadi(Role.AUTHOR, USER_ID_QA)
     assert client.put(f"/cases/{case_id}", json=_badan()).status_code == 200
-    assert client.post(f"/cases/{case_id}/submit-review").json()["round_status"] == "open"
+    ronde = client.post(f"/cases/{case_id}/submit-review").json()
+    assert (ronde["round_no"], ronde["round_status"]) == (2, "open")
+
+
+def test_approve_yang_dibawa_ke_round_revisi_ikut_disamarkan(kasus, jadi):
+    # Arrange
+    client, case_id, tugas = kasus
+    _ajukan_ulang_setelah_revisi_b(client, jadi, case_id, tugas)
     jadi(Role.REVIEWER, REVIEWER_B)
 
     # Act
@@ -320,6 +399,28 @@ def test_satu_revise_mengembalikan_kasus_dengan_komentar(kasus, jadi, db_session
     assert client.get("/reviews/assigned").json() == []
 
 
+def test_penulis_mendapat_notifikasi_revisi_beserta_komentar(kasus, jadi, notifikasi_tersimpan):
+    # Arrange
+    client, case_id, tugas = kasus
+    jadi(Role.REVIEWER, REVIEWER_A)
+    _nilai(client, tugas[REVIEWER_A])
+    jadi(Role.REVIEWER, REVIEWER_B)
+    _nilai(client, tugas[REVIEWER_B], "revise", KOMENTAR_REVISI)
+    jadi(Role.AUTHOR, USER_ID_QA)
+
+    # Act
+    response = client.get("/notifications")
+
+    # Assert
+    assert response.status_code == 200
+    [notifikasi] = response.json()["items"]
+    assert notifikasi["type"] == "review_decided"
+    assert notifikasi["title"] == "PHK-001 perlu revisi"
+    assert notifikasi["body"] == KOMENTAR_REVISI
+    assert notifikasi["link"] == f"/cases/{case_id}"
+    assert notifikasi["read_at"] is None
+
+
 def test_keputusan_tercatat_di_audit_atas_nama_reviewer_kedua(kasus, jadi, db_session):
     # Arrange
     client, case_id, tugas = kasus
@@ -334,6 +435,80 @@ def test_keputusan_tercatat_di_audit_atas_nama_reviewer_kedua(kasus, jadi, db_se
     [baris] = db_session.query(AuditLog).filter_by(action="case.approved").all()
     assert str(baris.case_id) == case_id
     assert baris.actor_user_id == REVIEWER_B
+
+
+# --- Pengajuan ulang (AC9) ------------------------------------------------------------
+
+
+def _tugas_milik(client, jadi, reviewer_id: uuid.UUID) -> dict:
+    jadi(Role.REVIEWER, reviewer_id)
+    [baris] = client.get("/reviews/assigned").json()
+    return baris
+
+
+def test_ajukan_ulang_hanya_peminta_revisi_yang_menilai_lagi(kasus, jadi):
+    # Arrange
+    client, case_id, tugas = kasus
+    _ajukan_ulang_setelah_revisi_b(client, jadi, case_id, tugas)
+    tugas_b = _tugas_milik(client, jadi, REVIEWER_B)
+    tugas_a = _tugas_milik(client, jadi, REVIEWER_A)
+
+    # Act
+    nilai_ulang_a = _nilai(client, tugas_a["assignment_id"], "revise", KOMENTAR_REVISI)
+
+    # Assert
+    assert tugas_b["my_verdict"] is None
+    assert tugas_a["my_verdict"]["decision"] == "approve"
+    assert nilai_ulang_a.status_code == 409
+
+
+def test_persetujuan_lama_tetap_berlaku_saat_peminta_revisi_setuju(kasus, jadi, db_session):
+    # Arrange
+    client, case_id, tugas = kasus
+    _ajukan_ulang_setelah_revisi_b(client, jadi, case_id, tugas)
+    tugas_b = _tugas_milik(client, jadi, REVIEWER_B)
+
+    # Act
+    response = _nilai(client, tugas_b["assignment_id"])
+
+    # Assert
+    assert response.json()["round_status"] == "decided"
+    assert response.json()["round_decision"] == "approved"
+    assert _status_versi(db_session, case_id) == "approved"
+
+
+def _komentar_per_round(db_session, case_id: str, reviewer_id: uuid.UUID) -> dict[int, str]:
+    baris = (
+        db_session.query(ReviewRound.round_no, ReviewVerdict.comment)
+        .join(ReviewAssignment, ReviewAssignment.review_round_id == ReviewRound.id)
+        .join(ReviewVerdict, ReviewVerdict.assignment_id == ReviewAssignment.id)
+        .filter(ReviewRound.case_id == uuid.UUID(case_id))
+        .filter(ReviewAssignment.reviewer_id == reviewer_id)
+    )
+    return dict(baris.all())
+
+
+def test_ditolak_dua_kali_membuka_round_tiga_dan_komentar_lama_utuh(kasus, jadi, db_session):
+    # Arrange
+    client, case_id, tugas = kasus
+    komentar_kedua = "Ayat juga keliru"
+    _ajukan_ulang_setelah_revisi_b(client, jadi, case_id, tugas)
+    tugas_b = _tugas_milik(client, jadi, REVIEWER_B)
+    assert _nilai(client, tugas_b["assignment_id"], "revise", komentar_kedua).status_code == 201
+    jadi(Role.AUTHOR, USER_ID_QA)
+    assert client.put(f"/cases/{case_id}", json=_badan()).status_code == 200
+
+    # Act
+    response = client.post(f"/cases/{case_id}/submit-review")
+
+    # Assert
+    assert response.json()["round_no"] == 3
+    assert response.json()["round_status"] == "open"
+    assert _tugas_milik(client, jadi, REVIEWER_A)["my_verdict"]["decision"] == "approve"
+    assert _komentar_per_round(db_session, case_id, REVIEWER_B) == {
+        1: KOMENTAR_REVISI,
+        2: komentar_kedua,
+    }
 
 
 # --- Penolakan --------------------------------------------------------------------------

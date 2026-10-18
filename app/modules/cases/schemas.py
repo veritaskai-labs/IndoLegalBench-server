@@ -15,6 +15,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.modules.auth.schemas import ErrorBody
 from app.modules.cases.models import CaseStatus, SplitTag
 from app.modules.cases.validation import (
     ANGKA_PATTERN,
@@ -163,6 +164,53 @@ class LegalRefRead(LegalRefStored):
     display_text: str = Field(
         description='Ditulis server, misalnya "Pasal 156 UU 13/2003 jo. Pasal II Angka 5 UU 6/2023"',
     )
+
+
+class LegalRefPreviewItem(BaseModel):
+    """Preview of one citation while the Author types (PBI-21 AC6, AC8, AC10).
+
+    Exactly one of the two fields is set: the text when the citation would be
+    saved, otherwise its first problem as a save would report it.
+    """
+
+    display_text: str | None = Field(
+        description="Sama dengan display_text setelah simpan; null selama rujukan ini masih salah",
+    )
+    error: ErrorBody | None = Field(
+        description="Masalah pertama rujukan ini, dengan code dan field yang sama seperti simpan",
+    )
+
+    @model_validator(mode="after")
+    def exactly_one_result(self) -> Self:
+        """Teks dan error saling eksklusif; string kosong tetap sebuah nilai."""
+        if (self.display_text is None) == (self.error is None):
+            raise ValueError("Exactly one of display_text or error must be set")
+        return self
+
+
+class LegalRefPreviewRequest(BaseModel):
+    """Body POST /legal-refs/preview (SCRUM-162)."""
+
+    # Sengaja objek bebas, bukan LegalRefWrite: kalau schema menolak seluruh
+    # body, rujukan lain tidak mendapat hasilnya sendiri. Tiap rujukan
+    # diperiksa satu per satu di legal_ref_preview.py dengan schema yang sama.
+    legal_refs: list[dict[str, Any]] = Field(
+        max_length=100,
+        description="Rujukan seperti legal_refs di body kasus (LegalRefWrite), urut seperti di form",
+    )
+    case_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "Kasus yang sedang diedit. Hanya untuk membaca kode jenis yang sudah tersimpan "
+            "di versi terbuka, supaya jenis nonaktif diperlakukan sama seperti saat simpan."
+        ),
+    )
+
+
+class LegalRefPreviewResponse(BaseModel):
+    """Satu item per rujukan yang dikirim, urutannya sama."""
+
+    items: list[LegalRefPreviewItem]
 
 
 class AnswerCriteria(BaseModel):

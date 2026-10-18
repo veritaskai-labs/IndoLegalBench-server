@@ -171,6 +171,27 @@ def test_split_tag_kosong(as_role):
     assert response.json()["field"] == "split_tag"
 
 
+@pytest.mark.parametrize("tanpa_tag", ["dihapus", "null"])
+def test_draf_tidak_bisa_kehilangan_tag_lewat_put(as_role, tanpa_tag):
+    """PBI-6 AC1: tag tidak bisa hilang, jadi kasus tanpa tag tak pernah diajukan."""
+    # Arrange
+    client = as_role(Role.AUTHOR)
+    case_id = _buat(client, _suite(client)).json()["id"]
+    badan = _badan()
+    if tanpa_tag == "dihapus":
+        del badan["split_tag"]
+    else:
+        badan["split_tag"] = None
+
+    # Act
+    response = client.put(f"/cases/{case_id}", json=badan)
+
+    # Assert
+    assert response.status_code == 422
+    assert response.json()["code"] == "SPLIT_TAG_REQUIRED"
+    assert client.get(f"/cases/{case_id}").json()["split_tag"] == "dev"
+
+
 def test_pasal_kosong_menyebut_field(as_role):
     client = as_role(Role.AUTHOR)
     suite_id = _suite(client)

@@ -9,12 +9,19 @@ yang boleh mengubah kasus.
 
 import copy
 import uuid
+from typing import Any
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.auth import service as auth_service
-from app.modules.cases import completeness, repository, sections, validation
+from app.modules.cases import (
+    completeness,
+    legal_ref_preview,
+    repository,
+    sections,
+    validation,
+)
 from app.modules.cases.display_text import citation_text
 from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
 from app.modules.cases.schemas import (
@@ -23,6 +30,7 @@ from app.modules.cases.schemas import (
     CaseRead,
     CaseSummary,
     CaseWrite,
+    LegalRefPreviewItem,
     LegalRefRead,
     LegalRefStored,
     ReviewCopy,
@@ -95,6 +103,38 @@ def create_case(
             raise
         raise _code_taken(db, payload.case_code) from None
     return _to_read(tersimpan, version, katalog=katalog)
+
+
+def preview_legal_refs(
+    db: Session,
+    legal_refs: list[dict[str, Any]],
+    *,
+    case_id: uuid.UUID | None,
+    actor_id: uuid.UUID,
+    is_admin: bool,
+) -> list[LegalRefPreviewItem]:
+    """Pratinjau rujukan hukum dengan aturan simpan (PBI-21, SCRUM-162). Tidak menulis apa pun.
+
+    case_id hanya dipakai untuk membaca kode jenis yang tersimpan di versi
+    terbuka, seperti update_case, supaya pratinjau dan simpan sama-sama
+    menerima rujukan lama yang jenisnya sudah dinonaktifkan. Kasusnya harus
+    milik pengguna ini atau dibuka admin, sama seperti mengubah kasus.
+    """
+    katalog = legal_refs_service.load_catalog(db)
+    tersimpan: set[str] = set()
+    if case_id is not None:
+        case = _require_case(db, case_id)
+        _require_creator_or_admin(case, actor_id=actor_id, is_admin=is_admin)
+        tersimpan = _stored_type_codes(
+            katalog, (case.current_version.content or {}).get("legal_refs")
+        )
+    return legal_ref_preview.preview_citations(
+        legal_refs,
+        aktif=katalog.active,
+        nama=katalog.names,
+        tersimpan=tersimpan,
+        tahun_ini=validation.current_year_wib(),
+    )
 
 
 def get_case(db: Session, case_id: uuid.UUID) -> CaseRead:
@@ -760,13 +800,19 @@ def _require_known_types(
     katalog: legal_refs_service.TypeCatalog, payload: CaseWrite, *, stored: object
 ) -> None:
     """AC2: link types are in the list; a deactivated one only if this version stored it."""
-    tersimpan = {
+    data = payload.model_dump(mode="json")
+    validation.check_regulation_types(
+        data["legal_refs"], katalog.active, _stored_type_codes(katalog, stored)
+    )
+
+
+def _stored_type_codes(katalog: legal_refs_service.TypeCatalog, stored: object) -> set[str]:
+    """Kode jenis di rujukan yang sudah tersimpan, termasuk rujukan Sprint 1 (AC9)."""
+    return {
         link["regulation_type"]
         for rujukan in katalog.citations(stored)
         for link in rujukan["links"]
     }
-    data = payload.model_dump(mode="json")
-    validation.check_regulation_types(data["legal_refs"], katalog.active, tersimpan)
 
 
 def _require_free_code(db: Session, case_code: str) -> None:

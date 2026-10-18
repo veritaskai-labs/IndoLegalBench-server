@@ -104,9 +104,7 @@ def test_nama_peraturan_saja_menolak_unit(nama):
     # Assert
     assert salah.code == FIELD_NOT_ALLOWED
     assert salah.field == f"legal_refs[0].links[0].{nama}"
-    assert salah.message == (
-        f"Field legal_refs[0].links[0].{nama} tidak boleh diisi untuk bentuk Nama Peraturan"
-    )
+    assert salah.message.endswith("tidak boleh diisi untuk bentuk Nama Peraturan.")
 
 
 def test_bentuk_pasal_menolak_angka():
@@ -120,7 +118,7 @@ def test_bentuk_pasal_menolak_angka():
     # Assert
     assert salah.code == FIELD_NOT_ALLOWED
     assert salah.field == "legal_refs[0].links[0].angka"
-    assert salah.message.endswith("untuk bentuk Pasal")
+    assert salah.message == "Angka tidak boleh diisi untuk bentuk Pasal."
 
 
 # --- negatif: kind rujukan ---------------------------------------------------
@@ -136,7 +134,7 @@ def test_teks_bebas_menolak_link():
     # Assert
     assert salah.code == FIELD_NOT_ALLOWED
     assert salah.field == "legal_refs[0].links"
-    assert salah.message == "Field legal_refs[0].links harus kosong untuk Teks Bebas"
+    assert salah.message == "Teks Bebas tidak boleh berisi peraturan."
 
 
 def test_rujukan_terstruktur_menolak_teks_bebas():
@@ -146,7 +144,7 @@ def test_rujukan_terstruktur_menolak_teks_bebas():
     # Assert
     assert salah.code == FIELD_NOT_ALLOWED
     assert salah.field == "legal_refs[0].free_text"
-    assert salah.message == "Field legal_refs[0].free_text hanya untuk Teks Bebas"
+    assert salah.message == "Teks bebas hanya untuk bentuk Teks Bebas."
 
 
 # --- urutan error ------------------------------------------------------------

@@ -212,7 +212,7 @@ def test_pasal_hilang_tetap_wajib():
 
     assert info.value.code == FIELD_REQUIRED
     assert info.value.field == "legal_refs[0].links[0].pasal"
-    assert info.value.message == "Field legal_refs[0].links[0].pasal wajib diisi"
+    assert info.value.message == "Pasal wajib diisi untuk bentuk Pasal."
 
 
 def test_string_kosong_tetap_wajib():
