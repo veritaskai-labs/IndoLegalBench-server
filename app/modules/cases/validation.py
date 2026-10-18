@@ -17,6 +17,7 @@ from typing import Any, NoReturn
 from zoneinfo import ZoneInfo
 
 from app.modules.cases import completeness as completeness_module
+from app.modules.cases import legal_ref_messages as pesan_rujukan
 from app.shared.exceptions import ValidationError
 
 PLACEHOLDER_CASE_CODE_PATTERN = completeness_module.PLACEHOLDER_CASE_CODE_PATTERN
@@ -39,8 +40,6 @@ VALIDATION_ERROR = "VALIDATION_ERROR"
 
 _TAG_SAH = completeness_module.TAG_SAH
 _FIELD_TERLARANG = completeness_module.FIELD_TERLARANG_PER_BENTUK
-# Nama bentuk seperti di editor (PBI-21 AC4), untuk pesan error.
-_LABEL_BENTUK = {"name_only": "Nama Peraturan", "pasal": "Pasal", "pasal_angka": "Pasal + Angka"}
 
 
 def validate_payload(data: dict[str, Any], *, tahun_ini: int | None = None) -> None:
@@ -195,7 +194,7 @@ def check_citation(indeks: int, rujukan: Any, tahun_ini: int) -> None:
     kurang = completeness_module.missing_in_ref(rujukan)
     if kurang is not None:
         field = f"legal_refs[{indeks}]{kurang}"
-        raise ValidationError(f"Field {field} wajib diisi", code=FIELD_REQUIRED, field=field)
+        raise ValidationError(_required_message(field, rujukan), code=FIELD_REQUIRED, field=field)
     _check_ref_rules(f"legal_refs[{indeks}]", rujukan, tahun_ini)
 
 
@@ -206,10 +205,10 @@ def _check_ref_rules(awalan: str, rujukan: dict[str, Any], tahun_ini: int) -> No
     """
     if rujukan["kind"] == "free_text":
         if rujukan.get("links"):
-            _not_allowed(f"{awalan}.links", "harus kosong untuk Teks Bebas")
+            _not_allowed(f"{awalan}.links", pesan_rujukan.LINKS_ON_FREE_TEXT)
         return
     if _text(rujukan.get("free_text")):
-        _not_allowed(f"{awalan}.free_text", "hanya untuk Teks Bebas")
+        _not_allowed(f"{awalan}.free_text", pesan_rujukan.FREE_TEXT_ON_STRUCTURED)
     for posisi, link in enumerate(rujukan["links"]):
         _check_link(f"{awalan}.links[{posisi}]", posisi, link, tahun_ini)
 
@@ -219,9 +218,7 @@ def _check_link(awalan: str, posisi: int, link: dict[str, Any], tahun_ini: int) 
     bentuk = link["form"]
     for nama in _FIELD_TERLARANG[bentuk]:
         if _text(link.get(nama)):
-            _not_allowed(
-                f"{awalan}.{nama}", f"tidak boleh diisi untuk bentuk {_LABEL_BENTUK[bentuk]}"
-            )
+            _not_allowed(f"{awalan}.{nama}", pesan_rujukan.not_allowed_in_form(nama, bentuk))
     pesan = _connector_problem(posisi, link.get("connector"))
     if pesan is not None:
         raise ValidationError(pesan, code=CONNECTOR_INVALID, field=f"{awalan}.connector")
@@ -243,8 +240,13 @@ def _connector_problem(posisi: int, penghubung: Any) -> str | None:
     return None
 
 
-def _not_allowed(field: str, alasan: str) -> NoReturn:
-    raise ValidationError(f"Field {field} {alasan}", code=FIELD_NOT_ALLOWED, field=field)
+def _not_allowed(field: str, pesan: str) -> NoReturn:
+    raise ValidationError(pesan, code=FIELD_NOT_ALLOWED, field=field)
+
+
+def _required_message(field: str, rujukan: Any = None) -> str:
+    """Kalimat rujukan hukum (SCRUM-162), atau teks umum untuk field lain."""
+    return pesan_rujukan.required(field, rujukan) or f"Field {field} wajib diisi"
 
 
 def _text(nilai: Any) -> str:
@@ -278,7 +280,7 @@ def _map_error(error: dict[str, Any]) -> dict[str, str]:
     if _missing_or_blank(error):
         return {
             "code": FIELD_REQUIRED,
-            "message": f"Field {field} wajib diisi",
+            "message": _required_message(field),
             "field": field,
         }
     return {
