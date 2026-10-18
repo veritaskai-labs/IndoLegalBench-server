@@ -172,9 +172,7 @@ def test_tandai_semua_dibaca(as_role, db_session, pengguna_di_db):
     assert response.status_code == 200
     assert response.json() == {"count": 0}
     assert client.get("/notifications/unread-count").json() == {"count": 0}
-    milik_lain = (
-        db_session.query(Notification).filter(Notification.user_id == USER_LAIN).one()
-    )
+    milik_lain = db_session.query(Notification).filter(Notification.user_id == USER_LAIN).one()
     assert milik_lain.read_at is None
 
 

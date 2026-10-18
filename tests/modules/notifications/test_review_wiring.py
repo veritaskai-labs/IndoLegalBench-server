@@ -153,9 +153,7 @@ def test_resume_default_db_notifier_memberitahu_perevisi(db_session, reviewers, 
     approve = SimpleNamespace(
         status=AssignmentStatus.ACTIVE,
         reviewer_id=R1,
-        verdict=SimpleNamespace(
-            id=uuid.uuid4(), decision=VerdictDecision.APPROVE, comment=None
-        ),
+        verdict=SimpleNamespace(id=uuid.uuid4(), decision=VerdictDecision.APPROVE, comment=None),
     )
     revise = SimpleNamespace(
         status=AssignmentStatus.ACTIVE,

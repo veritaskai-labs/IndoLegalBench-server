@@ -18,6 +18,7 @@ PENGECUALIAN = {
     "regulation_types": "daftar referensi; hanya berubah lewat migrasi atau is_active",
     "legal_refs": "SCRUM-159: hanya migrasi data yang menulis; tracker ditentukan di SCRUM-160",
     "legal_ref_links": "SCRUM-159: hanya migrasi data yang menulis; tracker ditentukan di SCRUM-160",
+    "notifications": "kotak masuk in-app; penugasan dan verdict yang memicunya sudah dicatat di tabel review",
 }
 
 
