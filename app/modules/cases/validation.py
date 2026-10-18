@@ -68,23 +68,33 @@ def check_regulation_types(
     Runs after validate_payload, so the citations are well formed.
     """
     for indeks, rujukan in enumerate(legal_refs):
-        if rujukan["kind"] != "structured":
-            continue
-        for posisi, link in enumerate(rujukan["links"]):
-            code = link["regulation_type"]
-            field = f"legal_refs[{indeks}].links[{posisi}].regulation_type"
-            if code not in aktif:
-                raise ValidationError(
-                    "Jenis peraturan tidak ada di daftar",
-                    code=REGULATION_TYPE_UNKNOWN,
-                    field=field,
-                )
-            if not aktif[code] and code not in tersimpan:
-                raise ValidationError(
-                    "Jenis peraturan ini sudah tidak aktif. Pilih jenis lain.",
-                    code=REGULATION_TYPE_INACTIVE,
-                    field=field,
-                )
+        check_citation_types(indeks, rujukan, aktif, tersimpan)
+
+
+def check_citation_types(
+    indeks: int,
+    rujukan: dict[str, Any],
+    aktif: Mapping[str, bool],
+    tersimpan: Collection[str],
+) -> None:
+    """check_regulation_types for one well-formed citation at position `indeks`."""
+    if rujukan["kind"] != "structured":
+        return
+    for posisi, link in enumerate(rujukan["links"]):
+        code = link["regulation_type"]
+        field = f"legal_refs[{indeks}].links[{posisi}].regulation_type"
+        if code not in aktif:
+            raise ValidationError(
+                "Jenis peraturan tidak ada di daftar",
+                code=REGULATION_TYPE_UNKNOWN,
+                field=field,
+            )
+        if not aktif[code] and code not in tersimpan:
+            raise ValidationError(
+                "Jenis peraturan ini sudah tidak aktif. Pilih jenis lain.",
+                code=REGULATION_TYPE_INACTIVE,
+                field=field,
+            )
 
 
 def current_year_wib(now: datetime | None = None) -> int:
@@ -174,11 +184,19 @@ def _require_legal_refs(nilai: Any, tahun_ini: int) -> None:
             field="legal_refs",
         )
     for indeks, rujukan in enumerate(nilai):
-        kurang = completeness_module.missing_in_ref(rujukan)
-        if kurang is not None:
-            field = f"legal_refs[{indeks}]{kurang}"
-            raise ValidationError(f"Field {field} wajib diisi", code=FIELD_REQUIRED, field=field)
-        _check_ref_rules(f"legal_refs[{indeks}]", rujukan, tahun_ini)
+        check_citation(indeks, rujukan, tahun_ini)
+
+
+def check_citation(indeks: int, rujukan: Any, tahun_ini: int) -> None:
+    """Save rules for one citation at position `indeks`: required fields, then link rules.
+
+    The first problem is raised with its full path, e.g. legal_refs[1].links[0].pasal.
+    """
+    kurang = completeness_module.missing_in_ref(rujukan)
+    if kurang is not None:
+        field = f"legal_refs[{indeks}]{kurang}"
+        raise ValidationError(f"Field {field} wajib diisi", code=FIELD_REQUIRED, field=field)
+    _check_ref_rules(f"legal_refs[{indeks}]", rujukan, tahun_ini)
 
 
 def _check_ref_rules(awalan: str, rujukan: dict[str, Any], tahun_ini: int) -> None:
