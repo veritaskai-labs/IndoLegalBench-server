@@ -15,11 +15,35 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.modules.notifications import repository
 from app.modules.notifications.models import Notification
+from app.modules.notifications.schemas import NotificationRead
 from app.shared.database import get_session_factory
+from app.shared.pagination import Page
 
 logger = logging.getLogger(__name__)
 
 SessionFactory = Callable[[], Session]
+
+
+def list_notifications(
+    db: Session,
+    user_id: uuid.UUID,
+    *,
+    unread: bool | None,
+    page: int,
+    size: int,
+) -> Page[NotificationRead]:
+    unread_only = unread is True
+    offset = (page - 1) * size
+    baris = repository.list_for_user(
+        db, user_id, unread_only=unread_only, offset=offset, limit=size
+    )
+    total = repository.count_for_user(db, user_id, unread_only=unread_only)
+    return Page[NotificationRead](
+        items=[NotificationRead.model_validate(item) for item in baris],
+        total=total,
+        page=page,
+        size=size,
+    )
 
 
 class DbNotifier:
