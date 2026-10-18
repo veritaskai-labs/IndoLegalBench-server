@@ -8,7 +8,7 @@ milik pemanggil di service.
 import uuid
 from collections.abc import Collection, Sequence
 
-from sqlalchemy import func, or_, select
+from sqlalchemy import and_, func, or_, select
 from sqlalchemy.orm import Session, joinedload
 
 from app.modules.reviews.models import (
@@ -153,6 +153,63 @@ def open_assignments_for(db: Session, reviewer_id: uuid.UUID) -> Sequence[Review
     ).all()
 
 
+def count_cases_waiting(db: Session, *, slots: int) -> int:
+    """Kasus yang round berjalannya punya kurang dari `slots` verdict sah (PBI-19 AC1).
+
+    Round yang belum decided selalu milik versi in_review, karena keputusan
+    round ikut mengubah status versi. Verdict sah = verdict pada assignment
+    active, jadi verdict reviewer replaced (AC7) atau void tidak dihitung,
+    dan round tanpa reviewer (awaiting_assignment) ikut terhitung.
+    """
+    verdict_sah = (
+        select(func.count(ReviewVerdict.id))
+        .join(ReviewAssignment, ReviewAssignment.id == ReviewVerdict.assignment_id)
+        .where(
+            ReviewAssignment.review_round_id == ReviewRound.id,
+            ReviewAssignment.status == AssignmentStatus.ACTIVE,
+        )
+        .correlate(ReviewRound)
+        .scalar_subquery()
+    )
+    return int(
+        db.scalar(
+            select(func.count(func.distinct(ReviewRound.case_id))).where(
+                ReviewRound.status != RoundStatus.DECIDED,
+                verdict_sah < slots,
+            )
+        )
+        or 0
+    )
+
+
+def _needs_reassignment():
+    """Syarat round yang perlu penugasan ulang (AC8), dipakai antrean Admin dan dashboard.
+
+    Round belum diputuskan yang masih menunggu reviewer atau punya assignment void.
+    """
+    void_rounds = select(ReviewAssignment.review_round_id).where(
+        ReviewAssignment.status == AssignmentStatus.VOID
+    )
+    return and_(
+        ReviewRound.decision.is_(None),
+        ReviewRound.status != RoundStatus.DECIDED,
+        or_(
+            ReviewRound.status == RoundStatus.AWAITING_ASSIGNMENT,
+            ReviewRound.id.in_(void_rounds),
+        ),
+    )
+
+
+def count_cases_needing_reassignment(db: Session) -> int:
+    """Jumlah kasus di antrean "perlu penugasan ulang" Admin (AC8), jadi angkanya cocok."""
+    return int(
+        db.scalar(
+            select(func.count(func.distinct(ReviewRound.case_id))).where(_needs_reassignment())
+        )
+        or 0
+    )
+
+
 def latest_round_for_case(db: Session, case_id: uuid.UUID) -> ReviewRound | None:
     """Round yang paling baru dibuka untuk kasus ini, lintas versi."""
     return db.scalars(
@@ -215,22 +272,8 @@ def get_active_assignments_for_round(db: Session, round_id: uuid.UUID) -> list[R
 
 def get_rounds_needing_reassignment(db: Session) -> list[ReviewRound]:
     """Round aktif yang memerlukan penugasan ulang (AC8)."""
-    void_rounds = (
-        select(ReviewAssignment.review_round_id)
-        .where(ReviewAssignment.status == AssignmentStatus.VOID)
-        .scalar_subquery()
-    )
     return list(
         db.scalars(
-            select(ReviewRound)
-            .where(
-                ReviewRound.decision.is_(None),
-                ReviewRound.status != RoundStatus.DECIDED,
-                or_(
-                    ReviewRound.status == RoundStatus.AWAITING_ASSIGNMENT,
-                    ReviewRound.id.in_(void_rounds),
-                ),
-            )
-            .order_by(ReviewRound.opened_at.asc())
+            select(ReviewRound).where(_needs_reassignment()).order_by(ReviewRound.opened_at.asc())
         ).all()
     )

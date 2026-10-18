@@ -27,6 +27,7 @@ from app.modules.auth.oidc import ensure_fake_oidc_allowed
 from app.modules.auth.router import router as auth_router
 from app.modules.cases.router import router as cases_router
 from app.modules.cases.validation import response_from_pydantic
+from app.modules.dashboard.router import router as dashboard_router
 from app.modules.health.router import router as health_router
 from app.modules.legal_refs.router import router as legal_refs_router
 from app.modules.notifications.router import router as notifications_router
@@ -162,3 +163,4 @@ app.include_router(runs_router)  # Sprint 3
 app.include_router(reports_router)  # Sprint 4
 app.include_router(audit_router)  # PBI-18
 app.include_router(legal_refs_router)  # PBI-21
+app.include_router(dashboard_router)  # PBI-19

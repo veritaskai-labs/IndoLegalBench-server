@@ -3220,6 +3220,38 @@
           }
         }
       }
+    },
+    "/dashboard": {
+      "get": {
+        "tags": [
+          "dashboard"
+        ],
+        "summary": "Ringkasan dashboard sesuai peran",
+        "description": "PBI-19 AC1, AC2, AC6. Safe to poll every 60 s.",
+        "operationId": "get_dashboard_dashboard_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/DashboardSummary"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Viewer tidak punya dashboard.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -3815,6 +3847,35 @@
         "title": "CaseCompleteness",
         "description": "Indikator kelengkapan satu kasus (SCRUM-107)."
       },
+      "CaseCounts": {
+        "properties": {
+          "draft": {
+            "type": "integer",
+            "title": "Draft"
+          },
+          "in_review": {
+            "type": "integer",
+            "title": "In Review"
+          },
+          "needs_revision": {
+            "type": "integer",
+            "title": "Needs Revision"
+          },
+          "approved": {
+            "type": "integer",
+            "title": "Approved"
+          }
+        },
+        "type": "object",
+        "required": [
+          "draft",
+          "in_review",
+          "needs_revision",
+          "approved"
+        ],
+        "title": "CaseCounts",
+        "description": "Jumlah kasus per status versi yang berlaku, sama seperti daftar kasus."
+      },
       "CaseIdentity": {
         "properties": {
           "title": {
@@ -4229,6 +4290,77 @@
         "title": "ConnectionTestRead",
         "description": "Hasil uji koneksi. Kredensial tidak pernah ada di sini."
       },
+      "DashboardSummary": {
+        "properties": {
+          "generated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Generated At",
+            "description": "Waktu data dihitung (AC2)"
+          },
+          "case_counts": {
+            "$ref": "#/components/schemas/CaseCounts"
+          },
+          "total_cases": {
+            "type": "integer",
+            "title": "Total Cases"
+          },
+          "waiting_for_review": {
+            "type": "integer",
+            "title": "Waiting For Review",
+            "description": "Kasus in_review yang round berjalannya belum punya verdict sah dari kedua slot reviewer, termasuk kasus dengan 0 atau 1 reviewer. Bisa lebih besar dari total antrean reviewer."
+          },
+          "review_queue": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/PendingReview"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Review Queue",
+            "description": "Hanya Reviewer: kasus yang ditugaskan dan belum dinilai, terlama dulu (AC6). null untuk peran lain."
+          },
+          "needs_reassignment": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Needs Reassignment",
+            "description": "Hanya Admin: kasus yang perlu penugasan ulang reviewer. null untuk peran lain."
+          },
+          "latest_run": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LatestRunSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Sesi pengukuran terakhir. null sampai PBI-11 ada."
+          }
+        },
+        "type": "object",
+        "required": [
+          "generated_at",
+          "case_counts",
+          "total_cases",
+          "waiting_for_review",
+          "review_queue",
+          "needs_reassignment"
+        ],
+        "title": "DashboardSummary",
+        "description": "GET /dashboard: ringkasan kerja pengguna yang login, sesuai perannya."
+      },
       "ErrorBody": {
         "properties": {
           "code": {
@@ -4313,6 +4445,12 @@
           "failed"
         ],
         "title": "LastTestStatus"
+      },
+      "LatestRunSummary": {
+        "properties": {},
+        "type": "object",
+        "title": "LatestRunSummary",
+        "description": "Sesi pengukuran terakhir. Selalu null sampai PBI-11 mengisinya (AC1)."
       },
       "LegalRefLinkRead": {
         "properties": {
@@ -4979,6 +5117,54 @@
           "size"
         ],
         "title": "Page[SuiteRead]"
+      },
+      "PendingReview": {
+        "properties": {
+          "assignment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignment Id"
+          },
+          "case_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Case Id"
+          },
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "round_no": {
+            "type": "integer",
+            "title": "Round No"
+          },
+          "waiting_since": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Waiting Since"
+          },
+          "assigned_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Assigned At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "assignment_id",
+          "case_id",
+          "case_code",
+          "title",
+          "round_no",
+          "waiting_since",
+          "assigned_at"
+        ],
+        "title": "PendingReview",
+        "description": "Satu baris antrean dashboard reviewer (PBI-19 AC6, SCRUM-154).\n\nwaiting_since adalah saat round dibuka; antrean diurutkan dari yang\nterlama. assigned_at bisa lebih baru bila reviewer ini pengganti."
       },
       "ProviderType": {
         "type": "string",

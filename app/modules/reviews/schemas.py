@@ -63,6 +63,22 @@ class AssignedReview(BaseModel):
     my_verdict: VerdictView | None
 
 
+class PendingReview(BaseModel):
+    """Satu baris antrean dashboard reviewer (PBI-19 AC6, SCRUM-154).
+
+    waiting_since adalah saat round dibuka; antrean diurutkan dari yang
+    terlama. assigned_at bisa lebih baru bila reviewer ini pengganti.
+    """
+
+    assignment_id: uuid.UUID
+    case_id: uuid.UUID
+    case_code: str
+    title: str
+    round_no: int
+    waiting_since: datetime
+    assigned_at: datetime
+
+
 class ReviewerRead(BaseModel):
     id: uuid.UUID
     name: str
