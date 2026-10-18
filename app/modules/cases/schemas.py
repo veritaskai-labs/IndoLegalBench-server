@@ -15,6 +15,7 @@ from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
+from app.modules.auth.schemas import ErrorBody
 from app.modules.cases.models import CaseStatus, SplitTag
 from app.modules.cases.validation import (
     ANGKA_PATTERN,
@@ -162,6 +163,21 @@ class LegalRefRead(LegalRefStored):
 
     display_text: str = Field(
         description='Ditulis server, misalnya "Pasal 156 UU 13/2003 jo. Pasal II Angka 5 UU 6/2023"',
+    )
+
+
+class LegalRefPreviewItem(BaseModel):
+    """Preview of one citation while the Author types (PBI-21 AC6, AC8, AC10).
+
+    Exactly one of the two fields is set: the text when the citation would be
+    saved, otherwise its first problem as a save would report it.
+    """
+
+    display_text: str | None = Field(
+        description="Sama dengan display_text setelah simpan; null selama rujukan ini masih salah",
+    )
+    error: ErrorBody | None = Field(
+        description="Masalah pertama rujukan ini, dengan code dan field yang sama seperti simpan",
     )
 
 
