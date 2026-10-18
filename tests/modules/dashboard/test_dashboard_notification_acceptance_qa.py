@@ -1,7 +1,7 @@
 """Uji penerimaan dashboard dan notifikasi PBI-19. Sub task QA SCRUM-157.
 
-Tes milik SCRUM-153 dan SCRUM-154 sudah menguji modul notifikasi dan dashboard. 
-Berkas ini hanya menambah skenario SCRUM-157 yang belum tercakup dan menguji alur 
+Tes milik SCRUM-153 dan SCRUM-154 sudah menguji modul notifikasi dan dashboard.
+Berkas ini hanya menambah skenario SCRUM-157 yang belum tercakup dan menguji alur
 kerja nyata lewat HTTP:
 
 - AC1: angka dashboard sesuai data per peran (Admin, Author, Reviewer)
