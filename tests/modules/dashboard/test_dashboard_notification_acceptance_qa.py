@@ -218,9 +218,7 @@ def test_ac3_penggantian_reviewer_menghasilkan_notifikasi_ke_reviewer_baru(
         and items[0]["type"] == "review_assigned"
         and items[0]["link"] == f"/cases/{case_id}"
     ):
-        pytest.xfail(
-            "SCRUM-147 _notify_replacement di service review masih default NoopNotifier"
-        )
+        pytest.xfail("SCRUM-147 _notify_replacement di service review masih default NoopNotifier")
     assert len(items) == 1
     assert items[0]["type"] == "review_assigned"
     assert items[0]["link"] == f"/cases/{case_id}"
