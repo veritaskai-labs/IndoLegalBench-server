@@ -52,7 +52,9 @@ def required(field: str, rujukan: Any = None) -> str | None:
     if nama is None:
         return f"Rujukan ke-{int(isi[1]) + 1} wajib diisi."
     if nama == "links":
-        return _TANPA_PERATURAN
+        if isinstance(rujukan, dict) and rujukan.get("kind") == "structured":
+            return _TANPA_PERATURAN
+        return "Peraturan wajib diisi."
     return _label_required(nama)
 
 

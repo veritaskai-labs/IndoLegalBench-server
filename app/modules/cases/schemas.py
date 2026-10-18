@@ -180,6 +180,13 @@ class LegalRefPreviewItem(BaseModel):
         description="Masalah pertama rujukan ini, dengan code dan field yang sama seperti simpan",
     )
 
+    @model_validator(mode="after")
+    def exactly_one_result(self) -> Self:
+        """Teks dan error saling eksklusif; string kosong tetap sebuah nilai."""
+        if (self.display_text is None) == (self.error is None):
+            raise ValueError("Exactly one of display_text or error must be set")
+        return self
+
 
 class LegalRefPreviewRequest(BaseModel):
     """Body POST /legal-refs/preview (SCRUM-162)."""
