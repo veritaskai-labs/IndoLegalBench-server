@@ -158,6 +158,26 @@ def test_tandai_tidak_ada_404(as_role, pengguna_di_db):
     assert response.json()["code"] == "NOTIFICATION_NOT_FOUND"
 
 
+def test_tandai_semua_dibaca(as_role, db_session, pengguna_di_db):
+    # Arrange
+    _buat(db_session, title="Satu")
+    _buat(db_session, title="Dua")
+    _buat(db_session, user_id=USER_LAIN, title="Lain")
+    client = as_role(Role.VIEWER)
+
+    # Act
+    response = client.post("/notifications/read-all")
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json() == {"count": 0}
+    assert client.get("/notifications/unread-count").json() == {"count": 0}
+    milik_lain = (
+        db_session.query(Notification).filter(Notification.user_id == USER_LAIN).one()
+    )
+    assert milik_lain.read_at is None
+
+
 def test_tanpa_sesi_401(client, pengguna_di_db):
     # Arrange / Act / Assert
     assert client.get("/notifications").status_code == 401
