@@ -60,12 +60,8 @@ def mark_read(db: Session, row: Notification, *, when: datetime) -> Notification
 
 def mark_all_read(db: Session, user_id: uuid.UUID, *, when: datetime) -> int:
     """Tandai semua belum dibaca milik user. Mengembalikan jumlah yang diubah."""
-    rows = (
+    return (
         db.query(Notification)
         .filter(Notification.user_id == user_id, Notification.read_at.is_(None))
-        .all()
+        .update({Notification.read_at: when}, synchronize_session=False)
     )
-    for row in rows:
-        row.read_at = when
-    db.flush()
-    return len(rows)

@@ -4,6 +4,7 @@ Sesi pendek sendiri, satu baris per user dari title/body/link, dan
 tidak pernah melempar ke pemanggil.
 """
 
+import logging
 import uuid
 from unittest.mock import MagicMock
 
@@ -67,6 +68,30 @@ def test_db_notifier_user_kosong_tidak_menulis(db_session, users):
 
     # Assert
     assert db_session.query(Notification).count() == 0
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        {"body": "b", "link": "/"},
+        {"title": "t", "link": "/"},
+        {"title": "t", "body": "b"},
+        {"title": "  ", "body": "b", "link": "/"},
+    ],
+    ids=["tanpa-title", "tanpa-body", "tanpa-link", "title-kosong"],
+)
+def test_db_notifier_payload_tidak_lengkap_tidak_menulis_dan_dicatat(
+    db_session, users, payload, caplog
+):
+    # Act
+    with caplog.at_level(logging.ERROR, logger="app.modules.notifications.service"):
+        DbNotifier(session_factory=_factory(db_session)).notify(
+            [USER_A], "review_assigned", payload
+        )
+
+    # Assert
+    assert db_session.query(Notification).count() == 0
+    assert "review_assigned tidak dikirim" in caplog.text
 
 
 def test_db_notifier_menelan_error_dan_tidak_melempar():

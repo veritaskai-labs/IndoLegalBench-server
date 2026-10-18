@@ -28,6 +28,8 @@ SessionFactory = Callable[[], Session]
 NOT_YOURS = "NOTIFICATION_NOT_YOURS"
 NOT_FOUND = "NOTIFICATION_NOT_FOUND"
 
+_KUNCI_WAJIB = ("title", "body", "link")
+
 
 def list_notifications(
     db: Session,
@@ -84,7 +86,9 @@ class DbNotifier:
 
     Membuka sesi pendek sendiri (bukan sesi transaksi bisnis pemanggil),
     commit per panggilan, dan menelan error supaya penugasan/verdict
-    tidak ikut gagal. Payload hanya memakai title / body / link.
+    tidak ikut gagal. Payload wajib berisi title / body / link yang tidak
+    kosong; kalau ada yang hilang, tidak ada baris yang ditulis dan error
+    dicatat di log. Kunci lain diabaikan.
     """
 
     def __init__(
@@ -95,9 +99,17 @@ class DbNotifier:
     def notify(self, user_ids: Sequence[uuid.UUID], type: str, payload: Mapping[str, str]) -> None:
         if not user_ids:
             return
-        title = payload.get("title") or ""
-        body = payload.get("body") or ""
-        link = payload.get("link") or ""
+        kurang = [kunci for kunci in _KUNCI_WAJIB if not (payload.get(kunci) or "").strip()]
+        if kurang:
+            logger.error(
+                "Notifikasi type=%s tidak dikirim: payload tanpa %s",
+                type,
+                ", ".join(kurang),
+            )
+            return
+        title = payload["title"]
+        body = payload["body"]
+        link = payload["link"]
         factory = self._session_factory or get_session_factory()
         db: Session | None = None
         try:
