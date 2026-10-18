@@ -1017,7 +1017,7 @@
             }
           },
           "409": {
-            "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), kode diubah setelah ada versi yang disetujui (`CASE_CODE_LOCKED`), versi yang disetujui atau sedang ditinjau diubah (`VERSION_LOCKED`), versi baru diminta saat draf atau tinjauan masih berjalan (`VERSION_IN_PROGRESS`), atau versi baru diminta sebelum ada versi yang disetujui (`NO_APPROVED_VERSION`).",
+            "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), kode diubah setelah ada versi yang disetujui (`CASE_CODE_LOCKED`), tag diubah lewat PUT setelah disetujui (`SPLIT_TAG_LOCKED`), versi yang disetujui atau sedang ditinjau diubah (`VERSION_LOCKED`), versi baru diminta saat draf atau tinjauan masih berjalan (`VERSION_IN_PROGRESS`), atau versi baru diminta sebelum ada versi yang disetujui (`NO_APPROVED_VERSION`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1241,7 +1241,7 @@
             }
           },
           "409": {
-            "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), kode diubah setelah ada versi yang disetujui (`CASE_CODE_LOCKED`), versi yang disetujui atau sedang ditinjau diubah (`VERSION_LOCKED`), versi baru diminta saat draf atau tinjauan masih berjalan (`VERSION_IN_PROGRESS`), atau versi baru diminta sebelum ada versi yang disetujui (`NO_APPROVED_VERSION`).",
+            "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), kode diubah setelah ada versi yang disetujui (`CASE_CODE_LOCKED`), tag diubah lewat PUT setelah disetujui (`SPLIT_TAG_LOCKED`), versi yang disetujui atau sedang ditinjau diubah (`VERSION_LOCKED`), versi baru diminta saat draf atau tinjauan masih berjalan (`VERSION_IN_PROGRESS`), atau versi baru diminta sebelum ada versi yang disetujui (`NO_APPROVED_VERSION`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1315,7 +1315,7 @@
             }
           },
           "409": {
-            "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), kode diubah setelah ada versi yang disetujui (`CASE_CODE_LOCKED`), versi yang disetujui atau sedang ditinjau diubah (`VERSION_LOCKED`), versi baru diminta saat draf atau tinjauan masih berjalan (`VERSION_IN_PROGRESS`), atau versi baru diminta sebelum ada versi yang disetujui (`NO_APPROVED_VERSION`).",
+            "description": "Kode kasus sudah dipakai (`CASE_CODE_TAKEN`), kode diubah setelah ada versi yang disetujui (`CASE_CODE_LOCKED`), tag diubah lewat PUT setelah disetujui (`SPLIT_TAG_LOCKED`), versi yang disetujui atau sedang ditinjau diubah (`VERSION_LOCKED`), versi baru diminta saat draf atau tinjauan masih berjalan (`VERSION_IN_PROGRESS`), atau versi baru diminta sebelum ada versi yang disetujui (`NO_APPROVED_VERSION`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -1602,6 +1602,90 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/cases/{case_id}/split-tag": {
+      "patch": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Ubah tag dev/test kasus yang sudah disetujui",
+        "description": "PBI-9 AC3. Changes the approved version and any open version, and is audited.\n\nMoving dev to test needs confirm = true, because AI developers have\nalready seen the case. The case is then marked was_dev for good.",
+        "operationId": "change_split_tag_cases__case_id__split_tag_patch",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SplitTagChange"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus atau suite tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Dev ke test tanpa confirm (`TAG_CHANGE_NEEDS_CONFIRMATION`, `requires_confirmation` = true), atau kasus belum disetujui (`NO_APPROVED_VERSION`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TagConfirmationBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Suite tidak aktif (`SUITE_NOT_ACTIVE`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -2118,6 +2202,146 @@
         }
       }
     },
+    "/reviews/needs-reassignment": {
+      "get": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Daftar kasus yang memerlukan penugasan reviewer ulang (AC8)",
+        "description": "Mengembalikan daftar kasus dengan round aktif yang memerlukan penugasan ulang reviewer.\n\nKasus yang reviewer-nya dinonaktifkan (void) otomatis muncul di antrean ini (AC8).",
+        "operationId": "get_needs_reassignment_reviews_needs_reassignment_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/NeedsReassignmentResponse"
+                  },
+                  "type": "array",
+                  "title": "Response Get Needs Reassignment Reviews Needs Reassignment Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Tidak ada sesi aktif.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya admin yang boleh mengakses antrean ini.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reviews/{assignment_id}/replace": {
+      "post": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Ganti reviewer pada sebuah kasus (AC7)",
+        "description": "Admin mengganti reviewer yang ditugaskan pada sebuah kasus (AC7).\n\nAssignment lama diubah statusnya menjadi replaced dan penilaiannya tidak dihitung.\nReviewer baru ditugaskan dan dinotifikasi.",
+        "operationId": "replace_reviewer_reviews__assignment_id__replace_post",
+        "parameters": [
+          {
+            "name": "assignment_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Assignment Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReplaceReviewerRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplaceReviewerResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Tidak ada sesi aktif.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya admin yang boleh mengganti reviewer.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Penugasan review atau reviewer baru tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Penugasan sudah pernah diganti atau putaran review sudah diputuskan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Reviewer baru tidak boleh penulis kasus, tidak boleh reviewer lain di round itu, atau bukan akun reviewer yang aktif.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/reviews/{assignment_id}/verdict": {
       "post": {
         "tags": [
@@ -2190,7 +2414,7 @@
             }
           },
           "422": {
-            "description": "Komentar kosong untuk decision = revise (`COMMENT_REQUIRED`).",
+            "description": "Komentar kosong untuk decision = revise (`COMMENT_REQUIRED`), tag dev/test ikut dikirim (`SPLIT_TAG_NOT_REVIEWED`, PBI-9 AC2), field lain yang tidak dikenal (`UNKNOWN_FIELD`), atau decision kosong/tidak sah.",
             "content": {
               "application/json": {
                 "schema": {
@@ -2245,6 +2469,185 @@
           },
           "404": {
             "description": "Kasus tidak ditemukan, atau belum pernah diajukan (`NO_REVIEW_ROUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notifications": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Daftar notifikasi milik pengguna saat ini",
+        "operationId": "list_notifications_notifications_get",
+        "parameters": [
+          {
+            "name": "unread",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "boolean"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "True = hanya belum dibaca. False atau kosong = semua.",
+              "title": "Unread"
+            },
+            "description": "True = hanya belum dibaca. False atau kosong = semua."
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_NotificationRead_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notifications/unread-count": {
+      "get": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Jumlah notifikasi belum dibaca",
+        "operationId": "unread_count_notifications_unread_count_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadCount"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notifications/read-all": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Tandai semua notifikasi sebagai dibaca",
+        "operationId": "read_all_notifications_read_all_post",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/UnreadCount"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/notifications/{notification_id}/read": {
+      "post": {
+        "tags": [
+          "notifications"
+        ],
+        "summary": "Tandai satu notifikasi sebagai dibaca",
+        "operationId": "read_one_notifications__notification_id__read_post",
+        "parameters": [
+          {
+            "name": "notification_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Notification Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/NotificationRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Notifikasi milik pengguna lain (`NOTIFICATION_NOT_YOURS`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Notifikasi tidak ditemukan (`NOTIFICATION_NOT_FOUND`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -3160,6 +3563,14 @@
         "title": "AssignedReview",
         "description": "Satu baris GET /reviews/assigned."
       },
+      "AssignmentSource": {
+        "type": "string",
+        "enum": [
+          "system",
+          "admin"
+        ],
+        "title": "AssignmentSource"
+      },
       "AssignmentStatus": {
         "type": "string",
         "enum": [
@@ -3502,6 +3913,11 @@
           "status": {
             "$ref": "#/components/schemas/CaseStatus"
           },
+          "was_dev": {
+            "type": "boolean",
+            "title": "Was Dev",
+            "description": "Kasus ini pernah berada di dev set (PBI-9 AC3); tidak pernah kembali false"
+          },
           "completeness_pct": {
             "type": "integer",
             "maximum": 100.0,
@@ -3534,6 +3950,7 @@
           "traps",
           "split_tag",
           "status",
+          "was_dev",
           "completeness_pct",
           "version",
           "created_at",
@@ -4307,6 +4724,120 @@
         ],
         "title": "MeResponse"
       },
+      "NeedsReassignmentResponse": {
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Case Id"
+          },
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          },
+          "case_title": {
+            "type": "string",
+            "title": "Case Title"
+          },
+          "round_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Round Id"
+          },
+          "round_no": {
+            "type": "integer",
+            "title": "Round No"
+          },
+          "round_status": {
+            "$ref": "#/components/schemas/RoundStatus"
+          },
+          "active_reviewers_count": {
+            "type": "integer",
+            "title": "Active Reviewers Count"
+          },
+          "void_assignments": {
+            "items": {
+              "$ref": "#/components/schemas/ReassignmentAssignmentRead"
+            },
+            "type": "array",
+            "title": "Void Assignments"
+          },
+          "assignments": {
+            "items": {
+              "$ref": "#/components/schemas/ReassignmentAssignmentRead"
+            },
+            "type": "array",
+            "title": "Assignments"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_id",
+          "case_code",
+          "case_title",
+          "round_id",
+          "round_no",
+          "round_status",
+          "active_reviewers_count",
+          "void_assignments",
+          "assignments"
+        ],
+        "title": "NeedsReassignmentResponse",
+        "description": "Satu kasus pada antrean penugasan ulang (GET /reviews/needs-reassignment)."
+      },
+      "NotificationRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "type": {
+            "type": "string",
+            "title": "Type"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "body": {
+            "type": "string",
+            "title": "Body"
+          },
+          "link": {
+            "type": "string",
+            "title": "Link"
+          },
+          "read_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Read At"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "type",
+          "title",
+          "body",
+          "link",
+          "read_at",
+          "created_at"
+        ],
+        "title": "NotificationRead"
+      },
       "Page_AuditLogRead_": {
         "properties": {
           "items": {
@@ -4337,6 +4868,37 @@
           "size"
         ],
         "title": "Page[AuditLogRead]"
+      },
+      "Page_NotificationRead_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/NotificationRead"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "Page[NotificationRead]"
       },
       "Page_SnapshotSummary_": {
         "properties": {
@@ -4458,6 +5020,75 @@
         "title": "ProviderType",
         "description": "ProviderType:\n- openai_compatible: OpenAI chat completions (DeepSeek, GPT). Bearer auth. The stored URL is posted as-is.\n- gemini_interactions: Gemini Interactions API. Header x-goog-api-key.\n- anthropic_messages: Anthropic Messages API. Headers x-api-key and anthropic-version."
       },
+      "ReassignmentAssignmentRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "reviewer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Reviewer Id"
+          },
+          "reviewer_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reviewer Name"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AssignmentStatus"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AssignmentSource"
+          },
+          "assigned_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Assigned At"
+          },
+          "ended_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Ended At"
+          },
+          "end_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "End Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "reviewer_id",
+          "status",
+          "source",
+          "assigned_at"
+        ],
+        "title": "ReassignmentAssignmentRead",
+        "description": "Ringkasan satu penugasan dalam putaran review."
+      },
       "RegulationTypeRead": {
         "properties": {
           "code": {
@@ -4493,6 +5124,90 @@
         ],
         "title": "RegulationTypeRead",
         "description": "Satu jenis peraturan untuk dropdown editor (AC2)."
+      },
+      "ReplaceReviewerRequest": {
+        "properties": {
+          "new_reviewer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "New Reviewer Id",
+            "description": "ID reviewer pengganti (harus reviewer aktif, bukan pembuat kasus atau reviewer lain di round ini)"
+          },
+          "reason": {
+            "type": "string",
+            "minLength": 1,
+            "title": "Reason",
+            "description": "Alasan penggantian reviewer (wajib untuk jejak audit)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "new_reviewer_id",
+          "reason"
+        ],
+        "title": "ReplaceReviewerRequest",
+        "description": "Payload untuk POST /reviews/{assignment_id}/replace."
+      },
+      "ReplaceReviewerResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "ID penugasan baru"
+          },
+          "review_round_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Review Round Id"
+          },
+          "reviewer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Reviewer Id"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AssignmentSource"
+          },
+          "assigned_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Assigned By"
+          },
+          "assigned_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Assigned At"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AssignmentStatus"
+          },
+          "replaced_assignment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Replaced Assignment Id",
+            "description": "ID penugasan lama yang digantikan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "review_round_id",
+          "reviewer_id",
+          "source",
+          "assigned_at",
+          "status",
+          "replaced_assignment_id"
+        ],
+        "title": "ReplaceReviewerResponse",
+        "description": "Response sukses POST /reviews/{assignment_id}/replace."
       },
       "ReviewCopy": {
         "properties": {
@@ -4785,6 +5500,25 @@
         "title": "SplitTag",
         "description": "Dataset split stored on a version. Only dev and test are valid."
       },
+      "SplitTagChange": {
+        "properties": {
+          "split_tag": {
+            "$ref": "#/components/schemas/SplitTag"
+          },
+          "confirm": {
+            "type": "boolean",
+            "title": "Confirm",
+            "description": "Wajib true untuk dev ke test. Tanpa itu jawabannya 409 TAG_CHANGE_NEEDS_CONFIRMATION dengan requires_confirmation = true.",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "split_tag"
+        ],
+        "title": "SplitTagChange",
+        "description": "PATCH /cases/{id}/split-tag (PBI-9 AC3). Admin only, after approval."
+      },
       "SuiteCreate": {
         "properties": {
           "name": {
@@ -4920,6 +5654,33 @@
         "type": "object",
         "title": "SuiteUpdate"
       },
+      "TagConfirmationBody": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "examples": [
+              "TAG_CHANGE_NEEDS_CONFIRMATION"
+            ]
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          },
+          "requires_confirmation": {
+            "type": "boolean",
+            "title": "Requires Confirmation",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "TagConfirmationBody",
+        "description": "409 TAG_CHANGE_NEEDS_CONFIRMATION: tampilkan peringatan lalu kirim ulang dengan confirm."
+      },
       "Trap": {
         "properties": {
           "description": {
@@ -4947,6 +5708,21 @@
         ],
         "title": "Trap",
         "description": "An optionally included known mistake and how the model is expected to handle it."
+      },
+      "UnreadCount": {
+        "properties": {
+          "count": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Count",
+            "description": "Jumlah notifikasi belum dibaca milik pengguna saat ini"
+          }
+        },
+        "type": "object",
+        "required": [
+          "count"
+        ],
+        "title": "UnreadCount"
       },
       "UserCreateRequest": {
         "properties": {
@@ -5182,12 +5958,13 @@
             "description": "Wajib bila decision = revise (COMMENT_REQUIRED)"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "required": [
           "decision"
         ],
         "title": "VerdictWrite",
-        "description": "POST /reviews/{assignment_id}/verdict."
+        "description": "POST /reviews/{assignment_id}/verdict.\n\nField lain ditolak (422), termasuk split_tag: reviewer menilai substansi\nkasus, bukan tag dev/test (PBI-9 AC2)."
       },
       "VersionCompare": {
         "properties": {

@@ -146,3 +146,92 @@ def test_add_assignment_tidak_flush(db_session):
 
     # Assert
     assert tugas in db_session.new
+
+
+def test_get_assignment_ditemukan_dan_memuat_round(db_session):
+    # Arrange
+    ronde = _round(db_session, KASUS_1)
+    tugas = ReviewAssignment(review_round_id=ronde.id, reviewer_id=REVIEWER)
+    db_session.add(tugas)
+    db_session.flush()
+
+    # Act
+    hasil = repository.get_assignment(db_session, tugas.id)
+
+    # Assert
+    assert hasil is not None
+    assert hasil.id == tugas.id
+    assert hasil.review_round.id == ronde.id
+    assert repository.get_assignment(db_session, uuid.uuid4()) is None
+
+
+def test_get_active_assignments_by_reviewer_hanya_yang_aktif_dan_belum_decided(db_session):
+    from app.modules.reviews.models import RoundDecision, RoundStatus
+
+    # Arrange
+    ronde1 = _round(db_session, KASUS_1)
+    ronde2 = _round(db_session, KASUS_2)
+    ronde3 = _round(db_session, KASUS_3)
+    ronde3.status = RoundStatus.DECIDED
+    ronde3.decision = RoundDecision.APPROVED
+    _tugaskan(db_session, ronde1, REVIEWER, AssignmentStatus.ACTIVE)
+    _tugaskan(db_session, ronde2, REVIEWER, AssignmentStatus.VOID)
+    _tugaskan(db_session, ronde3, REVIEWER, AssignmentStatus.ACTIVE)
+
+    # Act
+    aktif = repository.get_active_assignments_by_reviewer(db_session, REVIEWER)
+
+    # Assert
+    assert len(aktif) == 1
+    assert aktif[0].review_round_id == ronde1.id
+
+
+def test_get_assignments_for_round_dan_aktif(db_session):
+    # Arrange
+    ronde = _round(db_session, KASUS_1)
+    _tugaskan(db_session, ronde, REVIEWER, AssignmentStatus.ACTIVE)
+    _tugaskan(db_session, ronde, REVIEWER_LAIN, AssignmentStatus.REPLACED)
+
+    # Act
+    semua = repository.get_assignments_for_round(db_session, ronde.id)
+    aktif = repository.get_active_assignments_for_round(db_session, ronde.id)
+
+    # Assert
+    assert len(semua) == 2
+    assert len(aktif) == 1
+    assert aktif[0].reviewer_id == REVIEWER
+
+
+def test_get_rounds_needing_reassignment(db_session):
+    from app.modules.reviews.models import RoundDecision, RoundStatus
+
+    # Ronde 1: awaiting_assignment -> harus muncul
+    ronde1 = _round(db_session, KASUS_1)
+    ronde1.status = RoundStatus.AWAITING_ASSIGNMENT
+    db_session.flush()
+
+    # Ronde 2: open tapi ada assignment void -> harus muncul
+    ronde2 = _round(db_session, KASUS_2)
+    ronde2.status = RoundStatus.OPEN
+    _tugaskan(db_session, ronde2, REVIEWER, AssignmentStatus.VOID)
+
+    # Ronde 3: open dengan assignment active saja -> TIDAK muncul
+    ronde3 = _round(db_session, KASUS_3)
+    ronde3.status = RoundStatus.OPEN
+    _tugaskan(db_session, ronde3, REVIEWER, AssignmentStatus.ACTIVE)
+
+    # Ronde 4: decided -> TIDAK muncul
+    ronde4 = _round(db_session, KASUS_1, round_no=2)
+    ronde4.status = RoundStatus.DECIDED
+    ronde4.decision = RoundDecision.APPROVED
+    _tugaskan(db_session, ronde4, REVIEWER, AssignmentStatus.VOID)
+
+    # Act
+    antrean = repository.get_rounds_needing_reassignment(db_session)
+
+    # Assert
+    ids = [r.id for r in antrean]
+    assert ronde1.id in ids
+    assert ronde2.id in ids
+    assert ronde3.id not in ids
+    assert ronde4.id not in ids

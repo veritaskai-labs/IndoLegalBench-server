@@ -383,7 +383,12 @@ def test_admin_boleh_mengubah_tapi_bukan_tag_sebelum_approved(as_role, buat_peng
     assert tag.json()["code"] == "SPLIT_TAG_LOCKED"
 
 
-def test_admin_boleh_mengubah_tag_setelah_approved(as_role, buat_pengguna, db_session):
+def test_setelah_approved_tag_tidak_diubah_lewat_put(as_role, buat_pengguna, db_session):
+    """PBI-9 AC3 (SCRUM-164): setelah disetujui, tag hanya lewat PATCH split-tag oleh Admin.
+
+    Sebelumnya Admin boleh mengganti tag di draf versi berikutnya lewat PUT;
+    jalur itu melewati konfirmasi dev ke test dan penanda was_dev.
+    """
     client = as_role(Role.AUTHOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
@@ -398,9 +403,10 @@ def test_admin_boleh_mengubah_tag_setelah_approved(as_role, buat_pengguna, db_se
     assert draf.status_code == 201
     response = client.put(f"/cases/{case_id}", json=_badan(split_tag="test"))
 
-    assert response.status_code == 200
-    assert response.json()["split_tag"] == "test"
-    assert response.json()["status"] == "draft"
+    # 409, bukan 403: biasanya tag baru saja diubah Admin di tab lain (review Roben
+    # di client #30). 403 membuat client pindah ke /forbidden dan suntingan hilang.
+    assert response.status_code == 409
+    assert response.json()["code"] == "SPLIT_TAG_LOCKED"
     assert client.get(f"/cases/{case_id}").json()["split_tag"] == "dev"
 
 

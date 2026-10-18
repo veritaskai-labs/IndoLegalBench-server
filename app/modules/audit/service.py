@@ -38,6 +38,9 @@ _FORMAT_ACTION = re.compile(r"^[a-z][a-z_]*\.[a-z][a-z_]*$")
 # D6a: event yang alasannya wajib diisi.
 _WAJIB_ALASAN = frozenset({"review.reviewer_replaced"})
 
+# PBI-6 AC3: event yang membawa verdict reviewer di kolom after.
+_AKSI_VERDICT = frozenset({"review.verdict_submitted", "review.approval_carried"})
+
 # AC7: masa simpan tetap 90 hari, bukan setelan. Trigger di migration
 # c5e7a1d93f40 memakai angka yang sama, dan tes PostgreSQL menjaga keduanya
 # tetap cocok. Mengubahnya berarti migration baru, bukan isi .env.
@@ -116,7 +119,7 @@ def search_logs(
         return Page[AuditLogRead](items=[], total=0, page=filters.page, size=filters.size)
     rows = repository.search(db, criteria, offset=filters.offset, limit=filters.size)
     return Page[AuditLogRead](
-        items=_tampilkan(db, rows),
+        items=_tampilkan(db, rows, viewer_id=viewer_id, viewer_role=viewer_role),
         total=repository.count(db, criteria),
         page=filters.page,
         size=filters.size,
@@ -135,7 +138,8 @@ def list_for_export(
             f"Hasil lebih dari {EXPORT_LIMIT} catatan. Persempit rentang waktu atau saringan.",
             code="AUDIT_EXPORT_TOO_LARGE",
         )
-    return _tampilkan(db, repository.search(db, criteria, offset=0, limit=EXPORT_LIMIT))
+    rows = repository.search(db, criteria, offset=0, limit=EXPORT_LIMIT)
+    return _tampilkan(db, rows, viewer_id=viewer_id, viewer_role=viewer_role)
 
 
 def get_log(db: Session, log_id: int, *, viewer_id: uuid.UUID, viewer_role: str) -> AuditLogRead:
@@ -146,7 +150,7 @@ def get_log(db: Session, log_id: int, *, viewer_id: uuid.UUID, viewer_role: str)
         raise NotFoundError("Catatan audit tidak ditemukan")
     if scope is not None and row.case_id not in scope:
         raise ForbiddenError("Catatan ini bukan milik kasus yang ditugaskan kepada Anda")
-    return _tampilkan(db, [row])[0]
+    return _tampilkan(db, [row], viewer_id=viewer_id, viewer_role=viewer_role)[0]
 
 
 def _criteria(
@@ -190,10 +194,24 @@ def _case_scope(
     raise ForbiddenError("Peran Anda tidak berwenang melihat catatan audit")
 
 
-def _tampilkan(db: Session, rows: list[AuditLog]) -> list[AuditLogRead]:
+def _verdict_tersembunyi(
+    db: Session, rows: list[AuditLog], *, viewer_id: uuid.UUID, viewer_role: str
+) -> frozenset[int]:
+    """Id catatan verdict yang isinya belum boleh dilihat viewer (PBI-6 AC3)."""
+    verdicts = [row for row in rows if row.action in _AKSI_VERDICT]
+    hidden = review_service.hidden_verdict_assignments(
+        db, {row.entity_id for row in verdicts}, viewer_id=viewer_id, viewer_role=Role(viewer_role)
+    )
+    return frozenset(row.id for row in verdicts if row.entity_id in hidden)
+
+
+def _tampilkan(
+    db: Session, rows: list[AuditLog], *, viewer_id: uuid.UUID, viewer_role: str
+) -> list[AuditLogRead]:
     names = auth_service.user_names(
         db, {row.actor_user_id for row in rows if row.actor_user_id is not None}
     )
+    hidden = _verdict_tersembunyi(db, rows, viewer_id=viewer_id, viewer_role=viewer_role)
     return [
         AuditLogRead(
             id=row.id,
@@ -206,7 +224,8 @@ def _tampilkan(db: Session, rows: list[AuditLog]) -> list[AuditLogRead]:
             entity_id=row.entity_id,
             case_id=row.case_id,
             before=row.before,
-            after=row.after,
+            # Baris tetap tampil; hanya isi verdict yang disamarkan.
+            after=None if row.id in hidden else row.after,
             reason=row.reason,
             request_id=row.request_id,
         )

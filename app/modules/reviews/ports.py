@@ -57,10 +57,27 @@ class Notifier(Protocol):
 
 
 class NoopNotifier:
-    """Pengganti sementara supaya submit bisa memanggil penugasan lebih dulu.
-
-    TODO(SCRUM-153): ganti dengan notification service.
-    """
+    """Notifier kosong untuk tes atau pemanggil yang sengaja menonaktifkan kirim."""
 
     def notify(self, user_ids: Sequence[uuid.UUID], type: str, payload: Mapping[str, str]) -> None:
         return None
+
+
+class DeferredNotifier:
+    """Menahan notify sampai pemanggil commit, lalu meneruskannya lewat send().
+
+    DbNotifier commit di sesinya sendiri. Kalau dipanggil sebelum transaksi
+    pemanggil commit lalu transaksi itu di-rollback, penerima tetap mendapat
+    notifikasi untuk penugasan yang tidak pernah ada.
+    """
+
+    def __init__(self) -> None:
+        self._tertahan: list[tuple[list[uuid.UUID], str, dict[str, str]]] = []
+
+    def notify(self, user_ids: Sequence[uuid.UUID], type: str, payload: Mapping[str, str]) -> None:
+        self._tertahan.append((list(user_ids), type, dict(payload)))
+
+    def send(self, notifier: Notifier) -> None:
+        tertahan, self._tertahan = self._tertahan, []
+        for user_ids, type, payload in tertahan:
+            notifier.notify(user_ids, type, payload)

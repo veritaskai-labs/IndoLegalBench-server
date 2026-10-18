@@ -14,6 +14,7 @@ from enum import StrEnum
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     DateTime,
     Enum,
     ForeignKey,
@@ -22,6 +23,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     Uuid,
+    false,
     func,
 )
 from sqlalchemy.dialects.postgresql import JSONB
@@ -91,6 +93,11 @@ class Case(Base):
             initially="DEFERRED",
         ),
         nullable=True,
+    )
+    # PBI-9 AC3: kasus ini pernah berada di dev set dan sudah terlihat
+    # developer AI. Diisi saat Admin memindahkan dev ke test, tidak pernah dihapus.
+    was_dev: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
     )
     created_by: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False

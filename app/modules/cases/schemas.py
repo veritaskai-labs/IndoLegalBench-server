@@ -238,6 +238,9 @@ class CaseRead(BaseModel):
     traps: list[Trap]
     split_tag: SplitTag
     status: CaseStatus
+    was_dev: bool = Field(
+        description="Kasus ini pernah berada di dev set (PBI-9 AC3); tidak pernah kembali false",
+    )
     completeness_pct: int = Field(ge=0, le=100)
     version: int
     created_at: datetime
@@ -363,3 +366,25 @@ class ReviewCopy(BaseModel):
     legal_refs: list[LegalRefRead]
     answer_criteria: dict[str, Any]
     traps: list[dict[str, Any]]
+
+
+class SplitTagChange(BaseModel):
+    """PATCH /cases/{id}/split-tag (PBI-9 AC3). Admin only, after approval."""
+
+    split_tag: SplitTag
+    confirm: bool = Field(
+        default=False,
+        description=(
+            "Wajib true untuk dev ke test. Tanpa itu jawabannya 409 "
+            "TAG_CHANGE_NEEDS_CONFIRMATION dengan requires_confirmation = true."
+        ),
+    )
+
+
+class TagConfirmationBody(BaseModel):
+    """409 TAG_CHANGE_NEEDS_CONFIRMATION: tampilkan peringatan lalu kirim ulang dengan confirm."""
+
+    code: str = Field(examples=["TAG_CHANGE_NEEDS_CONFIRMATION"])
+    message: str
+    # False sebagai bawaan: NO_APPROVED_VERSION memakai body 409 yang sama tanpa field ini.
+    requires_confirmation: bool = False

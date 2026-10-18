@@ -106,19 +106,23 @@ def get_version(db: Session, case_id: uuid.UUID, version_no: int) -> CaseVersion
     )
 
 
-def approved_for_suite(db: Session, suite_id: uuid.UUID) -> list[tuple[Case, CaseVersion]]:
+def approved_for_suite(
+    db: Session, suite_id: uuid.UUID, *, split_tag: SplitTag | None = None
+) -> list[tuple[Case, CaseVersion]]:
     """Cases in the suite that have an approved version, with that version.
 
     The version is latest_approved_version, not an open draft. Ordered by
-    case_code so a snapshot's items are stable.
+    case_code so a snapshot's items are stable. split_tag narrows the result
+    to the dev or the test set.
     """
-    return (
+    query = (
         db.query(Case, CaseVersion)
         .join(CaseVersion, CaseVersion.id == Case.latest_approved_version_id)
         .filter(Case.suite_id == suite_id, Case.latest_approved_version_id.is_not(None))
-        .order_by(Case.case_code.asc())
-        .all()
     )
+    if split_tag is not None:
+        query = query.filter(CaseVersion.split_tag == split_tag)
+    return query.order_by(Case.case_code.asc()).all()
 
 
 def get_version_by_id(db: Session, version_id: uuid.UUID) -> CaseVersion | None:
