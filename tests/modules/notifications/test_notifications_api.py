@@ -116,6 +116,48 @@ def test_unread_count(as_role, db_session, pengguna_di_db):
     assert response.json() == {"count": 2}
 
 
+def test_tandai_dibaca_idempotent(as_role, db_session, pengguna_di_db):
+    # Arrange
+    row = _buat(db_session)
+    client = as_role(Role.ADMIN)
+
+    # Act
+    pertama = client.post(f"/notifications/{row.id}/read")
+    kedua = client.post(f"/notifications/{row.id}/read")
+
+    # Assert
+    assert pertama.status_code == 200
+    assert pertama.json()["read_at"] is not None
+    assert kedua.status_code == 200
+    assert kedua.json()["id"] == str(row.id)
+    assert kedua.json()["read_at"] == pertama.json()["read_at"]
+
+
+def test_tandai_milik_orang_lain_403(as_role, db_session, pengguna_di_db):
+    # Arrange
+    row = _buat(db_session, user_id=USER_LAIN)
+    client = as_role(Role.AUTHOR)
+
+    # Act
+    response = client.post(f"/notifications/{row.id}/read")
+
+    # Assert
+    assert response.status_code == 403
+    assert response.json()["code"] == "NOTIFICATION_NOT_YOURS"
+
+
+def test_tandai_tidak_ada_404(as_role, pengguna_di_db):
+    # Arrange
+    client = as_role(Role.AUTHOR)
+
+    # Act
+    response = client.post(f"/notifications/{uuid.uuid4()}/read")
+
+    # Assert
+    assert response.status_code == 404
+    assert response.json()["code"] == "NOTIFICATION_NOT_FOUND"
+
+
 def test_tanpa_sesi_401(client, pengguna_di_db):
     # Arrange / Act / Assert
     assert client.get("/notifications").status_code == 401
