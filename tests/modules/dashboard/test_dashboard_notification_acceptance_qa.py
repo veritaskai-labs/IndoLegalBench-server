@@ -5,10 +5,10 @@ Berkas ini hanya menambah skenario SCRUM-157 yang belum tercakup dan menguji alu
 kerja nyata lewat HTTP:
 
 - AC1: angka dashboard sesuai data per peran (Admin, Author, Reviewer)
-- AC3: ditugaskan review -> reviewer menerima notifikasi lewat alur HTTP nyata
+- AC3: ditugaskan review -> reviewer menerima notifikasi dengan link review (/reviews/{assignment_id})
 - AC3: reviewer pengganti menerima notifikasi (xfail: service replace_reviewer masih default NoopNotifier)
-- AC7: kasus disetujui / dikembalikan revisi -> Author menerima notifikasi (alur blind review)
-- AC5: klik notifikasi -> terbaca (read_at terisi) dan membawa link halaman kasus
+- AC7: kasus disetujui / dikembalikan revisi -> Author menerima notifikasi ke editor (/cases/{case_id}/edit)
+- AC5: klik notifikasi -> terbaca (read_at terisi) dan membawa link review nyata
 - Edge: lebih dari 99 notifikasi belum dibaca -> unread count tetap akurat (FE: '99+')
 - Edge: pengguna baru tanpa tugas / notifikasi mendapat state kosong yang aman
 
@@ -164,14 +164,15 @@ def test_ac1_ringkasan_dashboard_dan_isolasi_per_peran_end_to_end(as_role, pengg
 
 
 def test_ac3_penugasan_reviewer_saat_submit_review_menghasilkan_notifikasi_http(
-    as_role, pengguna_qa, jadi
+    as_role, pengguna_qa, db_session, jadi
 ):
     # Arrange & Act: Author mengajukan kasus untuk review lewat alur HTTP sungguhan
     client = as_role(Role.AUTHOR, user_id=AUTHOR_1)
     suite_id = _suite(client)
     case_id = _ajukan_kasus(client, suite_id, case_code="AC3-REV-01")
+    tugas_map = _ambil_tugas_reviewer(db_session, case_id)
 
-    # Assert: Reviewer 1 menerima notifikasi penugasan lengkap dengan tautan kasus
+    # Assert: Reviewer 1 menerima notifikasi penugasan lengkap dengan tautan halaman review
     jadi(Role.REVIEWER, REVIEWER_1)
     res_r1 = client.get("/notifications")
     assert res_r1.status_code == 200
@@ -179,7 +180,7 @@ def test_ac3_penugasan_reviewer_saat_submit_review_menghasilkan_notifikasi_http(
     assert body_r1["total"] == 1
     notif_r1 = body_r1["items"][0]
     assert notif_r1["type"] == "review_assigned"
-    assert notif_r1["link"] == f"/cases/{case_id}"
+    assert notif_r1["link"] == f"/reviews/{tugas_map[REVIEWER_1].id}"
     assert notif_r1["read_at"] is None
     assert client.get("/notifications/unread-count").json() == {"count": 1}
 
@@ -189,6 +190,7 @@ def test_ac3_penugasan_reviewer_saat_submit_review_menghasilkan_notifikasi_http(
     assert res_r2.status_code == 200
     assert res_r2.json()["total"] == 1
     assert res_r2.json()["items"][0]["type"] == "review_assigned"
+    assert res_r2.json()["items"][0]["link"] == f"/reviews/{tugas_map[REVIEWER_2].id}"
 
 
 def test_ac3_penggantian_reviewer_menghasilkan_notifikasi_ke_reviewer_baru(
@@ -207,6 +209,7 @@ def test_ac3_penggantian_reviewer_menghasilkan_notifikasi_ke_reviewer_baru(
         json={"new_reviewer_id": str(REVIEWER_3), "reason": "Reviewer berhalangan hadir"},
     )
     assert res_replace.status_code == 200
+    new_assignment_id = res_replace.json()["id"]
 
     # Assert: Reviewer 3 menerima notifikasi penugasan baru (AC3)
     jadi(Role.REVIEWER, REVIEWER_3)
@@ -216,12 +219,12 @@ def test_ac3_penggantian_reviewer_menghasilkan_notifikasi_ke_reviewer_baru(
     if not (
         len(items) == 1
         and items[0]["type"] == "review_assigned"
-        and items[0]["link"] == f"/cases/{case_id}"
+        and items[0]["link"] == f"/reviews/{new_assignment_id}"
     ):
         pytest.xfail("SCRUM-147 _notify_replacement di service review masih default NoopNotifier")
     assert len(items) == 1
     assert items[0]["type"] == "review_assigned"
-    assert items[0]["link"] == f"/cases/{case_id}"
+    assert items[0]["link"] == f"/reviews/{new_assignment_id}"
 
 
 # ======================================================================================
@@ -269,7 +272,7 @@ def test_ac7_author_menerima_notifikasi_saat_kasus_disetujui_alur_blind_review(
     notif = items[0]
     assert notif["type"] == "review_decided"
     assert "disetujui" in notif["title"].lower()
-    assert notif["link"] == f"/cases/{case_id}"
+    assert notif["link"] == f"/cases/{case_id}/edit"
     assert notif["read_at"] is None
 
 
@@ -313,7 +316,7 @@ def test_ac7_author_menerima_notifikasi_saat_kasus_dikembalikan_revisi_alur_blin
     notif = items[0]
     assert notif["type"] == "review_decided"
     assert "revisi" in notif["title"].lower()
-    assert notif["link"] == f"/cases/{case_id}"
+    assert notif["link"] == f"/cases/{case_id}/edit"
 
 
 # ======================================================================================
@@ -322,12 +325,13 @@ def test_ac7_author_menerima_notifikasi_saat_kasus_dikembalikan_revisi_alur_blin
 
 
 def test_ac5_klik_notifikasi_menandai_terbaca_dan_membawa_link_kasus_nyata(
-    as_role, pengguna_qa, jadi
+    as_role, pengguna_qa, db_session, jadi
 ):
     # Arrange: Reviewer menerima notifikasi penugasan dari kasus nyata
     client = as_role(Role.AUTHOR, user_id=AUTHOR_1)
     suite_id = _suite(client)
     case_id = _ajukan_kasus(client, suite_id, case_code="LINK-01")
+    tugas_map = _ambil_tugas_reviewer(db_session, case_id)
 
     jadi(Role.REVIEWER, REVIEWER_1)
     notif_id = client.get("/notifications").json()["items"][0]["id"]
@@ -336,12 +340,12 @@ def test_ac5_klik_notifikasi_menandai_terbaca_dan_membawa_link_kasus_nyata(
     # Act: Pengguna menandai dibaca (merepresentasikan klik notifikasi di UI)
     res_read = client.post(f"/notifications/{notif_id}/read")
 
-    # Assert: Status terbaca dan link mengarahkan tepat ke halaman kasus terkait
+    # Assert: Status terbaca dan link mengarahkan tepat ke halaman penugasan review terkait
     assert res_read.status_code == 200
     body = res_read.json()
     assert body["id"] == notif_id
     assert body["read_at"] is not None
-    assert body["link"] == f"/cases/{case_id}"
+    assert body["link"] == f"/reviews/{tugas_map[REVIEWER_1].id}"
     assert client.get("/notifications/unread-count").json()["count"] == 0
 
 
