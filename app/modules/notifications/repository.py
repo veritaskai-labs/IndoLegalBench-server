@@ -40,3 +40,7 @@ def count_for_user(db: Session, user_id: uuid.UUID, *, unread_only: bool) -> int
     if unread_only:
         query = query.filter(Notification.read_at.is_(None))
     return query.count()
+
+
+def unread_count(db: Session, user_id: uuid.UUID) -> int:
+    return count_for_user(db, user_id, unread_only=True)

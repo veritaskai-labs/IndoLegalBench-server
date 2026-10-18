@@ -6,7 +6,7 @@ from fastapi import APIRouter, Depends, Query
 from sqlalchemy.orm import Session
 
 from app.modules.notifications import service
-from app.modules.notifications.schemas import NotificationRead
+from app.modules.notifications.schemas import NotificationRead, UnreadCount
 from app.shared.database import get_db
 from app.shared.pagination import Page
 from app.shared.security import CurrentUser, get_current_user
@@ -36,3 +36,15 @@ def list_notifications(
     user: CurrentUser = Depends(get_current_user),
 ) -> Page[NotificationRead]:
     return service.list_notifications(db, _user_id(user), unread=unread, page=page, size=size)
+
+
+@router.get(
+    "/unread-count",
+    response_model=UnreadCount,
+    summary="Jumlah notifikasi belum dibaca",
+)
+def unread_count(
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> UnreadCount:
+    return service.get_unread_count(db, _user_id(user))

@@ -15,7 +15,7 @@ from sqlalchemy.orm import Session, sessionmaker
 
 from app.modules.notifications import repository
 from app.modules.notifications.models import Notification
-from app.modules.notifications.schemas import NotificationRead
+from app.modules.notifications.schemas import NotificationRead, UnreadCount
 from app.shared.database import get_session_factory
 from app.shared.pagination import Page
 
@@ -44,6 +44,10 @@ def list_notifications(
         page=page,
         size=size,
     )
+
+
+def get_unread_count(db: Session, user_id: uuid.UUID) -> UnreadCount:
+    return UnreadCount(count=repository.unread_count(db, user_id))
 
 
 class DbNotifier:
