@@ -2,9 +2,10 @@
 
 import uuid
 
-from fastapi import APIRouter, Depends, Query
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
+from app.modules.auth.schemas import ErrorBody
 from app.modules.notifications import service
 from app.modules.notifications.schemas import NotificationRead, UnreadCount
 from app.shared.database import get_db
@@ -12,6 +13,17 @@ from app.shared.pagination import Page
 from app.shared.security import CurrentUser, get_current_user
 
 router = APIRouter(prefix="/notifications", tags=["notifications"])
+
+_TOLAK = {
+    403: {
+        "model": ErrorBody,
+        "description": "Notifikasi milik pengguna lain (`NOTIFICATION_NOT_YOURS`)",
+    },
+    404: {
+        "model": ErrorBody,
+        "description": "Notifikasi tidak ditemukan (`NOTIFICATION_NOT_FOUND`)",
+    },
+}
 
 
 def _user_id(user: CurrentUser) -> uuid.UUID:
@@ -48,3 +60,18 @@ def unread_count(
     user: CurrentUser = Depends(get_current_user),
 ) -> UnreadCount:
     return service.get_unread_count(db, _user_id(user))
+
+
+@router.post(
+    "/{notification_id}/read",
+    response_model=NotificationRead,
+    status_code=status.HTTP_200_OK,
+    summary="Tandai satu notifikasi sebagai dibaca",
+    responses=_TOLAK,
+)
+def read_one(
+    notification_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> NotificationRead:
+    return service.mark_notification_read(db, _user_id(user), notification_id)

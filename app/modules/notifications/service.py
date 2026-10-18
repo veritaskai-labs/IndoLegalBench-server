@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import uuid
 from collections.abc import Callable, Mapping, Sequence
+from datetime import UTC, datetime
 
 from sqlalchemy.orm import Session, sessionmaker
 
@@ -17,11 +18,15 @@ from app.modules.notifications import repository
 from app.modules.notifications.models import Notification
 from app.modules.notifications.schemas import NotificationRead, UnreadCount
 from app.shared.database import get_session_factory
+from app.shared.exceptions import ForbiddenError, NotFoundError
 from app.shared.pagination import Page
 
 logger = logging.getLogger(__name__)
 
 SessionFactory = Callable[[], Session]
+
+NOT_YOURS = "NOTIFICATION_NOT_YOURS"
+NOT_FOUND = "NOTIFICATION_NOT_FOUND"
 
 
 def list_notifications(
@@ -48,6 +53,24 @@ def list_notifications(
 
 def get_unread_count(db: Session, user_id: uuid.UUID) -> UnreadCount:
     return UnreadCount(count=repository.unread_count(db, user_id))
+
+
+def mark_notification_read(
+    db: Session, user_id: uuid.UUID, notification_id: uuid.UUID
+) -> NotificationRead:
+    """Tandai satu notifikasi dibaca. Sudah dibaca → 200 idempotent.
+
+    Notifikasi milik user lain → 403. Tidak ada → 404.
+    """
+    row = repository.get_by_id(db, notification_id)
+    if row is None:
+        raise NotFoundError("Notifikasi tidak ditemukan", code=NOT_FOUND)
+    if row.user_id != user_id:
+        raise ForbiddenError("Notifikasi ini milik pengguna lain", code=NOT_YOURS)
+    repository.mark_read(db, row, when=datetime.now(UTC))
+    db.commit()
+    db.refresh(row)
+    return NotificationRead.model_validate(row)
 
 
 class DbNotifier:

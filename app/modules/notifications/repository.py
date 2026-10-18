@@ -4,6 +4,7 @@ ATURAN: hanya notifications/service.py yang boleh memanggil file ini.
 """
 
 import uuid
+from datetime import datetime
 
 from sqlalchemy.orm import Session
 
@@ -44,3 +45,14 @@ def count_for_user(db: Session, user_id: uuid.UUID, *, unread_only: bool) -> int
 
 def unread_count(db: Session, user_id: uuid.UUID) -> int:
     return count_for_user(db, user_id, unread_only=True)
+
+
+def get_by_id(db: Session, notification_id: uuid.UUID) -> Notification | None:
+    return db.get(Notification, notification_id)
+
+
+def mark_read(db: Session, row: Notification, *, when: datetime) -> Notification:
+    if row.read_at is None:
+        row.read_at = when
+        db.flush()
+    return row
