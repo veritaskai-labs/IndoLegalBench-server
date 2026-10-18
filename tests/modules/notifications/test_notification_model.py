@@ -45,7 +45,8 @@ def test_notification_bisa_disimpan_dengan_kolom_wajib(db_session):
     assert row.body.startswith("Anda ditugaskan")
     assert row.link.startswith("/cases/")
     assert row.read_at is None
-    assert row.created_at == sekarang
+    # SQLite drops tzinfo on DateTime(timezone=True); compare as UTC.
+    assert row.created_at.replace(tzinfo=UTC) == sekarang
 
 
 def test_tabel_notifications_punya_indeks_list_dan_unread():
