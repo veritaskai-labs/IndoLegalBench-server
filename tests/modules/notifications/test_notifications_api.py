@@ -100,6 +100,22 @@ def test_daftar_dan_filter_unread(as_role, db_session, pengguna_di_db):
     assert belum["items"][0]["read_at"] is None
 
 
+def test_unread_count(as_role, db_session, pengguna_di_db):
+    # Arrange
+    _buat(db_session)
+    _buat(db_session, title="Kedua")
+    _buat(db_session, title="Sudah", read_at=AWAL)
+    _buat(db_session, user_id=USER_LAIN)
+    client = as_role(Role.REVIEWER)
+
+    # Act
+    response = client.get("/notifications/unread-count")
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json() == {"count": 2}
+
+
 def test_tanpa_sesi_401(client, pengguna_di_db):
     # Arrange / Act / Assert
     assert client.get("/notifications").status_code == 401
