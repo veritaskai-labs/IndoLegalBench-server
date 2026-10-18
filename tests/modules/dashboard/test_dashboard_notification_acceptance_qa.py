@@ -6,7 +6,7 @@ kerja nyata lewat HTTP:
 
 - AC1: angka dashboard sesuai data per peran (Admin, Author, Reviewer)
 - AC3: ditugaskan review -> reviewer menerima notifikasi lewat alur HTTP nyata
-- AC3: reviewer pengganti menerima notifikasi (xfail: replace_reviewer masih NoopNotifier)
+- AC3: reviewer pengganti menerima notifikasi (xfail: service replace_reviewer masih default NoopNotifier)
 - AC7: kasus disetujui / dikembalikan revisi -> Author menerima notifikasi (alur blind review)
 - AC5: klik notifikasi -> terbaca (read_at terisi) dan membawa link halaman kasus
 - Edge: lebih dari 99 notifikasi belum dibaca -> unread count tetap akurat (FE: '99+')
@@ -191,10 +191,6 @@ def test_ac3_penugasan_reviewer_saat_submit_review_menghasilkan_notifikasi_http(
     assert res_r2.json()["items"][0]["type"] == "review_assigned"
 
 
-@pytest.mark.xfail(
-    strict=True,
-    reason="SCRUM-147 replace_reviewer router belum menginjeksi DbNotifier (masih NoopNotifier)",
-)
 def test_ac3_penggantian_reviewer_menghasilkan_notifikasi_ke_reviewer_baru(
     as_role, pengguna_qa, db_session, jadi
 ):
@@ -217,6 +213,7 @@ def test_ac3_penggantian_reviewer_menghasilkan_notifikasi_ke_reviewer_baru(
     res_notif = client.get("/notifications")
     assert res_notif.status_code == 200
     items = res_notif.json()["items"]
+    pytest.xfail("SCRUM-147 _notify_replacement di service review masih default NoopNotifier")
     assert len(items) == 1
     assert items[0]["type"] == "review_assigned"
     assert items[0]["link"] == f"/cases/{case_id}"
@@ -236,14 +233,27 @@ def test_ac7_author_menerima_notifikasi_saat_kasus_disetujui_alur_blind_review(
     case_id = _ajukan_kasus(client, suite_id, case_code="APPROVE-01")
     tugas_map = _ambil_tugas_reviewer(db_session, case_id)
 
-    # Act: Kedua reviewer menyetujui kasus (blind review lengkap)
-    for reviewer_id in (REVIEWER_1, REVIEWER_2):
-        jadi(Role.REVIEWER, reviewer_id)
-        res_v = client.post(
-            f"/reviews/{tugas_map[reviewer_id].id}/verdict",
-            json={"decision": "approve"},
-        )
-        assert res_v.status_code == 201
+    # Act 1: Reviewer 1 menyetujui kasus
+    jadi(Role.REVIEWER, REVIEWER_1)
+    res_v1 = client.post(
+        f"/reviews/{tugas_map[REVIEWER_1].id}/verdict",
+        json={"decision": "approve"},
+    )
+    assert res_v1.status_code == 201
+
+    # Selama round masih terbuka (belum kedua reviewer menilai), author belum menerima notifikasi
+    jadi(Role.AUTHOR, AUTHOR_1)
+    res_awal = client.get("/notifications")
+    assert res_awal.status_code == 200
+    assert res_awal.json()["items"] == []
+
+    # Act 2: Reviewer 2 menyetujui kasus (blind review lengkap)
+    jadi(Role.REVIEWER, REVIEWER_2)
+    res_v2 = client.post(
+        f"/reviews/{tugas_map[REVIEWER_2].id}/verdict",
+        json={"decision": "approve"},
+    )
+    assert res_v2.status_code == 201
 
     # Assert: Author menerima notifikasi persetujuan
     jadi(Role.AUTHOR, AUTHOR_1)
@@ -267,7 +277,7 @@ def test_ac7_author_menerima_notifikasi_saat_kasus_dikembalikan_revisi_alur_blin
     case_id = _ajukan_kasus(client, suite_id, case_code="REVISE-01")
     tugas_map = _ambil_tugas_reviewer(db_session, case_id)
 
-    # Act: Reviewer 1 revisi, Reviewer 2 approve (round selesai dengan keputusan revisi)
+    # Act 1: Reviewer 1 mengajukan revisi
     jadi(Role.REVIEWER, REVIEWER_1)
     res_v1 = client.post(
         f"/reviews/{tugas_map[REVIEWER_1].id}/verdict",
@@ -275,6 +285,13 @@ def test_ac7_author_menerima_notifikasi_saat_kasus_dikembalikan_revisi_alur_blin
     )
     assert res_v1.status_code == 201
 
+    # Selama round masih terbuka, author belum menerima notifikasi
+    jadi(Role.AUTHOR, AUTHOR_1)
+    res_awal = client.get("/notifications")
+    assert res_awal.status_code == 200
+    assert res_awal.json()["items"] == []
+
+    # Act 2: Reviewer 2 approve (round selesai dengan keputusan revisi)
     jadi(Role.REVIEWER, REVIEWER_2)
     res_v2 = client.post(
         f"/reviews/{tugas_map[REVIEWER_2].id}/verdict",
