@@ -50,7 +50,6 @@ def test_pengajuan_pertama_membuka_round_satu_lalu_menugaskan(repo, assign):
     assign.assert_called_once_with(
         db,
         round_id=ronde.id,
-        case_id=KASUS,
         author_id=PENULIS,
         store=None,
         notifier=None,

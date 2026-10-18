@@ -41,6 +41,9 @@ def reviewers(db_session):
 
 
 class _Store:
+    def __init__(self):
+        self.ids: dict[uuid.UUID, uuid.UUID] = {}
+
     def open_queue(self, reviewer_ids):
         return {
             reviewer_id: ReviewerLoad(open_count=0, last_assigned_at=None, total_count=0)
@@ -48,7 +51,8 @@ class _Store:
         }
 
     def save_assignments(self, round_id, reviewer_ids):
-        return None
+        self.ids = {reviewer_id: uuid.uuid4() for reviewer_id in reviewer_ids}
+        return self.ids
 
     def mark_needs_assignment(self, round_id):
         return None
@@ -61,13 +65,14 @@ def test_assign_default_db_notifier_menulis_baris(db_session, reviewers, monkeyp
         lambda: _factory(db_session),
     )
 
+    store = _Store()
+
     # Act
     terpilih = service.assign_on_submit(
         db_session,
         round_id=uuid.uuid4(),
-        case_id=CASE_ID,
         author_id=AUTHOR,
-        store=_Store(),
+        store=store,
     )
 
     # Assert
@@ -77,7 +82,9 @@ def test_assign_default_db_notifier_menulis_baris(db_session, reviewers, monkeyp
     assert len(baris) == 2
     assert {row.user_id for row in baris} == {R1, R2}
     assert all(row.type == "review_assigned" for row in baris)
-    assert all(row.link == f"/cases/{CASE_ID}" for row in baris)
+    assert {row.user_id: row.link for row in baris} == {
+        reviewer_id: f"/reviews/{assignment_id}" for reviewer_id, assignment_id in store.ids.items()
+    }
 
 
 def test_submit_verdict_default_db_notifier_menulis_ke_author(db_session, reviewers, monkeypatch):
@@ -163,6 +170,8 @@ def test_resume_default_db_notifier_memberitahu_perevisi(db_session, reviewers, 
         ),
     )
 
+    dibuat: dict[uuid.UUID, SimpleNamespace] = {}
+
     # Act
     with patch.object(service, "repository") as repo:
         repo.latest_round.return_value = sebelumnya
@@ -172,8 +181,8 @@ def test_resume_default_db_notifier_memberitahu_perevisi(db_session, reviewers, 
         repo.add_verdict.return_value = None
 
         with patch.object(service, "_tugaskan") as tugaskan:
-            tugaskan.side_effect = lambda db, ronde, reviewer_id: SimpleNamespace(
-                id=uuid.uuid4(), reviewer_id=reviewer_id
+            tugaskan.side_effect = lambda db, ronde, reviewer_id: dibuat.setdefault(
+                reviewer_id, SimpleNamespace(id=uuid.uuid4(), reviewer_id=reviewer_id)
             )
             with patch.object(service, "_bawa_approve"):
                 service.resume_after_revision(
@@ -188,4 +197,4 @@ def test_resume_default_db_notifier_memberitahu_perevisi(db_session, reviewers, 
     assert len(baris) == 1
     assert baris[0].user_id == R2
     assert baris[0].type == "review_assigned"
-    assert baris[0].link == f"/cases/{CASE_ID}"
+    assert baris[0].link == f"/reviews/{dibuat[R2].id}"

@@ -399,6 +399,23 @@ def test_satu_revise_mengembalikan_kasus_dengan_komentar(kasus, jadi, db_session
     assert client.get("/reviews/assigned").json() == []
 
 
+@pytest.mark.parametrize("reviewer", [REVIEWER_A, REVIEWER_B], ids=["reviewer-a", "reviewer-b"])
+def test_notifikasi_tugas_membuka_penugasan_milik_reviewer_itu(
+    notifikasi_tersimpan, kasus, jadi, reviewer
+):
+    # Arrange
+    client, _, tugas = kasus
+    jadi(Role.REVIEWER, reviewer)
+
+    # Act
+    response = client.get("/notifications")
+
+    # Assert
+    [notifikasi] = response.json()["items"]
+    assert notifikasi["type"] == "review_assigned"
+    assert notifikasi["link"] == f"/reviews/{tugas[reviewer]}"
+
+
 def test_penulis_mendapat_notifikasi_revisi_beserta_komentar(kasus, jadi, notifikasi_tersimpan):
     # Arrange
     client, case_id, tugas = kasus
@@ -417,7 +434,7 @@ def test_penulis_mendapat_notifikasi_revisi_beserta_komentar(kasus, jadi, notifi
     assert notifikasi["type"] == "review_decided"
     assert notifikasi["title"] == "PHK-001 perlu revisi"
     assert notifikasi["body"] == KOMENTAR_REVISI
-    assert notifikasi["link"] == f"/cases/{case_id}"
+    assert notifikasi["link"] == f"/cases/{case_id}/edit"
     assert notifikasi["read_at"] is None
 
 

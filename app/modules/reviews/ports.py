@@ -39,8 +39,10 @@ class AssignmentStore(Protocol):
         """
         ...
 
-    def save_assignments(self, round_id: uuid.UUID, reviewer_ids: Sequence[uuid.UUID]) -> None:
-        """Simpan penugasan active untuk round ini, tanpa commit."""
+    def save_assignments(
+        self, round_id: uuid.UUID, reviewer_ids: Sequence[uuid.UUID]
+    ) -> Mapping[uuid.UUID, uuid.UUID]:
+        """Simpan penugasan active untuk round ini, tanpa commit; reviewer_id -> assignment_id."""
         ...
 
     def mark_needs_assignment(self, round_id: uuid.UUID) -> None:

@@ -221,7 +221,7 @@ def test_penulis_diberi_tahu_setelah_commit_beserta_komentar(dep):
     assert "perlu revisi" in payload["title"]
     assert "Pasal salah" in payload["body"]
     assert "Jebakan kurang jelas" in payload["body"]
-    assert payload["link"] == f"/cases/{KASUS}"
+    assert payload["link"] == f"/cases/{KASUS}/edit"
 
 
 def test_penulis_diberi_tahu_saat_disetujui(dep):

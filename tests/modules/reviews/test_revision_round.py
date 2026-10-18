@@ -198,6 +198,7 @@ def test_pengajuan_ulang_membawa_approve_dan_hanya_menugaskan_perevisi(db_sessio
     assert notify.call_count == 1
     diberitahu = next(arg for arg in notify.call_args.args if isinstance(arg, list))
     assert diberitahu == [perevisi]
+    assert notify.call_args.args[2]["link"] == f"/reviews/{tanpa_verdict[0].id}"
     pengajuan = [
         baris
         for baris in db_session.query(AuditLog).filter_by(action="case.submitted")
@@ -260,9 +261,9 @@ def test_dua_perevisi_keduanya_ditugaskan_lagi_tanpa_approval_dibawa(db_session)
         .count()
         == 0
     )
-    assert notify.call_count == 1
-    diberitahu = next(arg for arg in notify.call_args.args if isinstance(arg, list))
-    assert set(diberitahu) == {pertama, kedua}
+    assert notify.call_count == 2
+    diberitahu = [panggilan.args[0] for panggilan in notify.call_args_list]
+    assert sorted(diberitahu) == sorted([[pertama], [kedua]])
     assert db_session.query(ReviewVerdict).filter_by(comment="Jelaskan unsur pertama.").one()
     assert db_session.query(ReviewVerdict).filter_by(comment="Jelaskan unsur kedua.").one()
 

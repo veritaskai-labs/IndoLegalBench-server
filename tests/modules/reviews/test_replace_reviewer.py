@@ -164,7 +164,29 @@ def test_replace_reviewer_service_berhasil(db_session, case_data):
     user_ids, jenis, payload = notifier.panggilan[0]
     assert user_ids == [REVIEWER_3]
     assert jenis == "review_assigned"
-    assert payload["link"] == f"/cases/{case_data['case'].id}"
+    assert payload["link"] == f"/reviews/{new_tugas.id}"
+
+
+def test_replace_reviewer_tidak_memberi_tahu_bila_commit_gagal(db_session, case_data, monkeypatch):
+    """Notifikasi baru dikirim setelah commit, jadi tidak ada link ke assignment yang batal."""
+    notifier = FakeNotifier()
+
+    def commit_gagal():
+        raise RuntimeError("commit gagal")
+
+    monkeypatch.setattr(db_session, "commit", commit_gagal)
+
+    with pytest.raises(RuntimeError):
+        service.replace_reviewer(
+            db_session,
+            assignment_id=case_data["tugas1"].id,
+            new_reviewer_id=REVIEWER_3,
+            reason="Reviewer berhalangan hadir",
+            admin_id=ADMIN_ID,
+            notifier=notifier,
+        )
+
+    assert notifier.panggilan == []
 
 
 def test_replace_reviewer_service_mengganti_assignment_void(db_session, case_data):
