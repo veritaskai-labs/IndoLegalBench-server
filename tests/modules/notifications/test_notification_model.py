@@ -77,6 +77,7 @@ def test_migrasi_notifications_mengikuti_head_saat_ini():
     # Act / Assert
     assert len(files) == 1
     teks = files[0].read_text()
-    assert 'down_revision: str | Sequence[str] | None = "b7e2d4f81c36"' in teks
+    revisi_sebelumnya = "b7e2d4f81c36"  # pragma: allowlist secret
+    assert f'down_revision: str | Sequence[str] | None = "{revisi_sebelumnya}"' in teks
     assert "notifications" in teks
     assert "fk_notifications_user_id" in teks
