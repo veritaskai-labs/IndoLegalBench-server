@@ -118,6 +118,25 @@ def test_rujukan_salah_tetap_200_dengan_error_per_item(as_role):
 # --- sama dengan simpan ------------------------------------------------------
 
 
+@pytest.mark.parametrize("kind", ["free_text", "structured"])
+@pytest.mark.parametrize("posisi", [0, 1])
+def test_links_hilang_memakai_pesan_netral_di_simpan_dan_pratinjau(as_role, kind, posisi):
+    """Tanpa konteks kind, pesan schema tidak boleh menyebut bentuk terstruktur."""
+    client = as_role(Role.AUTHOR)
+    rujukan = [rujukan_ktk_001()] * posisi + [{"kind": kind, "free_text": "Format teks bebas"}]
+
+    simpan = _buat(client, _suite(client), legal_refs=rujukan)
+    items = _items(_pratinjau(client, *rujukan))
+
+    assert simpan.status_code == 422
+    assert simpan.json() == {
+        "code": "FIELD_REQUIRED",
+        "field": f"legal_refs[{posisi}].links",
+        "message": "Peraturan wajib diisi.",
+    }
+    assert items[posisi] == {"display_text": None, "error": simpan.json()}
+
+
 @pytest.mark.parametrize(
     "rusak",
     [

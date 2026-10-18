@@ -13,6 +13,7 @@ from typing import Any
 
 import pytest
 
+from app.modules.cases.legal_ref_messages import required
 from app.modules.cases.validation import (
     FIELD_NOT_ALLOWED,
     FIELD_REQUIRED,
@@ -82,6 +83,11 @@ def test_rujukan_terstruktur_tanpa_peraturan():
         "legal_refs[0].links",
         "Rujukan terstruktur butuh minimal satu peraturan.",
     )
+
+
+@pytest.mark.parametrize("rujukan", [None, {"kind": "free_text"}])
+def test_pesan_links_tanpa_konteks_terstruktur_tetap_netral(rujukan):
+    assert required("legal_refs[0].links", rujukan) == "Peraturan wajib diisi."
 
 
 def test_rujukan_bukan_objek_menyebut_nomor_rujukan():
