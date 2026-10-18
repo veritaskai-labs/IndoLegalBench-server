@@ -226,7 +226,7 @@ def resume_after_revision(
     Perevisi yang sudah bukan reviewer aktif tidak diganti; round-nya
     menunggu penugasan Admin.
     """
-    pemberitahu = notifier if notifier is not None else NoopNotifier()
+    pemberitahu = notifier if notifier is not None else DbNotifier()
     sebelumnya = repository.latest_round(db, case_version_id)
     if (
         sebelumnya is None
@@ -375,7 +375,9 @@ def submit_verdict(
     db.commit()
 
     if keputusan is not None:
-        _notify_author(notifier or NoopNotifier(), salinan, keputusan, tugas_round)
+        _notify_author(
+            notifier if notifier is not None else DbNotifier(), salinan, keputusan, tugas_round
+        )
     return VerdictResult(
         assignment_id=tugas.id,
         decision=verdict.decision,

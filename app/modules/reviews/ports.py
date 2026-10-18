@@ -57,10 +57,7 @@ class Notifier(Protocol):
 
 
 class NoopNotifier:
-    """Pengganti sementara supaya submit bisa memanggil penugasan lebih dulu.
-
-    TODO(SCRUM-153): ganti dengan notification service.
-    """
+    """Notifier kosong untuk tes atau pemanggil yang sengaja menonaktifkan kirim."""
 
     def notify(self, user_ids: Sequence[uuid.UUID], type: str, payload: Mapping[str, str]) -> None:
         return None
