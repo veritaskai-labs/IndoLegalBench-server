@@ -536,6 +536,15 @@ def get_case_review(db: Session, case_id: uuid.UUID, viewer: Viewer) -> CaseRevi
     ronde = repository.latest_round_for_case(db, case_id)
     if ronde is None:
         raise NotFoundError("Kasus ini belum pernah diajukan untuk direview", code=NO_REVIEW_ROUND)
+    return _case_review(db, ronde, viewer)
+
+
+def _case_review(db: Session, ronde: ReviewRound, viewer: Viewer) -> CaseReview:
+    """Satu round dengan reviewer aktifnya; verdict disaring aturan blind (AC3, AC7).
+
+    Hanya assignment aktif yang ditampilkan: verdict dari reviewer yang
+    sudah diganti tidak dihitung, jadi juga tidak ditampilkan.
+    """
     aktif = [
         tugas
         for tugas in repository.assignments_in_round(db, ronde.id)
@@ -572,51 +581,16 @@ def list_in_review(db: Session, viewer: Viewer) -> list[InReviewCase]:
     """Kasus yang round-nya belum diputuskan, untuk tab "Dalam review" Admin (AC3, F-02)."""
     rounds = repository.undecided_rounds(db)
     copies = _cases().review_copies(db, {ronde.case_version_id for ronde in rounds})
-    result: list[InReviewCase] = []
-    for ronde in rounds:
-        copy = copies[ronde.case_version_id]
-        aktif = [
-            tugas
-            for tugas in repository.assignments_in_round(db, ronde.id)
-            if tugas.status == AssignmentStatus.ACTIVE
-        ]
-        names = auth_service.user_names(db, {tugas.reviewer_id for tugas in aktif})
-        review = CaseReview(
+    return [
+        InReviewCase(
             case_id=ronde.case_id,
-            case_version_id=ronde.case_version_id,
-            round_no=ronde.round_no,
-            status=ronde.status,
-            decision=ronde.decision,
-            opened_at=ronde.opened_at,
-            decided_at=ronde.decided_at,
-            reviewers=[
-                ReviewerSlot(
-                    assignment_id=tugas.id,
-                    reviewer=ReviewerRead(
-                        id=tugas.reviewer_id, name=names.get(tugas.reviewer_id, "")
-                    ),
-                    status=tugas.status,
-                    verdict=(
-                        _view(tugas.verdict)
-                        if can_see_verdict(
-                            viewer, owner_id=tugas.reviewer_id, round_status=ronde.status
-                        )
-                        else None
-                    ),
-                )
-                for tugas in aktif
-            ],
+            case_code=copies[ronde.case_version_id].case_code,
+            title=copies[ronde.case_version_id].identity.title,
+            version_no=copies[ronde.case_version_id].version_no,
+            review=_case_review(db, ronde, viewer),
         )
-        result.append(
-            InReviewCase(
-                case_id=ronde.case_id,
-                case_code=copy.case_code,
-                title=copy.identity.title,
-                version_no=copy.version_no,
-                review=review,
-            )
-        )
-    return result
+        for ronde in rounds
+    ]
 
 
 def _view(verdict: ReviewVerdict | None) -> VerdictView | None:
