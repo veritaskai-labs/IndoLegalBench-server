@@ -106,6 +106,21 @@ class CaseReview(BaseModel):
     reviewers: list[ReviewerSlot]
 
 
+class InReviewCase(BaseModel):
+    """GET /reviews/in-review: satu kasus yang round terakhirnya belum diputuskan (AC3).
+
+    Termasuk versi baru dari kasus yang sudah disetujui; status kasusnya tetap
+    approved selama versi itu direview (temuan Pra-UAT F-02). version_no di atas 1
+    berarti ada versi lama yang disetujui dan masih berlaku.
+    """
+
+    case_id: uuid.UUID
+    case_code: str
+    title: str
+    version_no: int
+    review: CaseReview
+
+
 class ReplaceReviewerRequest(BaseModel):
     """Payload untuk POST /reviews/{assignment_id}/replace."""
 

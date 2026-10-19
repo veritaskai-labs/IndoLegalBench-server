@@ -210,6 +210,21 @@ def count_cases_needing_reassignment(db: Session) -> int:
     )
 
 
+def undecided_rounds(db: Session) -> list[ReviewRound]:
+    """Round yang belum diputuskan, terlama dibuka lebih dulu (AC3, F-02).
+
+    Round seperti ini selalu milik versi in_review, termasuk versi baru dari
+    kasus yang statusnya tetap approved.
+    """
+    return list(
+        db.scalars(
+            select(ReviewRound)
+            .where(ReviewRound.status != RoundStatus.DECIDED)
+            .order_by(ReviewRound.opened_at.asc(), ReviewRound.round_no.asc())
+        ).all()
+    )
+
+
 def latest_round_for_case(db: Session, case_id: uuid.UUID) -> ReviewRound | None:
     """Round yang paling baru dibuka untuk kasus ini, lintas versi."""
     return db.scalars(

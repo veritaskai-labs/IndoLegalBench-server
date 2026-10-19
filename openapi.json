@@ -2291,6 +2291,52 @@
         }
       }
     },
+    "/reviews/in-review": {
+      "get": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Kasus yang round-nya belum diputuskan, untuk pemantauan Admin (AC3)",
+        "description": "Every case whose latest round is open or awaiting assignment, oldest first.\n\nIncludes a new version of an approved case, which keeps the status approved\nwhile that version is in review (Pre-UAT finding F-02).",
+        "operationId": "list_in_review_reviews_in_review_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/InReviewCase"
+                  },
+                  "type": "array",
+                  "title": "Response List In Review Reviews In Review Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Tidak ada sesi aktif.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya admin yang boleh membuka daftar ini.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/reviews/{assignment_id}/replace": {
       "post": {
         "tags": [
@@ -4480,6 +4526,40 @@
           "database"
         ],
         "title": "HealthResponse"
+      },
+      "InReviewCase": {
+        "properties": {
+          "case_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Case Id"
+          },
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "version_no": {
+            "type": "integer",
+            "title": "Version No"
+          },
+          "review": {
+            "$ref": "#/components/schemas/CaseReview"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_id",
+          "case_code",
+          "title",
+          "version_no",
+          "review"
+        ],
+        "title": "InReviewCase",
+        "description": "GET /reviews/in-review: satu kasus yang round terakhirnya belum diputuskan (AC3).\n\nTermasuk versi baru dari kasus yang sudah disetujui; status kasusnya tetap\napproved selama versi itu direview (temuan Pra-UAT F-02). version_no di atas 1\nberarti ada versi lama yang disetujui dan masih berlaku."
       },
       "LastTestStatus": {
         "type": "string",
