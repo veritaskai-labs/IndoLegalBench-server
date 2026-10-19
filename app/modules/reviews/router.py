@@ -14,6 +14,7 @@ from app.modules.reviews import service
 from app.modules.reviews.schemas import (
     AssignedReview,
     CaseReview,
+    InReviewCase,
     NeedsReassignmentResponse,
     ReplaceReviewerRequest,
     ReplaceReviewerResponse,
@@ -69,6 +70,27 @@ def get_needs_reassignment(
     Kasus yang reviewer-nya dinonaktifkan (void) otomatis muncul di antrean ini (AC8).
     """
     return service.get_needs_reassignment(db)
+
+
+@router.get(
+    "/reviews/in-review",
+    response_model=list[InReviewCase],
+    summary="Kasus yang round-nya belum diputuskan, untuk pemantauan Admin (AC3)",
+    responses={
+        401: {"model": ErrorBody, "description": "Tidak ada sesi aktif."},
+        403: {"model": ErrorBody, "description": "Hanya admin yang boleh membuka daftar ini."},
+    },
+)
+def list_in_review(
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(_can_manage),
+) -> list[InReviewCase]:
+    """Every case whose latest round is open or awaiting assignment, oldest first.
+
+    Includes a new version of an approved case, which keeps the status approved
+    while that version is in review (Pre-UAT finding F-02).
+    """
+    return service.list_in_review(db, Viewer(_user_id(user), Role(user.role)))
 
 
 @router.post(

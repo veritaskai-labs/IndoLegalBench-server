@@ -729,8 +729,11 @@ def test_kasus_yang_rondenya_sudah_diputuskan_tidak_tampil(kasus, jadi, keputusa
     if keputusan == "approve":
         _setujui_berdua(client, jadi, tugas)
     else:
+        # Round baru diputuskan setelah kedua reviewer menilai.
         jadi(Role.REVIEWER, REVIEWER_A)
-        assert _nilai(client, tugas[REVIEWER_A], "revise", KOMENTAR_REVISI).status_code == 201
+        assert _nilai(client, tugas[REVIEWER_A]).status_code == 201
+        jadi(Role.REVIEWER, REVIEWER_B)
+        assert _nilai(client, tugas[REVIEWER_B], "revise", KOMENTAR_REVISI).status_code == 201
     jadi(Role.ADMIN, ADMIN)
 
     # Act + Assert
