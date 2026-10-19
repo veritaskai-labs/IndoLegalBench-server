@@ -36,7 +36,7 @@ from app.modules.reviews.models import (
     RoundStatus,
     VerdictDecision,
 )
-from app.modules.reviews.ports import AssignmentStore, NoopNotifier, Notifier, ReviewerLoad
+from app.modules.reviews.ports import AssignmentStore, Notifier, ReviewerLoad
 from app.modules.reviews.schemas import (
     AssignedReview,
     CaseReview,
@@ -719,7 +719,7 @@ def _apply_reviewer_replacement(
 
 
 def _notify_replacement(notifier: Notifier | None, new_assignment: ReviewAssignment) -> None:
-    pemberitahu = notifier if notifier is not None else NoopNotifier()
+    pemberitahu = notifier if notifier is not None else DbNotifier()
     pemberitahu.notify(
         [new_assignment.reviewer_id], REVIEW_ASSIGNED, _payload_tugas(new_assignment.id)
     )
