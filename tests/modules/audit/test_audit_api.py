@@ -5,15 +5,18 @@ AC5 (Reviewer dibatasi), AC6 (unduh CSV dan PDF). Data audit disiapkan
 dengan aksi sungguhan, jadi baris yang dicari lahir dari listener.
 """
 
+import uuid
 from datetime import datetime, timedelta
 from unittest.mock import patch
 
 import pytest
 
 from app.modules.audit import service
+from app.modules.audit.models import AuditLog
 from app.modules.audit.schemas import WIB
 from app.modules.auth.models import User
 from app.shared.security import Role
+from tests.modules.cases.test_cases import _buat, _suite
 from tests.modules.conftest import USER_ID_QA
 
 SUITE = {"entity_type": "suite"}
@@ -185,3 +188,94 @@ def test_reviewer_mengunduh_hanya_cakupannya(as_role, admin):
 
     assert response.status_code == 200
     assert len(response.content.decode("utf-8-sig").splitlines()) == 1
+
+
+# --- F-06: label objek dan saringan kode kasus --------------------------------
+
+
+@pytest.fixture
+def dua_kasus(admin):
+    suite_id = _suite(admin, "Ketenagakerjaan F-06")
+    for kode in ("UAT-PHK-001", "UAT-PHK-002"):
+        assert _buat(admin, suite_id, case_code=kode).status_code == 201
+    return admin
+
+
+def test_label_objek_suite_dan_pengguna(admin):
+    suites = admin.get("/audit-logs", params=SUITE).json()["items"]
+    users = admin.get("/audit-logs", params={"entity_type": "user"}).json()["items"]
+
+    assert [item["entity_label"] for item in suites] == ["Perdata", "Pidana"]
+    assert [item["entity_label"] for item in users] == ["Admin QA"]
+
+
+def test_label_objek_kasus_memakai_kode_kasus(dua_kasus):
+    body = dua_kasus.get("/audit-logs", params={"entity_type": "case"}).json()
+
+    assert body["total"] >= 2
+    assert {item["entity_label"] for item in body["items"]} == {"UAT-PHK-001", "UAT-PHK-002"}
+
+
+def test_saring_kode_kasus_sebagian_tanpa_peduli_kapital(dua_kasus):
+    satu = dua_kasus.get("/audit-logs", params={"case_code": "phk-001"}).json()
+    dua = dua_kasus.get("/audit-logs", params={"case_code": "UAT-PHK"}).json()
+
+    assert satu["total"] >= 1
+    assert {item["entity_label"] for item in satu["items"]} == {"UAT-PHK-001"}
+    assert {item["entity_label"] for item in dua["items"]} == {"UAT-PHK-001", "UAT-PHK-002"}
+
+
+def test_saring_kode_kasus_tak_dikenal_hasil_kosong(dua_kasus):
+    response = dua_kasus.get("/audit-logs", params={"case_code": "TIDAK-ADA"})
+
+    assert response.status_code == 200
+    assert (response.json()["total"], response.json()["items"]) == (0, [])
+
+
+def test_wildcard_like_di_kode_kasus_dicari_apa_adanya(dua_kasus):
+    for pola in ("%", "_"):
+        body = dua_kasus.get("/audit-logs", params={"case_code": pola}).json()
+        assert body["total"] == 0
+
+
+@pytest.mark.parametrize("kode", ["", "   ", "K" * 65])
+def test_saring_kode_kasus_tidak_valid_422(admin, kode):
+    assert admin.get("/audit-logs", params={"case_code": kode}).status_code == 422
+
+
+def test_unduh_csv_dengan_saringan_kode_kasus(dua_kasus):
+    response = dua_kasus.get(
+        "/audit-logs/export", params={"case_code": "UAT-PHK-001", "format": "csv"}
+    )
+
+    baris = response.content.decode("utf-8-sig").splitlines()
+    assert response.status_code == 200
+    assert "Jenis objek,Objek,ID objek" in baris[0]
+    assert len(baris) > 1
+    assert all("UAT-PHK-001" in isi for isi in baris[1:])
+    assert "UAT-PHK-002" not in response.text
+
+
+def test_kasus_yang_sudah_tidak_ada_tanpa_label(admin, db_session):
+    hilang = uuid.uuid4()
+    db_session.add(
+        AuditLog(action="case.updated", entity_type="case", entity_id=hilang, case_id=hilang)
+    )
+    db_session.commit()
+
+    body = admin.get("/audit-logs", params={"case_id": str(hilang)}).json()
+
+    assert body["total"] == 1
+    assert body["items"][0]["entity_label"] is None
+
+
+def test_saringan_kode_kasus_tetap_dijaga_hak_akses(client, as_role, dua_kasus):
+    params = {"case_code": "UAT-PHK-001"}
+
+    reviewer = as_role(Role.REVIEWER).get("/audit-logs", params=params)
+    assert (reviewer.status_code, reviewer.json()["total"]) == (200, 0)
+    assert as_role(Role.AUTHOR).get("/audit-logs", params=params).status_code == 403
+
+
+def test_saringan_kode_kasus_tanpa_sesi_ditolak(client):
+    assert client.get("/audit-logs", params={"case_code": "UAT-PHK-001"}).status_code == 401

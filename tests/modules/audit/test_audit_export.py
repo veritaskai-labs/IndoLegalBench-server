@@ -37,6 +37,7 @@ def _catatan(**kolom) -> AuditLogRead:
         "action": "case.updated",
         "entity_type": AuditEntityType.CASE,
         "entity_id": OBJEK,
+        "entity_label": "UAT-PHK-001",
         "case_id": OBJEK,
         "before": {"title": "Lama"},
         "after": {"title": "Baru"},
@@ -65,6 +66,7 @@ def test_csv_berisi_kolom_wajib_ticket():
         "Peran",
         "Aksi",
         "Jenis objek",
+        "Objek",
         "ID objek",
         "Sebelum",
         "Sesudah",
@@ -76,6 +78,7 @@ def test_csv_berisi_kolom_wajib_ticket():
         "author",
         "case.updated",
         "case",
+        "UAT-PHK-001",
         str(OBJEK),
         '{"title": "Lama"}',
         '{"title": "Baru"}',
@@ -90,7 +93,7 @@ def test_csv_catatan_pembuatan_tanpa_nilai_sebelum():
     )
 
     # Assert
-    assert (baris[6], baris[7]) == ("", '{"title": "Baru"}')
+    assert (baris[7], baris[8]) == ("", '{"title": "Baru"}')
 
 
 def test_csv_diawali_bom_supaya_excel_membaca_utf8():
@@ -122,7 +125,7 @@ def test_csv_koma_kutip_dan_baris_baru_tetap_utuh():
     _, baris = _baca_csv(CsvExporter().render([_catatan(reason=alasan)], generated_at=DIUNDUH))
 
     # Assert
-    assert baris[8] == alasan
+    assert baris[9] == alasan
 
 
 @pytest.mark.parametrize("awal", ["=", "+", "-", "@"])
@@ -134,7 +137,7 @@ def test_csv_dilindungi_dari_formula_injection(awal):
     )
 
     # Assert
-    assert baris[8] == f"'{awal}HYPERLINK(1)"
+    assert baris[9] == f"'{awal}HYPERLINK(1)"
 
 
 def test_csv_nilai_json_non_ascii_tidak_di_escape():
@@ -144,7 +147,27 @@ def test_csv_nilai_json_non_ascii_tidak_di_escape():
     )
 
     # Assert
-    assert baris[7] == '{"judul": "Pasal 1 — ayat 2"}'
+    assert baris[8] == '{"judul": "Pasal 1 — ayat 2"}'
+
+
+def test_csv_objek_tanpa_label_dikosongkan():
+    """F-06: objek yang sudah hilang tetap bisa dilacak lewat ID objek."""
+    # Act
+    _, baris = _baca_csv(CsvExporter().render([_catatan(entity_label=None)], generated_at=DIUNDUH))
+
+    # Assert
+    assert (baris[5], baris[6]) == ("", str(OBJEK))
+
+
+def test_csv_label_objek_dilindungi_dari_formula_injection():
+    """Nama suite dan kode kasus diketik pengguna, jadi ikut dilindungi."""
+    # Act
+    _, baris = _baca_csv(
+        CsvExporter().render([_catatan(entity_label="=HYPERLINK(1)")], generated_at=DIUNDUH)
+    )
+
+    # Assert
+    assert baris[5] == "'=HYPERLINK(1)"
 
 
 # --- PDF ----------------------------------------------------------------------
@@ -158,6 +181,7 @@ def test_pdf_valid_dan_memuat_isi_catatan():
     assert isi.startswith(b"%PDF")
     assert b"Jejak Audit IndoLegalBench" in isi
     assert b"Rina Sari" in isi
+    assert b"UAT-PHK-001" in isi
     # Sel waktu dibungkus jadi dua baris di kolom sempit, jadi cukup nilainya.
     assert b"2026-10-08 09:00:00" in isi
     assert b"Diunduh 2026-10-08 10:15 WIB" in isi
