@@ -98,9 +98,10 @@ def test_url_role_retensi_kosong_ditolak():
     assert "AUDIT_RETENTION_DATABASE_URL" in alasan
 
 
-def test_url_tanpa_host_ditolak():
+@pytest.mark.parametrize("url", ["sqlite://", "bukan-url"])
+def test_url_tanpa_host_atau_rusak_ditolak(url):
     # Act + Assert
-    assert _alasan(database_url="sqlite://") is not None
+    assert _alasan(database_url=url) is not None
 
 
 # --- Batas 90 hari ---------------------------------------------------------------
