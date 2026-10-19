@@ -125,8 +125,16 @@ def existing_ids(db: Session, ids: Iterable[int]) -> set[int]:
     return set(db.scalars(select(AuditLog.id).where(AuditLog.id.in_(wanted))))
 
 
+def _should_remain(row: DemoRow, now: datetime) -> bool:
+    return not is_expired(row.occurred_at, now)
+
+
+def _matches(row: DemoRow, after: set[int], now: datetime) -> bool:
+    return (row.id in after) == _should_remain(row, now)
+
+
 def outcome_ok(rows: Sequence[DemoRow], *, after: set[int], now: datetime) -> bool:
-    return all((row.id in after) != is_expired(row.occurred_at, now) for row in rows)
+    return all(_matches(row, after, now) for row in rows)
 
 
 def _tanggal(waktu: datetime) -> str:
@@ -161,13 +169,11 @@ def render_report(rows: Sequence[DemoRow], before: set[int], after: set[int], no
         "-" * len(kepala),
     ]
     for row in rows:
-        seharusnya = not is_expired(row.occurred_at, now)
-        cocok = (row.id in after) == seharusnya
         baris.append(
             f"{'#' + str(row.id):<9}{_tanggal(row.occurred_at):<24}"
             f"{str(row.age_days) + ' hari':<10}{_status(row.id in before):<13}"
-            f"{_status(row.id in after):<13}{_status(seharusnya):<11}"
-            f"{'Ya' if cocok else 'TIDAK'}"
+            f"{_status(row.id in after):<13}{_status(_should_remain(row, now)):<11}"
+            f"{'Ya' if _matches(row, after, now) else 'TIDAK'}"
         )
     baris.append("")
     if outcome_ok(rows, after=after, now=now):
