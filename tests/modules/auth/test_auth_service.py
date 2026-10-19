@@ -13,6 +13,7 @@ from unittest.mock import MagicMock
 import pytest
 from sqlalchemy.orm import Session
 
+from app.modules.auth import service as service_module
 from app.modules.auth.models import User
 from app.modules.auth.service import AuthService
 from app.shared.exceptions import NotFoundError
@@ -66,3 +67,38 @@ def test_service_deactivate_member_not_found(auth_service, mock_db, monkeypatch)
 
     with pytest.raises(NotFoundError):
         auth_service.deactivate_member(target_user_id=target_id, current_user=current_admin)
+
+
+# --- start_login / logout branches not reached through the HTTP tests ---
+
+
+def test_start_login_with_email_only_sends_no_sub():
+    oidc = MagicMock()
+
+    service_module.start_login(oidc=oidc, email="author@veritask.test")
+
+    assert oidc.authorization_url.call_args.kwargs["extra_params"] == {
+        "email": "author@veritask.test"
+    }
+
+
+def test_logout_without_session_id_skips_the_database(mock_db):
+    oidc = MagicMock()
+
+    service_module.logout(mock_db, oidc=oidc, session_id=None)
+
+    oidc.end_session_url.assert_called_once_with(id_token_hint=None)
+    mock_db.assert_not_called()
+
+
+def test_logout_with_unknown_session_still_ends_the_idp_session(mock_db, monkeypatch):
+    deleted = MagicMock()
+    monkeypatch.setattr("app.modules.auth.repository.get_session", lambda db, sid: None)
+    monkeypatch.setattr("app.modules.auth.repository.delete_session", deleted)
+    oidc = MagicMock()
+    session_id = uuid.uuid4()
+
+    service_module.logout(mock_db, oidc=oidc, session_id=session_id)
+
+    deleted.assert_called_once_with(mock_db, session_id)
+    oidc.end_session_url.assert_called_once_with(id_token_hint=None)
