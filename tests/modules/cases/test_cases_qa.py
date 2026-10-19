@@ -39,7 +39,7 @@ BATAS_JUDUL = 300
 BATAS_PERTANYAAN = 20000
 BATAS_PASAL = 40
 BATAS_KODE = 64
-TAHUN_MIN, TAHUN_MAKS = 1, 9999
+TAHUN_MIN, TAHUN_MAKS = 1800, 9999
 # PBI-21: tahun rujukan paling tinggi tahun berjalan (WIB). Jam dipatok lewat fixture.
 TAHUN_BERJALAN = 2026
 
