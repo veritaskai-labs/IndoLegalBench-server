@@ -31,8 +31,13 @@ FIELD_REQUIRED = "FIELD_REQUIRED"
 FIELD_NOT_ALLOWED = "FIELD_NOT_ALLOWED"
 CONNECTOR_INVALID = "CONNECTOR_INVALID"
 YEAR_IN_FUTURE = "YEAR_IN_FUTURE"
+YEAR_TOO_OLD = "YEAR_TOO_OLD"
 REGULATION_TYPE_UNKNOWN = "REGULATION_TYPE_UNKNOWN"
 REGULATION_TYPE_INACTIVE = "REGULATION_TYPE_INACTIVE"
+
+# Batas bawah tahun rujukan (keputusan Aileen 19 Okt). 1800, bukan 1945, karena
+# aturan lama seperti KUHPerdata (1847) masih dirujuk.
+MIN_CITATION_YEAR = 1800
 
 # Tahun berjalan dihitung di zona waktu tim (keputusan PO 17 Okt).
 WIB = ZoneInfo("Asia/Jakarta")
@@ -214,7 +219,7 @@ def _check_ref_rules(awalan: str, rujukan: dict[str, Any], tahun_ini: int) -> No
 
 
 def _check_link(awalan: str, posisi: int, link: dict[str, Any], tahun_ini: int) -> None:
-    """Unused fields for the form, the connector (AC6), then the year."""
+    """Unused fields for the form, the connector (AC6), then the year range."""
     bentuk = link["form"]
     for nama in _FIELD_TERLARANG[bentuk]:
         if _text(link.get(nama)):
@@ -223,6 +228,12 @@ def _check_link(awalan: str, posisi: int, link: dict[str, Any], tahun_ini: int) 
     if pesan is not None:
         raise ValidationError(pesan, code=CONNECTOR_INVALID, field=f"{awalan}.connector")
     # Setelah missing_in_ref dan schema, year pasti int.
+    if link["year"] < MIN_CITATION_YEAR:
+        raise ValidationError(
+            f"Tahun tidak boleh sebelum {MIN_CITATION_YEAR}",
+            code=YEAR_TOO_OLD,
+            field=f"{awalan}.year",
+        )
     if link["year"] > tahun_ini:
         raise ValidationError(
             f"Tahun tidak boleh melewati {tahun_ini}",
