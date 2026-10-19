@@ -2833,6 +2833,25 @@
             }
           },
           {
+            "name": "case_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sebagian kode kasus, misalnya UAT-PHK-001",
+              "title": "Case Code"
+            },
+            "description": "Sebagian kode kasus, misalnya UAT-PHK-001"
+          },
+          {
             "name": "page",
             "in": "query",
             "required": false,
@@ -3014,6 +3033,25 @@
               ],
               "title": "Case Id"
             }
+          },
+          {
+            "name": "case_code",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 64
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sebagian kode kasus, misalnya UAT-PHK-001",
+              "title": "Case Code"
+            },
+            "description": "Sebagian kode kasus, misalnya UAT-PHK-001"
           },
           {
             "name": "page",
@@ -3769,6 +3807,18 @@
             "type": "string",
             "format": "uuid",
             "title": "Entity Id"
+          },
+          "entity_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Entity Label",
+            "description": "Nama objek yang terbaca: kode kasus (catatan kasus dan review), nama suite, nama produk AI, atau nama pengguna. Null kalau objeknya sudah tidak ada"
           },
           "case_id": {
             "anyOf": [
