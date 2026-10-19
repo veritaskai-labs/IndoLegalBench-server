@@ -227,7 +227,11 @@ def _verdict_tersembunyi(
     return frozenset(row.id for row in verdicts if row.entity_id in hidden)
 
 
-def _kunci_label(row: AuditLog) -> tuple[AuditEntityType, uuid.UUID] | None:
+# Jenis dan id objek yang namanya dicari, None kalau catatan tidak punya objek bernama.
+_KunciLabel = tuple[AuditEntityType, uuid.UUID] | None
+
+
+def _kunci_label(row: AuditLog) -> _KunciLabel:
     """Objek mana yang namanya dicari untuk satu catatan, atau None kalau tidak ada."""
     if row.entity_type in _LABEL_KODE_KASUS:
         return None if row.case_id is None else (AuditEntityType.CASE, row.case_id)
@@ -235,19 +239,19 @@ def _kunci_label(row: AuditLog) -> tuple[AuditEntityType, uuid.UUID] | None:
     return AuditEntityType(row.entity_type), row.entity_id
 
 
+def _ids(kunci: list[_KunciLabel], jenis: AuditEntityType) -> set[uuid.UUID]:
+    return {k[1] for k in kunci if k is not None and k[0] == jenis}
+
+
 def _label_objek(
-    db: Session, kunci: list[tuple[AuditEntityType, uuid.UUID] | None], user_names: dict
+    db: Session, kunci: list[_KunciLabel], user_names: dict[uuid.UUID, str]
 ) -> dict[AuditEntityType, dict[uuid.UUID, str]]:
     """Nama objek per jenis, satu query per jenis untuk satu halaman (F-06)."""
-
-    def ids(jenis: AuditEntityType) -> set[uuid.UUID]:
-        return {k[1] for k in kunci if k is not None and k[0] == jenis}
-
     return {
-        AuditEntityType.CASE: cases_service.case_codes(db, ids(AuditEntityType.CASE)),
-        AuditEntityType.SUITE: suites_service.suite_names(db, ids(AuditEntityType.SUITE)),
+        AuditEntityType.CASE: cases_service.case_codes(db, _ids(kunci, AuditEntityType.CASE)),
+        AuditEntityType.SUITE: suites_service.suite_names(db, _ids(kunci, AuditEntityType.SUITE)),
         AuditEntityType.AI_PRODUCT: providers_service.product_names(
-            db, ids(AuditEntityType.AI_PRODUCT)
+            db, _ids(kunci, AuditEntityType.AI_PRODUCT)
         ),
         AuditEntityType.USER: user_names,
     }
@@ -261,7 +265,7 @@ def _tampilkan(
     names = auth_service.user_names(
         db,
         {row.actor_user_id for row in rows if row.actor_user_id is not None}
-        | {k[1] for k in kunci if k is not None and k[0] == AuditEntityType.USER},
+        | _ids(kunci, AuditEntityType.USER),
     )
     label = _label_objek(db, kunci, names)
     hidden = _verdict_tersembunyi(db, rows, viewer_id=viewer_id, viewer_role=viewer_role)
