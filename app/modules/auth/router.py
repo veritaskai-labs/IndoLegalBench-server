@@ -194,5 +194,10 @@ def deactivate_user(
     return service.deactivate_member(target_user_id=user_id, current_user=current_user)
 
 
+@admin_router.post("/{user_id}/activate", response_model=UserResponse)
+def activate_user(user_id: UUID, service: AuthService = Depends(get_auth_service)):
+    return service.activate_member(target_user_id=user_id)
+
+
 router.include_router(auth_router)
 router.include_router(admin_router)

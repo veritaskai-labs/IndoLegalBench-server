@@ -228,3 +228,13 @@ class AuthService:
 
         reviews_service.void_reviewer_assignments(self.db, user.id)
         return repository.deactivate_user(self.db, user)
+
+    def activate_member(self, target_user_id: uuid.UUID) -> User:
+        # Undo of deactivate_member. Reviewer assignments voided at
+        # deactivation stay voided; the admin reassigns them if needed.
+        user = repository.get_user_by_id(self.db, target_user_id)
+        if not user:
+            raise NotFoundError("User not found")
+        if user.is_active:
+            return user
+        return repository.activate_user(self.db, user)

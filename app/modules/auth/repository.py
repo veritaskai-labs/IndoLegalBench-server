@@ -142,6 +142,13 @@ def deactivate_user(db: DbSession, user: User) -> User:
     return user
 
 
+def activate_user(db: DbSession, user: User) -> User:
+    user.is_active = True
+    db.commit()
+    db.refresh(user)
+    return user
+
+
 def create_session(
     db: DbSession,
     *,
