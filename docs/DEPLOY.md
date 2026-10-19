@@ -479,6 +479,54 @@ crontab -e
 Each run logs how many rows it deleted. With `AUDIT_RETENTION_DATABASE_URL`
 empty the job exits with an error and deletes nothing.
 
+### Showing it in UAT (dev only)
+
+No screen shows a deletion, so AC7 is shown from the VM. Run these in the dev
+stack's `deploy/` folder, with the client watching the terminal:
+
+```bash
+cd /opt/indolegalbench-dev/IndoLegalBench-server/deploy
+
+# 1. The schedule exists: expect the "45 2 * * *" line for indolegalbench-dev.
+crontab -l | grep retention_job
+
+# 2. It has been running: one line per night, "audit retention: N audit_logs
+#    rows deleted, occurred_at before <date 90 days ago>".
+tail -n 20 /var/backups/indolegalbench-dev/audit-retention.log
+
+# 3. It works at the 90-day boundary, right now.
+docker compose run --rm -T api python - --confirm-dev-stack < ../scripts/demo_audit_retention.py
+```
+
+Step 3 runs [`scripts/demo_audit_retention.py`](../scripts/demo_audit_retention.py).
+It adds two synthetic audit rows dated 91 and 89 days ago (action
+`suite.retention_demo`, reason starting with `DEMO UAT F-07`), runs the same
+job as cron, and prints a table:
+
+```
+Catatan  Tanggal kejadian        Umur      Sebelum job  Sesudah job  Seharusnya Cocok
+-------------------------------------------------------------------------------------
+#501     20 Jul 2026 07:22 UTC   91 hari   Ada          Terhapus     Terhapus   Ya
+#502     22 Jul 2026 07:22 UTC   89 hari   Ada          Ada          Ada        Ya
+
+HASIL: SESUAI. Catatan 91 hari terhapus otomatis, catatan 89 hari tetap tersimpan.
+```
+
+What to tell the client: (1) the job is scheduled every night, (2) the log
+proves it ran on previous nights, (3) the table shows the rule itself: a row
+one day past 90 days is deleted, a row one day short is kept. Optionally open
+the audit log page as Admin: the 89-day `DEMO UAT F-07` row is listed, the
+91-day one is not.
+
+Exit code 0 means SESUAI, 1 means the job failed or the result did not match
+(the table says which), 2 means the script refused to run. It refuses unless
+`--confirm-dev-stack` is given, `APP_ENV` is `local` or `staging`, and both
+database URLs point at the stack's own `db`. So it never runs on prod, which
+has `APP_ENV=production`. Like the nightly run, it deletes every dev row
+older than 90 days, not only its own. The 89-day row stays until the nightly
+job removes it, within two nights. The step 3 command needs a checkout that
+already has the script, which is any `staging` deployed after it was merged.
+
 ## Not covered yet
 
 - `/docs` and `/openapi.json` are public on both stacks. Worth closing on prod.
