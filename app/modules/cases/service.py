@@ -552,6 +552,21 @@ def count_by_status(db: Session) -> dict[CaseStatus, int]:
     return {status: counts.get(status, 0) for status in CaseStatus}
 
 
+def case_codes(db: Session, case_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """case_code per id for the audit log object column (F-06).
+
+    Ids with no case row are left out.
+    """
+    if not case_ids:
+        return {}
+    return repository.codes_by_ids(db, case_ids)
+
+
+def find_case_ids(db: Session, text: str) -> list[uuid.UUID]:
+    """Ids of cases whose code contains text, for the audit "Kode kasus" search (F-06)."""
+    return repository.ids_with_code_containing(db, text)
+
+
 def count_for_suite(db: Session, suite_id: uuid.UUID) -> int:
     """Count cases in one suite. Called by the suites module."""
     return repository.count_for_suite(db, suite_id)

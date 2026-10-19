@@ -26,6 +26,15 @@ def _ke_utc(value: datetime | None, *, tanpa_zona: timezone) -> datetime | None:
     return value.astimezone(UTC)
 
 
+def _tanpa_spasi_tepi(value: str | None, pesan: str) -> str | None:
+    if value is None:
+        return None
+    bersih = value.strip()
+    if not bersih:
+        raise ValueError(pesan)
+    return bersih
+
+
 class AuditLogFilter(BaseModel):
     """Saringan pencarian Admin: rentang waktu, jenis data, atau nama pengguna."""
 
@@ -40,6 +49,12 @@ class AuditLogFilter(BaseModel):
         description="Sebagian nama atau email pelaku, tanpa peduli kapital",
     )
     case_id: uuid.UUID | None = None
+    case_code: str | None = Field(
+        default=None,
+        min_length=1,
+        max_length=64,
+        description="Sebagian kode kasus, tanpa peduli kapital",
+    )
     page: int = Field(default=1, ge=1)
     size: int = Field(default=20, ge=1, le=100)
 
@@ -51,12 +66,12 @@ class AuditLogFilter(BaseModel):
     @field_validator("actor")
     @classmethod
     def nama_tidak_kosong(cls, value: str | None) -> str | None:
-        if value is None:
-            return None
-        bersih = value.strip()
-        if not bersih:
-            raise ValueError("Nama pelaku tidak boleh kosong")
-        return bersih
+        return _tanpa_spasi_tepi(value, "Nama pelaku tidak boleh kosong")
+
+    @field_validator("case_code")
+    @classmethod
+    def kode_tidak_kosong(cls, value: str | None) -> str | None:
+        return _tanpa_spasi_tepi(value, "Kode kasus tidak boleh kosong")
 
     @model_validator(mode="after")
     def rentang_urut(self) -> Self:
@@ -80,6 +95,13 @@ class AuditLogRead(BaseModel):
     action: str
     entity_type: AuditEntityType
     entity_id: uuid.UUID
+    entity_label: str | None = Field(
+        default=None,
+        description=(
+            "Nama objek yang terbaca: kode kasus (catatan kasus dan review), nama suite, "
+            "nama produk AI, atau nama pengguna. Null kalau objeknya sudah tidak ada"
+        ),
+    )
     case_id: uuid.UUID | None
     before: dict[str, Any] | None
     after: dict[str, Any] | None

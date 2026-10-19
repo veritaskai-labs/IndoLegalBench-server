@@ -5,7 +5,8 @@ exporter_for(), dan kedua format memakai kolom yang sama dari
 _kolom(), jadi isi CSV dan PDF tidak pernah berbeda.
 
 Isi wajib per ticket: waktu (WIB), pelaku, aksi, objek, dan nilai
-sebelum/sesudah. Modul ini murni: tidak ada database dan HTTP.
+sebelum/sesudah. Kolom Objek berisi label yang terbaca (F-06), ID objek
+tetap ada supaya objek yang sudah hilang masih bisa dilacak. Modul ini murni: tidak ada database dan HTTP.
 """
 
 import csv
@@ -31,6 +32,7 @@ HEADER = [
     "Peran",
     "Aksi",
     "Jenis objek",
+    "Objek",
     "ID objek",
     "Sebelum",
     "Sesudah",
@@ -73,7 +75,7 @@ class PdfExporter(Exporter):
     media_type = "application/pdf"
     format = ExportFormat.PDF
     # Lebar kolom dalam mm, total 277 mm = lebar A4 lanskap dikurangi margin.
-    _LEBAR = (30, 28, 18, 34, 20, 30, 45, 45, 27)
+    _LEBAR = (28, 26, 16, 30, 18, 26, 28, 40, 40, 25)
 
     def __init__(self, *, compress: bool = True) -> None:
         self.compress = compress
@@ -143,6 +145,7 @@ def _kolom(row: AuditLogRead) -> list[str]:
         row.actor_role or "",
         row.action,
         row.entity_type.value,
+        row.entity_label or "",
         str(row.entity_id),
         _json(row.before),
         _json(row.after),

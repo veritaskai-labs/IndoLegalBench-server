@@ -55,6 +55,9 @@ def _saringan(
         default=None, max_length=255, description="Sebagian nama atau email pelaku"
     ),
     case_id: uuid.UUID | None = Query(default=None),
+    case_code: str | None = Query(
+        default=None, max_length=64, description="Sebagian kode kasus, misalnya UAT-PHK-001"
+    ),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
 ) -> AuditLogFilter:
@@ -66,6 +69,7 @@ def _saringan(
             actor_id=actor_id,
             actor=actor,
             case_id=case_id,
+            case_code=case_code,
             page=page,
             size=size,
         )

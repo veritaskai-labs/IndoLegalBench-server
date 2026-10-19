@@ -140,6 +140,31 @@ def versions_with_case(db: Session, version_ids: set[uuid.UUID]) -> list[tuple[C
     )
 
 
+def codes_by_ids(db: Session, case_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """case_code per case id. Ids with no case row are left out."""
+    rows = db.query(Case.id, Case.case_code).filter(Case.id.in_(case_ids)).all()
+    return dict(rows)
+
+
+def ids_with_code_containing(db: Session, text: str) -> list[uuid.UUID]:
+    """Ids of cases whose code contains text, ignoring case.
+
+    '%' and '_' from the caller are matched literally.
+    """
+    pola = "%" + _escape_like(text.lower()) + "%"
+    rows = (
+        db.query(Case.id)
+        .filter(func.lower(Case.case_code).like(pola, escape="\\"))
+        .order_by(Case.case_code)
+        .all()
+    )
+    return [case_id for (case_id,) in rows]
+
+
+def _escape_like(text: str) -> str:
+    return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
+
+
 def max_version_no(db: Session, case_id: uuid.UUID) -> int:
     """Highest version_no stored for the case, or 0 when it has none."""
     tertinggi = (

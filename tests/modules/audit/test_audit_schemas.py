@@ -122,3 +122,47 @@ def test_tampilan_menandai_waktu_sqlite_sebagai_utc():
 
     # Assert
     assert baris.occurred_at == datetime(2026, 10, 8, 2, 0, tzinfo=UTC)
+
+
+# --- F-06: saringan kode kasus ------------------------------------------------
+
+
+def test_kode_kasus_dirapikan():
+    # Act + Assert
+    assert AuditLogFilter(case_code="  UAT-PHK-001 ").case_code == "UAT-PHK-001"
+
+
+@pytest.mark.parametrize("kode", ["", "   ", "K" * 65])
+def test_kode_kasus_kosong_atau_terlalu_panjang_ditolak(kode):
+    # Act + Assert
+    with pytest.raises(ValidationError):
+        AuditLogFilter(case_code=kode)
+
+
+def test_kode_kasus_tepat_64_karakter_boleh():
+    # Act + Assert
+    assert AuditLogFilter(case_code="K" * 64).case_code == "K" * 64
+
+
+def test_label_objek_boleh_kosong():
+    """Catatan lama atau objek yang sudah hilang tidak punya label."""
+    # Act
+    baris = AuditLogRead(
+        id=1,
+        occurred_at=datetime(2026, 10, 8, 2, 0, tzinfo=UTC),
+        actor_user_id=None,
+        actor_name=None,
+        actor_role=None,
+        action="suite.created",
+        entity_type=AuditEntityType.SUITE,
+        entity_id=uuid.uuid4(),
+        entity_label=None,
+        case_id=None,
+        before=None,
+        after=None,
+        reason=None,
+        request_id=None,
+    )
+
+    # Assert
+    assert baris.entity_label is None

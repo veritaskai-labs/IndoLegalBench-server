@@ -195,6 +195,17 @@ def is_exportable(db: Session, suite_id: uuid.UUID) -> bool:
     return get_suite(db, suite_id).exportable
 
 
+def suite_names(db: Session, suite_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Nama suite untuk kolom Objek audit log (F-06).
+
+    Suite yang sudah dihapus tetap bernama, supaya catatan suite.deleted
+    masih terbaca. Id tanpa baris suite tidak ikut.
+    """
+    if not suite_ids:
+        return {}
+    return repository.names_by_ids(db, suite_ids)
+
+
 def _author(user_id: uuid.UUID, names: dict[uuid.UUID, str]) -> ActorRead:
     """Id plus display name. A missing user row leaves the name empty."""
     return ActorRead(id=user_id, name=names.get(user_id, ""))

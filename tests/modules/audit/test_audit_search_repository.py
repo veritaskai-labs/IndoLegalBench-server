@@ -96,6 +96,23 @@ def test_saring_satu_kasus(db_session, baris):
     assert _cari(db_session, case_id=KASUS_B) == ["case.created"]
 
 
+def test_saring_beberapa_kasus_dari_kode(db_session, baris):
+    """F-06: kode kasus yang cocok dengan beberapa kasus jadi beberapa id."""
+    # Act + Assert
+    assert _cari(db_session, case_ids=(KASUS_A, KASUS_B)) == [
+        "case.created",
+        "case.updated",
+        "case.created",
+    ]
+
+
+def test_saring_kasus_dari_kode_digabung_dengan_cakupan(db_session, baris):
+    # Act + Assert
+    assert _cari(db_session, case_ids=(KASUS_A, KASUS_B), case_scope=frozenset({KASUS_B})) == [
+        "case.created"
+    ]
+
+
 def test_cakupan_kasus_reviewer(db_session, baris):
     """AC5: hanya baris yang case_id-nya ada di cakupan, baris tanpa kasus ikut tersaring."""
     # Act + Assert
