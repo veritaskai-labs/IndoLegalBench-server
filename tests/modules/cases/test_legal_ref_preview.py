@@ -199,6 +199,20 @@ def test_tahun_melewati_tahun_berjalan():
     ]
 
 
+def test_tahun_sebelum_1800_sama_seperti_saat_simpan():
+    # Arrange
+    rujukan = rujukan_ktk_001()
+    rujukan["links"][0]["year"] = 1500
+
+    # Act
+    hasil = _pratinjau(rujukan)
+
+    # Assert
+    assert hasil == [
+        _salah("YEAR_TOO_OLD", "legal_refs[0].links[0].year", "Tahun tidak boleh sebelum 1800")
+    ]
+
+
 def test_jenis_tidak_ada_di_daftar():
     rujukan = rujukan_ktk_001()
     rujukan["links"][0]["regulation_type"] = "tidak_ada"

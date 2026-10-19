@@ -279,10 +279,34 @@ def _tahun(*tahun: int) -> dict[str, Any]:
     return rujukan
 
 
-@pytest.mark.parametrize("tahun", [1, 2025, 2026], ids=["batas-bawah", "tahun-lalu", "tahun-ini"])
-def test_tahun_sampai_tahun_berjalan_diterima(tahun):
+@pytest.mark.parametrize(
+    "tahun", [1800, 1847, 2025, 2026], ids=["batas-bawah", "kuhperdata", "tahun-lalu", "tahun-ini"]
+)
+def test_tahun_dari_1800_sampai_tahun_berjalan_diterima(tahun):
     # Act + Assert
     validate_payload(_body(_tahun(tahun)), tahun_ini=2026)
+
+
+@pytest.mark.parametrize("tahun", [1, 1500, 1799], ids=["satu", "tidak-masuk-akal", "tepi-bawah"])
+def test_tahun_sebelum_1800_ditolak(tahun):
+    # Act
+    with pytest.raises(ValidationError) as info:
+        validate_payload(_body(_tahun(tahun)), tahun_ini=2026)
+
+    # Assert
+    assert info.value.code == "YEAR_TOO_OLD"
+    assert info.value.field == "legal_refs[0].links[0].year"
+    assert info.value.message == "Tahun tidak boleh sebelum 1800"
+
+
+def test_tahun_terlalu_lama_dilaporkan_di_link_yang_salah():
+    # Act
+    with pytest.raises(ValidationError) as info:
+        validate_payload(_body(_tahun(2020, 1500)), tahun_ini=2026)
+
+    # Assert
+    assert info.value.code == "YEAR_TOO_OLD"
+    assert info.value.field == "legal_refs[0].links[1].year"
 
 
 def test_tahun_setelah_tahun_berjalan_ditolak():
