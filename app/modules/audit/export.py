@@ -6,7 +6,8 @@ _kolom(), jadi isi CSV dan PDF tidak pernah berbeda.
 
 Isi wajib per ticket: waktu (WIB), pelaku, aksi, objek, dan nilai
 sebelum/sesudah. Kolom Objek berisi label yang terbaca (F-06), ID objek
-tetap ada supaya objek yang sudah hilang masih bisa dilacak. Modul ini murni: tidak ada database dan HTTP.
+tetap ada supaya objek yang sudah hilang masih bisa dilacak. Modul ini
+murni: tidak ada database dan HTTP.
 """
 
 import csv
