@@ -40,6 +40,7 @@ from app.modules.reviews.ports import AssignmentStore, Notifier, ReviewerLoad
 from app.modules.reviews.schemas import (
     AssignedReview,
     CaseReview,
+    InReviewCase,
     NeedsReassignmentResponse,
     PendingReview,
     ReassignmentAssignmentRead,
@@ -535,6 +536,15 @@ def get_case_review(db: Session, case_id: uuid.UUID, viewer: Viewer) -> CaseRevi
     ronde = repository.latest_round_for_case(db, case_id)
     if ronde is None:
         raise NotFoundError("Kasus ini belum pernah diajukan untuk direview", code=NO_REVIEW_ROUND)
+    return _case_review(db, ronde, viewer)
+
+
+def _case_review(db: Session, ronde: ReviewRound, viewer: Viewer) -> CaseReview:
+    """Satu round dengan reviewer aktifnya; verdict disaring aturan blind (AC3, AC7).
+
+    Hanya assignment aktif yang ditampilkan: verdict dari reviewer yang
+    sudah diganti tidak dihitung, jadi juga tidak ditampilkan.
+    """
     aktif = [
         tugas
         for tugas in repository.assignments_in_round(db, ronde.id)
@@ -565,6 +575,22 @@ def get_case_review(db: Session, case_id: uuid.UUID, viewer: Viewer) -> CaseRevi
             for tugas in aktif
         ],
     )
+
+
+def list_in_review(db: Session, viewer: Viewer) -> list[InReviewCase]:
+    """Kasus yang round-nya belum diputuskan, untuk tab "Dalam review" Admin (AC3, F-02)."""
+    rounds = repository.undecided_rounds(db)
+    copies = _cases().review_copies(db, {ronde.case_version_id for ronde in rounds})
+    return [
+        InReviewCase(
+            case_id=ronde.case_id,
+            case_code=copies[ronde.case_version_id].case_code,
+            title=copies[ronde.case_version_id].identity.title,
+            version_no=copies[ronde.case_version_id].version_no,
+            review=_case_review(db, ronde, viewer),
+        )
+        for ronde in rounds
+    ]
 
 
 def _view(verdict: ReviewVerdict | None) -> VerdictView | None:

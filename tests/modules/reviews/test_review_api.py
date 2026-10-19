@@ -9,6 +9,7 @@ menanam assignment langsung lewat _buka_round.
 import csv
 import io
 import uuid
+from datetime import timedelta
 
 import pytest
 from fastapi import Depends
@@ -665,6 +666,153 @@ def test_review_kasus_yang_belum_diajukan(as_role):
 def test_tanpa_sesi_ditolak(client):
     # Act + Assert
     assert client.get("/reviews/assigned").status_code == 401
+
+
+# --- Pemantauan "Dalam review" untuk Admin (AC3, temuan Pra-UAT F-02) ---------------
+
+
+def _dalam_review(client) -> list[dict]:
+    response = client.get("/reviews/in-review")
+    assert response.status_code == 200
+    return response.json()
+
+
+def _setujui_berdua(client, jadi, tugas: dict[uuid.UUID, str]) -> None:
+    for reviewer in (REVIEWER_A, REVIEWER_B):
+        jadi(Role.REVIEWER, reviewer)
+        assert _nilai(client, tugas[reviewer]).status_code == 201
+
+
+def test_admin_melihat_kasus_yang_sedang_direview(kasus, jadi):
+    # Arrange
+    client, case_id, tugas = kasus
+    jadi(Role.ADMIN, ADMIN)
+
+    # Act
+    isi = _dalam_review(client)
+
+    # Assert
+    assert len(isi) == 1
+    baris = isi[0]
+    assert baris["case_id"] == case_id
+    assert baris["case_code"] == "PHK-001"
+    assert baris["title"] == "PHK sepihak"
+    assert baris["version_no"] == 1
+    assert baris["review"]["status"] == "open"
+    assert {slot["assignment_id"] for slot in baris["review"]["reviewers"]} == set(tugas.values())
+
+
+def test_versi_baru_dari_kasus_yang_disetujui_ikut_tampil(kasus, jadi):
+    """F-02: status kasus tetap approved selama versi 2 direview, tapi rondenya harus terlihat."""
+    # Arrange
+    client, case_id, tugas = kasus
+    _setujui_berdua(client, jadi, tugas)
+    jadi(Role.AUTHOR, USER_ID_QA)
+    assert client.post(f"/cases/{case_id}/versions").status_code == 201
+    assert client.post(f"/cases/{case_id}/submit-review").status_code == 200
+    assert client.get(f"/cases/{case_id}").json()["status"] == "approved"
+    jadi(Role.ADMIN, ADMIN)
+
+    # Act
+    isi = _dalam_review(client)
+
+    # Assert
+    assert [(baris["case_id"], baris["version_no"]) for baris in isi] == [(case_id, 2)]
+    assert isi[0]["review"]["status"] == "open"
+    assert len(isi[0]["review"]["reviewers"]) == 2
+
+
+@pytest.mark.parametrize("keputusan", ["approve", "revise"])
+def test_kasus_yang_rondenya_sudah_diputuskan_tidak_tampil(kasus, jadi, keputusan):
+    # Arrange
+    client, _, tugas = kasus
+    if keputusan == "approve":
+        _setujui_berdua(client, jadi, tugas)
+    else:
+        # Round baru diputuskan setelah kedua reviewer menilai.
+        jadi(Role.REVIEWER, REVIEWER_A)
+        assert _nilai(client, tugas[REVIEWER_A]).status_code == 201
+        jadi(Role.REVIEWER, REVIEWER_B)
+        assert _nilai(client, tugas[REVIEWER_B], "revise", KOMENTAR_REVISI).status_code == 201
+    jadi(Role.ADMIN, ADMIN)
+
+    # Act + Assert
+    assert _dalam_review(client) == []
+
+
+def test_admin_melihat_verdict_yang_sudah_masuk_di_daftar(kasus, jadi):
+    # Arrange
+    client, _, tugas = kasus
+    jadi(Role.REVIEWER, REVIEWER_A)
+    _nilai(client, tugas[REVIEWER_A])
+    jadi(Role.ADMIN, ADMIN)
+
+    # Act
+    slots = _dalam_review(client)[0]["review"]["reviewers"]
+
+    # Assert
+    verdict = {slot["reviewer"]["name"]: slot["verdict"] for slot in slots}
+    assert verdict["Reviewer A"]["decision"] == "approve"
+    assert verdict["Reviewer B"] is None
+
+
+def test_round_yang_menunggu_penugasan_ikut_tampil(kasus, jadi, db_session):
+    # Arrange
+    client, case_id, _ = kasus
+    db_session.query(ReviewRound).filter_by(
+        case_id=uuid.UUID(case_id)
+    ).one().status = RoundStatus.AWAITING_ASSIGNMENT
+    db_session.commit()
+    jadi(Role.ADMIN, ADMIN)
+
+    # Act
+    isi = _dalam_review(client)
+
+    # Assert
+    assert [baris["review"]["status"] for baris in isi] == ["awaiting_assignment"]
+
+
+def test_ronde_yang_paling_lama_menunggu_tampil_lebih_dulu(kasus, jadi, db_session):
+    # Arrange
+    client, case_lama, _ = kasus
+    case_baru = _buat(client, _suite(client, name="Suite kedua"), case_code="PHK-002").json()["id"]
+    assert client.post(f"/cases/{case_baru}/submit-review").status_code == 200
+    rondes = {str(r.case_id): r for r in db_session.query(ReviewRound).all()}
+    rondes[case_lama].opened_at = rondes[case_baru].opened_at - timedelta(days=1)
+    db_session.commit()
+    jadi(Role.ADMIN, ADMIN)
+
+    # Act
+    isi = _dalam_review(client)
+
+    # Assert
+    assert [baris["case_id"] for baris in isi] == [case_lama, case_baru]
+
+
+def test_daftar_kosong_bila_tidak_ada_kasus_yang_direview(as_role):
+    # Arrange
+    client = as_role(Role.ADMIN)
+
+    # Act + Assert
+    assert _dalam_review(client) == []
+
+
+@pytest.mark.parametrize("role", [Role.AUTHOR, Role.REVIEWER, Role.VIEWER])
+def test_hanya_admin_yang_membuka_daftar_dalam_review(kasus, jadi, role):
+    # Arrange
+    client, _, _ = kasus
+    jadi(role, uuid.uuid4())
+
+    # Act
+    response = client.get("/reviews/in-review")
+
+    # Assert
+    assert response.status_code == 403
+
+
+def test_daftar_dalam_review_tanpa_sesi_ditolak(client):
+    # Act + Assert
+    assert client.get("/reviews/in-review").status_code == 401
 
 
 # --- Tag hanya informasi (PBI-9 AC2, SCRUM-164) --------------------------------------
