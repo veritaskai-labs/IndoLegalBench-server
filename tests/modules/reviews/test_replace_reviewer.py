@@ -189,6 +189,78 @@ def test_replace_reviewer_tidak_memberi_tahu_bila_commit_gagal(db_session, case_
     assert notifier.panggilan == []
 
 
+def test_replace_reviewer_tanpa_notifier_memberi_tahu_reviewer_baru_lewat_db_notifier(
+    db_session, case_data, monkeypatch
+):
+    """Router tidak menyuntikkan notifier, jadi default service harus tetap mengirim."""
+    notifier = FakeNotifier()
+    monkeypatch.setattr(service, "DbNotifier", lambda: notifier)
+
+    _, new_tugas = service.replace_reviewer(
+        db_session,
+        assignment_id=case_data["tugas1"].id,
+        new_reviewer_id=REVIEWER_3,
+        reason="Reviewer berhalangan hadir",
+        admin_id=ADMIN_ID,
+    )
+
+    assert notifier.panggilan == [
+        (
+            [REVIEWER_3],
+            "review_assigned",
+            {
+                "title": "Tugas review baru",
+                "body": "Anda ditugaskan mereview sebuah kasus.",
+                "link": f"/reviews/{new_tugas.id}",
+            },
+        )
+    ]
+
+
+def test_replace_reviewer_void_tanpa_notifier_memberi_tahu_reviewer_baru(
+    db_session, case_data, monkeypatch
+):
+    """AC8: penggantian reviewer nonaktif (assignment void) juga memberi tahu pengganti."""
+    notifier = FakeNotifier()
+    monkeypatch.setattr(service, "DbNotifier", lambda: notifier)
+    tugas1 = case_data["tugas1"]
+    tugas1.status = AssignmentStatus.VOID
+    tugas1.end_reason = "Reviewer deactivated"
+    case_data["round"].status = RoundStatus.AWAITING_ASSIGNMENT
+    db_session.commit()
+
+    _, new_tugas = service.replace_reviewer(
+        db_session,
+        assignment_id=tugas1.id,
+        new_reviewer_id=REVIEWER_3,
+        reason="Penugasan ulang pengganti akun dinonaktifkan",
+        admin_id=ADMIN_ID,
+    )
+
+    assert len(notifier.panggilan) == 1
+    user_ids, jenis, payload = notifier.panggilan[0]
+    assert user_ids == [REVIEWER_3]
+    assert jenis == "review_assigned"
+    assert payload["link"] == f"/reviews/{new_tugas.id}"
+
+
+def test_replace_reviewer_ditolak_tidak_memberi_tahu_siapa_pun(db_session, case_data, monkeypatch):
+    """Penggantian yang gagal validasi tidak boleh meninggalkan notifikasi."""
+    notifier = FakeNotifier()
+    monkeypatch.setattr(service, "DbNotifier", lambda: notifier)
+
+    with pytest.raises(ValidationError):
+        service.replace_reviewer(
+            db_session,
+            assignment_id=case_data["tugas1"].id,
+            new_reviewer_id=REVIEWER_2,
+            reason="Reviewer sudah ada di round ini",
+            admin_id=ADMIN_ID,
+        )
+
+    assert notifier.panggilan == []
+
+
 def test_replace_reviewer_service_mengganti_assignment_void(db_session, case_data):
     """AC8: Mengganti reviewer yang sebelumnya di-void akunnya."""
     tugas1 = case_data["tugas1"]

@@ -6,7 +6,7 @@ kerja nyata lewat HTTP:
 
 - AC1: angka dashboard sesuai data per peran (Admin, Author, Reviewer)
 - AC3: ditugaskan review -> reviewer menerima notifikasi dengan link review (/reviews/{assignment_id})
-- AC3: reviewer pengganti menerima notifikasi (xfail: service replace_reviewer masih default NoopNotifier)
+- AC3: reviewer pengganti menerima notifikasi
 - AC7: kasus disetujui / dikembalikan revisi -> Author menerima notifikasi ke editor (/cases/{case_id}/edit)
 - AC5: klik notifikasi -> terbaca (read_at terisi) dan membawa link review nyata
 - Edge: lebih dari 99 notifikasi belum dibaca -> unread count tetap akurat (FE: '99+')
@@ -216,12 +216,6 @@ def test_ac3_penggantian_reviewer_menghasilkan_notifikasi_ke_reviewer_baru(
     res_notif = client.get("/notifications")
     assert res_notif.status_code == 200
     items = res_notif.json()["items"]
-    if not (
-        len(items) == 1
-        and items[0]["type"] == "review_assigned"
-        and items[0]["link"] == f"/reviews/{new_assignment_id}"
-    ):
-        pytest.xfail("SCRUM-147 _notify_replacement di service review masih default NoopNotifier")
     assert len(items) == 1
     assert items[0]["type"] == "review_assigned"
     assert items[0]["link"] == f"/reviews/{new_assignment_id}"
