@@ -22,8 +22,12 @@ from app.modules.audit.models import AuditLog
 from scripts import demo_audit_retention as demo
 
 SEKARANG = datetime(2026, 10, 19, 10, 0, tzinfo=UTC)
-URL_DEV = "postgresql+psycopg://indolegalbench:rahasia@db:5432/indolegalbench"
-URL_RETENSI = "postgresql+psycopg://ilb_retention:rahasia@db:5432/indolegalbench"
+URL_DEV = (
+    "postgresql+psycopg://indolegalbench:rahasia@db:5432/indolegalbench"  # pragma: allowlist secret
+)
+URL_RETENSI = (
+    "postgresql+psycopg://ilb_retention:rahasia@db:5432/indolegalbench"  # pragma: allowlist secret
+)
 
 
 def _alasan(**ubah) -> str | None:
@@ -49,7 +53,7 @@ def test_stack_dev_atau_lokal_dengan_flag_diizinkan(app_env):
 @pytest.mark.parametrize("host", ["localhost", "127.0.0.1"])
 def test_database_di_mesin_sendiri_diizinkan(host):
     # Arrange
-    url = f"postgresql+psycopg://indolegalbench:rahasia@{host}:5432/indolegalbench"
+    url = f"postgresql+psycopg://indolegalbench:rahasia@{host}:5432/indolegalbench"  # pragma: allowlist secret
 
     # Act + Assert
     assert _alasan(database_url=url, retention_url=url) is None
@@ -80,7 +84,7 @@ def test_app_env_yang_tidak_dikenal_ditolak(app_env):
 @pytest.mark.parametrize("kolom", ["database_url", "retention_url"])
 def test_database_di_host_lain_ditolak(kolom):
     # Arrange
-    url = "postgresql+psycopg://indolegalbench:rahasia@api.indolegalbench.veritask.ai/x"
+    url = "postgresql+psycopg://indolegalbench:rahasia@api.indolegalbench.veritask.ai/x"  # pragma: allowlist secret
 
     # Act
     alasan = _alasan(**{kolom: url})
