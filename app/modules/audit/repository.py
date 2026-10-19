@@ -27,6 +27,8 @@ class SearchCriteria:
     entity_type: str | None = None
     actor_ids: tuple[uuid.UUID, ...] | None = None
     case_id: uuid.UUID | None = None
+    # Kasus yang kodenya cocok dengan saringan "Kode kasus" (F-06).
+    case_ids: tuple[uuid.UUID, ...] | None = None
     # Cakupan kasus Reviewer (AC5). Himpunan kosong berarti tidak ada baris.
     case_scope: frozenset[uuid.UUID] | None = None
 
@@ -68,6 +70,8 @@ def _filtered(query: Select, criteria: SearchCriteria) -> Select:
         query = query.where(AuditLog.actor_user_id.in_(criteria.actor_ids))
     if criteria.case_id is not None:
         query = query.where(AuditLog.case_id == criteria.case_id)
+    if criteria.case_ids is not None:
+        query = query.where(AuditLog.case_id.in_(criteria.case_ids))
     if criteria.case_scope is not None:
         query = query.where(AuditLog.case_id.in_(criteria.case_scope))
     return query

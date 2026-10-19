@@ -109,6 +109,17 @@ def set_active(db: Session, product_id: uuid.UUID, *, is_active: bool) -> AiProd
     return _tampilkan(repository.save(db, product))
 
 
+def product_names(db: Session, product_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Nama produk AI untuk kolom Objek audit log (F-06).
+
+    Produk yang sudah dihapus tetap bernama, supaya catatan
+    ai_product.deleted masih terbaca. Id tanpa baris produk tidak ikut.
+    """
+    if not product_ids:
+        return {}
+    return repository.names_by_ids(db, product_ids)
+
+
 def test_connection(db: Session, product_id: uuid.UUID) -> ConnectionTestRead:
     """Uji koneksi satu kali. Produk nonaktif tetap boleh diuji.
 

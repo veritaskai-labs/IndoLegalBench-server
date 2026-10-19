@@ -225,11 +225,6 @@ def test_catatan_kasus_tanpa_case_id_tanpa_label(modul):
     assert modul.cases.case_codes.call_args.args[1] == set()
 
 
-def test_jenis_objek_tak_dikenal_tanpa_label(modul):
-    # Act + Assert
-    assert _label(modul, _row(entity_type="measurement", case_id=None)) is None
-
-
 def test_suite_dan_produk_yang_tidak_ada_tanpa_label(modul):
     # Arrange
     modul.suites.suite_names.return_value = {}

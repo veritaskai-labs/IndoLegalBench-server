@@ -22,6 +22,12 @@ def get_by_id(db: Session, product_id: uuid.UUID) -> AiProduct | None:
     )
 
 
+def names_by_ids(db: Session, product_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Nama produk per id, sengaja termasuk produk yang sudah dihapus."""
+    rows = db.query(AiProduct.id, AiProduct.name).filter(AiProduct.id.in_(product_ids)).all()
+    return dict(rows)
+
+
 def get_by_name(db: Session, name: str) -> AiProduct | None:
     """Hanya mencari produk yang belum dihapus, sesuai partial unique index."""
     return (

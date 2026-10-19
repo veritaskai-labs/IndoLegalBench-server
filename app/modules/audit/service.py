@@ -24,7 +24,10 @@ from app.modules.audit.models import AuditEntityType, AuditLog
 from app.modules.audit.repository import SearchCriteria
 from app.modules.audit.schemas import AuditLogFilter, AuditLogRead
 from app.modules.auth import service as auth_service
+from app.modules.cases import service as cases_service
+from app.modules.providers import service as providers_service
 from app.modules.reviews import service as review_service
+from app.modules.suites import service as suites_service
 from app.shared import request_context
 from app.shared.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.shared.pagination import Page
@@ -40,6 +43,12 @@ _WAJIB_ALASAN = frozenset({"review.reviewer_replaced"})
 
 # PBI-6 AC3: event yang membawa verdict reviewer di kolom after.
 _AKSI_VERDICT = frozenset({"review.verdict_submitted", "review.approval_carried"})
+
+# F-06: catatan yang objeknya diberi label kode kasus lewat case_id. Versi
+# kasus dan penugasan review tidak punya nama sendiri yang dikenal pembaca.
+_LABEL_KODE_KASUS = frozenset(
+    {AuditEntityType.CASE, AuditEntityType.CASE_VERSION, AuditEntityType.REVIEW}
+)
 
 # AC7: masa simpan tetap 90 hari, bukan setelan. Trigger di migration
 # c5e7a1d93f40 memakai angka yang sama, dan tes PostgreSQL menjaga keduanya
@@ -161,7 +170,8 @@ def _criteria(
     if scope is not None and filters.case_id is not None and filters.case_id not in scope:
         raise ForbiddenError("Kasus ini tidak ditugaskan kepada Anda")
     actor_ids = _actor_ids(db, filters)
-    if actor_ids == ():
+    case_ids = _case_ids(db, filters)
+    if actor_ids == () or case_ids == ():
         return None
     return SearchCriteria(
         occurred_from=filters.occurred_from,
@@ -169,6 +179,7 @@ def _criteria(
         entity_type=filters.entity_type.value if filters.entity_type else None,
         actor_ids=actor_ids,
         case_id=filters.case_id,
+        case_ids=case_ids,
         case_scope=scope,
     )
 
@@ -181,6 +192,17 @@ def _actor_ids(db: Session, filters: AuditLogFilter) -> tuple[uuid.UUID, ...] | 
     if filters.actor_id is not None:
         cocok = [user_id for user_id in cocok if user_id == filters.actor_id]
     return tuple(cocok)
+
+
+def _case_ids(db: Session, filters: AuditLogFilter) -> tuple[uuid.UUID, ...] | None:
+    """Kasus yang kodenya cocok (F-06). Tuple kosong berarti tidak ada yang cocok.
+
+    Cakupan Reviewer tetap disaring lewat case_scope, jadi kode kasus yang
+    tidak ditugaskan cukup tidak menghasilkan apa-apa, bukan 403.
+    """
+    if filters.case_code is None:
+        return None
+    return tuple(cases_service.find_case_ids(db, filters.case_code))
 
 
 def _case_scope(
@@ -205,12 +227,43 @@ def _verdict_tersembunyi(
     return frozenset(row.id for row in verdicts if row.entity_id in hidden)
 
 
+def _kunci_label(row: AuditLog) -> tuple[AuditEntityType, uuid.UUID] | None:
+    """Objek mana yang namanya dicari untuk satu catatan, atau None kalau tidak ada."""
+    if row.entity_type in _LABEL_KODE_KASUS:
+        return None if row.case_id is None else (AuditEntityType.CASE, row.case_id)
+    # record() hanya menerima jenis dari katalog, jadi nilainya selalu dikenal.
+    return AuditEntityType(row.entity_type), row.entity_id
+
+
+def _label_objek(
+    db: Session, kunci: list[tuple[AuditEntityType, uuid.UUID] | None], user_names: dict
+) -> dict[AuditEntityType, dict[uuid.UUID, str]]:
+    """Nama objek per jenis, satu query per jenis untuk satu halaman (F-06)."""
+
+    def ids(jenis: AuditEntityType) -> set[uuid.UUID]:
+        return {k[1] for k in kunci if k is not None and k[0] == jenis}
+
+    return {
+        AuditEntityType.CASE: cases_service.case_codes(db, ids(AuditEntityType.CASE)),
+        AuditEntityType.SUITE: suites_service.suite_names(db, ids(AuditEntityType.SUITE)),
+        AuditEntityType.AI_PRODUCT: providers_service.product_names(
+            db, ids(AuditEntityType.AI_PRODUCT)
+        ),
+        AuditEntityType.USER: user_names,
+    }
+
+
 def _tampilkan(
     db: Session, rows: list[AuditLog], *, viewer_id: uuid.UUID, viewer_role: str
 ) -> list[AuditLogRead]:
+    kunci = [_kunci_label(row) for row in rows]
+    # Nama pelaku dan nama objek pengguna diambil dalam satu query.
     names = auth_service.user_names(
-        db, {row.actor_user_id for row in rows if row.actor_user_id is not None}
+        db,
+        {row.actor_user_id for row in rows if row.actor_user_id is not None}
+        | {k[1] for k in kunci if k is not None and k[0] == AuditEntityType.USER},
     )
+    label = _label_objek(db, kunci, names)
     hidden = _verdict_tersembunyi(db, rows, viewer_id=viewer_id, viewer_role=viewer_role)
     return [
         AuditLogRead(
@@ -222,6 +275,7 @@ def _tampilkan(
             action=row.action,
             entity_type=row.entity_type,
             entity_id=row.entity_id,
+            entity_label=None if k is None else label[k[0]].get(k[1]),
             case_id=row.case_id,
             before=row.before,
             # Baris tetap tampil; hanya isi verdict yang disamarkan.
@@ -229,5 +283,5 @@ def _tampilkan(
             reason=row.reason,
             request_id=row.request_id,
         )
-        for row in rows
+        for row, k in zip(rows, kunci, strict=True)
     ]

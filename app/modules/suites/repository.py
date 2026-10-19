@@ -21,6 +21,12 @@ def get_by_id(db: Session, suite_id: uuid.UUID) -> Suite | None:
     return suite
 
 
+def names_by_ids(db: Session, suite_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Nama suite per id, termasuk suite yang sudah dihapus."""
+    rows = db.query(Suite.id, Suite.name).filter(Suite.id.in_(suite_ids)).all()
+    return dict(rows)
+
+
 def get_by_name(db: Session, name: str) -> Suite | None:
     """Cari nama tanpa peduli kapital, termasuk baris yang sudah dihapus.
 
