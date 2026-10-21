@@ -78,6 +78,14 @@ def test_contoh_ac10_dirangkai_dengan_jo():
     assert _pratinjau(rujukan_ac10()) == [_teks(TEKS_AC10)]
 
 
+def test_angka_romawi_ditulis_sesuai_input():
+    """Temuan Ka Steven: pratinjau tidak mengubah Angka Romawi menjadi angka biasa."""
+    rujukan = rujukan_ac10()
+    rujukan["links"][1]["angka"] = "IV"
+
+    assert _pratinjau(rujukan) == [_teks("Pasal 156 UU 13/2003 jo. Pasal II Angka IV UU 6/2023")]
+
+
 def test_teks_bebas_dikembalikan_apa_adanya_seperti_display_text_simpan():
     """Client yang menyembunyikan pratinjau Teks Bebas (keputusan PO no. 9)."""
     rujukan = {"kind": "free_text", "links": [], "free_text": "  Format teks bebas  "}

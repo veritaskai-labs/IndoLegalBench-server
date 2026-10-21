@@ -82,6 +82,23 @@ def test_buat_kasus_dengan_contoh_ac10_mengembalikan_bentuk_baru(as_role):
     assert respons.json()["legal_refs"] == [_rujukan_terbaca(rujukan_ac10(), TEKS_AC10)]
 
 
+def test_angka_romawi_tersimpan_dan_ditulis_seperti_input(as_role):
+    """Temuan Ka Steven: Pasal II Angka IV tidak perlu lagi jatuh ke Teks Bebas."""
+    # Arrange
+    client = as_role(Role.AUTHOR)
+    rujukan = rujukan_ac10()
+    rujukan["links"][1]["angka"] = "IV"
+
+    # Act
+    respons = _buat(client, _suite(client), legal_refs=[rujukan])
+
+    # Assert
+    assert respons.status_code == 201, respons.text
+    assert respons.json()["legal_refs"] == [
+        _rujukan_terbaca(rujukan, "Pasal 156 UU 13/2003 jo. Pasal II Angka IV UU 6/2023")
+    ]
+
+
 def test_lebih_dari_satu_rujukan_tersimpan_berurutan(as_role):
     """AC1: KTK-001, contoh AC10, lalu teks bebas (AC7) dalam satu kasus."""
     # Arrange
@@ -170,6 +187,11 @@ def _rusak(ubah) -> list[dict[str, Any]]:
             "legal_refs[1].links[1].pasal",
         ),
         (
+            lambda r: r["links"][1].update(angka="IIII"),
+            "VALIDATION_ERROR",
+            "legal_refs[1].links[1].angka",
+        ),
+        (
             lambda r: r["links"][0].update(form="free_text"),
             "VALIDATION_ERROR",
             "legal_refs[1].links[0].form",
@@ -190,6 +212,7 @@ def _rusak(ubah) -> list[dict[str, Any]]:
         "structured-tanpa-link",
         "tanpa-kind",
         "romawi-tidak-sah",
+        "angka-romawi-tidak-sah",
         "bentuk-link-salah",
         "penghubung-pakai-titik",
     ],

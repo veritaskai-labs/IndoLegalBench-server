@@ -270,10 +270,36 @@ def test_pasal_format_salah_ditolak(pasal):
     assert _gagal_di(_link(pasal=pasal)) == ["pasal"]
 
 
-@pytest.mark.parametrize("angka", ["0", "01", "1A", "I", "-1", "1.5"])
-def test_angka_bukan_digit_ditolak(angka):
+@pytest.mark.parametrize(
+    "angka",
+    ["1", "5", "10", "I", "II", "IV", "IX", "XIV", "XL", "XC", "CD", "CM", "MCMXC"],
+    ids=lambda nilai: f"format-{nilai}",
+)
+def test_angka_biasa_atau_romawi_diterima(angka):
+    """Temuan Ka Steven: Angka menerima angka Romawi seperti Pasal."""
+    # Act
+    link = LegalRefLinkWrite.model_validate(_link(form="pasal_angka", angka=angka))
+
+    # Assert
+    assert link.angka == angka
+
+
+@pytest.mark.parametrize(
+    "angka",
+    ["0", "01", "1A", "-1", "1.5", "IIII", "VV", "IC", "iv", "ii", "I V", "Angka 5"],
+    ids=lambda nilai: f"format-{nilai}",
+)
+def test_angka_format_salah_ditolak(angka):
     # Act + Assert
-    assert _gagal_di(_link(angka=angka)) == ["angka"]
+    assert _gagal_di(_link(form="pasal_angka", angka=angka)) == ["angka"]
+
+
+def test_angka_romawi_dibersihkan_dari_spasi_tepi():
+    # Act
+    link = LegalRefLinkWrite.model_validate(_link(form="pasal_angka", angka=" XIV "))
+
+    # Assert
+    assert link.angka == "XIV"
 
 
 @pytest.mark.parametrize("tahun", [0, -1, 10000])
