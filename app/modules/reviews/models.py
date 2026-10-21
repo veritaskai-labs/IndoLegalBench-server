@@ -32,6 +32,8 @@ from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.database import Base
 
+_USER_FK = "users.id"
+
 
 class RoundStatus(StrEnum):
     """awaiting_assignment sampai dua reviewer aktif terpasang (SCRUM-144)."""
@@ -134,7 +136,7 @@ class ReviewAssignment(Base):
     )
     reviewer_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("users.id", name="fk_review_assignments_reviewer_id"),
+        ForeignKey(_USER_FK, name="fk_review_assignments_reviewer_id"),
         nullable=False,
     )
     source: Mapped[AssignmentSource] = mapped_column(
@@ -145,7 +147,7 @@ class ReviewAssignment(Base):
     # Kosong bila source = system (D4a).
     assigned_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("users.id", name="fk_review_assignments_assigned_by"),
+        ForeignKey(_USER_FK, name="fk_review_assignments_assigned_by"),
         nullable=True,
     )
     assigned_at: Mapped[datetime] = mapped_column(
@@ -224,7 +226,7 @@ class ReviewCommentReply(Base):
         Uuid(as_uuid=True), ForeignKey("review_assignments.id"), nullable=False
     )
     author_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey(_USER_FK), nullable=False
     )
     body: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(
