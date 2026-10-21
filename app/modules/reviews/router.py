@@ -247,7 +247,7 @@ def get_discussion(
     "/reviews/{assignment_id}/replies",
     response_model=CommentReplyRead,
     status_code=status.HTTP_201_CREATED,
-    summary="Penulis membalas komentar peninjau (K-03)",
+    summary="Penulis dan peninjau membalas diskusi komentar (K-03)",
     responses={
         401: {"model": ErrorBody},
         403: {"model": ErrorBody},
@@ -259,7 +259,7 @@ def reply_to_comment(
     assignment_id: uuid.UUID,
     payload: CommentReplyWrite,
     db: Session = Depends(get_db),
-    user: CurrentUser = Depends(require_roles(Role.AUTHOR)),
+    user: CurrentUser = Depends(require_roles(Role.AUTHOR, Role.REVIEWER)),
 ) -> CommentReplyRead:
     return service.reply_to_comment(
         db, assignment_id, Viewer(_user_id(user), Role(user.role)), payload

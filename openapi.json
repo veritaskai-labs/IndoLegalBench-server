@@ -2657,7 +2657,7 @@
         "tags": [
           "reviews"
         ],
-        "summary": "Penulis membalas komentar peninjau (K-03)",
+        "summary": "Penulis dan peninjau membalas diskusi komentar (K-03)",
         "operationId": "reply_to_comment_reviews__assignment_id__replies_post",
         "parameters": [
           {
@@ -4516,6 +4516,23 @@
       },
       "CommentDiscussion": {
         "properties": {
+          "round_no": {
+            "type": "integer",
+            "title": "Round No"
+          },
+          "round_status": {
+            "$ref": "#/components/schemas/RoundStatus"
+          },
+          "viewer_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Viewer Id"
+          },
+          "commented_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Commented At"
+          },
           "assignment_id": {
             "type": "string",
             "format": "uuid",
@@ -4548,6 +4565,10 @@
         },
         "type": "object",
         "required": [
+          "round_no",
+          "round_status",
+          "viewer_id",
+          "commented_at",
           "assignment_id",
           "case_id",
           "reviewer_name",
@@ -4569,6 +4590,18 @@
             "format": "uuid",
             "title": "Author Id"
           },
+          "author_name": {
+            "type": "string",
+            "title": "Author Name"
+          },
+          "author_role": {
+            "type": "string",
+            "enum": [
+              "author",
+              "reviewer"
+            ],
+            "title": "Author Role"
+          },
           "body": {
             "type": "string",
             "title": "Body"
@@ -4583,6 +4616,8 @@
         "required": [
           "id",
           "author_id",
+          "author_name",
+          "author_role",
           "body",
           "created_at"
         ],

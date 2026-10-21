@@ -22,6 +22,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    String,
     Text,
     UniqueConstraint,
     Uuid,
@@ -211,7 +212,7 @@ class ReviewVerdict(Base):
 
 
 class ReviewCommentReply(Base):
-    """Balasan Author pada komentar satu assignment; tidak mengubah verdict."""
+    """Pesan penulis/peninjau pada satu komentar; tidak mengubah verdict."""
 
     __tablename__ = "review_comment_replies"
     __table_args__ = (
@@ -219,6 +220,9 @@ class ReviewCommentReply(Base):
             "length(trim(body)) > 0 AND length(body) <= 5000", name="ck_review_reply_body"
         ),
         Index("ix_review_comment_replies_assignment_created", "assignment_id", "created_at"),
+        CheckConstraint(
+            "author_role IN ('author', 'reviewer')", name="ck_review_reply_author_role"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -227,6 +231,9 @@ class ReviewCommentReply(Base):
     )
     author_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey(_USER_FK), nullable=False
+    )
+    author_role: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="author", server_default="author"
     )
     body: Mapped[str] = mapped_column(Text, nullable=False)
     created_at: Mapped[datetime] = mapped_column(

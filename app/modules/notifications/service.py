@@ -20,6 +20,7 @@ from app.modules.notifications.schemas import NotificationRead, UnreadCount
 from app.shared.database import get_session_factory
 from app.shared.exceptions import ForbiddenError, NotFoundError
 from app.shared.pagination import Page
+from app.shared.security import Role
 
 logger = logging.getLogger(__name__)
 
@@ -139,7 +140,9 @@ class DbNotifier:
                 db.close()
 
 
-def enqueue_review_reply(db: Session, *, reviewer_id: uuid.UUID, assignment_id: uuid.UUID) -> None:
+def enqueue_review_reply(
+    db: Session, *, recipient_id: uuid.UUID, assignment_id: uuid.UUID, sender_role: Role
+) -> None:
     """K-03: notification, reply and audit share the caller's transaction.
 
     No comment content in the bell; opening the link rechecks access.
@@ -148,10 +151,12 @@ def enqueue_review_reply(db: Session, *, reviewer_id: uuid.UUID, assignment_id: 
         db,
         [
             Notification(
-                user_id=reviewer_id,
+                user_id=recipient_id,
                 type="review_comment_replied",
-                title="Balasan penulis pada komentar Anda",
-                body="Penulis membalas komentar tinjauan Anda. Buka diskusi untuk membaca balasan.",
+                title="Balasan peninjau pada diskusi Anda"
+                if sender_role == Role.REVIEWER
+                else "Balasan penulis pada komentar Anda",
+                body="Ada balasan baru pada diskusi tinjauan Anda. Buka diskusi untuk membacanya.",
                 link=f"/reviews/{assignment_id}/discussion",
             )
         ],
