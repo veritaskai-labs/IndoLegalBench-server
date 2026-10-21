@@ -292,3 +292,13 @@ def get_rounds_needing_reassignment(db: Session) -> list[ReviewRound]:
             select(ReviewRound).where(_needs_reassignment()).order_by(ReviewRound.opened_at.asc())
         ).all()
     )
+
+
+def comment_replies(db: Session, assignment_id: uuid.UUID):
+    from app.modules.reviews.models import ReviewCommentReply
+
+    return db.scalars(
+        select(ReviewCommentReply)
+        .where(ReviewCommentReply.assignment_id == assignment_id)
+        .order_by(ReviewCommentReply.created_at, ReviewCommentReply.id)
+    ).all()

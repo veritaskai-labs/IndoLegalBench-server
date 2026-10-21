@@ -12,7 +12,7 @@ suite_snapshot_items. Dengan begitu pencatat audit dan cakupan Reviewer
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from enum import StrEnum
 
 from sqlalchemy import (
@@ -206,3 +206,29 @@ class ReviewVerdict(Base):
     assignment: Mapped[ReviewAssignment] = relationship(
         back_populates="verdict", load_on_pending=True
     )
+
+
+class ReviewCommentReply(Base):
+    """Balasan Author pada komentar satu assignment; tidak mengubah verdict."""
+
+    __tablename__ = "review_comment_replies"
+    __table_args__ = (
+        CheckConstraint(
+            "length(trim(body)) > 0 AND length(body) <= 5000", name="ck_review_reply_body"
+        ),
+        Index("ix_review_comment_replies_assignment_created", "assignment_id", "created_at"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    assignment_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("review_assignments.id"), nullable=False
+    )
+    author_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), default=lambda: datetime.now(UTC), nullable=False
+    )
+
+    assignment: Mapped[ReviewAssignment] = relationship(load_on_pending=True)

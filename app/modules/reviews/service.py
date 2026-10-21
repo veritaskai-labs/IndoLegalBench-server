@@ -861,3 +861,18 @@ def _cases():
     from app.modules.cases import service as cases_service
 
     return cases_service
+
+
+# Public module boundary: HTTP callers never import internal discussion rules directly.
+
+
+def read_comment_discussion(db: Session, assignment_id: uuid.UUID, viewer: Viewer):
+    from app.modules.reviews import discussion
+
+    return discussion.read(db, assignment_id, viewer)
+
+
+def reply_to_comment(db: Session, assignment_id: uuid.UUID, viewer: Viewer, payload):
+    from app.modules.reviews import discussion
+
+    return discussion.reply(db, assignment_id, viewer, payload)

@@ -14,6 +14,9 @@ from app.modules.reviews import service
 from app.modules.reviews.schemas import (
     AssignedReview,
     CaseReview,
+    CommentDiscussion,
+    CommentReplyRead,
+    CommentReplyWrite,
     InReviewCase,
     NeedsReassignmentResponse,
     ReplaceReviewerRequest,
@@ -222,3 +225,42 @@ def get_case_review(
     Admin sees every verdict at any time (client decision in SCRUM-145).
     """
     return service.get_case_review(db, case_id, Viewer(_user_id(user), Role(user.role)))
+
+
+@router.get(
+    "/reviews/{assignment_id}/discussion",
+    response_model=CommentDiscussion,
+    summary="Komentar peninjau dan balasan penulis (K-03)",
+    responses={401: {"model": ErrorBody}, 403: {"model": ErrorBody}, 404: {"model": ErrorBody}},
+)
+def get_discussion(
+    assignment_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(_can_read_review),
+) -> CommentDiscussion:
+    return service.read_comment_discussion(
+        db, assignment_id, Viewer(_user_id(user), Role(user.role))
+    )
+
+
+@router.post(
+    "/reviews/{assignment_id}/replies",
+    response_model=CommentReplyRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Penulis membalas komentar peninjau (K-03)",
+    responses={
+        401: {"model": ErrorBody},
+        403: {"model": ErrorBody},
+        404: {"model": ErrorBody},
+        409: {"model": ErrorBody},
+    },
+)
+def reply_to_comment(
+    assignment_id: uuid.UUID,
+    payload: CommentReplyWrite,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_roles(Role.AUTHOR)),
+) -> CommentReplyRead:
+    return service.reply_to_comment(
+        db, assignment_id, Viewer(_user_id(user), Role(user.role)), payload
+    )

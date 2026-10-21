@@ -140,3 +140,72 @@ def test_replies_keep_order_and_maximum_body(thread):
     second = post(client, ids[REVIEWER_A], "Second")
     assert first.status_code == second.status_code == 201
     assert client.get(url(ids[REVIEWER_A])).json()["replies"] == [first.json(), second.json()]
+
+
+def test_pending_comment_hidden_even_if_assignment_exists(kasus, jadi):
+    client, _, ids = kasus
+    jadi(Role.REVIEWER, REVIEWER_A)
+    assert client.get(url(ids[REVIEWER_A])).status_code == 404
+
+
+def test_payload_cannot_spoof_author_or_assignment(thread):
+    client, _, ids = thread
+    result = client.post(
+        f"/reviews/{ids[REVIEWER_A]}/replies",
+        json={
+            "body": "Hello",
+            "author_id": str(REVIEWER_B),
+            "assignment_id": ids[REVIEWER_B],
+        },
+    )
+    assert result.status_code == 422
+
+
+def test_unauthenticated_requests_rejected(thread):
+    from app.main import app
+    from app.shared.security import get_current_user
+
+    client, _, ids = thread
+    app.dependency_overrides.pop(get_current_user)
+    assert client.get(url(ids[REVIEWER_A])).status_code == 401
+    assert post(client, ids[REVIEWER_A]).status_code == 401
+
+
+def test_notification_failure_rolls_back_reply_and_audit(thread, db_session, monkeypatch):
+    from app.modules.reviews import service
+    from app.modules.reviews.models import ReviewCommentReply
+    from app.modules.reviews.schemas import CommentReplyWrite
+    from app.modules.reviews.visibility import Viewer
+
+    _, _, ids = thread
+
+    def fail(*args, **kwargs):
+        raise RuntimeError("notification storage unavailable")
+
+    monkeypatch.setattr("app.modules.notifications.service.enqueue_review_reply", fail)
+    with pytest.raises(RuntimeError, match="notification storage unavailable"):
+        service.reply_to_comment(
+            db_session,
+            uuid.UUID(ids[REVIEWER_A]),
+            Viewer(USER_ID_QA, Role.AUTHOR),
+            CommentReplyWrite(body="Please clarify"),
+        )
+    db_session.rollback()
+    assert db_session.query(ReviewCommentReply).count() == 0
+    assert db_session.query(AuditLog).filter_by(action="review.comment_replied").count() == 0
+
+
+def test_service_itself_rejects_read_only_participants(thread, db_session):
+    from app.modules.reviews import service
+    from app.modules.reviews.schemas import CommentReplyWrite
+    from app.modules.reviews.visibility import Viewer
+    from app.shared.exceptions import ForbiddenError
+
+    _, _, ids = thread
+    with pytest.raises(ForbiddenError, match="Hanya penulis kasus"):
+        service.reply_to_comment(
+            db_session,
+            uuid.UUID(ids[REVIEWER_A]),
+            Viewer(REVIEWER_A, Role.REVIEWER),
+            CommentReplyWrite(body="Not an author"),
+        )

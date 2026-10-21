@@ -137,3 +137,22 @@ class DbNotifier:
         finally:
             if db is not None:
                 db.close()
+
+
+def enqueue_review_reply(db: Session, *, reviewer_id: uuid.UUID, assignment_id: uuid.UUID) -> None:
+    """K-03: notification, reply and audit share the caller's transaction.
+
+    No comment content in the bell; opening the link rechecks access.
+    """
+    repository.insert_many(
+        db,
+        [
+            Notification(
+                user_id=reviewer_id,
+                type="review_comment_replied",
+                title="Balasan penulis pada komentar Anda",
+                body="Penulis membalas komentar tinjauan Anda. Buka diskusi untuk membaca balasan.",
+                link=f"/reviews/{assignment_id}/discussion",
+            )
+        ],
+    )

@@ -306,6 +306,23 @@ class ReviewVerdictTracker(Tracker):
         ]
 
 
+class ReviewCommentReplyTracker(Tracker):
+    """K-03: trace a reply without copying private discussion text into audit payloads."""
+
+    entity_type = AuditEntityType.REVIEW
+    prefix = "review"
+
+    def created(self, row: Any) -> list[AuditEvent]:
+        return [
+            AuditEvent(
+                action="review.comment_replied",
+                entity_id=row.assignment_id,
+                case_id=row.assignment.review_round.case_id,
+                after={"reply_id": str(row.id)},
+            )
+        ]
+
+
 class AiProductTracker(Tracker):
     entity_type = AuditEntityType.AI_PRODUCT
     prefix = "ai_product"
@@ -375,6 +392,7 @@ TRACKERS: dict[str, Tracker] = {
     "review_rounds": ReviewRoundTracker(),
     "review_assignments": ReviewAssignmentTracker(),
     "review_verdicts": ReviewVerdictTracker(),
+    "review_comment_replies": ReviewCommentReplyTracker(),
     "ai_products": AiProductTracker(),
     "users": UserTracker(),
 }
