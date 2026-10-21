@@ -28,11 +28,12 @@ FIELD_TERLARANG_PER_BENTUK = {
 # PBI-21 AC5: pasal angka biasa atau Romawi yang sah (huruf besar). Akhiran
 # satu huruf besar ("1A", pasal sisipan) usulan PO, menunggu konfirmasi Steven.
 # Tanpa lookaround supaya sama di regex Pydantic (Rust) dan zod (JavaScript).
-POLA_PASAL = (
-    r"^(?:[1-9][0-9]*[A-Z]?"
-    r"|M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3}))$"
-)
-POLA_ANGKA = r"^[1-9][0-9]*$"
+# Pola Romawi cocok juga dengan string kosong, tetapi field opsional yang kosong
+# sudah menjadi None sebelum pola diperiksa (clean_optional di schemas.py).
+_ROMAWI = r"M{0,3}(?:CM|CD|D?C{0,3})(?:XC|XL|L?X{0,3})(?:IX|IV|V?I{0,3})"
+POLA_PASAL = rf"^(?:[1-9][0-9]*[A-Z]?|{_ROMAWI})$"
+# Angka: angka biasa atau Romawi, tanpa akhiran huruf (temuan Ka Steven).
+POLA_ANGKA = rf"^(?:[1-9][0-9]*|{_ROMAWI})$"
 
 _POLA_KODE = re.compile(PLACEHOLDER_CASE_CODE_PATTERN)
 
