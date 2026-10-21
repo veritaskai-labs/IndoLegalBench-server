@@ -75,7 +75,7 @@ def test_author_reply_persists_and_notifies_only_comment_owner(thread, jadi, db_
     mine = client.get(url(ids[REVIEWER_A]))
     assert mine.status_code == 200
     assert mine.json()["replies"] == [reply]
-    assert mine.json()["can_reply"] is False
+    assert mine.json()["can_reply"] is True
 
 
 @pytest.mark.parametrize(
@@ -89,9 +89,9 @@ def test_unrelated_users_cannot_read_or_reply(thread, jadi, role, identity):
     assert post(client, ids[REVIEWER_A]).status_code == 403
 
 
-def test_admin_and_reviewer_read_only(thread, jadi):
+def test_admin_read_only(thread, jadi):
     client, _, ids = thread
-    for role, identity in [(Role.ADMIN, uuid.uuid4()), (Role.REVIEWER, REVIEWER_A)]:
+    for role, identity in [(Role.ADMIN, uuid.uuid4())]:
         jadi(role, identity)
         assert client.get(url(ids[REVIEWER_A])).status_code == 200
         assert post(client, ids[REVIEWER_A]).status_code == 403
@@ -202,10 +202,45 @@ def test_service_itself_rejects_read_only_participants(thread, db_session):
     from app.shared.exceptions import ForbiddenError
 
     _, _, ids = thread
-    with pytest.raises(ForbiddenError, match="Hanya penulis kasus"):
+    with pytest.raises(ForbiddenError, match="boleh membalas"):
         service.reply_to_comment(
             db_session,
             uuid.UUID(ids[REVIEWER_A]),
-            Viewer(REVIEWER_A, Role.REVIEWER),
-            CommentReplyWrite(body="Not an author"),
+            Viewer(uuid.uuid4(), Role.ADMIN),
+            CommentReplyWrite(body="Not a participant"),
         )
+
+
+@pytest.mark.parametrize("round_no", [2, 3])
+def test_author_and_own_reviewer_discuss_in_later_rounds(thread, jadi, db_session, round_no):
+    client, _, ids = thread
+    task = db_session.get(ReviewAssignment, uuid.UUID(ids[REVIEWER_A]))
+    task.review_round.round_no = round_no
+    db_session.commit()
+    first = post(client, ids[REVIEWER_A], "Apa dasar catatan ini?")
+    assert first.status_code == 201
+    jadi(Role.REVIEWER, REVIEWER_A)
+    response = post(client, ids[REVIEWER_A], "Yang perlu diperjelas adalah bagian penjelasannya.")
+    assert response.status_code == 201
+    assert response.json()["author_role"] == "reviewer"
+    assert response.json()["author_id"] == str(REVIEWER_A)
+    assert response.json()["author_name"]
+    discussion = client.get(url(ids[REVIEWER_A])).json()
+    assert discussion["round_no"] == round_no
+    assert discussion["viewer_id"] == str(REVIEWER_A)
+    assert [r["author_role"] for r in discussion["replies"]] == ["author", "reviewer"]
+    notices = db_session.query(Notification).filter_by(type="review_comment_replied").all()
+    assert [n.user_id for n in notices] == [REVIEWER_A, USER_ID_QA]
+    assert "peninjau" in notices[1].title.lower()
+    events = db_session.query(AuditLog).filter_by(action="review.comment_replied").all()
+    assert [e.actor_user_id for e in events] == [USER_ID_QA, REVIEWER_A]
+    jadi(Role.AUTHOR, USER_ID_QA)
+    assert client.get(url(ids[REVIEWER_A])).json()["replies"] == discussion["replies"]
+
+
+def test_reviewer_cannot_write_while_round_is_still_blind(kasus, jadi):
+    client, _, ids = kasus
+    jadi(Role.REVIEWER, REVIEWER_A)
+    _nilai(client, ids[REVIEWER_A], "revise", "Private until both reviews finish")
+    assert client.get(url(ids[REVIEWER_A])).json()["can_reply"] is False
+    assert post(client, ids[REVIEWER_A]).status_code == 409
