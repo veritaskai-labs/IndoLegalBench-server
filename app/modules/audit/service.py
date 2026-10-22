@@ -257,16 +257,24 @@ def _label_objek(
     }
 
 
+def _email(
+    identities: dict[uuid.UUID, auth_service.UserIdentity], user_id: uuid.UUID | None
+) -> str | None:
+    identity = identities.get(user_id)
+    return None if identity is None else identity.email
+
+
 def _tampilkan(
     db: Session, rows: list[AuditLog], *, viewer_id: uuid.UUID, viewer_role: str
 ) -> list[AuditLogRead]:
     kunci = [_kunci_label(row) for row in rows]
-    # Nama pelaku dan nama objek pengguna diambil dalam satu query.
-    names = auth_service.user_names(
+    # Identitas pelaku dan nama objek pengguna diambil dalam satu query.
+    identities = auth_service.user_identities(
         db,
         {row.actor_user_id for row in rows if row.actor_user_id is not None}
         | _ids(kunci, AuditEntityType.USER),
     )
+    names = {user_id: identity.name for user_id, identity in identities.items()}
     label = _label_objek(db, kunci, names)
     hidden = _verdict_tersembunyi(db, rows, viewer_id=viewer_id, viewer_role=viewer_role)
     return [
@@ -275,6 +283,7 @@ def _tampilkan(
             occurred_at=row.occurred_at,
             actor_user_id=row.actor_user_id,
             actor_name=names.get(row.actor_user_id),
+            actor_email=_email(identities, row.actor_user_id),
             actor_role=row.actor_role,
             action=row.action,
             entity_type=row.entity_type,

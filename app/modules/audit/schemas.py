@@ -91,6 +91,13 @@ class AuditLogRead(BaseModel):
     occurred_at: datetime
     actor_user_id: uuid.UUID | None = Field(description="Null berarti kejadian oleh sistem")
     actor_name: str | None
+    actor_email: str | None = Field(
+        default=None,
+        description=(
+            "Email pelaku, unik sehingga membedakan pengguna yang namanya sama. "
+            "Null untuk kejadian oleh sistem"
+        ),
+    )
     actor_role: str | None
     action: str
     entity_type: AuditEntityType
