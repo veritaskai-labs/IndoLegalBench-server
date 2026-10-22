@@ -4,10 +4,10 @@ Satu kelas per format (pola Strategy). Router memilih lewat
 exporter_for(), dan kedua format memakai kolom yang sama dari
 _kolom(), jadi isi CSV dan PDF tidak pernah berbeda.
 
-Isi wajib per ticket: waktu (WIB), pelaku, aksi, objek, dan nilai
-sebelum/sesudah. Kolom Objek berisi label yang terbaca (F-06), ID objek
-tetap ada supaya objek yang sudah hilang masih bisa dilacak. Modul ini
-murni: tidak ada database dan HTTP.
+Isi wajib per ticket: waktu (WIB), pelaku (email, karena nama bisa
+sama), aksi, objek, dan nilai sebelum/sesudah. Kolom Objek berisi label
+yang terbaca (F-06), ID objek tetap ada supaya objek yang sudah hilang
+masih bisa dilacak. Modul ini murni: tidak ada database dan HTTP.
 """
 
 import csv
@@ -76,7 +76,7 @@ class PdfExporter(Exporter):
     media_type = "application/pdf"
     format = ExportFormat.PDF
     # Lebar kolom dalam mm, total 277 mm = lebar A4 lanskap dikurangi margin.
-    _LEBAR = (28, 26, 16, 30, 18, 26, 28, 40, 40, 25)
+    _LEBAR = (28, 36, 16, 30, 18, 26, 28, 35, 35, 25)
 
     def __init__(self, *, compress: bool = True) -> None:
         self.compress = compress
@@ -139,7 +139,7 @@ def export_filename(format_: ExportFormat, generated_at: datetime) -> str:
 
 def _kolom(row: AuditLogRead) -> list[str]:
     """Satu baris file, urutannya sama dengan HEADER."""
-    pelaku = "Sistem" if row.actor_user_id is None else row.actor_name or str(row.actor_user_id)
+    pelaku = "Sistem" if row.actor_user_id is None else row.actor_email or str(row.actor_user_id)
     return [
         f"{row.occurred_at.astimezone(WIB):%Y-%m-%d %H:%M:%S} WIB",
         pelaku,
