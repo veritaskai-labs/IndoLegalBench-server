@@ -79,6 +79,63 @@ def test_nama_untuk_himpunan_kosong_tidak_query(db_session):
     assert service.user_names(db_session, set()) == {}
 
 
+@pytest.fixture
+def dua_rina(db_session) -> tuple[User, User]:
+    """Dua orang berbeda dengan nama persis sama, hanya email yang membedakan."""
+    pertama = User(email="rina.a@veritask.ai", name="Rina Sari", role=Role.AUTHOR)
+    kedua = User(email="rina.b@veritask.ai", name="Rina Sari", role=Role.REVIEWER, is_active=False)
+    db_session.add_all([pertama, kedua])
+    db_session.commit()
+    return pertama, kedua
+
+
+def test_identitas_memuat_nama_dan_email(db_session, pengguna):
+    # Act
+    hasil = service.user_identities(db_session, {pengguna["budi"].id})
+
+    # Assert
+    identitas = hasil[pengguna["budi"].id]
+    assert (identitas.name, identitas.email) == ("Budi Santoso", "budi@veritask.ai")
+
+
+def test_nama_sama_tetap_dibedakan_lewat_email(db_session, dua_rina):
+    # Arrange
+    pertama, kedua = dua_rina
+
+    # Act
+    hasil = service.user_identities(db_session, {pertama.id, kedua.id})
+
+    # Assert
+    assert hasil[pertama.id].name == hasil[kedua.id].name == "Rina Sari"
+    assert hasil[pertama.id].email == "rina.a@veritask.ai"
+    assert hasil[kedua.id].email == "rina.b@veritask.ai"
+
+
+def test_identitas_pengguna_nonaktif_tetap_ada(db_session, pengguna):
+    """PBI-1 AC5: pelaku yang sudah dinonaktifkan tetap tampil dengan emailnya."""
+    # Act
+    hasil = service.user_identities(db_session, {pengguna["lama"].id})
+
+    # Assert
+    assert hasil[pengguna["lama"].id].email == "lama@veritask.ai"
+
+
+def test_identitas_id_tidak_dikenal_dilewati(db_session, pengguna):
+    # Arrange
+    tidak_dikenal = uuid.uuid4()
+
+    # Act
+    hasil = service.user_identities(db_session, {pengguna["rina"].id, tidak_dikenal})
+
+    # Assert
+    assert set(hasil) == {pengguna["rina"].id}
+
+
+def test_identitas_himpunan_kosong_tidak_query(db_session):
+    # Act + Assert
+    assert service.user_identities(db_session, set()) == {}
+
+
 def test_reviewer_aktif_untuk_penugasan(db_session, pengguna):
     """PBI-6 AC2: hanya reviewer aktif yang boleh ditugaskan."""
     # Arrange
