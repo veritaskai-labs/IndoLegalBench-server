@@ -72,6 +72,12 @@ def get_names(db: DbSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
     return dict(baris)
 
 
+def get_identities(db: DbSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, tuple[str, str]]:
+    """Nama dan email per id, satu query. Pengguna nonaktif ikut."""
+    baris = db.query(User.id, User.name, User.email).filter(User.id.in_(user_ids)).all()
+    return {user_id: (name, email) for user_id, name, email in baris}
+
+
 def _escape_like(text: str) -> str:
     return text.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_")
 

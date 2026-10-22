@@ -172,6 +172,27 @@ def user_names(db: DbSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
     return repository.get_names(db, user_ids)
 
 
+@dataclass(frozen=True)
+class UserIdentity:
+    """Nama tampilan dan email pengguna. Email unik, nama bisa sama."""
+
+    name: str
+    email: str
+
+
+def user_identities(db: DbSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, UserIdentity]:
+    """Name and email for audit actors, so equal names can be told apart.
+
+    Deactivated users are included. Ids with no user row are omitted.
+    """
+    if not user_ids:
+        return {}
+    return {
+        user_id: UserIdentity(name=name, email=email)
+        for user_id, (name, email) in repository.get_identities(db, user_ids).items()
+    }
+
+
 def get_user(db: DbSession, user_id: uuid.UUID) -> User | None:
     """Return user by id, or None."""
     return repository.get_user_by_id(db, user_id)
