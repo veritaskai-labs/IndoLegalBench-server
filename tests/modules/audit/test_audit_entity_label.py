@@ -63,6 +63,9 @@ def repo():
 def auth():
     with patch.object(service, "auth_service") as palsu:
         palsu.user_names.return_value = {RINA: "Rina Sari"}
+        palsu.user_identities.return_value = {
+            RINA: SimpleNamespace(name="Rina Sari", email="rina.sari@veritask.ai")
+        }
         palsu.find_user_ids.return_value = [RINA]
         yield palsu
 
@@ -159,7 +162,10 @@ def test_catatan_produk_ai_diberi_nama_produk(modul):
 def test_catatan_pengguna_diberi_nama_pengguna_dalam_satu_query(modul):
     # Arrange
     budi = uuid.uuid4()
-    modul.auth.user_names.return_value = {RINA: "Rina Sari", budi: "Budi"}
+    modul.auth.user_identities.return_value = {
+        RINA: SimpleNamespace(name="Rina Sari", email="rina.sari@veritask.ai"),
+        budi: SimpleNamespace(name="Budi", email="budi@veritask.ai"),
+    }
 
     # Act
     label = _label(modul, _row(entity_type="user", entity_id=budi, case_id=None))
@@ -167,8 +173,8 @@ def test_catatan_pengguna_diberi_nama_pengguna_dalam_satu_query(modul):
     # Assert
     assert label == "Budi"
     # Nama pelaku dan nama objek pengguna diambil sekaligus.
-    modul.auth.user_names.assert_called_once()
-    assert modul.auth.user_names.call_args.args[1] == {RINA, budi}
+    modul.auth.user_identities.assert_called_once()
+    assert modul.auth.user_identities.call_args.args[1] == {RINA, budi}
 
 
 def test_satu_query_per_jenis_untuk_banyak_baris(modul):

@@ -21,6 +21,7 @@ from app.shared.security import Role
 ADMIN = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 REVIEWER = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
 RINA = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
+RINA_KEMBAR = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
 KASUS = uuid.UUID("00000000-0000-0000-0000-0000000000c1")
 
 
@@ -56,6 +57,9 @@ def repo():
 def auth():
     with patch.object(service, "auth_service") as palsu:
         palsu.user_names.return_value = {RINA: "Rina Sari"}
+        palsu.user_identities.return_value = {
+            RINA: SimpleNamespace(name="Rina Sari", email="rina.a@veritask.ai")
+        }
         palsu.find_user_ids.return_value = [RINA]
         yield palsu
 
@@ -92,9 +96,50 @@ def test_hasil_membawa_nama_pelaku(repo, auth):
     halaman = _cari()
 
     # Assert
-    auth.user_names.assert_called_once()
+    auth.user_identities.assert_called_once()
     assert halaman.items[0].actor_name == "Rina Sari"
     assert halaman.items[0].after == {"title": "B"}
+
+
+def test_hasil_membawa_email_pelaku(repo, auth):
+    # Act
+    halaman = _cari()
+
+    # Assert
+    assert halaman.items[0].actor_email == "rina.a@veritask.ai"
+
+
+def test_dua_pelaku_bernama_sama_dibedakan_lewat_email(repo, auth):
+    # Arrange
+    auth.user_identities.return_value = {
+        RINA: SimpleNamespace(name="Rina Sari", email="rina.a@veritask.ai"),
+        RINA_KEMBAR: SimpleNamespace(name="Rina Sari", email="rina.b@veritask.ai"),
+    }
+    repo.search.return_value = [
+        _row(id=2, actor_user_id=RINA_KEMBAR),
+        _row(id=1, actor_user_id=RINA),
+    ]
+
+    # Act
+    halaman = _cari()
+
+    # Assert
+    assert [(item.actor_name, item.actor_email) for item in halaman.items] == [
+        ("Rina Sari", "rina.b@veritask.ai"),
+        ("Rina Sari", "rina.a@veritask.ai"),
+    ]
+
+
+def test_pelaku_tanpa_baris_pengguna_tidak_punya_email(repo, auth):
+    """Edge case: id pelaku tidak ada di tabel users, nama dan email sama-sama kosong."""
+    # Arrange
+    auth.user_identities.return_value = {}
+
+    # Act
+    halaman = _cari()
+
+    # Assert
+    assert (halaman.items[0].actor_name, halaman.items[0].actor_email) == (None, None)
 
 
 def test_pelaku_sistem_tanpa_nama(repo, auth):
@@ -106,7 +151,8 @@ def test_pelaku_sistem_tanpa_nama(repo, auth):
 
     # Assert
     assert halaman.items[0].actor_name is None
-    assert None not in auth.user_names.call_args.args[1]
+    assert halaman.items[0].actor_email is None
+    assert None not in auth.user_identities.call_args.args[1]
 
 
 def test_saringan_diteruskan_ke_repository(repo, auth):

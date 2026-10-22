@@ -137,6 +137,7 @@ def test_ac3_edge_pelaku_yang_dinonaktifkan_tetap_bisa_dicari(as_role, buat_peng
     for hasil in (per_id, per_nama):
         assert [item["action"] for item in hasil["items"]] == ["suite.created"]
         assert hasil["items"][0]["actor_name"] == "Penulis Lama"
+        assert hasil["items"][0]["actor_email"] == "penulis.lama@veritask.test"
 
 
 # --- AC5: Reviewer --------------------------------------------------------------
