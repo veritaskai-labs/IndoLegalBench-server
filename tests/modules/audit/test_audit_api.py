@@ -156,7 +156,8 @@ def test_unduh_csv_dengan_saringan_yang_sama(admin):
     baris = response.content.decode("utf-8-sig").splitlines()
     assert baris[0].startswith("Waktu (WIB),Pelaku")
     assert len(baris) == 3
-    assert "Admin QA" in baris[1]
+    assert "admin.qa@veritask.ai" in baris[1]
+    assert "Admin QA" not in baris[1]
     assert "user.added" not in response.text
 
 

@@ -33,6 +33,7 @@ def _catatan(**kolom) -> AuditLogRead:
         "occurred_at": datetime(2026, 10, 8, 2, 0, tzinfo=UTC),
         "actor_user_id": uuid.UUID("00000000-0000-0000-0000-0000000000b1"),
         "actor_name": "Rina Sari",
+        "actor_email": "rina.sari@veritask.ai",
         "actor_role": "author",
         "action": "case.updated",
         "entity_type": AuditEntityType.CASE,
@@ -74,7 +75,7 @@ def test_csv_berisi_kolom_wajib_ticket():
     ]
     assert baris == [
         "2026-10-08 09:00:00 WIB",
-        "Rina Sari",
+        "rina.sari@veritask.ai",
         "author",
         "case.updated",
         "case",
@@ -109,12 +110,53 @@ def test_csv_pelaku_sistem_ditulis_sistem():
     # Act
     _, baris = _baca_csv(
         CsvExporter().render(
-            [_catatan(actor_user_id=None, actor_name=None, actor_role=None)], generated_at=DIUNDUH
+            [_catatan(actor_user_id=None, actor_name=None, actor_email=None, actor_role=None)],
+            generated_at=DIUNDUH,
         )
     )
 
     # Assert
     assert (baris[1], baris[2]) == ("Sistem", "")
+
+
+def test_csv_pelaku_bernama_sama_dibedakan_lewat_email():
+    # Arrange
+    rina_a = _catatan(id=1, actor_email="rina.a@veritask.ai")
+    rina_b = _catatan(
+        id=2,
+        actor_user_id=uuid.UUID("00000000-0000-0000-0000-0000000000b2"),
+        actor_email="rina.b@veritask.ai",
+    )
+
+    # Act
+    _, baris_a, baris_b = _baca_csv(CsvExporter().render([rina_a, rina_b], generated_at=DIUNDUH))
+
+    # Assert
+    assert rina_a.actor_name == rina_b.actor_name
+    assert (baris_a[1], baris_b[1]) == ("rina.a@veritask.ai", "rina.b@veritask.ai")
+
+
+def test_csv_pelaku_tanpa_email_ditulis_id_pengguna():
+    """Edge case: baris pengguna tidak ditemukan, id pelaku tetap bisa dilacak."""
+    # Arrange
+    catatan = _catatan(actor_name=None, actor_email=None)
+
+    # Act
+    _, baris = _baca_csv(CsvExporter().render([catatan], generated_at=DIUNDUH))
+
+    # Assert
+    assert baris[1] == str(catatan.actor_user_id)
+
+
+def test_csv_email_pelaku_dilindungi_dari_formula_injection():
+    """Email diawali '+' atau '=' tetap valid, jadi sel tidak boleh dieksekusi spreadsheet."""
+    # Act
+    _, baris = _baca_csv(
+        CsvExporter().render([_catatan(actor_email="+62@veritask.ai")], generated_at=DIUNDUH)
+    )
+
+    # Assert
+    assert baris[1] == "'+62@veritask.ai"
 
 
 def test_csv_koma_kutip_dan_baris_baru_tetap_utuh():
@@ -180,7 +222,7 @@ def test_pdf_valid_dan_memuat_isi_catatan():
     # Assert
     assert isi.startswith(b"%PDF")
     assert b"Jejak Audit IndoLegalBench" in isi
-    assert b"Rina Sari" in isi
+    assert b"rina.sari@veritask.ai" in isi
     assert b"UAT-PHK-001" in isi
     # Sel waktu dibungkus jadi dua baris di kolom sempit, jadi cukup nilainya.
     assert b"2026-10-08 09:00:00" in isi
