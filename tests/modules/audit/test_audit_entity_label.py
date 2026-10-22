@@ -62,7 +62,6 @@ def repo():
 @pytest.fixture
 def auth():
     with patch.object(service, "auth_service") as palsu:
-        palsu.user_names.return_value = {RINA: "Rina Sari"}
         palsu.user_identities.return_value = {
             RINA: SimpleNamespace(name="Rina Sari", email="rina.sari@veritask.ai")
         }
