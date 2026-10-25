@@ -522,6 +522,7 @@
           "suites"
         ],
         "summary": "Daftar suite",
+        "description": "For Developer AI, case_count is the approved cases, dev and test together.",
         "operationId": "list_suites_suites_get",
         "parameters": [
           {
@@ -587,6 +588,7 @@
           "suites"
         ],
         "summary": "Detail satu suite",
+        "description": "For Developer AI, case_count is the approved cases, dev and test together.",
         "operationId": "get_suite_suites__suite_id__get",
         "parameters": [
           {
@@ -1086,7 +1088,7 @@
           "cases"
         ],
         "summary": "Daftar ringkas kasus di dalam satu suite",
-        "description": "List the short case summary for one suite.",
+        "description": "List the short case summary for one suite.\n\nDeveloper AI gets approved cases only. Test rows come back with\n`masked` = true and placeholder `case_code` and `title`.",
         "operationId": "list_cases_suites__suite_id__cases_get",
         "parameters": [
           {
@@ -1176,7 +1178,7 @@
           "cases"
         ],
         "summary": "Detail satu kasus",
-        "description": "Return the full case.",
+        "description": "Return the full case.\n\nDeveloper AI gets the approved version of a dev case only.",
         "operationId": "get_case_cases__case_id__get",
         "parameters": [
           {
@@ -1201,8 +1203,18 @@
               }
             }
           },
+          "403": {
+            "description": "Developer AI membuka kasus test (`TEST_CASE_HIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "Kasus atau suite tidak ditemukan.",
+            "description": "Kasus tidak ditemukan. Untuk Developer AI juga kasus yang belum disetujui.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4465,6 +4477,12 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "masked": {
+            "type": "boolean",
+            "title": "Masked",
+            "description": "True for a test case shown to Developer AI: case_code and title are server placeholders and the case cannot be opened (SCRUM-183).",
+            "default": false
           }
         },
         "type": "object",
@@ -6006,7 +6024,8 @@
           "author",
           "reviewer",
           "admin",
-          "viewer"
+          "viewer",
+          "developer_ai"
         ],
         "title": "Role"
       },

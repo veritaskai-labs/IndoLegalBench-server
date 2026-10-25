@@ -27,6 +27,8 @@ router = APIRouter(prefix="/suites", tags=["suites"])
 snapshot_router = APIRouter(tags=["snapshots"])
 
 _boleh_mengelola = require_roles(Role.AUTHOR, Role.ADMIN)
+# SCRUM-183: Developer AI reads the suite list and detail, nothing else here.
+_boleh_membaca = require_roles(Role.AUTHOR, Role.ADMIN, Role.DEVELOPER_AI)
 _admin_only = require_roles(Role.ADMIN)
 # SCRUM-138: Viewer sees snapshots. Reviewer can read them too.
 _boleh_melihat_snapshot = require_roles(Role.AUTHOR, Role.REVIEWER, Role.ADMIN, Role.VIEWER)
@@ -69,18 +71,26 @@ def list_suites(
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
-    _: CurrentUser = Depends(_boleh_mengelola),
+    user: CurrentUser = Depends(_boleh_membaca),
 ) -> Page[SuiteRead]:
-    return service.list_suites(db, status=status_filter, page=page, size=size)
+    """For Developer AI, case_count is the approved cases, dev and test together."""
+    return service.list_suites(
+        db,
+        status=status_filter,
+        page=page,
+        size=size,
+        approved_only=user.role == Role.DEVELOPER_AI,
+    )
 
 
 @router.get("/{suite_id}", response_model=SuiteRead, summary="Detail satu suite")
 def get_suite(
     suite_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: CurrentUser = Depends(_boleh_mengelola),
+    user: CurrentUser = Depends(_boleh_membaca),
 ) -> SuiteRead:
-    return service.get_suite(db, suite_id)
+    """For Developer AI, case_count is the approved cases, dev and test together."""
+    return service.get_suite(db, suite_id, approved_only=user.role == Role.DEVELOPER_AI)
 
 
 @router.patch(

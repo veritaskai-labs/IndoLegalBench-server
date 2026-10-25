@@ -24,6 +24,9 @@ class Role(StrEnum):
     REVIEWER = "reviewer"
     ADMIN = "admin"
     VIEWER = "viewer"
+    # SCRUM-183: tim pengembang model AI Veritask. Hanya isi kasus dev yang boleh
+    # terlihat; isi kasus test disamarkan di server.
+    DEVELOPER_AI = "developer_ai"
 
 
 class CurrentUser:

@@ -71,7 +71,7 @@ def test_setiap_peran_bisa_disimpan(db_session):
     db_session.commit()
 
     tersimpan = db_session.execute(text("SELECT role FROM users ORDER BY email")).scalars().all()
-    assert tersimpan == ["author", "reviewer", "admin", "viewer"]
+    assert tersimpan == ["author", "reviewer", "admin", "viewer", "developer_ai"]
 
 
 def test_email_duplikat_ditolak(db_session):

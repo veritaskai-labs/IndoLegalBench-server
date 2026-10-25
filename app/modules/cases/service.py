@@ -58,6 +58,12 @@ VERSION_NOT_SUBMITTABLE = "VERSION_NOT_SUBMITTABLE"
 NO_OPEN_VERSION = "NO_OPEN_VERSION"
 VERSION_NOT_IN_REVIEW = "VERSION_NOT_IN_REVIEW"
 TAG_CHANGE_NEEDS_CONFIRMATION = "TAG_CHANGE_NEEDS_CONFIRMATION"
+TEST_CASE_HIDDEN = "TEST_CASE_HIDDEN"
+
+# SCRUM-183: placeholders for a test case in Developer AI's list. Codes are
+# written by authors and often name the topic, so the code is replaced too.
+MASKED_CASE_CODE = "TERSEMBUNYI"
+MASKED_TITLE = "Kasus test disembunyikan"
 
 _EDITABLE = frozenset({CaseStatus.DRAFT, CaseStatus.NEEDS_REVISION})
 _IN_PROGRESS = frozenset({CaseStatus.DRAFT, CaseStatus.IN_REVIEW, CaseStatus.NEEDS_REVISION})
@@ -142,6 +148,24 @@ def get_case(db: Session, case_id: uuid.UUID) -> CaseRead:
     return _to_read(_require_case(db, case_id), katalog=legal_refs_service.load_catalog(db))
 
 
+def get_case_for_developer_ai(db: Session, case_id: uuid.UUID) -> CaseRead:
+    """SCRUM-183: the approved version of a dev case, nothing else.
+
+    A case without an approved version is a 404, as if it did not exist. A
+    test case is a 403 whose message names neither the code nor the title.
+    """
+    case = _require_case(db, case_id)
+    disetujui = case.latest_approved_version
+    if disetujui is None:
+        raise NotFoundError("Kasus tidak ditemukan")
+    if disetujui.split_tag != SplitTag.DEV:
+        raise ForbiddenError(
+            "Kasus ini bagian dari test set dan tidak bisa dibuka oleh Developer AI",
+            code=TEST_CASE_HIDDEN,
+        )
+    return _to_read(case, disetujui, katalog=legal_refs_service.load_catalog(db))
+
+
 def get_completeness(db: Session, case_id: uuid.UUID) -> CaseCompleteness:
     """Kelengkapan versi yang sedang dikerjakan, dihitung ulang dari isinya.
 
@@ -167,6 +191,26 @@ def list_cases(
     baris = repository.list_for_suite(db, suite_id, status=status, split_tag=split_tag)
     katalog = legal_refs_service.load_catalog(db)
     return [_to_summary(case, version, katalog) for case, version in baris]
+
+
+def list_cases_for_developer_ai(
+    db: Session,
+    suite_id: uuid.UUID,
+    *,
+    status: CaseStatus | None = None,
+    split_tag: SplitTag | None = None,
+) -> list[CaseSummary]:
+    """SCRUM-183: approved cases only, test rows masked by the server.
+
+    The in-effect version of a case with an approved version is that approved
+    version, so filtering on approved leaves out drafts and cases in review.
+    Any other status filter matches nothing.
+    """
+    if status not in (None, CaseStatus.APPROVED):
+        _require_suite(db, suite_id)
+        return []
+    ringkas = list_cases(db, suite_id, status=CaseStatus.APPROVED, split_tag=split_tag)
+    return [_samarkan(baris) if baris.split_tag == SplitTag.TEST else baris for baris in ringkas]
 
 
 def update_case(
@@ -572,6 +616,11 @@ def count_for_suite(db: Session, suite_id: uuid.UUID) -> int:
     return repository.count_for_suite(db, suite_id)
 
 
+def count_approved_for_suite(db: Session, suite_id: uuid.UUID) -> int:
+    """Count approved cases in one suite, dev and test (SCRUM-183 suite count)."""
+    return repository.count_approved_for_suite(db, suite_id)
+
+
 def has_approved_case(db: Session, suite_id: uuid.UUID) -> bool:
     """True when the suite contains a case that has an approved version."""
     return repository.has_approved(db, suite_id)
@@ -698,6 +747,13 @@ def _to_summary(
         status=version.status,
         completeness_pct=_pct_from_version(case, version, katalog),
         updated_at=version.updated_at,
+    )
+
+
+def _samarkan(baris: CaseSummary) -> CaseSummary:
+    """Replace what identifies a test case. Status, tag and dates stay."""
+    return baris.model_copy(
+        update={"case_code": MASKED_CASE_CODE, "title": MASKED_TITLE, "masked": True}
     )
 
 

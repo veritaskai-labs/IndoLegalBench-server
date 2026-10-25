@@ -311,6 +311,7 @@ def test_daftar_menyaring_tag(as_role):
         "status",
         "completeness_pct",
         "updated_at",
+        "masked",
     ]
     assert [item["id"] for item in hanya_test.json()] == [test_id]
     assert {item["id"] for item in draft.json()} == {dev_id, test_id}
