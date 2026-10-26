@@ -129,3 +129,37 @@ def test_akses_review_kasus(viewer, assigned, boleh):
     """D5a: Author kasus sendiri, Reviewer yang ditugaskan, Admin. Viewer tidak."""
     # Act + Assert
     assert can_open_case_review(viewer, author_id=PENULIS, assigned=assigned) is boleh
+
+
+# --- Kontributor (PBI-24, SCRUM-195) ----------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("viewer", "assigned", "boleh"),
+    [
+        (Viewer(PENULIS, Role.CONTRIBUTOR), False, True),
+        (Viewer(SAYA, Role.CONTRIBUTOR), True, True),
+        (Viewer(SAYA, Role.CONTRIBUTOR), False, False),
+        (Viewer(SAYA, Role.DEVELOPER_AI), True, False),
+    ],
+    ids=["penulisnya", "ditugaskan", "tidak-terkait", "developer-ai"],
+)
+def test_kontributor_membuka_review_sebagai_penulis_atau_reviewer(viewer, assigned, boleh):
+    """D10: satu peran memegang dua jalur akses; cukup salah satu relasinya terpenuhi."""
+    # Act + Assert
+    assert can_open_case_review(viewer, author_id=PENULIS, assigned=assigned) is boleh
+
+
+def test_kontributor_melihat_verdictnya_sendiri_selama_round_open():
+    # Act + Assert
+    assert can_see_verdict(
+        Viewer(SAYA, Role.CONTRIBUTOR), owner_id=SAYA, round_status=RoundStatus.OPEN
+    )
+
+
+def test_kontributor_tidak_melihat_verdict_rekan_selama_round_open():
+    """Blind review tetap berlaku walau penulis dan reviewer kini satu peran (AC3)."""
+    # Act + Assert
+    assert not can_see_verdict(
+        Viewer(PENULIS, Role.CONTRIBUTOR), owner_id=REKAN, round_status=RoundStatus.OPEN
+    )
