@@ -6131,7 +6131,8 @@
           "reviewer",
           "admin",
           "viewer",
-          "developer_ai"
+          "developer_ai",
+          "contributor"
         ],
         "title": "Role"
       },

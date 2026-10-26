@@ -25,19 +25,19 @@ from app.modules.cases.schemas import (
     VersionSummary,
 )
 from app.shared.database import get_db
-from app.shared.security import CurrentUser, Role, require_roles
+from app.shared.security import REVIEWER_ROLES, WRITER_ROLES, CurrentUser, Role, require_roles
 
 router = APIRouter(tags=["cases"])
 
-_can_write = require_roles(Role.AUTHOR, Role.ADMIN)
+_can_write = require_roles(*WRITER_ROLES, Role.ADMIN)
 # SCRUM-183: Developer AI reads the case list and dev case detail, masked by the service.
-_can_read = require_roles(Role.AUTHOR, Role.ADMIN, Role.DEVELOPER_AI)
-# D5a: only an Author submits, and only their own case (checked in the service).
-_can_submit = require_roles(Role.AUTHOR)
+_can_read = require_roles(*WRITER_ROLES, Role.ADMIN, Role.DEVELOPER_AI)
+# D5a / PBI-24: only the writer submits, and only their own case (checked in the service).
+_can_submit = require_roles(*WRITER_ROLES)
 # D5a / PBI-9 AC3: after approval only the Admin changes the dev/test tag.
 _admin = require_roles(Role.ADMIN)
 # SCRUM-138: Viewer sees history, and a Reviewer re-reviews a new version.
-_can_read_versions = require_roles(Role.AUTHOR, Role.REVIEWER, Role.ADMIN, Role.VIEWER)
+_can_read_versions = require_roles(*WRITER_ROLES, *REVIEWER_ROLES, Role.ADMIN, Role.VIEWER)
 
 _ERROR_CODES = {
     403: {"model": ErrorBody, "description": "Bukan pembuat kasus dan bukan admin."},

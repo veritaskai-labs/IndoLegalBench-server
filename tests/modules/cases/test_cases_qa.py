@@ -90,23 +90,36 @@ def _buat(client, suite_id: str, **ubah):
 # Author (miliknya sendiri) dan Admin. Viewer tidak boleh apa pun.
 # SCRUM-183: Developer AI boleh membaca daftar dan detail; kasus test disamarkan
 # atau ditolak di service (tests/modules/cases/test_developer_ai_access.py).
+# PBI-24 (D10): Kontributor memegang seluruh wewenang Author di baris ini.
 OPERASI_CASE = [
-    ("case-buat", "POST", f"/suites/{TIDAK_ADA}/cases", {Role.AUTHOR, Role.ADMIN}, _badan()),
+    (
+        "case-buat",
+        "POST",
+        f"/suites/{TIDAK_ADA}/cases",
+        {Role.AUTHOR, Role.CONTRIBUTOR, Role.ADMIN},
+        _badan(),
+    ),
     (
         "case-daftar",
         "GET",
         f"/suites/{TIDAK_ADA}/cases",
-        {Role.AUTHOR, Role.REVIEWER, Role.ADMIN, Role.DEVELOPER_AI},
+        {Role.AUTHOR, Role.CONTRIBUTOR, Role.REVIEWER, Role.ADMIN, Role.DEVELOPER_AI},
         None,
     ),
     (
         "case-detail",
         "GET",
         f"/cases/{TIDAK_ADA}",
-        {Role.AUTHOR, Role.REVIEWER, Role.ADMIN, Role.DEVELOPER_AI},
+        {Role.AUTHOR, Role.CONTRIBUTOR, Role.REVIEWER, Role.ADMIN, Role.DEVELOPER_AI},
         None,
     ),
-    ("case-ubah", "PUT", f"/cases/{TIDAK_ADA}", {Role.AUTHOR, Role.ADMIN}, _badan()),
+    (
+        "case-ubah",
+        "PUT",
+        f"/cases/{TIDAK_ADA}",
+        {Role.AUTHOR, Role.CONTRIBUTOR, Role.ADMIN},
+        _badan(),
+    ),
 ]
 
 # Dua sel matriks yang saat ini gagal karena cacat yang sudah dilaporkan,
