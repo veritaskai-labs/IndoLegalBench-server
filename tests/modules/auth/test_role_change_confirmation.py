@@ -10,11 +10,13 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User, UserSession
 from app.modules.auth.schemas import UserUpdateRoleRequest
 from app.modules.auth.seeds import ADMIN_SUB
 from app.modules.auth.service import AuthService
 from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
+from app.modules.reviews import service as reviews_service
 from app.modules.reviews.models import (
     AssignmentSource,
     AssignmentStatus,
@@ -266,3 +268,123 @@ def test_http_confirm_bukan_boolean_ditolak(login_admin, anggota):
     )
 
     assert respons.status_code == 422
+
+
+# --- confirm=true: tugas tertunda dilepas ke antrean penugasan ulang ------------
+
+
+def _ubah_peran_dikonfirmasi(service, admin):
+    return service.update_member_role(
+        TARGET_ID, UserUpdateRoleRequest(role=Role.VIEWER), admin, confirm=True
+    )
+
+
+@pytest.mark.parametrize(
+    ("aksi", "jalankan"),
+    [
+        pytest.param("role_changed", _ubah_peran_dikonfirmasi, id="ubah-peran"),
+        pytest.param(
+            "deactivated",
+            lambda service, admin: service.deactivate_member(TARGET_ID, admin, confirm=True),
+            id="nonaktifkan",
+        ),
+    ],
+)
+def test_confirm_me_void_tugas_tertunda_dengan_kode_alasan(
+    db_session, service, admin, buat_tugas, aksi, jalankan
+):
+    tertunda = buat_tugas()
+    sudah_menilai = buat_tugas(dengan_verdict=True)
+
+    jalankan(service, admin)
+
+    db_session.expire_all()
+    assert tertunda.status == AssignmentStatus.VOID
+    assert tertunda.end_reason == aksi
+    assert tertunda.ended_at is not None
+    assert tertunda.review_round.status == RoundStatus.AWAITING_ASSIGNMENT
+    # Verdict yang sudah masuk tetap sah (keputusan PO 28 Okt).
+    assert sudah_menilai.status == AssignmentStatus.ACTIVE
+    assert sudah_menilai.review_round.status == RoundStatus.OPEN
+
+    antrean = reviews_service.get_needs_reassignment(db_session)
+    assert [item.case_id for item in antrean] == [tertunda.review_round.case_id]
+    void = antrean[0].model_dump()["void_assignments"][0]
+    assert void["void_reason"] == aksi
+
+    log = (
+        db_session.query(AuditLog)
+        .filter(AuditLog.action == "review.assignment_voided", AuditLog.entity_id == tertunda.id)
+        .one()
+    )
+    assert log.reason == aksi
+
+
+def test_confirm_ubah_peran_menyimpan_peran_baru(db_session, service, admin, buat_tugas):
+    buat_tugas()
+
+    hasil = _ubah_peran_dikonfirmasi(service, admin)
+
+    assert hasil.role == Role.VIEWER
+    log = db_session.query(AuditLog).filter(AuditLog.action == "user.role_changed").one()
+    assert log.entity_id == TARGET_ID
+    assert log.after == {"role": "viewer"}
+
+
+def test_confirm_diulang_tidak_mengubah_apa_pun_lagi(db_session, service, admin, buat_tugas):
+    tugas = buat_tugas()
+    service.deactivate_member(TARGET_ID, admin, confirm=True)
+    db_session.expire_all()
+    berakhir = tugas.ended_at
+
+    hasil = service.deactivate_member(TARGET_ID, admin, confirm=True)
+
+    assert hasil.is_active is False
+    db_session.expire_all()
+    assert tugas.ended_at == berakhir
+    jumlah_void = (
+        db_session.query(AuditLog).filter(AuditLog.action == "review.assignment_voided").count()
+    )
+    assert jumlah_void == 1
+
+
+def test_void_reason_kosong_untuk_assignment_yang_diganti(db_session, service, admin, buat_tugas):
+    """end_reason replaced tetap teks bebas Admin; enum hanya untuk void."""
+    diganti = buat_tugas(
+        round_status=RoundStatus.AWAITING_ASSIGNMENT, status=AssignmentStatus.REPLACED
+    )
+    diganti.end_reason = "Reviewer berhalangan hadir"
+    db_session.commit()
+
+    antrean = reviews_service.get_needs_reassignment(db_session)
+
+    tugas = antrean[0].model_dump()["assignments"][0]
+    assert tugas["end_reason"] == "Reviewer berhalangan hadir"
+    assert tugas["void_reason"] is None
+
+
+def test_http_confirm_true_melepas_tugas(login_admin, db_session, buat_tugas):
+    tugas = buat_tugas()
+
+    respons = login_admin.patch(
+        f"/admin/users/{TARGET_ID}", params={"confirm": "true"}, json={"role": "viewer"}
+    )
+
+    assert respons.status_code == 200
+    assert respons.json()["role"] == "viewer"
+    antrean = login_admin.get("/reviews/needs-reassignment").json()
+    assert antrean[0]["void_assignments"][0]["id"] == str(tugas.id)
+    assert antrean[0]["void_assignments"][0]["void_reason"] == "role_changed"
+
+
+def test_nonaktif_dikonfirmasi_tidak_membatalkan_verdict_yang_sudah_masuk(
+    db_session, service, admin, buat_tugas
+):
+    sudah_menilai = buat_tugas(dengan_verdict=True)
+
+    service.deactivate_member(TARGET_ID, admin, confirm=True)
+
+    db_session.expire_all()
+    assert sudah_menilai.status == AssignmentStatus.ACTIVE
+    assert sudah_menilai.end_reason is None
+    assert reviews_service.get_needs_reassignment(db_session) == []

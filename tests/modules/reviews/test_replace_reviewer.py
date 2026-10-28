@@ -458,7 +458,7 @@ def test_void_reviewer_assignments_service(db_session, case_data):
     assert voided[0].id == tugas1.id
     assert voided[0].status == AssignmentStatus.VOID
     assert voided[0].ended_at is not None
-    assert voided[0].end_reason == "Reviewer deactivated"
+    assert voided[0].end_reason == "deactivated"
 
     db_session.refresh(ronde)
     assert ronde.status == RoundStatus.AWAITING_ASSIGNMENT
