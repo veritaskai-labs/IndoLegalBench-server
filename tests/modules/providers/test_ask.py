@@ -157,7 +157,7 @@ def test_openai_http_status_maps_failure_kind(monkeypatch, status, kind):
 def test_openai_empty_truncated_blocked_refused(monkeypatch):
     bodies = [
         (
-            {"model": "m", "choices": [{"message": {"content": "  "}, "finish_reason": "stop"}]},
+            {"choices": [{"finish_reason": "stop"}], "usage": {"n": 1}},
             FailureKind.EMPTY,
         ),
         (
@@ -240,6 +240,7 @@ def test_gemini_block_truncation_refusal_and_empty(monkeypatch):
         ({"outputs": [{"text": "potong"}], "finish_reason": "MAX_TOKENS"}, FailureKind.TRUNCATED),
         ({"outputs": [{"text": ""}], "finish_reason": "refusal"}, FailureKind.REFUSED),
         ({"outputs": [{"text": ""}]}, FailureKind.EMPTY),
+        ({}, FailureKind.EMPTY),
         ({"output_text": "dari output_text"}, None),
         ({"output": "string-langsung"}, None),
     ]
@@ -318,14 +319,22 @@ def test_anthropic_explicit_max_tokens_and_failure_kinds(monkeypatch):
     assert seen["max_tokens"] == 32
 
 
-def test_anthropic_401_scrubs_key(monkeypatch):
+def test_anthropic_invalid_json_and_rejected_key(monkeypatch):
     def handler(request: httpx.Request) -> httpx.Response:
+        if handler.calls == 0:
+            handler.calls += 1
+            return httpx.Response(200, text="bukan json")
         return httpx.Response(401, text=_KEY)
 
+    handler.calls = 0
     _transport(monkeypatch, handler)
-    result = _anthropic().ask("q")
-    assert result.failure_kind == FailureKind.KEY_REJECTED
-    assert _KEY not in (result.error or "")
+    adapter = _anthropic()
+    assert adapter.ask("q", parameters=ModelParameters(max_tokens=32)).failure_kind == (
+        FailureKind.PROVIDER_ERROR
+    )
+    denied = adapter.ask("q")
+    assert denied.failure_kind == FailureKind.KEY_REJECTED
+    assert _KEY not in (denied.error or "")
 
 
 @pytest.mark.parametrize(
