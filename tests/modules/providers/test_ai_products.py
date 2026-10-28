@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
@@ -19,9 +20,17 @@ from app.modules.providers.models import (
     MeasurementType,
     ProviderType,
 )
-from app.modules.providers.schemas import AiProductUpdate
-from app.modules.providers.service import update_product
-from app.shared.exceptions import ValidationError
+from app.modules.providers.schemas import AiProductCreate, AiProductUpdate, _teks_bersih
+from app.modules.providers.service import (
+    _as_bytes,
+    _enkripsi,
+    create_product,
+    update_product,
+)
+from app.modules.providers.service import (
+    test_connection as service_test_connection,
+)
+from app.shared.exceptions import ConflictError, InternalError, ValidationError
 from app.shared.security import Role
 
 
@@ -287,3 +296,187 @@ def test_monthly_budget_must_be_positive(db_session, budget):
 
     with pytest.raises(IntegrityError):
         db_session.commit()
+
+
+def test_manual_to_automatic_type_switch_clears_manual_fields(db_session, monkeypatch):
+    from cryptography.fernet import Fernet
+
+    from app.shared.config import get_settings
+
+    monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    get_settings.cache_clear()
+
+    admin = _admin(db_session)
+    manual_prod = AiProduct(
+        name="ManualToAuto",
+        measurement_type=MeasurementType.MANUAL,
+        vendor_name="Manual Vendor",
+        site_url="https://manual.test",
+        access_note="Notes",
+        manual_params="Params",
+        created_by=admin.id,
+    )
+    db_session.add(manual_prod)
+    db_session.commit()
+
+    updated = update_product(
+        db_session,
+        manual_prod.id,
+        AiProductUpdate(
+            measurement_type=MeasurementType.AUTOMATIC,
+            provider_type=ProviderType.OPENAI_COMPATIBLE,
+            base_url="https://api.example.test",
+            model_name="model-x",
+            credential="new-secret-key",  # pragma: allowlist secret
+            rate_limit_per_minute=20,
+            monthly_budget_idr=Decimal("500000.00"),
+        ),
+    )
+
+    assert updated.measurement_type == MeasurementType.AUTOMATIC
+    assert updated.provider_type == ProviderType.OPENAI_COMPATIBLE
+    assert updated.vendor_name is None
+    assert updated.site_url is None
+    assert updated.access_note is None
+    assert updated.manual_params is None
+
+
+def test_test_connection_rejects_manual_product(db_session):
+    admin = _admin(db_session)
+    manual_prod = AiProduct(
+        name="Justisio-Test",
+        measurement_type=MeasurementType.MANUAL,
+        vendor_name="Vendor",
+        site_url="https://vendor.test",
+        created_by=admin.id,
+    )
+    db_session.add(manual_prod)
+    db_session.commit()
+
+    with pytest.raises(ValidationError) as exc_info:
+        service_test_connection(db_session, manual_prod.id)
+    assert exc_info.value.field == "measurement_type"
+    assert "Produk manual tidak memiliki uji koneksi" in str(exc_info.value)
+
+
+def test_test_connection_rejects_missing_credentials(db_session):
+    admin = _admin(db_session)
+    prod = AiProduct(
+        name="AutoNoCred",
+        measurement_type=MeasurementType.AUTOMATIC,
+        provider_type=ProviderType.OPENAI_COMPATIBLE,
+        base_url="https://api.example.test",
+        model_name="model-x",
+        rate_limit_per_minute=20,
+        monthly_budget_idr=Decimal("500000.00"),
+        created_by=admin.id,
+    )
+    from unittest.mock import patch
+
+    with (
+        patch("app.modules.providers.service._wajib_ada", return_value=prod),
+        pytest.raises(ValidationError) as exc_info,
+    ):
+        service_test_connection(db_session, prod.id)
+    assert exc_info.value.field == "credential"
+    assert "Kredensial produk belum diisi" in str(exc_info.value)
+
+
+def test_test_connection_decrypt_failure_raises_internal_error(db_session):
+    admin = _admin(db_session)
+    prod = _product(admin.id, credential_encrypted=b"corrupted-ciphertext")
+    db_session.add(prod)
+    db_session.commit()
+
+    from unittest.mock import patch
+
+    from app.modules.providers.crypto import CredentialError
+
+    with (
+        patch(
+            "app.modules.providers.service.decrypt_credential",
+            side_effect=CredentialError("invalid"),
+        ),
+        pytest.raises(InternalError) as exc_info,
+    ):
+        service_test_connection(db_session, prod.id)
+    assert "credential could not be decrypted" in str(exc_info.value)
+
+
+def test_service_create_and_update_integrity_error_raises_conflict(db_session, monkeypatch):
+    from cryptography.fernet import Fernet
+
+    from app.shared.config import get_settings
+
+    monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    get_settings.cache_clear()
+
+    admin = _admin(db_session)
+    payload_create = AiProductCreate(
+        name="AiYU-Unique",
+        provider_type=ProviderType.OPENAI_COMPATIBLE,
+        base_url="https://api.example.test",
+        model_name="model-x",
+        credential="secret-pass",  # pragma: allowlist secret
+        rate_limit_per_minute=10,
+        monthly_budget_idr=Decimal("10000.00"),
+    )
+    from unittest.mock import patch
+
+    with (
+        patch(
+            "app.modules.providers.repository.create",
+            side_effect=IntegrityError("stmt", {}, Exception("dup")),
+        ),
+        pytest.raises(ConflictError),
+    ):
+        create_product(db_session, payload_create, created_by=admin.id)
+
+    prod = _product(admin.id, name="AiYU-Existing")
+    db_session.add(prod)
+    db_session.commit()
+
+    with (
+        patch(
+            "app.modules.providers.repository.save",
+            side_effect=IntegrityError("stmt", {}, Exception("dup")),
+        ),
+        pytest.raises(ConflictError),
+    ):
+        update_product(db_session, prod.id, AiProductUpdate(name="NewName"))
+
+
+def test_as_bytes_with_non_bytes():
+    assert _as_bytes(bytearray(b"test")) == b"test"
+    assert _as_bytes(b"test") == b"test"
+
+
+def test_enkripsi_missing_key_raises_validation_error(monkeypatch):
+    monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", "")
+    from app.shared.config import get_settings
+
+    get_settings.cache_clear()
+
+    with pytest.raises(ValidationError) as exc_info:
+        _enkripsi("secret-text")
+    assert exc_info.value.field == "credential"
+
+
+def test_schemas_whitespace_and_update_base_url():
+    with pytest.raises(PydanticValidationError):
+        AiProductUpdate(name="   ")
+
+    with pytest.raises(PydanticValidationError):
+        AiProductUpdate(vendor_name="   ")
+
+    with pytest.raises(ValueError, match="tidak boleh kosong"):
+        _teks_bersih("   ")
+
+    update_none_url = AiProductUpdate(base_url=None)
+    assert update_none_url.base_url is None
+
+    update_valid_url = AiProductUpdate(base_url="https://api.example.com")
+    assert update_valid_url.base_url == "https://api.example.com"
+
+    with pytest.raises(PydanticValidationError):
+        AiProductUpdate(base_url="not-http-url")
