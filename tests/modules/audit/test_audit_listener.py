@@ -311,18 +311,18 @@ def test_produk_ai_dihapus_tercatat(as_role, db_session, encryption_key):
 def test_anggota_ditambah_diubah_perannya_lalu_dinonaktifkan(as_role, db_session):
     client = as_role(Role.ADMIN)
     anggota = client.post(
-        "/admin/users", json={"email": "baru@veritask.ai", "name": "Baru", "role": "author"}
+        "/admin/users", json={"email": "baru@veritask.ai", "name": "Baru", "role": "contributor"}
     ).json()
 
-    client.patch(f"/admin/users/{anggota['id']}", json={"role": "reviewer"})
+    client.patch(f"/admin/users/{anggota['id']}", json={"role": "viewer"})
     client.post(f"/admin/users/{anggota['id']}/deactivate")
 
     ditambah, diubah, dinonaktifkan = _log(db_session)
     assert (ditambah.action, ditambah.after) == (
         "user.added",
-        {"email": "baru@veritask.ai", "role": "author"},
+        {"email": "baru@veritask.ai", "role": "contributor"},
     )
-    assert (diubah.action, diubah.after) == ("user.role_changed", {"role": "reviewer"})
+    assert (diubah.action, diubah.after) == ("user.role_changed", {"role": "viewer"})
     assert dinonaktifkan.action == "user.deactivated"
     # Nonaktifkan menghapus sesi dan commit lebih dulu, jadi baris user sudah
     # kedaluwarsa saat is_active diubah. Nilai lama tetap harus tercatat.

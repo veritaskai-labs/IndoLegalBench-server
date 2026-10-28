@@ -45,7 +45,7 @@ class User(Base):
     name: Mapped[str] = mapped_column(String(255), nullable=False)
 
     # values_callable wajib ada. Tanpa itu SQLAlchemy menyimpan NAMA
-    # anggota enum ("AUTHOR"), bukan nilainya ("author"), sedangkan
+    # anggota enum ("CONTRIBUTOR"), bukan nilainya ("contributor"), sedangkan
     # kontrak API dan seluruh tiket memakai huruf kecil.
     role: Mapped[Role] = mapped_column(
         Enum(Role, name="user_role_enum", values_callable=lambda x: [e.value for e in x]),

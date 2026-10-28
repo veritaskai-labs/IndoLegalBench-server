@@ -86,73 +86,38 @@ def _buat(client, suite_id: str, **ubah):
 # 1. Izin, diambil dari docs/pbi1/roles-matrix.svg baris "Case"
 # ---------------------------------------------------------------------
 
-# Create: Author, Admin. Read: Author, Reviewer, Admin. Update dan Delete:
-# Author (miliknya sendiri) dan Admin. Viewer tidak boleh apa pun.
-# SCRUM-183: Developer AI boleh membaca daftar dan detail; kasus test disamarkan
-# atau ditolak di service (tests/modules/cases/test_developer_ai_access.py).
-# PBI-24 (D10): Kontributor memegang seluruh wewenang Author di baris ini.
+# PBI-24 (D10, menggantikan docs/pbi1/roles-matrix.svg): Kontributor membuat,
+# membaca, dan mengubah kasus (miliknya sendiri, dicek di service); Admin juga.
+# Viewer tidak boleh apa pun. SCRUM-183: Developer AI boleh membaca daftar dan
+# detail; kasus test disamarkan atau ditolak di service
+# (tests/modules/cases/test_developer_ai_access.py).
+#
+# Sel "Reviewer tidak bisa membaca kasus" yang dulu ditandai xfail (#19) selesai
+# di sini: wewenang membaca kini milik Kontributor, yang juga mereview.
 OPERASI_CASE = [
-    (
-        "case-buat",
-        "POST",
-        f"/suites/{TIDAK_ADA}/cases",
-        {Role.AUTHOR, Role.CONTRIBUTOR, Role.ADMIN},
-        _badan(),
-    ),
+    ("case-buat", "POST", f"/suites/{TIDAK_ADA}/cases", {Role.CONTRIBUTOR, Role.ADMIN}, _badan()),
     (
         "case-daftar",
         "GET",
         f"/suites/{TIDAK_ADA}/cases",
-        {Role.AUTHOR, Role.CONTRIBUTOR, Role.REVIEWER, Role.ADMIN, Role.DEVELOPER_AI},
+        {Role.CONTRIBUTOR, Role.ADMIN, Role.DEVELOPER_AI},
         None,
     ),
     (
         "case-detail",
         "GET",
         f"/cases/{TIDAK_ADA}",
-        {Role.AUTHOR, Role.CONTRIBUTOR, Role.REVIEWER, Role.ADMIN, Role.DEVELOPER_AI},
+        {Role.CONTRIBUTOR, Role.ADMIN, Role.DEVELOPER_AI},
         None,
     ),
-    (
-        "case-ubah",
-        "PUT",
-        f"/cases/{TIDAK_ADA}",
-        {Role.AUTHOR, Role.CONTRIBUTOR, Role.ADMIN},
-        _badan(),
-    ),
+    ("case-ubah", "PUT", f"/cases/{TIDAK_ADA}", {Role.CONTRIBUTOR, Role.ADMIN}, _badan()),
 ]
-
-# Dua sel matriks yang saat ini gagal karena cacat yang sudah dilaporkan,
-# bukan karena testnya keliru: penjaga baca di cases/router.py memakai
-# require_roles(AUTHOR, ADMIN) untuk kedua GET, sementara
-# docs/pbi1/roles-matrix.svg mengizinkan Reviewer membaca kasus. Cacat ini
-# ikut masuk lewat #19 dan keputusannya, melebarkan penjaga atau mengubah
-# matriks, ditunda sampai setelah UAT.
-#
-# Ditandai xfail strict, bukan dilewati: testnya tetap dijalankan, kegagalan
-# yang sudah diketahui tidak memerahkan CI tim, dan begitu izinnya diperbaiki
-# test ini berubah jadi XPASS yang dihitung gagal, sehingga penandaannya tidak
-# bisa tertinggal diam-diam.
-ALASAN_REVIEWER = (
-    "Reviewer ditolak membaca kasus, berbeda dengan docs/pbi1/roles-matrix.svg "
-    "(SCRUM-97). Ikut dari #19. Keputusan melebarkan penjaga atau mengubah "
-    "matriks ditunda ke setelah UAT. Menghalangi PBI-6 Review Independen."
-)
-MENUNGGU_KEPUTUSAN = {
-    ("case-daftar", Role.REVIEWER),
-    ("case-detail", Role.REVIEWER),
-}
 
 
 def _kombinasi():
     for op in OPERASI_CASE:
         for peran in Role:
-            tanda = (
-                [pytest.mark.xfail(strict=True, reason=ALASAN_REVIEWER)]
-                if (op[0], peran) in MENUNGGU_KEPUTUSAN
-                else []
-            )
-            yield pytest.param(op, peran, id=f"{op[0]}--{peran.value}", marks=tanda)
+            yield pytest.param(op, peran, id=f"{op[0]}--{peran.value}")
 
 
 @pytest.mark.parametrize("operasi,peran", list(_kombinasi()))
@@ -166,14 +131,12 @@ def test_izin_kasus_sesuai_matriks_peran(as_role, operasi, peran):
 
     if peran in boleh:
         assert respons.status_code != 403, (
-            f"{peran.value} seharusnya boleh {nama} menurut docs/pbi1/roles-matrix.svg, "
-            f"tetapi ditolak 403. Reviewer yang tidak bisa membuka kasus membuat PBI-6 "
-            f"Review Independen tidak mungkin dijalankan."
+            f"{peran.value} seharusnya boleh {nama} menurut D10 (PBI-24), tetapi ditolak 403."
         )
     else:
         assert respons.status_code == 403, (
             f"{peran.value} seharusnya ditolak untuk {nama} menurut "
-            f"docs/pbi1/roles-matrix.svg, tetapi jawabannya {respons.status_code}."
+            f"D10 (PBI-24), tetapi jawabannya {respons.status_code}."
         )
 
 
@@ -200,7 +163,7 @@ def test_field_milik_server_diabaikan_saat_membuat(as_role, titipan):
     Itu aman, tetapi hanya selama tidak ada yang menambahkan field
     tersebut ke schema tulis. Test ini yang akan merah kalau itu terjadi.
     """
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     respons = _buat(client, suite_id, **titipan)
@@ -213,7 +176,7 @@ def test_field_milik_server_diabaikan_saat_membuat(as_role, titipan):
 
 
 def test_field_milik_server_diabaikan_saat_mengubah(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     kasus = _buat(client, suite_id).json()
 
@@ -290,7 +253,7 @@ def test_ac4_ada_jalan_untuk_mengajukan_kasus_ke_review():
 
 @pytest.mark.parametrize("panjang", [BATAS_JUDUL - 1, BATAS_JUDUL])
 def test_judul_tepat_di_batas_diterima(as_role, panjang):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     respons = _buat(
@@ -304,7 +267,7 @@ def test_judul_tepat_di_batas_diterima(as_role, panjang):
 
 
 def test_pertanyaan_tepat_di_batas_diterima(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     respons = _buat(
@@ -318,7 +281,7 @@ def test_pertanyaan_tepat_di_batas_diterima(as_role):
 
 @pytest.mark.parametrize("tahun", [TAHUN_MIN, TAHUN_BERJALAN])
 def test_tahun_di_kedua_ujung_rentang_diterima(as_role, tahun, tahun_berjalan):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     respons = _buat(
@@ -332,7 +295,7 @@ def test_tahun_di_kedua_ujung_rentang_diterima(as_role, tahun, tahun_berjalan):
 
 @pytest.mark.parametrize("tahun", [TAHUN_MIN - 1, TAHUN_BERJALAN + 1, TAHUN_MAKS, TAHUN_MAKS + 1])
 def test_tahun_di_luar_rentang_ditolak(as_role, tahun, tahun_berjalan):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     respons = _buat(
@@ -345,7 +308,7 @@ def test_tahun_di_luar_rentang_ditolak(as_role, tahun, tahun_berjalan):
 
 
 def test_pasal_tepat_di_batas_diterima(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     respons = _buat(
@@ -361,7 +324,7 @@ def test_pasal_tepat_di_batas_diterima(as_role):
 @pytest.mark.parametrize("panjang", [2, BATAS_KODE])
 def test_case_code_tepat_di_batas_pola_diterima(as_role, panjang):
     # Polanya ^[A-Za-z0-9][A-Za-z0-9._-]{1,63}$, jadi panjang sah 2 sampai 64.
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     respons = _buat(client, suite_id, case_code="Q" + "1" * (panjang - 1))
@@ -370,7 +333,7 @@ def test_case_code_tepat_di_batas_pola_diterima(as_role, panjang):
 
 
 def test_case_code_satu_karakter_melewati_batas_ditolak(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     respons = _buat(client, suite_id, case_code="Q" + "1" * BATAS_KODE)

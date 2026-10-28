@@ -20,6 +20,12 @@ def test_kode_enum_kontributor_sesuai_d10():
     assert Role.CONTRIBUTOR.value == "contributor"
 
 
+def test_author_dan_reviewer_tidak_ada_lagi():
+    """AC1: satu akun tetap satu peran, dari empat peran D10."""
+    # Act + Assert
+    assert {role.value for role in Role} == {"admin", "contributor", "viewer", "developer_ai"}
+
+
 @pytest.mark.parametrize("role", [Role.ADMIN, Role.VIEWER, Role.DEVELOPER_AI])
 def test_peran_lain_tidak_mendapat_wewenang_kontributor(role):
     """Admin menulis lewat izinnya sendiri di router, dan tidak pernah mereview (D10)."""

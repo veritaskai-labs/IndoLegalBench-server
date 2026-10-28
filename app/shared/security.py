@@ -20,24 +20,23 @@ from app.shared.exceptions import ForbiddenError, UnauthenticatedError
 
 
 class Role(StrEnum):
-    AUTHOR = "author"
-    REVIEWER = "reviewer"
+    """Satu akun satu peran (D10). Author dan Reviewer digabung jadi Kontributor (PBI-24)."""
+
     ADMIN = "admin"
     VIEWER = "viewer"
     # SCRUM-183: tim pengembang model AI Veritask. Hanya isi kasus dev yang boleh
     # terlihat; isi kasus test disamarkan di server.
     DEVELOPER_AI = "developer_ai"
-    # PBI-24 (SCRUM-195): menulis kasus sekaligus mereview kasus orang lain.
-    # Menggantikan AUTHOR dan REVIEWER, yang dihapus setelah migrasi akun.
+    # PBI-24 (SCRUM-195): menulis kasus sekaligus mereview kasus orang lain,
+    # tetapi tidak pernah kasusnya sendiri.
     CONTRIBUTOR = "contributor"
 
 
-# PBI-24 AC2: tabel izin. Wewenang Author dan Reviewer lama digabung ke Kontributor.
-# Selama migrasi akun belum jalan, peran lama masih memegang wewenangnya sendiri.
-# Penulis dan reviewer kini satu peran, jadi pembeda keduanya untuk satu kasus
-# adalah relasi (cases.created_by, review_assignments.reviewer_id), bukan peran.
-WRITER_ROLES = frozenset({Role.CONTRIBUTOR, Role.AUTHOR})
-REVIEWER_ROLES = frozenset({Role.CONTRIBUTOR, Role.REVIEWER})
+# PBI-24 AC2: tabel izin. Wewenang menulis (Author lama) dan mereview (Reviewer
+# lama) sama-sama dipegang Kontributor. Penulis dan reviewer satu kasus dibedakan
+# lewat relasi (cases.created_by, review_assignments.reviewer_id), bukan peran.
+WRITER_ROLES = frozenset({Role.CONTRIBUTOR})
+REVIEWER_ROLES = frozenset({Role.CONTRIBUTOR})
 
 
 class CurrentUser:

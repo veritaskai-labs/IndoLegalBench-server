@@ -1,6 +1,7 @@
 """In-memory test users for PBI-1 (SQLite).
 
-- Five active roles (Developer AI since SCRUM-183) + one deactivated; `zitadel_sub` used by fake login (`?sub=`)
+- Two Contributors (111…, 222…; Author and Reviewer before PBI-24), Admin, Viewer,
+  Developer AI (SCRUM-183) + one deactivated; `zitadel_sub` used by fake login (`?sub=`)
 - Not Alembic; production seed is SCRUM-89
 """
 
@@ -34,8 +35,8 @@ SEED_USERS = (
         id=AUTHOR_ID,
         zitadel_sub=AUTHOR_SUB,
         email="author@veritask.test",
-        name="Author One",
-        role=Role.AUTHOR,
+        name="Contributor One",
+        role=Role.CONTRIBUTOR,
         is_active=True,
         created_at=_SEED_TS,
         updated_at=_SEED_TS,
@@ -44,8 +45,8 @@ SEED_USERS = (
         id=REVIEWER_ID,
         zitadel_sub=REVIEWER_SUB,
         email="reviewer@veritask.test",
-        name="Reviewer One",
-        role=Role.REVIEWER,
+        name="Contributor Two",
+        role=Role.CONTRIBUTOR,
         is_active=True,
         created_at=_SEED_TS,
         updated_at=_SEED_TS,

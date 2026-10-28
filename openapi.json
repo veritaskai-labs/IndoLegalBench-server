@@ -6127,14 +6127,13 @@
       "Role": {
         "type": "string",
         "enum": [
-          "author",
-          "reviewer",
           "admin",
           "viewer",
           "developer_ai",
           "contributor"
         ],
-        "title": "Role"
+        "title": "Role",
+        "description": "Satu akun satu peran (D10). Author dan Reviewer digabung jadi Kontributor (PBI-24)."
       },
       "RoundDecision": {
         "type": "string",

@@ -118,7 +118,10 @@ def test_ac1_positif_versi_baru_hasil_fork_tercatat_sekali(as_role, db_session):
 def test_ac3_edge_pelaku_yang_dinonaktifkan_tetap_bisa_dicari(as_role, buat_pengguna, db_session):
     db_session.add(
         User(
-            id=PENULIS_LAMA, email="penulis.lama@veritask.test", name="Penulis Lama", role="author"
+            id=PENULIS_LAMA,
+            email="penulis.lama@veritask.test",
+            name="Penulis Lama",
+            role="contributor",
         )
     )
     db_session.add(
@@ -158,7 +161,9 @@ def test_ac5_positif_reviewer_melihat_riwayat_kasus_yang_ditugaskan(as_role, db_
     assert penulis.post(f"/cases/{ditugaskan}/submit-review").status_code == 200
     ronde = db_session.query(ReviewRound).filter_by(case_id=uuid.UUID(ditugaskan)).one()
     db_session.add(
-        User(id=REVIEWER_QA, email="reviewer.qa@veritask.ai", name="Reviewer QA", role="reviewer")
+        User(
+            id=REVIEWER_QA, email="reviewer.qa@veritask.ai", name="Reviewer QA", role="contributor"
+        )
     )
     db_session.add(
         ReviewAssignment(review_round_id=ronde.id, reviewer_id=REVIEWER_QA, status=status)

@@ -45,7 +45,7 @@ def db():
         conn.execute(
             text(
                 "INSERT INTO users (id, email, name, role) "
-                "VALUES (:id, 'qa-160@veritask.test', 'QA 160', 'author')"
+                "VALUES (:id, 'qa-160@veritask.test', 'QA 160', 'contributor')"
             ),
             {"id": user_id},
         )
@@ -56,7 +56,7 @@ def db():
             ),
             {"id": suite_id, "user_id": user_id},
         )
-        request_context.bind(sesi, user_id=user_id, role="author")
+        request_context.bind(sesi, user_id=user_id, role="contributor")
         try:
             yield sesi, suite_id, user_id
         finally:
