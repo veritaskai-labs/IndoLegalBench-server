@@ -60,3 +60,9 @@ class ErrorBody(BaseModel):
         default=None,
         description="Lokasi field yang gagal, misalnya legal_refs[0].links[0].pasal",
     )
+
+
+class ConfirmationRequiredBody(ErrorBody):
+    """409 CONFIRMATION_REQUIRED: kirim ulang dengan confirm=true untuk melanjutkan."""
+
+    affected_count: int = Field(ge=1, description="Jumlah kasus yang terdampak aksi ini")

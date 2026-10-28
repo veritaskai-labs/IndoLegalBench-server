@@ -652,6 +652,11 @@ def _view(verdict: ReviewVerdict | None) -> VerdictView | None:
     )
 
 
+def count_cases_waiting_for_reviewer(db: Session, reviewer_id: uuid.UUID) -> int:
+    """Kasus yang akan masuk antrean penugasan ulang bila reviewer ini dilepas (AC8)."""
+    return repository.count_cases_waiting_for_reviewer(db, reviewer_id)
+
+
 def void_reviewer_assignments(
     db: Session,
     reviewer_id: uuid.UUID,

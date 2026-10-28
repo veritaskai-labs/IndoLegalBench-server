@@ -241,6 +241,30 @@ def add_verdict(db: Session, verdict: ReviewVerdict) -> None:
     db.flush()
 
 
+def _menunggu_penilaian(reviewer_id: uuid.UUID):
+    """Assignment active reviewer ini tanpa verdict, di round yang belum diputuskan (AC8)."""
+    return and_(
+        ReviewAssignment.reviewer_id == reviewer_id,
+        ReviewAssignment.status == AssignmentStatus.ACTIVE,
+        ~ReviewAssignment.verdict.has(),
+        ReviewRound.decision.is_(None),
+        ReviewRound.status != RoundStatus.DECIDED,
+    )
+
+
+def count_cases_waiting_for_reviewer(db: Session, reviewer_id: uuid.UUID) -> int:
+    """Jumlah kasus berbeda yang masih menunggu penilaian reviewer ini (AC8)."""
+    return int(
+        db.scalar(
+            select(func.count(func.distinct(ReviewRound.case_id)))
+            .select_from(ReviewAssignment)
+            .join(ReviewAssignment.review_round)
+            .where(_menunggu_penilaian(reviewer_id))
+        )
+        or 0
+    )
+
+
 def get_active_assignments_by_reviewer(
     db: Session, reviewer_id: uuid.UUID
 ) -> list[ReviewAssignment]:

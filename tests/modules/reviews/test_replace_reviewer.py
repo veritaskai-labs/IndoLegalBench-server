@@ -635,8 +635,14 @@ def test_e2e_deactivate_reviewer_muncul_di_antrean_lalu_diganti_dan_tercatat_aud
     tugas1 = case_data["tugas1"]
     kasus = case_data["case"]
 
-    # 1. Admin menonaktifkan Reviewer 1 (endpoint PBI-1)
-    deact_resp = admin_client.post(f"/admin/users/{REVIEWER_1}/deactivate")
+    # 1. Admin menonaktifkan Reviewer 1 (endpoint PBI-1). Masih ada kasus
+    #    menunggu penilaiannya, jadi server minta konfirmasi dulu (SCRUM-197).
+    minta = admin_client.post(f"/admin/users/{REVIEWER_1}/deactivate")
+    assert minta.status_code == 409
+    assert minta.json()["affected_count"] == 1
+    deact_resp = admin_client.post(
+        f"/admin/users/{REVIEWER_1}/deactivate", params={"confirm": "true"}
+    )
     assert deact_resp.status_code == 200
 
     # 2. Assignment otomatis void di DB

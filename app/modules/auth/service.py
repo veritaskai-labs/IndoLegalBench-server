@@ -21,6 +21,7 @@ from app.modules.auth.pkce import code_challenge_s256, generate_code_verifier, g
 from app.modules.auth.schemas import UserCreateRequest, UserUpdateRoleRequest
 from app.shared.config import get_settings
 from app.shared.exceptions import (
+    ConfirmationRequiredError,
     ConflictError,
     InvalidOidcStateError,
     NotFoundError,
@@ -224,7 +225,12 @@ class AuthService:
         )
 
     def update_member_role(
-        self, user_id: uuid.UUID, payload: UserUpdateRoleRequest, current_user: CurrentUser
+        self,
+        user_id: uuid.UUID,
+        payload: UserUpdateRoleRequest,
+        current_user: CurrentUser,
+        *,
+        confirm: bool = False,
     ) -> User:
         # Together with CANNOT_DEACTIVATE_SELF this keeps at least one active
         # admin: the one making the request can neither demote nor
@@ -237,9 +243,13 @@ class AuthService:
         user = repository.get_user_by_id(self.db, user_id)
         if not user:
             raise NotFoundError(USER_NOT_FOUND)
+        if payload.role != user.role:
+            self._require_release_confirmed(user.id, confirm=confirm)
         return repository.update_user_role(self.db, user, payload.role)
 
-    def deactivate_member(self, target_user_id: uuid.UUID, current_user: CurrentUser) -> User:
+    def deactivate_member(
+        self, target_user_id: uuid.UUID, current_user: CurrentUser, *, confirm: bool = False
+    ) -> User:
         if current_user.user_id == target_user_id:
             raise ValidationError(
                 "Anda tidak dapat menonaktifkan akun Anda sendiri.",
@@ -250,12 +260,28 @@ class AuthService:
         if not user:
             raise NotFoundError(USER_NOT_FOUND)
 
+        # Sebelum hapus sesi: request yang belum dikonfirmasi tidak boleh
+        # mengubah apa pun, termasuk me-logout anggota itu.
+        self._require_release_confirmed(user.id, confirm=confirm)
         repository.delete_sessions_by_user_id(self.db, user.id)
 
         from app.modules.reviews import service as reviews_service
 
         reviews_service.void_reviewer_assignments(self.db, user.id)
         return repository.deactivate_user(self.db, user)
+
+    def _require_release_confirmed(self, user_id: uuid.UUID, *, confirm: bool) -> None:
+        """PBI-24 AC8: Admin harus sadar ada kasus yang akan kehilangan reviewer."""
+        if confirm:
+            return
+        from app.modules.reviews import service as reviews_service
+
+        jumlah = reviews_service.count_cases_waiting_for_reviewer(self.db, user_id)
+        if jumlah:
+            raise ConfirmationRequiredError(
+                f"{jumlah} kasus menunggu penilaian akan masuk daftar penugasan ulang. Lanjutkan?",
+                affected_count=jumlah,
+            )
 
     def activate_member(self, target_user_id: uuid.UUID) -> User:
         # Undo of deactivate_member. Reviewer assignments voided at
