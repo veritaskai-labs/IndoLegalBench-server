@@ -131,6 +131,17 @@ def tugas(conn, round_id):
     return _buat
 
 
+def _jumlah_void(conn, end_reason: str) -> int:
+    """Baris void dengan alasan ini di seluruh database, termasuk yang di-commit
+    test PostgreSQL lain (test race melepas reviewer sungguhan)."""
+    return conn.execute(
+        text(
+            "SELECT count(*) FROM review_assignments WHERE status = 'void' AND end_reason = :alasan"
+        ),
+        {"alasan": end_reason},
+    ).scalar_one()
+
+
 def _alasan(conn, assignment_id: uuid.UUID) -> str | None:
     return conn.execute(
         text("SELECT end_reason FROM review_assignments WHERE id = :id"), {"id": assignment_id}
@@ -142,12 +153,14 @@ def test_upgrade_mengganti_teks_lama_void_dengan_kode(conn, tugas):
     lama = tugas("void", TEKS_LAMA)
     sudah_kode = tugas("void", "role_changed")
     diganti = tugas("replaced", TEKS_LAMA)  # teks bebas Admin, kebetulan sama
+    diharapkan = _jumlah_void(conn, TEKS_LAMA)
 
     # Act
     jumlah = _muat_migrasi().void_reason_to_codes(conn)
 
     # Assert
-    assert jumlah == 1
+    assert jumlah == diharapkan
+    assert _jumlah_void(conn, TEKS_LAMA) == 0
     assert _alasan(conn, lama) == "deactivated"
     assert _alasan(conn, sudah_kode) == "role_changed"
     assert _alasan(conn, diganti) == TEKS_LAMA
@@ -158,19 +171,23 @@ def test_downgrade_mengembalikan_teks_lama(conn, tugas):
     nonaktif = tugas("void", "deactivated")
     ubah_peran = tugas("void", "role_changed")
     diganti = tugas("replaced", "deactivated")
+    diharapkan = _jumlah_void(conn, "deactivated")
 
     # Act
     jumlah = _muat_migrasi().void_reason_to_text(conn)
 
     # Assert: role_changed tidak punya padanan lama; aplikasi lama membacanya
     # sebagai teks biasa, jadi dibiarkan.
-    assert jumlah == 1
+    assert jumlah == diharapkan
+    assert _jumlah_void(conn, "deactivated") == 0
     assert _alasan(conn, nonaktif) == TEKS_LAMA
     assert _alasan(conn, ubah_peran) == "role_changed"
     assert _alasan(conn, diganti) == "deactivated"
 
 
-def test_upgrade_tanpa_baris_lama_tidak_mengubah_apa_pun(conn, tugas):
-    tugas("void", "deactivated")
+def test_upgrade_kedua_kali_tidak_mengubah_apa_pun(conn, tugas):
+    tugas("void", TEKS_LAMA)
+    migrasi = _muat_migrasi()
+    migrasi.void_reason_to_codes(conn)
 
-    assert _muat_migrasi().void_reason_to_codes(conn) == 0
+    assert migrasi.void_reason_to_codes(conn) == 0
