@@ -50,7 +50,7 @@ def _user_actions(db_session, user_id: uuid.UUID) -> list[str]:
 
 def test_repo_activate_user_sets_is_active(db_session):
     user = repository.create_user(
-        db_session, name="Member", email="member@veritask.test", role=Role.REVIEWER
+        db_session, name="Member", email="member@veritask.test", role=Role.CONTRIBUTOR
     )
     repository.deactivate_user(db_session, user)
 
@@ -71,7 +71,7 @@ def test_service_activate_member_unknown_id_is_not_found(monkeypatch):
 
 
 def test_service_activate_member_already_active_does_not_write(monkeypatch):
-    active = User(id=uuid.uuid4(), email="a@veritask.test", name="A", role=Role.AUTHOR)
+    active = User(id=uuid.uuid4(), email="a@veritask.test", name="A", role=Role.CONTRIBUTOR)
     active.is_active = True
     monkeypatch.setattr("app.modules.auth.repository.get_user_by_id", lambda db, uid: active)
     activate = MagicMock()

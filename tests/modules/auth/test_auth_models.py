@@ -28,7 +28,7 @@ def buat_user(**override) -> User:
     bawaan = {
         "email": "author@veritask.test",
         "name": "Uji Author",
-        "role": Role.AUTHOR,
+        "role": Role.CONTRIBUTOR,
     }
     return User(**{**bawaan, **override})
 
@@ -53,16 +53,16 @@ def test_zitadel_sub_kosong_saat_akun_dibuat_admin(db_session):
 
 
 def test_role_disimpan_sebagai_huruf_kecil(db_session):
-    """Kontrak API memakai "author", bukan "AUTHOR".
+    """Kontrak API memakai "contributor", bukan "CONTRIBUTOR".
 
     Tanpa values_callable di kolom role, SQLAlchemy menyimpan nama
     anggota enum dan nilai di database jadi huruf besar.
     """
-    db_session.add(buat_user(role=Role.AUTHOR))
+    db_session.add(buat_user(role=Role.CONTRIBUTOR))
     db_session.commit()
 
     tersimpan = db_session.execute(text("SELECT role FROM users")).scalar_one()
-    assert tersimpan == "author"
+    assert tersimpan == "contributor"
 
 
 def test_setiap_peran_bisa_disimpan(db_session):

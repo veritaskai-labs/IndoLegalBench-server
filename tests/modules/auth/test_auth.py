@@ -53,7 +53,7 @@ def test_null_sub_binds_on_matching_email(client, db_session):
     pending = User(
         email="pending@veritask.test",
         name="Pending Author",
-        role=Role.AUTHOR,
+        role=Role.CONTRIBUTOR,
         zitadel_sub=None,
         is_active=True,
     )

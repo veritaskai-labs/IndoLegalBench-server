@@ -72,7 +72,7 @@ TEKS_KTK_001 = "Pasal 156 UU 13/2003"
 
 def test_buat_kasus_dengan_contoh_ac10_mengembalikan_bentuk_baru(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     # Act
     respons = _buat(client, _suite(client), legal_refs=[rujukan_ac10()])
@@ -85,7 +85,7 @@ def test_buat_kasus_dengan_contoh_ac10_mengembalikan_bentuk_baru(as_role):
 def test_angka_romawi_tersimpan_dan_ditulis_seperti_input(as_role):
     """Temuan Ka Steven: Pasal II Angka IV tidak perlu lagi jatuh ke Teks Bebas."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     rujukan = rujukan_ac10()
     rujukan["links"][1]["angka"] = "IV"
 
@@ -102,7 +102,7 @@ def test_angka_romawi_tersimpan_dan_ditulis_seperti_input(as_role):
 def test_lebih_dari_satu_rujukan_tersimpan_berurutan(as_role):
     """AC1: KTK-001, contoh AC10, lalu teks bebas (AC7) dalam satu kasus."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     daftar = [rujukan_ktk_001(), rujukan_ac10(), TEKS_BEBAS]
 
     # Act
@@ -121,7 +121,7 @@ def test_lebih_dari_satu_rujukan_tersimpan_berurutan(as_role):
 
 def test_ubah_kasus_mengganti_rujukan(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id, legal_refs=[rujukan_ac10()]).json()["id"]
     badan = _badan(legal_refs=[rujukan_ktk_001()])
@@ -136,7 +136,7 @@ def test_ubah_kasus_mengganti_rujukan(as_role):
 
 def test_display_text_dari_client_tidak_disimpan(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     rujukan = {**rujukan_ktk_001(), "display_text": "teks dari client"}
 
     # Act
@@ -219,7 +219,7 @@ def _rusak(ubah) -> list[dict[str, Any]]:
 )
 def test_penolakan_menunjuk_rujukan_dan_link_yang_tepat(as_role, ubah, code, field):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     # Act
     respons = _buat(client, _suite(client), legal_refs=_rusak(ubah))
@@ -234,7 +234,7 @@ def test_penolakan_menunjuk_rujukan_dan_link_yang_tepat(as_role, ubah, code, fie
 def test_teks_bebas_kosong_ditolak(as_role, isi):
     """AC7: bentuk Teks Bebas wajib berisi."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     # Act
     respons = _buat(client, _suite(client), legal_refs=[{**TEKS_BEBAS, "free_text": isi}])
@@ -248,7 +248,7 @@ def test_teks_bebas_kosong_ditolak(as_role, isi):
 def test_bentuk_sprint_1_ditolak_sebagai_perubahan_kontrak(as_role):
     """Breaking change: client lama yang masih mengirim regulation_number dapat 422, bukan 500."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     lama = {"regulation_type": "uu", "regulation_number": "13", "year": 2003, "pasal": "156"}
 
     # Act
@@ -263,7 +263,7 @@ def test_bentuk_sprint_1_ditolak_sebagai_perubahan_kontrak(as_role):
 def test_ubah_dengan_link_rusak_juga_menunjuk_field(as_role):
     """PUT memakai pemetaan error yang sama dengan POST."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), legal_refs=[rujukan_ktk_001()]).json()["id"]
     badan = _badan(legal_refs=_rusak(lambda r: r["links"][1].pop("angka")))
 
@@ -395,7 +395,7 @@ def test_case_write_hanya_memakai_kata_kunci_gen_zod(spec):
 def test_field_terlarang_lewat_http_memakai_kode_sendiri(as_role):
     """Kode baru FIELD_NOT_ALLOWED (keputusan PO 17 Okt) sampai ke badan error FE."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     rujukan = rujukan_ac10()
     rujukan["links"][0]["angka"] = "1"
 
@@ -410,7 +410,7 @@ def test_field_terlarang_lewat_http_memakai_kode_sendiri(as_role):
 
 def test_rantai_tanpa_penghubung_lewat_http(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     rujukan = rujukan_ac10()
     rujukan["links"][1]["connector"] = "none"
 
@@ -426,7 +426,7 @@ def test_rantai_tanpa_penghubung_lewat_http(as_role):
 def test_tahun_di_masa_depan_lewat_http(as_role, monkeypatch):
     # Arrange
     monkeypatch.setattr(validation, "current_year_wib", lambda now=None: 2026)
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     rujukan = rujukan_ktk_001()
     rujukan["links"][0]["year"] = 2027
 
@@ -457,7 +457,7 @@ def _dengan_jenis(code: str) -> dict:
 
 def test_jenis_di_luar_daftar_ditolak_lewat_http(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     # Act
     respons = _buat(client, _suite(client), legal_refs=[_dengan_jenis("kode_lain")])
@@ -470,7 +470,7 @@ def test_jenis_di_luar_daftar_ditolak_lewat_http(as_role):
 
 def test_kasus_baru_tidak_boleh_memakai_jenis_nonaktif(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _nonaktifkan(db_session, "uu")
 
     # Act
@@ -483,7 +483,7 @@ def test_kasus_baru_tidak_boleh_memakai_jenis_nonaktif(as_role, db_session):
 
 def test_jenis_yang_dinonaktifkan_setelah_dipakai_tetap_bisa_disimpan_ulang(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), legal_refs=[rujukan_ktk_001()]).json()["id"]
     _nonaktifkan(db_session, "uu")
 
@@ -496,7 +496,7 @@ def test_jenis_yang_dinonaktifkan_setelah_dipakai_tetap_bisa_disimpan_ulang(as_r
 
 def test_jenis_nonaktif_lain_tetap_ditolak_saat_mengubah(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), legal_refs=[rujukan_ktk_001()]).json()["id"]
     _nonaktifkan(db_session, "permen")
 
@@ -514,7 +514,7 @@ def test_jenis_nonaktif_lain_tetap_ditolak_saat_mengubah(as_role, db_session):
 def test_jenis_nonaktif_dari_rujukan_sprint_1_ikut_dianggap_tersimpan(as_role, db_session):
     """Versi lama menyimpan teks "UU"; setelah dibaca ulang itu code uu (AC9)."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), legal_refs=[rujukan_ktk_001()]).json()["id"]
     versi = db_session.get(Case, uuid.UUID(case_id)).current_version
     lama = {"regulation_type": "UU", "regulation_number": "13", "year": 2003, "pasal": "156"}
@@ -546,7 +546,7 @@ def _kasus_dengan_isi_lama(client, db_session, *rujukan_lama: dict, kode: str = 
 def test_ktk_001_sprint_1_tampil_sama_dalam_bentuk_baru(as_role, db_session):
     """AC9: rujukan lama tampil benar dan siap diedit tanpa ditulis ulang."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _kasus_dengan_isi_lama(client, db_session, LAMA_KTK_001)
 
     # Act
@@ -562,7 +562,7 @@ def test_ktk_001_sprint_1_tampil_sama_dalam_bentuk_baru(as_role, db_session):
 def test_rujukan_lama_tanpa_tahun_tampil_tapi_belum_lengkap(as_role, db_session):
     """Keputusan PO 17 Okt: rujukan lama tanpa tahun dianggap belum lengkap."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _kasus_dengan_isi_lama(client, db_session, {**LAMA_KTK_001, "year": None})
 
     # Act
@@ -581,7 +581,7 @@ def test_rujukan_lama_tanpa_tahun_tampil_tapi_belum_lengkap(as_role, db_session)
 def test_pengajuan_review_membaca_rujukan_lama(as_role, db_session):
     """Guard pengajuan memakai bacaan yang sama: rujukan lama lengkap tidak menghalangi."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     lengkap = _kasus_dengan_isi_lama(client, db_session, LAMA_KTK_001)
     tanpa_tahun = _kasus_dengan_isi_lama(
         client, db_session, {**LAMA_KTK_001, "year": None}, kode="PHK-002"
@@ -599,7 +599,7 @@ def test_pengajuan_review_membaca_rujukan_lama(as_role, db_session):
 
 def test_salinan_review_membawa_display_text(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), legal_refs=[rujukan_ac10()]).json()["id"]
     versi_id = db_session.get(Case, uuid.UUID(case_id)).current_version_id
 
@@ -613,7 +613,7 @@ def test_salinan_review_membawa_display_text(as_role, db_session):
 def test_draf_terbuka_membawa_display_text(as_role, db_session):
     """GET versi yang sedang dikerjakan memakai pembaca yang sama dengan detail."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _kasus_dengan_isi_lama(client, db_session, LAMA_KTK_001)
 
     # Act

@@ -71,7 +71,7 @@ def test_ubah_peran_pengguna_yang_tidak_ada_menjadi_404(db_session):
 
     with pytest.raises(NotFoundError):
         service.AuthService(db_session).update_member_role(
-            uuid.uuid4(), UserUpdateRoleRequest(role=Role.REVIEWER), admin
+            uuid.uuid4(), UserUpdateRoleRequest(role=Role.CONTRIBUTOR), admin
         )
 
 

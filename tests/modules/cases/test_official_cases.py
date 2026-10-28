@@ -26,7 +26,7 @@ def _kasus(client, db_session, suite_id, kode, tag, *, setujui=True) -> str:
 
 def test_hanya_test_case_yang_disetujui(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     _kasus(client, db_session, suite_id, "UJI-002", "test")
     _kasus(client, db_session, suite_id, "UJI-001", "test")
@@ -43,7 +43,7 @@ def test_hanya_test_case_yang_disetujui(as_role, db_session):
 
 def test_memakai_versi_yang_berlaku_bukan_draf_berikutnya(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _kasus(client, db_session, suite_id, "UJI-001", "test")
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
@@ -59,7 +59,7 @@ def test_memakai_versi_yang_berlaku_bukan_draf_berikutnya(as_role, db_session):
 
 def test_suite_lain_tidak_ikut(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_a = _suite(client, name="Suite A")
     suite_b = _suite(client, name="Suite B")
     _kasus(client, db_session, suite_a, "UJI-A", "test")
@@ -71,7 +71,7 @@ def test_suite_lain_tidak_ikut(as_role, db_session):
 
 def test_suite_tanpa_test_case_kosong(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     _kasus(client, db_session, suite_id, "DEV-001", "dev")
 

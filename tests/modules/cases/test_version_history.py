@@ -23,7 +23,7 @@ def _seed_author(db: Session) -> None:
             id=USER_ID_QA,
             name="Pengguna QA",
             email="qa-history@veritask.test",
-            role=Role.AUTHOR,
+            role=Role.CONTRIBUTOR,
         )
     )
     db.commit()
@@ -38,7 +38,7 @@ def _approved_case(client, db_session) -> tuple[str, str]:
 
 
 def test_riwayat_versi_pertama_kosong_dan_menyebut_pembuat(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _, case_id = _approved_case(client, db_session)
 
     response = client.get(f"/cases/{case_id}/versions")
@@ -53,7 +53,7 @@ def test_riwayat_versi_pertama_kosong_dan_menyebut_pembuat(as_role, db_session):
 
 
 def test_perubahan_kategori_tercatat_sendiri(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _, case_id = _approved_case(client, db_session)
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
     kategori = _badan()
@@ -67,7 +67,7 @@ def test_perubahan_kategori_tercatat_sendiri(as_role, db_session):
 
 
 def test_perbandingan_menyebut_kategori_dan_rujukan(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _, case_id = _approved_case(client, db_session)
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
     badan = _badan()
@@ -88,7 +88,7 @@ def test_perbandingan_menyebut_kategori_dan_rujukan(as_role, db_session):
 
 
 def test_banding_versi_dengan_dirinya_kosong(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _, case_id = _approved_case(client, db_session)
 
     response = client.get(f"/cases/{case_id}/versions/compare", params={"a": 1, "b": 1})
@@ -101,7 +101,7 @@ def test_banding_versi_dengan_dirinya_kosong(as_role, db_session):
 
 def test_kode_kasus_dibaca_dari_versi(as_role, db_session):
     """History and compare use the code stored on each version, not the live case row."""
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _, case_id = _approved_case(client, db_session)
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
 
@@ -125,7 +125,7 @@ def test_kode_kasus_dibaca_dari_versi(as_role, db_session):
 
 
 def test_nomor_versi_yang_tidak_ada_404(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _, case_id = _approved_case(client, db_session)
 
     response = client.get(f"/cases/{case_id}/versions/compare", params={"a": 1, "b": 9})
@@ -135,16 +135,16 @@ def test_nomor_versi_yang_tidak_ada_404(as_role, db_session):
 
 
 def test_kasus_yang_tidak_ada_404(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     response = client.get(f"/cases/{uuid.uuid4()}/versions")
 
     assert response.status_code == 404
 
 
-@pytest.mark.parametrize("role", [Role.VIEWER, Role.REVIEWER])
+@pytest.mark.parametrize("role", [Role.VIEWER, Role.CONTRIBUTOR])
 def test_viewer_dan_reviewer_boleh_membaca_riwayat(as_role, buat_pengguna, db_session, role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _, case_id = _approved_case(client, db_session)
     _ganti(client, buat_pengguna(role, user_id=uuid.uuid4()))
 

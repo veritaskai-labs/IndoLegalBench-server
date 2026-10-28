@@ -38,8 +38,8 @@ def _as_admin(client, buat_pengguna):
 
 
 def test_snapshot_hanya_versi_approved_dan_menolak_suite_kosong(as_role, buat_pengguna, db_session):
-    client = as_role(Role.AUTHOR)
-    _seed(db_session, USER_ID_QA, "Pengguna QA", "qa-snap@veritask.test", Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
+    _seed(db_session, USER_ID_QA, "Pengguna QA", "qa-snap@veritask.test", Role.CONTRIBUTOR)
     _seed(db_session, ADMIN_LAIN, "Admin QA", "admin-snap@veritask.test", Role.ADMIN)
     suite_id = _suite(client)
     _as_admin(client, buat_pengguna)
@@ -47,7 +47,7 @@ def test_snapshot_hanya_versi_approved_dan_menolak_suite_kosong(as_role, buat_pe
     assert empty.status_code == 422
     assert empty.json()["code"] == "NOTHING_TO_SNAPSHOT"
 
-    _ganti(client, buat_pengguna(Role.AUTHOR, user_id=USER_ID_QA, name="Pengguna QA"))
+    _ganti(client, buat_pengguna(Role.CONTRIBUTOR, user_id=USER_ID_QA, name="Pengguna QA"))
     approved = _buat(client, suite_id).json()
     draft_only = _buat(client, suite_id, case_code="PHK-002").json()
     _setujui(db_session, approved["id"])
@@ -75,7 +75,7 @@ def test_snapshot_hanya_versi_approved_dan_menolak_suite_kosong(as_role, buat_pe
 def test_suite_arsip_yang_punya_kasus_approved_boleh_di_snapshot(
     as_role, buat_pengguna, db_session
 ):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     _setujui(db_session, case_id)
@@ -88,13 +88,13 @@ def test_suite_arsip_yang_punya_kasus_approved_boleh_di_snapshot(
     assert len(response.json()["items"]) == 1
 
 
-@pytest.mark.parametrize("role", [Role.AUTHOR, Role.REVIEWER, Role.VIEWER])
+@pytest.mark.parametrize("role", [Role.CONTRIBUTOR, Role.CONTRIBUTOR, Role.VIEWER])
 def test_bukan_admin_tidak_boleh_membuat_snapshot(as_role, buat_pengguna, db_session, role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     _setujui(db_session, case_id)
-    if role != Role.AUTHOR:
+    if role != Role.CONTRIBUTOR:
         _ganti(client, buat_pengguna(role, user_id=uuid.uuid4()))
 
     response = client.post(f"/suites/{suite_id}/snapshots")
@@ -106,8 +106,8 @@ def test_bukan_admin_tidak_boleh_membuat_snapshot(as_role, buat_pengguna, db_ses
 def test_isi_snapshot_tidak_berubah_setelah_kasus_dan_suite_diedit(
     as_role, buat_pengguna, db_session
 ):
-    client = as_role(Role.AUTHOR)
-    _seed(db_session, USER_ID_QA, "Pengguna QA", "qa-freeze@veritask.test", Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
+    _seed(db_session, USER_ID_QA, "Pengguna QA", "qa-freeze@veritask.test", Role.CONTRIBUTOR)
     _seed(db_session, ADMIN_LAIN, "Admin QA", "admin-freeze@veritask.test", Role.ADMIN)
     suite_id = _suite(client, name="Suite sebelum snapshot")
     case_id = _buat(client, suite_id).json()["id"]
@@ -118,7 +118,7 @@ def test_isi_snapshot_tidak_berubah_setelah_kasus_dan_suite_diedit(
     snapshot_id = dibuat.json()["id"]
     sebelum = client.get(f"/snapshots/{snapshot_id}").json()
 
-    _ganti(client, buat_pengguna(Role.AUTHOR, user_id=USER_ID_QA, name="Pengguna QA"))
+    _ganti(client, buat_pengguna(Role.CONTRIBUTOR, user_id=USER_ID_QA, name="Pengguna QA"))
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
     kode_baru = _badan(case_code="PHK-999")
     ditolak = client.put(f"/cases/{case_id}", json=kode_baru)
@@ -142,7 +142,7 @@ def test_isi_snapshot_tidak_berubah_setelah_kasus_dan_suite_diedit(
 
 
 def test_dua_snapshot_tersimpan_terpisah(as_role, buat_pengguna, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _seed(db_session, ADMIN_LAIN, "Admin QA", "admin-dua@veritask.test", Role.ADMIN)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
@@ -163,9 +163,9 @@ def test_dua_snapshot_tersimpan_terpisah(as_role, buat_pengguna, db_session):
     assert body["items"][0]["case_count"] == 1
 
 
-@pytest.mark.parametrize("role", [Role.REVIEWER, Role.VIEWER])
+@pytest.mark.parametrize("role", [Role.CONTRIBUTOR, Role.VIEWER])
 def test_viewer_dan_reviewer_boleh_membaca_snapshot(as_role, buat_pengguna, db_session, role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     _setujui(db_session, case_id)
@@ -216,8 +216,8 @@ class TigaSnapshot(NamedTuple):
 
 @pytest.fixture
 def tiga_snapshot(as_role, buat_pengguna, db_session) -> TigaSnapshot:
-    client = as_role(Role.AUTHOR)
-    _seed(db_session, USER_ID_QA, "Pengguna QA", "qa-v2-snap@veritask.test", Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
+    _seed(db_session, USER_ID_QA, "Pengguna QA", "qa-v2-snap@veritask.test", Role.CONTRIBUTOR)
     _seed(db_session, ADMIN_LAIN, "Admin QA", "admin-v2-snap@veritask.test", Role.ADMIN)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
@@ -226,7 +226,7 @@ def tiga_snapshot(as_role, buat_pengguna, db_session) -> TigaSnapshot:
     _as_admin(client, buat_pengguna)
     lama = client.post(f"/suites/{suite_id}/snapshots").json()["id"]
     _mundurkan(db_session, lama, hari=2)
-    _ganti(client, buat_pengguna(Role.AUTHOR))
+    _ganti(client, buat_pengguna(Role.CONTRIBUTOR))
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
     revisi = _badan()
     revisi["identity"] = {**revisi["identity"], "title": JUDUL_V2}
@@ -268,7 +268,7 @@ def test_daftar_snapshot_terbaru_di_atas(tiga_snapshot):
 
 
 def test_suite_yang_belum_pernah_di_snapshot_menjawab_daftar_kosong(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     response = client.get(f"/suites/{suite_id}/snapshots")

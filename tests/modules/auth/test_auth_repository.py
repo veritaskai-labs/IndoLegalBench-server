@@ -42,14 +42,14 @@ def test_repo_create_user_nullable_zitadel(db_session):
         db_session,
         name="John Doe",
         email="john@veritask.ai",
-        role=Role.AUTHOR,
+        role=Role.CONTRIBUTOR,
         zitadel_sub=None,
     )
 
     assert user.id is not None
     assert user.name == "John Doe"
     assert user.email == "john@veritask.ai"
-    assert user.role == Role.AUTHOR
+    assert user.role == Role.CONTRIBUTOR
     assert user.zitadel_sub is None
     assert user.is_active is True
 
@@ -59,7 +59,7 @@ def test_repo_get_user_by_id_and_email(db_session):
         db_session,
         name="Jane Doe",
         email="jane@veritask.ai",
-        role=Role.REVIEWER,
+        role=Role.CONTRIBUTOR,
     )
 
     by_id = repository.get_user_by_id(db_session, created.id)
@@ -76,9 +76,11 @@ def test_repo_get_user_by_id_and_email(db_session):
 
 
 def test_repo_get_users_filtering(db_session):
-    u1 = repository.create_user(db_session, name="User 1", email="u1@veritask.ai", role=Role.AUTHOR)
+    u1 = repository.create_user(
+        db_session, name="User 1", email="u1@veritask.ai", role=Role.CONTRIBUTOR
+    )
     u2 = repository.create_user(
-        db_session, name="User 2", email="u2@veritask.ai", role=Role.REVIEWER
+        db_session, name="User 2", email="u2@veritask.ai", role=Role.CONTRIBUTOR
     )
     repository.deactivate_user(db_session, u2)
 
@@ -119,7 +121,7 @@ def test_repo_deactivate_user(db_session):
         db_session,
         name="To Deactivate",
         email="deactivate@veritask.ai",
-        role=Role.AUTHOR,
+        role=Role.CONTRIBUTOR,
     )
     assert user.is_active is True
 
@@ -137,7 +139,7 @@ def test_repo_delete_sessions_by_user_id(db_session):
         db_session,
         name="Session Owner",
         email="sessions@veritask.ai",
-        role=Role.AUTHOR,
+        role=Role.CONTRIBUTOR,
     )
 
     expiry = datetime.now(UTC) + timedelta(hours=1)

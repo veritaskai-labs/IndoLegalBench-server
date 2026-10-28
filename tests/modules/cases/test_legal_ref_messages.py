@@ -325,7 +325,7 @@ def test_validation_error_pydantic_tidak_disentuh():
 
 def test_http_simpan_nomor_kosong(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     rujukan = rujukan_ktk_001()
     rujukan["links"][0]["number"] = " "
 
@@ -343,7 +343,7 @@ def test_http_simpan_nomor_kosong(as_role):
 
 def test_http_simpan_pasal_kosong(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     rujukan = rujukan_ktk_001()
     rujukan["links"][0]["pasal"] = ""
 
