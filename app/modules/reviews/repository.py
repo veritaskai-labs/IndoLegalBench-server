@@ -265,9 +265,7 @@ def count_cases_waiting_for_reviewer(db: Session, reviewer_id: uuid.UUID) -> int
     )
 
 
-def get_active_assignments_by_reviewer(
-    db: Session, reviewer_id: uuid.UUID
-) -> list[ReviewAssignment]:
+def waiting_assignments_for_reviewer(db: Session, reviewer_id: uuid.UUID) -> list[ReviewAssignment]:
     """Penugasan reviewer yang masih menunggu penilaiannya (AC8), sama dengan hitungan."""
     return list(
         db.scalars(

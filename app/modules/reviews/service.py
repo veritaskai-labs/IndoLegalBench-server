@@ -664,24 +664,18 @@ def void_reviewer_assignments(
     *,
     reason: AssignmentVoidReason = AssignmentVoidReason.DEACTIVATED,
 ) -> list[ReviewAssignment]:
-    """Void semua penugasan aktif milik reviewer yang dinonaktifkan (AC8, SCRUM-147).
+    """Lepas penugasan yang masih menunggu penilaian reviewer ini (AC8, SCRUM-147, SCRUM-197).
 
-    Dipanggil oleh AuthService.deactivate_member saat akun reviewer dinonaktifkan.
-    Setiap assignment diubah statusnya jadi void, ended_at diisi, dan bila round-nya
-    belum diputuskan (decided), status round dikembalikan ke awaiting_assignment.
+    Dipanggil AuthService saat reviewer dinonaktifkan atau perannya diubah.
+    Assignment jadi void dengan end_reason = kode alasan, ended_at diisi, dan
+    round kembali ke awaiting_assignment. Satu reviewer paling banyak punya satu
+    assignment active per round (uq_review_assignments_active_reviewer), jadi
+    setiap round cukup dikunci sekali.
     """
-    assignments = repository.get_active_assignments_by_reviewer(db, reviewer_id)
     voided: list[ReviewAssignment] = []
-    locked_rounds: set[uuid.UUID] = set()
-    for assignment in assignments:
-        round_id = assignment.review_round_id
-        if round_id not in locked_rounds:
-            ronde = repository.lock_round(db, round_id)
-            locked_rounds.add(round_id)
-        else:
-            ronde = repository.get_round(db, round_id)
-
-        if ronde is None or ronde.status == RoundStatus.DECIDED or ronde.decision is not None:
+    for assignment in repository.waiting_assignments_for_reviewer(db, reviewer_id):
+        ronde = repository.lock_round(db, assignment.review_round_id)
+        if ronde.status == RoundStatus.DECIDED or ronde.decision is not None:
             continue
 
         assignment.status = AssignmentStatus.VOID

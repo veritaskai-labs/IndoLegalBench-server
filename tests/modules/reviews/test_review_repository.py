@@ -179,7 +179,7 @@ def test_get_active_assignments_by_reviewer_hanya_yang_aktif_dan_belum_decided(d
     _tugaskan(db_session, ronde3, REVIEWER, AssignmentStatus.ACTIVE)
 
     # Act
-    aktif = repository.get_active_assignments_by_reviewer(db_session, REVIEWER)
+    aktif = repository.waiting_assignments_for_reviewer(db_session, REVIEWER)
 
     # Assert
     assert len(aktif) == 1
