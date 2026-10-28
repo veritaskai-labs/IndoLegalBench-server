@@ -54,7 +54,7 @@ def jadi(buat_pengguna):
 @pytest.fixture
 def author(as_role):
     """Client Author USER_ID_QA dan satu suite miliknya."""
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     return client, _suite(client)
 
 
@@ -65,7 +65,7 @@ def _reviewer(db_session, *ids: uuid.UUID) -> None:
                 id=i,
                 email=f"{str(i)[-3:]}@veritask.test",
                 name=f"R{str(i)[-3:]}",
-                role=Role.REVIEWER,
+                role=Role.CONTRIBUTOR,
             )
             for i in ids
         ]
@@ -123,7 +123,7 @@ def test_viewer_tidak_punya_dashboard(as_role):
     assert response.status_code == 403
 
 
-@pytest.mark.parametrize("role", [Role.AUTHOR, Role.REVIEWER, Role.ADMIN])
+@pytest.mark.parametrize("role", [Role.CONTRIBUTOR, Role.CONTRIBUTOR, Role.ADMIN])
 def test_author_reviewer_admin_mendapat_dashboard(as_role, role):
     # Act
     response = as_role(role).get("/dashboard")
@@ -181,7 +181,7 @@ def test_masih_menunggu_selama_satu_reviewer_belum_menilai(author, db_session, j
     _reviewer(db_session, REVIEWER_A, REVIEWER_B)
     case_id = _ajukan(client, suite_id, "REVIEW-001")
     tugas = _tugas(db_session, case_id)
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A].id)
 
     # Act
@@ -198,7 +198,7 @@ def test_disetujui_keluar_dari_menunggu_dan_masuk_approved(author, db_session, j
     case_id = _ajukan(client, suite_id, "REVIEW-001")
     tugas = _tugas(db_session, case_id)
     for reviewer in (REVIEWER_A, REVIEWER_B):
-        jadi(Role.REVIEWER, reviewer)
+        jadi(Role.CONTRIBUTOR, reviewer)
         _nilai(client, tugas[reviewer].id)
 
     # Act
@@ -218,9 +218,9 @@ def test_status_mengikuti_versi_yang_berlaku_seperti_daftar_kasus(author, db_ses
     case_id = _ajukan(client, suite_id, "REVIEW-001")
     tugas = _tugas(db_session, case_id)
     for reviewer in (REVIEWER_A, REVIEWER_B):
-        jadi(Role.REVIEWER, reviewer)
+        jadi(Role.CONTRIBUTOR, reviewer)
         _nilai(client, tugas[reviewer].id)
-    jadi(Role.AUTHOR, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
 
     # Act
@@ -308,7 +308,7 @@ def test_kasus_tanpa_reviewer_dihitung_menunggu_tapi_tidak_di_antrean(author, db
     case_id = _ajukan(client, suite_id, "REVIEW-001")
     assert _round(db_session, case_id).status == RoundStatus.AWAITING_ASSIGNMENT
     _reviewer(db_session, REVIEWER_A)
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
 
     # Act
     body = _dashboard(client)
@@ -366,12 +366,13 @@ def test_sesi_pengukuran_terakhir_kosong_sampai_pbi11(author):
 # --- Bagian khusus peran --------------------------------------------------------------
 
 
-def test_author_tidak_mendapat_antrean_dan_angka_admin(author):
+def test_kontributor_tanpa_tugas_mendapat_antrean_kosong_tanpa_angka_admin(author):
+    """PBI-24: antrean ikut ke Kontributor; penulis tanpa tugas melihat daftar kosong."""
     # Act
     body = _dashboard(author[0])
 
     # Assert
-    assert body["review_queue"] is None
+    assert body["review_queue"] == []
     assert body["needs_reassignment"] is None
 
 
@@ -391,7 +392,7 @@ def test_antrean_reviewer_hanya_yang_belum_dinilai_terlama_dulu(author, db_sessi
     ronde_lama.opened_at = datetime.now(UTC) - timedelta(days=2)
     db_session.commit()
     tugas_sudah = _tugas(db_session, sudah)
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas_sudah[REVIEWER_A].id)
 
     # Act
@@ -412,7 +413,7 @@ def test_antrean_reviewer_tidak_memuat_tugas_reviewer_lain(author, db_session, j
     client, suite_id = author
     _reviewer(db_session, REVIEWER_A, REVIEWER_B)
     _ajukan(client, suite_id, "REVIEW-001")
-    jadi(Role.REVIEWER, REVIEWER_C)
+    jadi(Role.CONTRIBUTOR, REVIEWER_C)
 
     # Act
     body = _dashboard(client)
@@ -429,7 +430,7 @@ def test_antrean_reviewer_tidak_memuat_tugas_yang_diganti(author, db_session, ja
     case_id = _ajukan(client, suite_id, "REVIEW-001")
     _tugas(db_session, case_id)[REVIEWER_A].status = AssignmentStatus.REPLACED
     db_session.commit()
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
 
     # Act
     body = _dashboard(client)
@@ -483,7 +484,7 @@ def test_admin_tidak_menghitung_round_yang_sudah_diputuskan(author, db_session, 
     case_id = _ajukan(client, suite_id, "REVIEW-001")
     tugas = _tugas(db_session, case_id)
     for reviewer in (REVIEWER_A, REVIEWER_B):
-        jadi(Role.REVIEWER, reviewer)
+        jadi(Role.CONTRIBUTOR, reviewer)
         _nilai(client, tugas[reviewer].id)
     jadi(Role.ADMIN, ADMIN)
 

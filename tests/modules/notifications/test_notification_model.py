@@ -18,7 +18,7 @@ USER_ID = uuid.UUID("00000000-0000-0000-0000-000000015301")
 def test_notification_bisa_disimpan_dengan_kolom_wajib(db_session):
     # Arrange
     db_session.add(
-        User(id=USER_ID, email="n@veritask.test", name="N", role=Role.AUTHOR, is_active=True)
+        User(id=USER_ID, email="n@veritask.test", name="N", role=Role.CONTRIBUTOR, is_active=True)
     )
     db_session.commit()
     sekarang = datetime(2026, 10, 17, 12, 0, tzinfo=UTC)

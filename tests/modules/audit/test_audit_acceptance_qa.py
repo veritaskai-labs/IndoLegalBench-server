@@ -77,7 +77,7 @@ def _jadi(client, buat_pengguna, role: Role, **identitas) -> None:
 
 
 def test_ac1_positif_snapshot_suite_tercatat_sekali(as_role, buat_pengguna, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     _setujui(db_session, case_id)
@@ -96,7 +96,7 @@ def test_ac1_positif_snapshot_suite_tercatat_sekali(as_role, buat_pengguna, db_s
 
 
 def test_ac1_positif_versi_baru_hasil_fork_tercatat_sekali(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     _setujui(db_session, case_id)
@@ -125,7 +125,7 @@ def test_ac3_edge_pelaku_yang_dinonaktifkan_tetap_bisa_dicari(as_role, buat_peng
         User(id=USER_ID_QA, email="admin.qa@veritask.test", name="Admin QA", role="admin")
     )
     db_session.commit()
-    client = as_role(Role.AUTHOR, user_id=PENULIS_LAMA, name="Penulis Lama")
+    client = as_role(Role.CONTRIBUTOR, user_id=PENULIS_LAMA, name="Penulis Lama")
     _suite(client, name="Suite Penulis Lama")
     _jadi(client, buat_pengguna, Role.ADMIN, name="Admin QA")
     assert client.post(f"/admin/users/{PENULIS_LAMA}/deactivate").status_code == 200
@@ -151,7 +151,7 @@ def test_ac5_positif_reviewer_melihat_riwayat_kasus_yang_ditugaskan(as_role, db_
     langsung karena penugasan otomatis (SCRUM-144) belum masuk staging.
     """
     # Arrange
-    penulis = as_role(Role.AUTHOR)
+    penulis = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(penulis)
     ditugaskan = _buat(penulis, suite_id).json()["id"]
     lain = _buat(penulis, suite_id, case_code="PHK-002").json()["id"]
@@ -164,7 +164,7 @@ def test_ac5_positif_reviewer_melihat_riwayat_kasus_yang_ditugaskan(as_role, db_
         ReviewAssignment(review_round_id=ronde.id, reviewer_id=REVIEWER_QA, status=status)
     )
     db_session.commit()
-    reviewer = as_role(Role.REVIEWER, user_id=REVIEWER_QA)
+    reviewer = as_role(Role.CONTRIBUTOR, user_id=REVIEWER_QA)
 
     # Act
     daftar = reviewer.get("/audit-logs")
@@ -226,7 +226,7 @@ def test_ac6_negatif_kredensial_tidak_ada_di_file_unduhan(
 
 
 def test_edge_aksi_ditolak_validasi_atau_bentrok_tidak_tercatat(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     _buat(client, suite_id)
     sebelum = _jumlah_catatan(db_session)

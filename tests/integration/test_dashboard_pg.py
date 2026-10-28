@@ -126,17 +126,17 @@ def _round(
 def _ringkasan(db: Session, admin: uuid.UUID, reviewer: uuid.UUID):
     return (
         dashboard_service.summary(db, user_id=admin, role=Role.ADMIN),
-        dashboard_service.summary(db, user_id=reviewer, role=Role.REVIEWER),
+        dashboard_service.summary(db, user_id=reviewer, role=Role.CONTRIBUTOR),
     )
 
 
 def test_angka_dashboard_sesuai_aturan_di_postgres(db):
     # Arrange
-    penulis = _pengguna(db, Role.AUTHOR)
+    penulis = _pengguna(db, Role.CONTRIBUTOR)
     admin = _pengguna(db, Role.ADMIN)
-    saya = _pengguna(db, Role.REVIEWER)
-    lain = _pengguna(db, Role.REVIEWER)
-    lama = _pengguna(db, Role.REVIEWER)
+    saya = _pengguna(db, Role.CONTRIBUTOR)
+    lain = _pengguna(db, Role.CONTRIBUTOR)
+    lama = _pengguna(db, Role.CONTRIBUTOR)
     suite = Suite(name=f"QA dashboard {uuid.uuid4().hex}", created_by=penulis)
     db.add(suite)
     db.flush()

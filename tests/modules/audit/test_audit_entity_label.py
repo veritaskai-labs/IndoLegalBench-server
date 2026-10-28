@@ -305,7 +305,7 @@ def test_reviewer_mencari_kode_kasus_tetap_dalam_cakupan(modul):
     modul.cases.find_case_ids.return_value = [KASUS, KASUS_LAIN]
 
     # Act
-    _cari(AuditLogFilter(case_code="PHK"), role=Role.REVIEWER, viewer=REVIEWER)
+    _cari(AuditLogFilter(case_code="PHK"), role=Role.CONTRIBUTOR, viewer=REVIEWER)
 
     # Assert
     kriteria = modul.repo.search.call_args.args[1]

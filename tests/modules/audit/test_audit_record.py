@@ -61,7 +61,7 @@ def test_record_ikut_tersimpan_saat_commit(db_session):
 def test_perubahan_gagal_maka_log_ikut_batal(db_session):
     """D6b: tidak ada log tanpa perubahan."""
     _catat(db_session)
-    db_session.add(User(email=None, name="Tanpa email", role=Role.AUTHOR))
+    db_session.add(User(email=None, name="Tanpa email", role=Role.CONTRIBUTOR))
 
     with pytest.raises(IntegrityError):
         db_session.commit()
@@ -156,8 +156,8 @@ def test_record_mengembalikan_baris_yang_ditambahkan(db_session):
 
 def test_pengguna_palsu_di_test_ikut_terikat(as_role, db_session):
     """Fixture as_role meniru get_current_user, termasuk pengikatan pelakunya."""
-    client = as_role(Role.AUTHOR, user_id=SUITE_ID)
+    client = as_role(Role.CONTRIBUTOR, user_id=SUITE_ID)
 
     client.get("/suites")
 
-    assert request_context.actor(db_session) == request_context.Actor(SUITE_ID, "author")
+    assert request_context.actor(db_session) == request_context.Actor(SUITE_ID, "contributor")
