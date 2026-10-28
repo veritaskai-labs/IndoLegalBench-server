@@ -235,3 +235,7 @@ def test_get_rounds_needing_reassignment(db_session):
     assert ronde2.id in ids
     assert ronde3.id not in ids
     assert ronde4.id not in ids
+
+
+def test_reviewer_assignments_tanpa_reviewer_tidak_query(db_session):
+    assert repository.reviewer_assignments(db_session, []) == []

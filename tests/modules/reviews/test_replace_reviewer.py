@@ -702,3 +702,51 @@ def test_e2e_deactivate_reviewer_muncul_di_antrean_lalu_diganti_dan_tercatat_aud
         if log.action == "review.reviewer_assigned" and log.after.get("source") == "admin"
     )
     assert assigned_log.after == {"reviewer_id": str(REVIEWER_3), "source": "admin"}
+
+
+# ==============================================================================
+# Cabang yang belum teruji (SCRUM-197 menyentuh file ini, target 100%)
+# ==============================================================================
+
+
+def test_replace_saat_reviewer_lain_sudah_void_round_tetap_menunggu(db_session, case_data):
+    """Pengganti hanya mengisi satu slot: round tetap awaiting_assignment."""
+    case_data["tugas2"].status = AssignmentStatus.VOID
+    case_data["round"].status = RoundStatus.AWAITING_ASSIGNMENT
+    db_session.commit()
+
+    service.replace_reviewer(
+        db_session,
+        assignment_id=case_data["tugas1"].id,
+        new_reviewer_id=REVIEWER_3,
+        reason="Reviewer berhalangan hadir",
+        admin_id=ADMIN_ID,
+        notifier=FakeNotifier(),
+    )
+
+    db_session.refresh(case_data["round"])
+    assert case_data["round"].status == RoundStatus.AWAITING_ASSIGNMENT
+
+
+def test_antrean_tanpa_salinan_versi_memakai_potongan_id(db_session, case_data, monkeypatch):
+    """Bila isi versi tidak ditemukan, antrean tetap tampil dengan kode dari case_id."""
+    case_data["tugas1"].status = AssignmentStatus.VOID
+    case_data["tugas1"].end_reason = "deactivated"
+    db_session.commit()
+    monkeypatch.setattr("app.modules.cases.service.review_copies", lambda db, ids: {})
+
+    antrean = service.get_needs_reassignment(db_session)
+
+    assert antrean[0].case_code == str(case_data["case"].id)[:8]
+    assert antrean[0].case_title == ""
+
+
+@pytest.mark.parametrize("aksi", ["save_assignments", "mark_needs_assignment"])
+def test_store_round_tidak_ada_tidak_error(db_session, aksi):
+    store = service.ReviewTableStore(db_session)
+    round_id = uuid.uuid4()
+
+    if aksi == "save_assignments":
+        assert store.save_assignments(round_id, []) == {}
+    else:
+        assert store.mark_needs_assignment(round_id) is None
