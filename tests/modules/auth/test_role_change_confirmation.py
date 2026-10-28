@@ -9,7 +9,8 @@ contract yet, so they are left for when SCRUM-197 defines them.
 
 Input space:
 - action: change role (to every non-reviewer role) | deactivate
-- target: reviewer with an active assignment in an open round
+- target: reviewer with an active assignment in an open round (busy),
+  with no assignment (idle), only in a decided round, only a void one
 - confirmation: not sent
 """
 
@@ -24,6 +25,7 @@ from app.modules.reviews.models import (
     AssignmentStatus,
     ReviewAssignment,
     ReviewRound,
+    RoundDecision,
     RoundStatus,
 )
 from app.modules.suites.models import Suite, SuiteStatus
@@ -33,6 +35,7 @@ ADMIN_ID = uuid.UUID("00000000-0000-0000-0000-0000000199a1")
 AUTHOR_ID = uuid.UUID("00000000-0000-0000-0000-0000000199a2")
 BUSY_REVIEWER_ID = uuid.UUID("00000000-0000-0000-0000-0000000199b1")
 OTHER_REVIEWER_ID = uuid.UUID("00000000-0000-0000-0000-0000000199b2")
+IDLE_REVIEWER_ID = uuid.UUID("00000000-0000-0000-0000-0000000199b3")
 
 
 def _member(user_id: uuid.UUID, role: Role, label: str) -> User:
@@ -128,3 +131,66 @@ class TestBusyReviewerNeedsConfirmation:
         assert response.status_code == 409
         assert response.json()["code"] == "CONFIRMATION_REQUIRED"
         _assert_nothing_changed(db_session, open_review)
+
+
+@pytest.fixture
+def idle_reviewer(db_session, open_review) -> uuid.UUID:
+    """A reviewer next to the open review who holds no assignment at all."""
+    db_session.add(_member(IDLE_REVIEWER_ID, Role.REVIEWER, "idle199"))
+    db_session.commit()
+    return IDLE_REVIEWER_ID
+
+
+def _close_round(db_session, open_review: dict) -> None:
+    review_round = db_session.get(ReviewRound, open_review["round_id"])
+    review_round.status = RoundStatus.DECIDED
+    review_round.decision = RoundDecision.APPROVED
+    db_session.commit()
+
+
+def _void_busy_assignment(db_session, open_review: dict) -> None:
+    assignment = db_session.get(ReviewAssignment, open_review["busy_assignment_id"])
+    assignment.status = AssignmentStatus.VOID
+    db_session.commit()
+
+
+class TestNoPendingReviewNeedsNoConfirmation:
+    def test_idle_reviewer_role_change_is_immediate(self, as_role, db_session, idle_reviewer):
+        client = as_role(Role.ADMIN, user_id=ADMIN_ID)
+        response = client.patch(f"/admin/users/{idle_reviewer}", json={"role": "viewer"})
+        assert response.status_code == 200
+        db_session.expire_all()
+        assert db_session.get(User, idle_reviewer).role == Role.VIEWER
+
+    def test_idle_reviewer_deactivation_is_immediate(self, as_role, db_session, idle_reviewer):
+        client = as_role(Role.ADMIN, user_id=ADMIN_ID)
+        response = client.post(f"/admin/users/{idle_reviewer}/deactivate")
+        assert response.status_code == 200
+        db_session.expire_all()
+        assert db_session.get(User, idle_reviewer).is_active is False
+
+    @pytest.mark.parametrize(
+        "settle", [_close_round, _void_busy_assignment], ids=["decided-round", "void-assignment"]
+    )
+    def test_reviewer_without_a_waiting_review_changes_role_immediately(
+        self, as_role, db_session, open_review, settle
+    ):
+        settle(db_session, open_review)
+        client = as_role(Role.ADMIN, user_id=ADMIN_ID)
+        response = client.patch(f"/admin/users/{BUSY_REVIEWER_ID}", json={"role": "viewer"})
+        assert response.status_code == 200
+        db_session.expire_all()
+        assert db_session.get(User, BUSY_REVIEWER_ID).role == Role.VIEWER
+
+    @pytest.mark.parametrize(
+        "settle", [_close_round, _void_busy_assignment], ids=["decided-round", "void-assignment"]
+    )
+    def test_reviewer_without_a_waiting_review_deactivates_immediately(
+        self, as_role, db_session, open_review, settle
+    ):
+        settle(db_session, open_review)
+        client = as_role(Role.ADMIN, user_id=ADMIN_ID)
+        response = client.post(f"/admin/users/{BUSY_REVIEWER_ID}/deactivate")
+        assert response.status_code == 200
+        db_session.expire_all()
+        assert db_session.get(User, BUSY_REVIEWER_ID).is_active is False
