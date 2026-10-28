@@ -220,6 +220,22 @@ def downgrade() -> None:
         "rate_limit_per_minute > 0",
     )
 
+    # Hapus produk manual yang dibuat setelah migrasi ini, karena skema lama
+    # mewajibkan seluruh kolom otomatis terisi (NOT NULL) dan tidak mengenal produk manual.
+    bind.execute(
+        sa.text(
+            """
+            DELETE FROM ai_products
+            WHERE measurement_type = 'manual'
+               OR monthly_budget_idr IS NULL
+               OR rate_limit_per_minute IS NULL
+               OR base_url IS NULL
+               OR model_name IS NULL
+               OR credential_encrypted IS NULL
+            """
+        )
+    )
+
     if is_postgres:
         for col in [
             "monthly_budget_idr",
