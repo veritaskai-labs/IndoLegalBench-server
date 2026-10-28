@@ -30,6 +30,7 @@ from app.modules.reviews.decision import counted_decisions, decide
 from app.modules.reviews.models import (
     AssignmentSource,
     AssignmentStatus,
+    AssignmentVoidReason,
     ReviewAssignment,
     ReviewRound,
     ReviewVerdict,
@@ -661,7 +662,7 @@ def void_reviewer_assignments(
     db: Session,
     reviewer_id: uuid.UUID,
     *,
-    reason: str = "Reviewer deactivated",
+    reason: AssignmentVoidReason = AssignmentVoidReason.DEACTIVATED,
 ) -> list[ReviewAssignment]:
     """Void semua penugasan aktif milik reviewer yang dinonaktifkan (AC8, SCRUM-147).
 
@@ -878,6 +879,7 @@ def get_needs_reassignment(db: Session) -> list[NeedsReassignmentResponse]:
                 assigned_at=a.assigned_at,
                 ended_at=a.ended_at,
                 end_reason=a.end_reason,
+                void_reason=a.end_reason if a.status == AssignmentStatus.VOID else None,
             )
             for a in assignments
         ]

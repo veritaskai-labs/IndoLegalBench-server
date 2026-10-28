@@ -245,6 +245,12 @@ class AuthService:
             raise NotFoundError(USER_NOT_FOUND)
         if payload.role != user.role:
             self._require_release_confirmed(user.id, confirm=confirm)
+            from app.modules.reviews import service as reviews_service
+            from app.modules.reviews.models import AssignmentVoidReason
+
+            reviews_service.void_reviewer_assignments(
+                self.db, user.id, reason=AssignmentVoidReason.ROLE_CHANGED
+            )
         return repository.update_user_role(self.db, user, payload.role)
 
     def deactivate_member(

@@ -268,18 +268,13 @@ def count_cases_waiting_for_reviewer(db: Session, reviewer_id: uuid.UUID) -> int
 def get_active_assignments_by_reviewer(
     db: Session, reviewer_id: uuid.UUID
 ) -> list[ReviewAssignment]:
-    """Semua penugasan active reviewer pada round yang belum diputuskan (AC8)."""
+    """Penugasan reviewer yang masih menunggu penilaiannya (AC8), sama dengan hitungan."""
     return list(
         db.scalars(
             select(ReviewAssignment)
             .join(ReviewAssignment.review_round)
             .options(joinedload(ReviewAssignment.review_round))
-            .where(
-                ReviewAssignment.reviewer_id == reviewer_id,
-                ReviewAssignment.status == AssignmentStatus.ACTIVE,
-                ReviewRound.decision.is_(None),
-                ReviewRound.status != RoundStatus.DECIDED,
-            )
+            .where(_menunggu_penilaian(reviewer_id))
         ).all()
     )
 

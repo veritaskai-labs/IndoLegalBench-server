@@ -62,6 +62,13 @@ class AssignmentStatus(StrEnum):
     VOID = "void"
 
 
+class AssignmentVoidReason(StrEnum):
+    """end_reason assignment void (D11). Kode stabil; FE yang memetakan ke teks (SCRUM-198)."""
+
+    DEACTIVATED = "deactivated"
+    ROLE_CHANGED = "role_changed"
+
+
 class VerdictDecision(StrEnum):
     APPROVE = "approve"
     REVISE = "revise"

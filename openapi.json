@@ -4002,6 +4002,15 @@
         "title": "AssignmentStatus",
         "description": "replaced: diganti Admin (AC7). void: reviewer dinonaktifkan (AC8)."
       },
+      "AssignmentVoidReason": {
+        "type": "string",
+        "enum": [
+          "deactivated",
+          "role_changed"
+        ],
+        "title": "AssignmentVoidReason",
+        "description": "end_reason assignment void (D11). Kode stabil; FE yang memetakan ke teks (SCRUM-198)."
+      },
       "AuditEntityType": {
         "type": "string",
         "enum": [
@@ -5811,7 +5820,19 @@
                 "type": "null"
               }
             ],
-            "title": "End Reason"
+            "title": "End Reason",
+            "description": "Teks bebas Admin untuk replaced; kode void_reason untuk void"
+          },
+          "void_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentVoidReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hanya untuk status void: kenapa reviewer dilepas (SCRUM-197)"
           }
         },
         "type": "object",

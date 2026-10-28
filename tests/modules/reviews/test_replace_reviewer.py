@@ -225,7 +225,7 @@ def test_replace_reviewer_void_tanpa_notifier_memberi_tahu_reviewer_baru(
     monkeypatch.setattr(service, "DbNotifier", lambda: notifier)
     tugas1 = case_data["tugas1"]
     tugas1.status = AssignmentStatus.VOID
-    tugas1.end_reason = "Reviewer deactivated"
+    tugas1.end_reason = "deactivated"
     case_data["round"].status = RoundStatus.AWAITING_ASSIGNMENT
     db_session.commit()
 
@@ -266,7 +266,7 @@ def test_replace_reviewer_service_mengganti_assignment_void(db_session, case_dat
     tugas1 = case_data["tugas1"]
     ronde = case_data["round"]
     tugas1.status = AssignmentStatus.VOID
-    tugas1.end_reason = "Reviewer deactivated"
+    tugas1.end_reason = "deactivated"
     ronde.status = RoundStatus.AWAITING_ASSIGNMENT
     db_session.commit()
 
@@ -483,7 +483,7 @@ def test_get_needs_reassignment_service(db_session, case_data):
     """AC8: Antrean penugasan ulang memuat kasus yang perlu penugasan."""
     tugas1 = case_data["tugas1"]
     tugas1.status = AssignmentStatus.VOID
-    tugas1.end_reason = "Reviewer deactivated"
+    tugas1.end_reason = "deactivated"
     case_data["round"].status = RoundStatus.AWAITING_ASSIGNMENT
     db_session.commit()
 
