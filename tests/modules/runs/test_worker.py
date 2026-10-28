@@ -93,7 +93,10 @@ def test_failure_does_not_stop_the_loop():
     assert store.statuses[-1] == "finished"
 
 
-@pytest.mark.parametrize("behavior", ["empty", "truncated", "blocked", "refusal", "key_rejected", "model_not_found", "slow"])
+@pytest.mark.parametrize(
+    "behavior",
+    ["empty", "truncated", "blocked", "refusal", "key_rejected", "model_not_found", "slow"],
+)
 def test_each_mock_behavior_is_recorded(behavior):
     store = FakeSessionStore(["q"])
     run_session(uuid.uuid4(), store, MockProviderAdapter(behavior), repeats=1)

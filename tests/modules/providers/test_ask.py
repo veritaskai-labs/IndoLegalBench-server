@@ -8,8 +8,9 @@ import pytest
 from app.modules.providers.adapters import http as provider_http
 from app.modules.providers.adapters.anthropic_messages import AnthropicMessagesAdapter
 from app.modules.providers.adapters.base import FailureKind
-from app.modules.providers.adapters.dispatch import _ADAPTERS
+from app.modules.providers.adapters.dispatch import _ADAPTERS, run_connection_test
 from app.modules.providers.adapters.gemini_interactions import GeminiInteractionsAdapter
+from app.modules.providers.adapters.http import clip
 from app.modules.providers.adapters.mock_provider import MockProviderAdapter
 from app.modules.providers.adapters.openai_compatible import OpenAICompatibleAdapter
 from app.modules.providers.adapters.params import (
@@ -141,7 +142,13 @@ def test_openai_http_error_is_provider_error(monkeypatch):
 
 @pytest.mark.parametrize(
     ("status", "kind"),
-    [(401, FailureKind.KEY_REJECTED), (403, FailureKind.KEY_REJECTED), (404, FailureKind.MODEL_NOT_FOUND), (429, FailureKind.PROVIDER_ERROR), (500, FailureKind.PROVIDER_ERROR)],
+    [
+        (401, FailureKind.KEY_REJECTED),
+        (403, FailureKind.KEY_REJECTED),
+        (404, FailureKind.MODEL_NOT_FOUND),
+        (429, FailureKind.PROVIDER_ERROR),
+        (500, FailureKind.PROVIDER_ERROR),
+    ],
 )
 def test_openai_http_status_maps_failure_kind(monkeypatch, status, kind):
     def handler(request: httpx.Request) -> httpx.Response:
@@ -161,11 +168,17 @@ def test_openai_empty_truncated_blocked_refused(monkeypatch):
             FailureKind.EMPTY,
         ),
         (
-            {"model": "m", "choices": [{"message": {"content": "sebagian"}, "finish_reason": "length"}]},
+            {
+                "model": "m",
+                "choices": [{"message": {"content": "sebagian"}, "finish_reason": "length"}],
+            },
             FailureKind.TRUNCATED,
         ),
         (
-            {"model": "m", "choices": [{"message": {"content": ""}, "finish_reason": "content_filter"}]},
+            {
+                "model": "m",
+                "choices": [{"message": {"content": ""}, "finish_reason": "content_filter"}],
+            },
             FailureKind.BLOCKED,
         ),
         (
@@ -299,8 +312,14 @@ def test_anthropic_sends_default_max_tokens_and_reads_text(monkeypatch):
 def test_anthropic_explicit_max_tokens_and_failure_kinds(monkeypatch):
     seen = {}
     payloads = [
-        ({"content": [{"type": "text", "text": "x"}], "stop_reason": "max_tokens"}, FailureKind.TRUNCATED),
-        ({"content": [{"type": "text", "text": ""}], "stop_reason": "refusal"}, FailureKind.REFUSED),
+        (
+            {"content": [{"type": "text", "text": "x"}], "stop_reason": "max_tokens"},
+            FailureKind.TRUNCATED,
+        ),
+        (
+            {"content": [{"type": "text", "text": ""}], "stop_reason": "refusal"},
+            FailureKind.REFUSED,
+        ),
         ({"content": [{"type": "text", "text": ""}], "stop_reason": "end_turn"}, FailureKind.EMPTY),
         ({"content": "bukan-list"}, FailureKind.PROVIDER_ERROR),
     ]
@@ -374,3 +393,27 @@ def test_mock_is_not_a_dispatchable_product():
 def test_mock_connection_does_not_use_the_network():
     result = MockProviderAdapter("success").test_connection()
     assert result.status == "ok"
+
+
+def test_clip_drops_secret_and_bounds_length():
+    assert clip("   ", "") == "connection test failed"
+    assert clip(f"prefix {_KEY} suffix", _KEY) == "prefix suffix"
+    long = "a" * 250
+    assert len(clip(long, "")) == 200
+
+
+def test_adapter_repr_hides_the_key():
+    assert "aiyu-1" in repr(_openai())
+    assert "gemini-2.5-flash" in repr(_gemini())
+    assert "claude-sonnet" in repr(_anthropic())
+    assert _KEY not in repr(_openai())
+
+
+def test_unknown_provider_type_is_not_dispatched():
+    result = run_connection_test(
+        provider_type="mock",
+        base_url="https://example.test",
+        model_name="m",
+        api_key=_KEY,
+    )
+    assert result.status == "failed"
