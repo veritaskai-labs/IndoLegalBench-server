@@ -13,7 +13,15 @@ from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.modules.auth.models import User
-from app.modules.providers.models import AiProduct, LastTestStatus, ProviderType
+from app.modules.providers.models import (
+    AiProduct,
+    LastTestStatus,
+    MeasurementType,
+    ProviderType,
+)
+from app.modules.providers.schemas import AiProductUpdate
+from app.modules.providers.service import update_product
+from app.shared.exceptions import ValidationError
 from app.shared.security import Role
 
 
@@ -102,22 +110,18 @@ def test_duplicate_active_name_is_rejected(db_session):
         db_session.commit()
 
 
-def test_deleted_name_can_be_reused(db_session):
+def test_deleted_name_cannot_be_reused(db_session):
     # Arrange: produk pertama sudah dihapus (deleted_at diisi)
     admin = _admin(db_session)
     first = _product(admin.id, deleted_at=datetime.now(UTC))
     db_session.add(first)
     db_session.commit()
 
-    # Act: produk baru dengan nama yang sama boleh dibuat
+    # Act & Assert: nama unik selamanya (C3), sehingga nama produk terhapus tetap ditolak
     second = _product(admin.id, model_name="aiyu-2")
     db_session.add(second)
-    db_session.commit()  # tidak boleh raise IntegrityError
-
-    # Assert
-    assert second.id != first.id
-    assert second.name == first.name
-    assert second.deleted_at is None
+    with pytest.raises(IntegrityError):
+        db_session.commit()
 
 
 def test_new_product_has_no_deleted_at(db_session):
@@ -129,6 +133,142 @@ def test_new_product_has_no_deleted_at(db_session):
 
     # Assert
     assert product.deleted_at is None
+
+
+def test_new_product_defaults_to_automatic(db_session):
+    admin = _admin(db_session)
+    product = _product(admin.id)
+    db_session.add(product)
+    db_session.commit()
+
+    assert product.measurement_type == MeasurementType.AUTOMATIC
+
+
+def test_manual_product_can_be_stored(db_session):
+    admin = _admin(db_session)
+    manual_prod = AiProduct(
+        name="Justisio",
+        measurement_type=MeasurementType.MANUAL,
+        vendor_name="PT Justisio AI",
+        site_url="https://justisio.test",
+        access_note="Akun Pro tim legal",
+        manual_params="mode pro",
+        created_by=admin.id,
+    )
+    db_session.add(manual_prod)
+    db_session.commit()
+
+    assert manual_prod.id is not None
+    assert manual_prod.measurement_type == MeasurementType.MANUAL
+    assert manual_prod.vendor_name == "PT Justisio AI"
+    assert manual_prod.provider_type is None
+    assert manual_prod.credential_encrypted is None
+
+
+def test_manual_product_with_automatic_fields_violates_check(db_session):
+    admin = _admin(db_session)
+    # Manual tidak boleh punya rate_limit_per_minute / credential dsb
+    manual_prod = AiProduct(
+        name="InvalidManual",
+        measurement_type=MeasurementType.MANUAL,
+        vendor_name="Vendor",
+        site_url="https://vendor.test",
+        rate_limit_per_minute=30,
+        created_by=admin.id,
+    )
+    db_session.add(manual_prod)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+
+def test_automatic_product_missing_credentials_violates_check(db_session):
+    admin = _admin(db_session)
+    # Otomatis wajib punya credential_encrypted dsb
+    auto_prod = AiProduct(
+        name="InvalidAuto",
+        measurement_type=MeasurementType.AUTOMATIC,
+        provider_type=ProviderType.OPENAI_COMPATIBLE,
+        base_url="https://api.example.test",
+        model_name="m1",
+        rate_limit_per_minute=30,
+        monthly_budget_idr=Decimal("1000000.00"),
+        created_by=admin.id,
+    )
+    db_session.add(auto_prod)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+
+def test_automatic_product_with_manual_fields_violates_check(db_session):
+    admin = _admin(db_session)
+    # Otomatis tidak boleh punya vendor_name / site_url
+    auto_prod = _product(admin.id, vendor_name="Vendor X")
+    db_session.add(auto_prod)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+
+def test_measurement_type_can_be_changed_without_history(db_session):
+    admin = _admin(db_session)
+    prod = _product(admin.id, name="DeepSeek-R1")
+    db_session.add(prod)
+    db_session.commit()
+
+    # Ubah dari automatic ke manual sebelum punya riwayat
+    updated = update_product(
+        db_session,
+        prod.id,
+        AiProductUpdate(
+            measurement_type=MeasurementType.MANUAL,
+            vendor_name="DeepSeek Inc",
+            site_url="https://chat.deepseek.com",
+        ),
+    )
+
+    assert updated.measurement_type == MeasurementType.MANUAL
+    assert updated.vendor_name == "DeepSeek Inc"
+    assert updated.site_url == "https://chat.deepseek.com"
+    assert updated.provider_type is None
+    assert updated.credential_hint is None
+
+
+def test_measurement_type_cannot_be_changed_with_history(db_session):
+    admin = _admin(db_session)
+    prod = _product(admin.id, name="DeepSeek-R2")
+    db_session.add(prod)
+    db_session.commit()
+
+    # Buat tabel measurement_sessions tiruan sementara untuk menguji deteksi riwayat
+    db_session.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS measurement_sessions (
+                id TEXT PRIMARY KEY,
+                product_id TEXT NOT NULL
+            )
+            """
+        )
+    )
+    db_session.execute(
+        text("INSERT INTO measurement_sessions (id, product_id) VALUES ('sess-1', :pid)"),
+        {"pid": str(prod.id)},
+    )
+    db_session.commit()
+
+    # Coba ubah jenis saat sudah ada riwayat
+    with pytest.raises(ValidationError) as exc_info:
+        update_product(
+            db_session,
+            prod.id,
+            AiProductUpdate(
+                measurement_type=MeasurementType.MANUAL,
+                vendor_name="DeepSeek Inc",
+                site_url="https://chat.deepseek.com",
+            ),
+        )
+
+    assert exc_info.value.code == "MEASUREMENT_TYPE_IMMUTABLE"
+    assert exc_info.value.status_code == 422
 
 
 @pytest.mark.parametrize("rate_limit", [0, -1])
