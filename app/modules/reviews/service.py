@@ -669,20 +669,19 @@ def void_reviewer_assignments(
     Dipanggil AuthService saat reviewer dinonaktifkan atau perannya diubah.
     Assignment jadi void dengan end_reason = kode alasan, ended_at diisi, dan
     round kembali ke awaiting_assignment. Satu reviewer paling banyak punya satu
-    assignment active per round (uq_review_assignments_active_reviewer), jadi
-    setiap round cukup dikunci sekali.
+    assignment active per round (uq_review_assignments_active_reviewer).
+
+    Round dikunci dulu, baru assignment dipilih ulang: verdict yang sedang
+    ditulis saat itu sudah ter-commit ketika dibaca, jadi tidak ikut di-void
+    (keputusan PO 28 Okt). Round yang sudah diputuskan tidak lolos filter.
     """
+    repository.lock_waiting_rounds(db, reviewer_id)
     voided: list[ReviewAssignment] = []
     for assignment in repository.waiting_assignments_for_reviewer(db, reviewer_id):
-        ronde = repository.lock_round(db, assignment.review_round_id)
-        if ronde.status == RoundStatus.DECIDED or ronde.decision is not None:
-            continue
-
         assignment.status = AssignmentStatus.VOID
         assignment.ended_at = datetime.now(UTC)
         assignment.end_reason = reason
-        assignment.review_round = ronde
-        ronde.status = RoundStatus.AWAITING_ASSIGNMENT
+        assignment.review_round.status = RoundStatus.AWAITING_ASSIGNMENT
         voided.append(assignment)
 
     if voided:
