@@ -1,10 +1,6 @@
 """Adapter OpenAI-compatible. POST base_url apa adanya, tanpa menambah path."""
 
-from app.modules.providers.adapters.ask_call import (
-    ask_client_timeout,
-    interpret_openai,
-    transport_failure,
-)
+from app.modules.providers.adapters.ask_call import interpret_openai, perform_ask
 from app.modules.providers.adapters.base import (
     ConnectionTestResult,
     ProviderAdapter,
@@ -17,7 +13,11 @@ from app.modules.providers.adapters.http import (
     json_object,
     post_json,
 )
-from app.modules.providers.adapters.params import ASK_TIMEOUT_SECONDS, ModelParameters, build_request_extras
+from app.modules.providers.adapters.params import (
+    ASK_TIMEOUT_SECONDS,
+    ModelParameters,
+    build_request_extras,
+)
 
 
 class OpenAICompatibleAdapter(ProviderAdapter):
@@ -77,13 +77,12 @@ class OpenAICompatibleAdapter(ProviderAdapter):
             "messages": [{"role": "user", "content": prompt}],
         }
         body.update(build_request_extras(self.name, parameters))
-        response, error, latency_ms = post_json(
-            self.base_url,
+        return perform_ask(
+            url=self.base_url,
             headers={"Authorization": f"Bearer {self._api_key}"},
             body=body,
-            timeout=ask_client_timeout(timeout),
+            secret=self._api_key,
+            timeout=timeout,
+            model_name=self.model_name,
+            interpret=interpret_openai,
         )
-        failed = transport_failure(response, error, latency_ms, self._api_key)
-        if failed is not None:
-            return failed
-        return interpret_openai(json_object(response), latency_ms, self.model_name, self._api_key)

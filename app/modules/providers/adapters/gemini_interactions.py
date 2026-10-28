@@ -9,11 +9,7 @@ Temperature tidak ada di skema GenerationConfig saat dokumen diambil,
 jadi tidak dikirim.
 """
 
-from app.modules.providers.adapters.ask_call import (
-    ask_client_timeout,
-    interpret_gemini,
-    transport_failure,
-)
+from app.modules.providers.adapters.ask_call import interpret_gemini, perform_ask
 from app.modules.providers.adapters.base import (
     ConnectionTestResult,
     ProviderAdapter,
@@ -26,7 +22,11 @@ from app.modules.providers.adapters.http import (
     json_object,
     post_json,
 )
-from app.modules.providers.adapters.params import ASK_TIMEOUT_SECONDS, ModelParameters, build_request_extras
+from app.modules.providers.adapters.params import (
+    ASK_TIMEOUT_SECONDS,
+    ModelParameters,
+    build_request_extras,
+)
 
 
 class GeminiInteractionsAdapter(ProviderAdapter):
@@ -81,13 +81,12 @@ class GeminiInteractionsAdapter(ProviderAdapter):
     ) -> ProviderResponse:
         body: dict = {"model": self.model_name, "input": prompt}
         body.update(build_request_extras(self.name, parameters))
-        response, error, latency_ms = post_json(
-            self.base_url,
+        return perform_ask(
+            url=self.base_url,
             headers={"x-goog-api-key": self._api_key},
             body=body,
-            timeout=ask_client_timeout(timeout),
+            secret=self._api_key,
+            timeout=timeout,
+            model_name=self.model_name,
+            interpret=interpret_gemini,
         )
-        failed = transport_failure(response, error, latency_ms, self._api_key)
-        if failed is not None:
-            return failed
-        return interpret_gemini(json_object(response), latency_ms, self.model_name, self._api_key)

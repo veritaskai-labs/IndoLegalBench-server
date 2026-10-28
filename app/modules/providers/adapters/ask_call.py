@@ -6,7 +6,7 @@ Adapter tetap yang menyusun body. Modul ini hanya membaca respons.
 import httpx
 
 from app.modules.providers.adapters.base import FailureKind, ProviderResponse
-from app.modules.providers.adapters.http import clip, http_failure, json_object
+from app.modules.providers.adapters.http import clip, http_failure, json_object, post_json
 
 _CONNECT_SECONDS = 15.0
 
@@ -20,6 +20,29 @@ def ask_client_timeout(seconds: float) -> httpx.Timeout:
         write=seconds,
         pool=_CONNECT_SECONDS,
     )
+
+
+def perform_ask(
+    *,
+    url: str,
+    headers: dict[str, str],
+    body: dict,
+    secret: str,
+    timeout: float,
+    model_name: str,
+    interpret,
+) -> ProviderResponse:
+    """POST sekali, tanpa retry, lalu baca body sukses atau kegagalan."""
+    response, error, latency_ms = post_json(
+        url,
+        headers=headers,
+        body=body,
+        timeout=ask_client_timeout(timeout),
+    )
+    failed = transport_failure(response, error, latency_ms, secret)
+    if failed is not None:
+        return failed
+    return interpret(json_object(response), latency_ms, model_name, secret)
 
 
 def scrub(value, secret: str):
