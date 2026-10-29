@@ -4865,6 +4865,17 @@
             "title": "Waiting For Review",
             "description": "Kasus in_review yang round berjalannya belum punya verdict sah dari kedua slot reviewer, termasuk kasus dengan 0 atau 1 reviewer. Bisa lebih besar dari total antrean reviewer."
           },
+          "own_cases": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OwnCaseSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hanya Kontributor: kasus yang ia tulis per status versi yang berlaku, berisi nol bila belum ada (PBI-24 AC6). null untuk peran lain. case_counts dan total_cases di atas tetap menghitung semua kasus."
+          },
           "review_queue": {
             "anyOf": [
               {
@@ -4910,6 +4921,7 @@
           "case_counts",
           "total_cases",
           "waiting_for_review",
+          "own_cases",
           "review_queue",
           "needs_reassignment"
         ],
@@ -5582,6 +5594,24 @@
           "created_at"
         ],
         "title": "NotificationRead"
+      },
+      "OwnCaseSummary": {
+        "properties": {
+          "case_counts": {
+            "$ref": "#/components/schemas/CaseCounts"
+          },
+          "total_cases": {
+            "type": "integer",
+            "title": "Total Cases"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_counts",
+          "total_cases"
+        ],
+        "title": "OwnCaseSummary",
+        "description": "Kasus yang ditulis pengguna yang login, per status versi yang berlaku (PBI-24 AC6)."
       },
       "Page_AuditLogRead_": {
         "properties": {
