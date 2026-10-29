@@ -32,9 +32,9 @@ def _factory(db_session):
 @pytest.fixture
 def reviewers(db_session):
     for user_id, email, role in (
-        (AUTHOR, "author@veritask.test", Role.AUTHOR),
-        (R1, "r1@veritask.test", Role.REVIEWER),
-        (R2, "r2@veritask.test", Role.REVIEWER),
+        (AUTHOR, "author@veritask.test", Role.CONTRIBUTOR),
+        (R1, "r1@veritask.test", Role.CONTRIBUTOR),
+        (R2, "r2@veritask.test", Role.CONTRIBUTOR),
     ):
         db_session.add(User(id=user_id, email=email, name=email, role=role, is_active=True))
     db_session.commit()

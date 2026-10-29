@@ -45,7 +45,7 @@ class TestBatasPanjangIsian:
 
     @pytest.mark.parametrize("panjang", [NAMA_PANJANG_MAKS - 1, NAMA_PANJANG_MAKS])
     def test_nama_sampai_batas_diterima(self, as_role, panjang):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
 
         respons = _buat(client, "n" * panjang)
 
@@ -53,7 +53,7 @@ class TestBatasPanjangIsian:
         assert len(respons.json()["name"]) == panjang
 
     def test_nama_satu_karakter_melewati_batas_ditolak(self, as_role):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
 
         respons = _buat(client, "n" * (NAMA_PANJANG_MAKS + 1))
 
@@ -61,13 +61,13 @@ class TestBatasPanjangIsian:
 
     def test_nama_satu_karakter_diterima(self, as_role):
         # Tepi bawah. min_length=1, jadi satu karakter harus cukup.
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
 
         assert _buat(client, "K").status_code == 201
 
     @pytest.mark.parametrize("panjang", [DESKRIPSI_PANJANG_MAKS - 1, DESKRIPSI_PANJANG_MAKS])
     def test_deskripsi_sampai_batas_diterima(self, as_role, panjang):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
 
         respons = _buat(client, f"Deskripsi {panjang}", "d" * panjang)
 
@@ -75,7 +75,7 @@ class TestBatasPanjangIsian:
         assert len(respons.json()["description"]) == panjang
 
     def test_deskripsi_satu_karakter_melewati_batas_ditolak(self, as_role):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
 
         respons = _buat(client, "Deskripsi kepanjangan", "d" * (DESKRIPSI_PANJANG_MAKS + 1))
 
@@ -84,7 +84,7 @@ class TestBatasPanjangIsian:
     def test_batas_yang_sama_berlaku_saat_mengubah(self, as_role):
         # PATCH memakai schema lain (SuiteUpdate), jadi batasnya bisa
         # bergeser diam-diam tanpa ada yang tahu.
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _buat(client, "Suite untuk diubah").json()["id"]
 
         terlalu_panjang = client.patch(
@@ -100,7 +100,7 @@ class TestPaginasiDaftarSuite:
     """Sambungan PageParams ke GET /suites, yang selama ini tidak pernah dipanggil."""
 
     def test_nilai_bawaan_dipakai_saat_query_kosong(self, as_role):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         _buat_banyak(client, 3)
 
         badan = client.get("/suites").json()
@@ -111,7 +111,7 @@ class TestPaginasiDaftarSuite:
         assert len(badan["items"]) == 3
 
     def test_halaman_kedua_melanjutkan_bukan_mengulang(self, as_role):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         _buat_banyak(client, 5)
 
         pertama = client.get("/suites", params={"page": 1, "size": 2}).json()
@@ -126,7 +126,7 @@ class TestPaginasiDaftarSuite:
     def test_total_menghitung_seluruh_suite_bukan_hanya_satu_halaman(self, as_role):
         # Kalau total ikut terpotong size, penghitung halaman di frontend
         # akan selalu menunjukkan satu halaman.
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         _buat_banyak(client, 5)
 
         badan = client.get("/suites", params={"page": 1, "size": 2}).json()
@@ -135,7 +135,7 @@ class TestPaginasiDaftarSuite:
         assert len(badan["items"]) == 2
 
     def test_halaman_melewati_akhir_kosong_tapi_total_tetap_benar(self, as_role):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         _buat_banyak(client, 3)
 
         badan = client.get("/suites", params={"page": 9, "size": 20}).json()
@@ -146,7 +146,7 @@ class TestPaginasiDaftarSuite:
 
     @pytest.mark.parametrize("size", [1, SIZE_MAKS])
     def test_size_di_tepi_batas_diterima_endpoint(self, as_role, size):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         _buat_banyak(client, 1)
 
         respons = client.get("/suites", params={"page": 1, "size": size})
@@ -166,12 +166,12 @@ class TestPaginasiDaftarSuite:
     def test_nilai_di_luar_batas_ditolak_endpoint(self, as_role, query):
         # Batas yang hanya ditegakkan di PageParams tidak menolong kalau
         # endpoint-nya ternyata membaca query mentah.
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
 
         assert client.get("/suites", params=query).status_code == 422
 
     def test_paginasi_tetap_terpasang_pada_daftar_arsip(self, as_role):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         _buat_banyak(client, 3)
         aktif = client.get("/suites", params={"page": 1, "size": 20}).json()["items"]
         for item in aktif[:2]:

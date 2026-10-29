@@ -42,11 +42,11 @@ def test_peran_di_luar_wewenang_ditolak(role: Role, buat_pengguna):
 
 def test_guard_bisa_mengizinkan_beberapa_peran_sekaligus(buat_pengguna):
     """AC-2: sebagian aksi wajar dibuka untuk lebih dari satu peran."""
-    guard = require_roles(Role.ADMIN, Role.REVIEWER)
+    guard = require_roles(Role.ADMIN, Role.CONTRIBUTOR)
 
-    assert guard(user=buat_pengguna(Role.REVIEWER)).role is Role.REVIEWER
+    assert guard(user=buat_pengguna(Role.CONTRIBUTOR)).role is Role.CONTRIBUTOR
     with pytest.raises(ForbiddenError):
-        guard(user=buat_pengguna(Role.AUTHOR))
+        guard(user=buat_pengguna(Role.VIEWER))
 
 
 def test_penolakan_peran_sampai_ke_pengguna_sebagai_403(buat_pengguna):

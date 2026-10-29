@@ -34,7 +34,7 @@ def _kasus(db_session, case_id: str) -> Case:
 
 def test_salinan_review_memuat_isi_tag_dan_penulis(as_role, db_session):
     # Arrange
-    case_id = _diajukan(as_role(Role.AUTHOR))
+    case_id = _diajukan(as_role(Role.CONTRIBUTOR))
     versi = _kasus(db_session, case_id).current_version
 
     # Act
@@ -57,7 +57,7 @@ def test_salinan_review_tanpa_id_tidak_query(db_session):
 
 def test_penulis_kasus(as_role, db_session):
     # Arrange
-    case_id = _diajukan(as_role(Role.AUTHOR))
+    case_id = _diajukan(as_role(Role.CONTRIBUTOR))
 
     # Act + Assert
     assert service.case_author(db_session, uuid.UUID(case_id)) == USER_ID_QA
@@ -74,7 +74,7 @@ def test_penulis_kasus_tidak_dikenal(db_session):
 
 def test_disetujui_jadi_versi_yang_berlaku(as_role, db_session):
     # Arrange
-    case_id = _diajukan(as_role(Role.AUTHOR))
+    case_id = _diajukan(as_role(Role.CONTRIBUTOR))
     versi_id = _kasus(db_session, case_id).current_version_id
 
     # Act
@@ -89,7 +89,7 @@ def test_disetujui_jadi_versi_yang_berlaku(as_role, db_session):
 
 def test_revisi_kembali_ke_penulis_dan_bisa_diedit(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _diajukan(client)
     kasus = _kasus(db_session, case_id)
 
@@ -108,7 +108,7 @@ def test_revisi_kembali_ke_penulis_dan_bisa_diedit(as_role, db_session):
 def test_versi_kedua_disetujui_menggantikan_yang_lama(as_role, db_session):
     """PBI-8: v1 tetap berlaku sampai v2 disetujui, lalu v2 yang berlaku."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _diajukan(client)
     service.apply_review_decision(
         db_session, _kasus(db_session, case_id).current_version_id, approved=True

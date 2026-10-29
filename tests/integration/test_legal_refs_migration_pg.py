@@ -84,7 +84,9 @@ def _versi(conn, content: dict, status: str = "draft") -> uuid.UUID:
     """Satu kasus dengan satu versi berisi content lama, sama seperti data Sprint 1."""
     user_id, suite_id, case_id, version_id = (uuid.uuid4() for _ in range(4))
     conn.execute(
-        text("INSERT INTO users (id, email, name, role) VALUES (:id, :email, 'QA 159', 'author')"),
+        text(
+            "INSERT INTO users (id, email, name, role) VALUES (:id, :email, 'QA 159', 'contributor')"
+        ),
         {"id": user_id, "email": f"qa-159-{user_id}@veritask.test"},
     )
     conn.execute(

@@ -31,7 +31,7 @@ from app.modules.suites import service as suites_service
 from app.shared import request_context
 from app.shared.exceptions import ForbiddenError, NotFoundError, ValidationError
 from app.shared.pagination import Page
-from app.shared.security import Role
+from app.shared.security import REVIEWER_ROLES, Role
 
 logger = logging.getLogger(__name__)
 
@@ -208,10 +208,13 @@ def _case_ids(db: Session, filters: AuditLogFilter) -> tuple[uuid.UUID, ...] | N
 def _case_scope(
     db: Session, *, viewer_id: uuid.UUID, viewer_role: str
 ) -> frozenset[uuid.UUID] | None:
-    """None berarti tanpa batas (Admin). Reviewer hanya kasus yang pernah ditugaskan (AC5)."""
+    """None berarti tanpa batas (Admin). Reviewer hanya kasus yang pernah ditugaskan (AC5).
+
+    PBI-24: cakupan Reviewer lama ikut ke Kontributor, tanpa tambahan kasus tulisannya.
+    """
     if viewer_role == Role.ADMIN:
         return None
-    if viewer_role == Role.REVIEWER:
+    if viewer_role in REVIEWER_ROLES:
         return review_service.assigned_case_ids(db, viewer_id)
     raise ForbiddenError("Peran Anda tidak berwenang melihat catatan audit")
 

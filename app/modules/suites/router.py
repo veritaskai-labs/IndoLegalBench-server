@@ -21,17 +21,17 @@ from app.modules.suites.schemas import (
 )
 from app.shared.database import get_db
 from app.shared.pagination import Page
-from app.shared.security import CurrentUser, Role, require_roles
+from app.shared.security import REVIEWER_ROLES, WRITER_ROLES, CurrentUser, Role, require_roles
 
 router = APIRouter(prefix="/suites", tags=["suites"])
 snapshot_router = APIRouter(tags=["snapshots"])
 
-_boleh_mengelola = require_roles(Role.AUTHOR, Role.ADMIN)
+_boleh_mengelola = require_roles(*WRITER_ROLES, Role.ADMIN)
 # SCRUM-183: Developer AI reads the suite list and detail, nothing else here.
-_boleh_membaca = require_roles(Role.AUTHOR, Role.ADMIN, Role.DEVELOPER_AI)
+_boleh_membaca = require_roles(*WRITER_ROLES, Role.ADMIN, Role.DEVELOPER_AI)
 _admin_only = require_roles(Role.ADMIN)
 # SCRUM-138: Viewer sees snapshots. Reviewer can read them too.
-_boleh_melihat_snapshot = require_roles(Role.AUTHOR, Role.REVIEWER, Role.ADMIN, Role.VIEWER)
+_boleh_melihat_snapshot = require_roles(*WRITER_ROLES, *REVIEWER_ROLES, Role.ADMIN, Role.VIEWER)
 
 _KONFLIK = {
     409: {

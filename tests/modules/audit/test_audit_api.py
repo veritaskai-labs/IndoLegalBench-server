@@ -40,8 +40,8 @@ def test_tanpa_sesi_ditolak(client):
     assert client.get("/audit-logs").status_code == 401
 
 
-@pytest.mark.parametrize("role", [Role.AUTHOR, Role.VIEWER])
-def test_peran_selain_admin_dan_reviewer_ditolak(as_role, role):
+@pytest.mark.parametrize("role", [Role.VIEWER, Role.DEVELOPER_AI])
+def test_peran_selain_admin_dan_kontributor_ditolak(as_role, role):
     client = as_role(role)
 
     assert client.get("/audit-logs").status_code == 403
@@ -131,7 +131,7 @@ def test_catatan_tidak_ada_404(admin):
 
 def test_reviewer_hanya_melihat_kasus_yang_ditugaskan(admin, as_role):
     item_id = admin.get("/audit-logs", params=SUITE).json()["items"][0]["id"]
-    reviewer = as_role(Role.REVIEWER)
+    reviewer = as_role(Role.CONTRIBUTOR)
 
     daftar = reviewer.get("/audit-logs")
     kasus_lain = reviewer.get(
@@ -184,7 +184,7 @@ def test_unduhan_terlalu_besar_ditolak(admin):
 
 
 def test_reviewer_mengunduh_hanya_cakupannya(as_role, admin):
-    reviewer = as_role(Role.REVIEWER)
+    reviewer = as_role(Role.CONTRIBUTOR)
 
     response = reviewer.get("/audit-logs/export", params={"format": "csv"})
 
@@ -274,9 +274,9 @@ def test_kasus_yang_sudah_tidak_ada_tanpa_label(admin, db_session):
 def test_saringan_kode_kasus_tetap_dijaga_hak_akses(client, as_role, dua_kasus):
     params = {"case_code": "UAT-PHK-001"}
 
-    reviewer = as_role(Role.REVIEWER).get("/audit-logs", params=params)
+    reviewer = as_role(Role.CONTRIBUTOR).get("/audit-logs", params=params)
     assert (reviewer.status_code, reviewer.json()["total"]) == (200, 0)
-    assert as_role(Role.AUTHOR).get("/audit-logs", params=params).status_code == 403
+    assert as_role(Role.VIEWER).get("/audit-logs", params=params).status_code == 403
 
 
 def test_saringan_kode_kasus_tanpa_sesi_ditolak(client):

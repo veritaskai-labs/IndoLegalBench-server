@@ -66,7 +66,7 @@ def sample_user():
         id=uuid.UUID("22222222-2222-2222-2222-222222222222"),
         email="author@veritask.ai",
         name="Author Veritask",
-        role=Role.AUTHOR,
+        role=Role.CONTRIBUTOR,
         is_active=True,
     )
 
@@ -119,14 +119,14 @@ def test_create_user_success_201(client, mock_service):
         id=new_id,
         email="newreviewer@veritask.ai",
         name="Reviewer Baru",
-        role=Role.REVIEWER,
+        role=Role.CONTRIBUTOR,
         is_active=True,
     )
 
     payload = {
         "email": "newreviewer@veritask.ai",
         "name": "Reviewer Baru",
-        "role": "reviewer",
+        "role": "contributor",
     }
     response = client.post("/admin/users", json=payload)
 
@@ -134,7 +134,7 @@ def test_create_user_success_201(client, mock_service):
     data = response.json()
     assert data["id"] == str(new_id)
     assert data["email"] == payload["email"]
-    assert data["role"] == "reviewer"
+    assert data["role"] == "contributor"
     assert data["is_active"] is True
     mock_service.create_member.assert_called_once()
 
@@ -147,7 +147,7 @@ def test_create_user_duplicate_email_conflict_409(client, mock_service):
     payload = {
         "email": "clash@veritask.ai",
         "name": "Clash User",
-        "role": "author",
+        "role": "contributor",
     }
     response = client.post("/admin/users", json=payload)
 
@@ -162,16 +162,16 @@ def test_create_user_invalid_payload_fails_422(client):
 
 # --- PATCH /admin/users/{id} ---
 def test_update_user_role_success_200(client, mock_service, sample_user):
-    sample_user.role = Role.REVIEWER
+    sample_user.role = Role.CONTRIBUTOR
     mock_service.update_member_role.return_value = sample_user
 
     response = client.patch(
         f"/admin/users/{sample_user.id}",
-        json={"role": "reviewer"},
+        json={"role": "contributor"},
     )
 
     assert response.status_code == status.HTTP_200_OK
-    assert response.json()["role"] == "reviewer"
+    assert response.json()["role"] == "contributor"
     mock_service.update_member_role.assert_called_once()
 
 
@@ -189,7 +189,7 @@ def test_update_user_role_not_found_404(client, mock_service):
 
 
 def test_update_user_role_invalid_uuid_path_422(client):
-    response = client.patch("/admin/users/invalid-uuid-string", json={"role": "author"})
+    response = client.patch("/admin/users/invalid-uuid-string", json={"role": "contributor"})
     assert response.status_code == status.HTTP_422_UNPROCESSABLE_CONTENT
 
 
@@ -233,7 +233,7 @@ def test_unauthenticated_request_rejected_401(app_instance, mock_service):
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
 
-@pytest.mark.parametrize("forbidden_role", [Role.AUTHOR, Role.REVIEWER, Role.VIEWER])
+@pytest.mark.parametrize("forbidden_role", [Role.CONTRIBUTOR, Role.CONTRIBUTOR, Role.VIEWER])
 def test_non_admin_roles_rejected_403(app_instance, mock_service, forbidden_role):
     non_admin_user = CurrentUser(
         user_id=str(uuid.uuid4()),
