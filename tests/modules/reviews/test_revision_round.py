@@ -344,10 +344,10 @@ def test_perevisi_nonaktif_tidak_diganti_dan_round_menunggu_penugasan(db_session
 def test_perevisi_nonaktif_memberitahu_admin_aktif(db_session):
     """Round menunggu penugasan: hanya Admin aktif yang diberi tahu, beserta kode kasus."""
     # Arrange
-    penulis = _user(db_session, 1, Role.AUTHOR)
-    penyetuju = _user(db_session, 2, Role.REVIEWER)
-    perevisi = _user(db_session, 3, Role.REVIEWER, is_active=False)
-    pengganti = _user(db_session, 4, Role.REVIEWER)
+    penulis = _user(db_session, 1, Role.CONTRIBUTOR)
+    penyetuju = _user(db_session, 2, Role.CONTRIBUTOR)
+    perevisi = _user(db_session, 3, Role.CONTRIBUTOR, is_active=False)
+    pengganti = _user(db_session, 4, Role.CONTRIBUTOR)
     admin = _user(db_session, 10, Role.ADMIN)
     _user(db_session, 11, Role.ADMIN, is_active=False)
     kasus = _kasus(db_session, penulis, status=CaseStatus.NEEDS_REVISION)

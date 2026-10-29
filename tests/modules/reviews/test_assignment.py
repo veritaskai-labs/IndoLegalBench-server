@@ -591,7 +591,7 @@ def test_kurang_dari_dua_memberitahu_semua_admin_sekali(
 ):
     """AC5: 0 atau 1 kandidat → needs-assignment + semua Admin aktif diberitahu sekali."""
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     for nomor in range(2, 2 + jumlah_reviewer):
         buat_user(nomor)
     admin_a = buat_user(10, Role.ADMIN)
@@ -615,7 +615,7 @@ def test_kurang_dari_dua_memberitahu_semua_admin_sekali(
 
 def test_cukup_kandidat_tidak_memberitahu_admin(db_session, buat_user, store, notifier):
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     buat_user(2)
     buat_user(3)
     buat_user(10, Role.ADMIN)
@@ -633,7 +633,7 @@ def test_cukup_kandidat_tidak_memberitahu_admin(db_session, buat_user, store, no
 def test_notifikasi_admin_ditahan_oleh_deferred_notifier(db_session, buat_user, store):
     """AC5: notifikasi Admin hanya keluar setelah send (setelah commit pemanggil)."""
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     admin = buat_user(10, Role.ADMIN)
     tertunda = DeferredNotifier()
     tujuan = FakeNotifier()
