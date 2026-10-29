@@ -253,6 +253,7 @@ class AuthService:
             from app.modules.reviews import service as reviews_service
             from app.modules.reviews.models import AssignmentVoidReason
 
+            repository.lock_user(self.db, user.id)
             dilepas = reviews_service.void_reviewer_assignments(
                 self.db, user.id, reason=AssignmentVoidReason.ROLE_CHANGED
             )
@@ -288,6 +289,8 @@ class AuthService:
         from app.modules.reviews import service as reviews_service
         from app.modules.reviews.models import AssignmentVoidReason
 
+        # Dikunci sesudah hapus sesi: commit di sana melepas kunci lagi.
+        repository.lock_user(self.db, user.id)
         dilepas = reviews_service.void_reviewer_assignments(self.db, user.id)
         user = repository.deactivate_user(self.db, user)
         reviews_service.notify_cases_released(
