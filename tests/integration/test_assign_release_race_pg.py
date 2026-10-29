@@ -33,9 +33,8 @@ pytestmark = [
     pytest.mark.skipif(not POSTGRES_URL, reason="TEST_POSTGRES_URL tidak diisi"),
 ]
 
-# Satu tempat untuk peran yang bisa mereview: setelah SCRUM-195 (#76) cukup
-# diganti jadi Role.CONTRIBUTOR.
-PERAN_REVIEWER = Role.REVIEWER
+# Satu tempat untuk peran yang bisa mereview (Kontributor sejak SCRUM-195, #76).
+PERAN_REVIEWER = Role.CONTRIBUTOR
 
 
 @pytest.fixture(scope="module")
@@ -62,7 +61,7 @@ def _round_baru(buat_sesi) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
         # Reviewer aktif lain dari test sebelumnya ikut jadi kandidat; nonaktifkan
         # supaya pilihan assign_on_submit pasti kedua reviewer baru ini.
         db.query(User).filter(User.role == PERAN_REVIEWER).update({"is_active": False})
-        penulis = _pengguna(db, Role.AUTHOR)
+        penulis = _pengguna(db, Role.CONTRIBUTOR)
         target = _pengguna(db, PERAN_REVIEWER)
         _pengguna(db, PERAN_REVIEWER)
         suite = Suite(name=f"QA 197 race {uuid.uuid4().hex}", created_by=penulis)

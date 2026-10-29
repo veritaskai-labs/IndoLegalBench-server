@@ -37,9 +37,8 @@ AUTHOR_ID = uuid.UUID("00000000-0000-0000-0000-0000000001a2")
 TARGET_ID = uuid.UUID("00000000-0000-0000-0000-0000000001a3")
 OTHER_ID = uuid.UUID("00000000-0000-0000-0000-0000000001a4")
 
-# Satu tempat untuk peran yang bisa mereview: setelah SCRUM-195 (#76) cukup
-# diganti jadi Role.CONTRIBUTOR.
-PERAN_REVIEWER = Role.REVIEWER
+# Satu tempat untuk peran yang bisa mereview (Kontributor sejak SCRUM-195, #76).
+PERAN_REVIEWER = Role.CONTRIBUTOR
 
 
 @pytest.fixture
@@ -57,7 +56,9 @@ def anggota(db_session):
     db_session.add_all(
         [
             User(id=ADMIN_ID, email="admin197@veritask.test", name="Admin", role=Role.ADMIN),
-            User(id=AUTHOR_ID, email="author197@veritask.test", name="Penulis", role=Role.AUTHOR),
+            User(
+                id=AUTHOR_ID, email="author197@veritask.test", name="Penulis", role=Role.CONTRIBUTOR
+            ),
             User(id=TARGET_ID, email="target197@veritask.test", name="Target", role=PERAN_REVIEWER),
             User(id=OTHER_ID, email="other197@veritask.test", name="Lain", role=PERAN_REVIEWER),
         ]

@@ -12,13 +12,13 @@ It refuses while a user still has the role: guessing whether they were an
 author or a reviewer would change what they are allowed to do.
 
 Revision ID: 4a10dea5a620
-Revises: ad76e1ba6c12
+Revises: c7e19d0b5a42
 """
 import sqlalchemy as sa
 from alembic import op
 
 revision = "4a10dea5a620"  # pragma: allowlist secret
-down_revision = "ad76e1ba6c12"  # pragma: allowlist secret
+down_revision = "c7e19d0b5a42"  # pragma: allowlist secret
 branch_labels = None
 depends_on = None
 
