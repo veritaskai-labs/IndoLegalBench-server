@@ -110,6 +110,13 @@ class AiProductRead(BaseModel):
     price_input_usd_per_mtok: Decimal | None = None
     price_output_usd_per_mtok: Decimal | None = None
     vendor_name: str | None = None
+    vendor_label: str | None = Field(
+        default=None,
+        description=(
+            "Nama penyedia untuk daftar (PBI-23 AC6): vendor_name untuk produk Manual, "
+            "label provider_type untuk produk Otomatis."
+        ),
+    )
     site_url: str | None = None
     access_note: str | None = None
     manual_params: str | None = None
@@ -121,6 +128,18 @@ class AiProductRead(BaseModel):
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
+
+
+class AiProductOption(BaseModel):
+    """Satu pilihan produk di form pengukuran atau pencatatan manual (PBI-23 AC7, AC8).
+
+    Sengaja hanya id, nama, dan jenis: Kontributor hanya boleh melihat nama produk
+    manual aktif. Isian lengkap tetap di /admin/providers untuk Admin.
+    """
+
+    id: uuid.UUID
+    name: str
+    measurement_type: MeasurementType
 
 
 class ConnectionTestRead(BaseModel):

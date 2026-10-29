@@ -254,6 +254,9 @@ _DIBUKA = {
     ("GET", "/suites/{suite_id}/cases"),
     ("GET", "/cases/{case_id}"),
     ("GET", "/regulation-types"),
+    # PBI-23 (SCRUM-201): pilihan produk otomatis aktif di form pengukuran (D10, usulan
+    # SA). Tujuan manual_entry tetap 403 untuk Developer AI, diuji di test_product_lists.py.
+    ("GET", "/ai-products"),
 }
 # Jalur tanpa penjaga peran: login, profil sendiri, dan lonceng notifikasi.
 _TANPA_PERAN = ("/health", "/auth/", "/me", "/notifications")

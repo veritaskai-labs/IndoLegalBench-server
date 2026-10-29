@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.modules.providers import repository
+from app.modules.providers import repository, visibility
 from app.modules.providers.adapters.dispatch import run_connection_test
 from app.modules.providers.adapters.http import clip
 from app.modules.providers.crypto import (
@@ -27,16 +27,33 @@ from app.modules.providers.models import (
     ConnectionTestErrorCategory,
     LastTestStatus,
     MeasurementType,
+    ProviderType,
 )
 from app.modules.providers.schemas import (
     AiProductCreate,
+    AiProductOption,
     AiProductRead,
     AiProductUpdate,
     ConnectionTestRead,
 )
-from app.shared.exceptions import ConflictError, InternalError, NotFoundError, ValidationError
+from app.shared.exceptions import (
+    ConflictError,
+    ForbiddenError,
+    InternalError,
+    NotFoundError,
+    ValidationError,
+)
+from app.shared.security import Role
 
 NAME_TAKEN = "AI_PRODUCT_NAME_TAKEN"
+
+# Label penyedia produk Otomatis di daftar (PBI-23 AC6), sama dengan client
+# (src/lib/providers/format.ts) supaya daftar dan detail menulis nama yang sama.
+_LABEL_PROVIDER = {
+    ProviderType.OPENAI_COMPATIBLE: "OpenAI-compatible",
+    ProviderType.GEMINI_INTERACTIONS: "Gemini Interactions",
+    ProviderType.ANTHROPIC_MESSAGES: "Anthropic Messages",
+}
 
 
 def create_product(
@@ -69,8 +86,31 @@ def get_product(db: Session, product_id: uuid.UUID) -> AiProductRead:
     return _tampilkan(_wajib_ada(db, product_id))
 
 
-def list_products(db: Session, *, is_active: bool | None) -> list[AiProductRead]:
-    return [_tampilkan(item) for item in repository.list_products(db, is_active=is_active)]
+def list_products(
+    db: Session, *, is_active: bool | None, measurement_type: MeasurementType | None = None
+) -> list[AiProductRead]:
+    """Daftar Admin, disaring status dan jenis (PBI-23 AC6)."""
+    produk = repository.list_products(db, is_active=is_active, measurement_type=measurement_type)
+    return [_tampilkan(item) for item in produk]
+
+
+def list_options(
+    db: Session, *, purpose: visibility.ProductPurpose, role: Role
+) -> list[AiProductOption]:
+    """Pilihan produk untuk satu tujuan: hanya produk aktif berjenis sesuai (AC7, AC8).
+
+    Peran diperiksa sebelum membaca produk, jadi peran yang tidak berhak tidak
+    pernah memicu query.
+    """
+    if not visibility.can_list_options(role, purpose):
+        raise ForbiddenError("Peran Anda tidak berwenang melihat daftar produk untuk tujuan ini")
+    produk = repository.list_products(
+        db, is_active=True, measurement_type=visibility.measurement_type_for(purpose)
+    )
+    return [
+        AiProductOption(id=item.id, name=item.name, measurement_type=item.measurement_type)
+        for item in produk
+    ]
 
 
 def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate) -> AiProductRead:
@@ -230,6 +270,13 @@ def _pastikan_nama_bebas(db: Session, name: str, *, kecuali: uuid.UUID | None = 
         raise ConflictError(f"Nama produk AI '{name}' sudah dipakai", code=NAME_TAKEN)
 
 
+def _label_penyedia(product: AiProduct) -> str | None:
+    """vendor_name untuk produk Manual, label provider_type untuk produk Otomatis (D1)."""
+    if product.measurement_type == MeasurementType.MANUAL:
+        return product.vendor_name
+    return _LABEL_PROVIDER.get(product.provider_type)
+
+
 def _tampilkan(product: AiProduct) -> AiProductRead:
     return AiProductRead(
         id=product.id,
@@ -246,6 +293,7 @@ def _tampilkan(product: AiProduct) -> AiProductRead:
         price_input_usd_per_mtok=product.price_input_usd_per_mtok,
         price_output_usd_per_mtok=product.price_output_usd_per_mtok,
         vendor_name=product.vendor_name,
+        vendor_label=_label_penyedia(product),
         site_url=product.site_url,
         access_note=product.access_note,
         manual_params=product.manual_params,

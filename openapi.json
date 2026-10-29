@@ -1918,6 +1918,24 @@
               ],
               "title": "Is Active"
             }
+          },
+          {
+            "name": "measurement_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/MeasurementType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Saring per jenis pengukuran (PBI-23 AC6).",
+              "title": "Measurement Type"
+            },
+            "description": "Saring per jenis pengukuran (PBI-23 AC6)."
           }
         ],
         "responses": {
@@ -2254,6 +2272,64 @@
           },
           "404": {
             "description": "Produk AI tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai-products": {
+      "get": {
+        "tags": [
+          "providers"
+        ],
+        "summary": "Daftar pilihan produk AI per tujuan",
+        "description": "Hanya produk aktif yang jenisnya sesuai tujuan: automatic_run untuk pengukuran otomatis (Admin, Developer AI), manual_entry untuk pencatatan manual (Admin, Kontributor). Produk berjenis lain tidak dikirim sama sekali (PBI-23 AC7, AC8).",
+        "operationId": "list_product_options_ai_products_get",
+        "parameters": [
+          {
+            "name": "purpose",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ProductPurpose",
+              "description": "Untuk apa daftar pilihan ini dipakai."
+            },
+            "description": "Untuk apa daftar pilihan ini dipakai."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AiProductOption"
+                  },
+                  "title": "Response List Product Options Ai Products Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Peran tidak berwenang untuk tujuan ini.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3684,6 +3760,30 @@
         ],
         "title": "AiProductCreate"
       },
+      "AiProductOption": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "measurement_type": {
+            "$ref": "#/components/schemas/MeasurementType"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "measurement_type"
+        ],
+        "title": "AiProductOption",
+        "description": "Satu pilihan produk di form pengukuran atau pencatatan manual (PBI-23 AC7, AC8).\n\nSengaja hanya id, nama, dan jenis: Kontributor hanya boleh melihat nama produk\nmanual aktif. Isian lengkap tetap di /admin/providers untuk Admin."
+      },
       "AiProductRead": {
         "properties": {
           "id": {
@@ -3816,6 +3916,18 @@
               }
             ],
             "title": "Vendor Name"
+          },
+          "vendor_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Label",
+            "description": "Nama penyedia untuk daftar (PBI-23 AC6): vendor_name untuk produk Manual, label provider_type untuk produk Otomatis."
           },
           "site_url": {
             "anyOf": [
@@ -6009,6 +6121,15 @@
         ],
         "title": "PendingReview",
         "description": "Satu baris antrean dashboard reviewer (PBI-19 AC6, SCRUM-154).\n\nwaiting_since adalah saat round dibuka; antrean diurutkan dari yang\nterlama. assigned_at bisa lebih baru bila reviewer ini pengganti."
+      },
+      "ProductPurpose": {
+        "type": "string",
+        "enum": [
+          "automatic_run",
+          "manual_entry"
+        ],
+        "title": "ProductPurpose",
+        "description": "Untuk apa daftar pilihan produk dipakai."
       },
       "ProviderType": {
         "type": "string",
