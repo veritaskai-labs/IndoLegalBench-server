@@ -17,7 +17,7 @@ from app.modules.reviews.models import (
 from app.modules.suites.models import Suite, SuiteStatus
 from app.shared.security import Role
 
-REVIEWING_ROLE = Role.REVIEWER
+REVIEWING_ROLE = Role.CONTRIBUTOR
 
 ACTING_ADMIN = uuid.UUID("00000000-0000-0000-0000-0000000199c1")
 OTHER_ADMIN = uuid.UUID("00000000-0000-0000-0000-0000000199c2")
@@ -42,7 +42,7 @@ def suite_id(db_session) -> uuid.UUID:
         (ACTING_ADMIN, Role.ADMIN, "Admin Pelaku", True),
         (OTHER_ADMIN, Role.ADMIN, "Admin Lain", True),
         (RETIRED_ADMIN, Role.ADMIN, "Admin Nonaktif", False),
-        (AUTHOR, Role.AUTHOR, "Penulis", True),
+        (AUTHOR, Role.CONTRIBUTOR, "Penulis", True),
         (LEAVING_MEMBER, REVIEWING_ROLE, LEAVING_NAME, True),
         (PEER, REVIEWING_ROLE, "Rekan Reviewer", True),
     ]

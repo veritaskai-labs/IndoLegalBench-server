@@ -7,15 +7,14 @@ from app.modules.auth.seeds import (
     ADMIN_SUB,
     AUTHOR_SUB,
     DEVELOPER_AI_SUB,
-    REVIEWER_SUB,
     UNKNOWN_SUB,
     VIEWER_SUB,
 )
 from tests.login import complete_login
 
-NON_ADMIN_SUBS = [AUTHOR_SUB, REVIEWER_SUB, VIEWER_SUB, DEVELOPER_AI_SUB]
-NON_ADMIN_IDS = ["author", "reviewer", "viewer", "developer-ai"]
-AUTHOR_ONLY = "/_test/rbac/author"
+NON_ADMIN_SUBS = [AUTHOR_SUB, VIEWER_SUB, DEVELOPER_AI_SUB]
+NON_ADMIN_IDS = ["contributor", "viewer", "developer-ai"]
+CONTRIBUTOR_ONLY = "/_test/rbac/contributor"
 
 
 def _user(db_session, sub: str) -> User:
@@ -82,27 +81,27 @@ class TestNonAdminCannotManageMembers:
 class TestRoleChangeAppliesToTheOpenSession:
     def test_demoted_member_loses_rights_without_logging_out(self, client, db_session):
         complete_login(client, db_session, AUTHOR_SUB)
-        assert client.get(AUTHOR_ONLY).status_code == 200
+        assert client.get(CONTRIBUTOR_ONLY).status_code == 200
 
         author = _user(db_session, AUTHOR_SUB)
         with _admin_client(db_session) as admin:
             changed = admin.patch(f"/admin/users/{author.id}", json={"role": "viewer"})
         assert changed.status_code == 200
 
-        response = client.get(AUTHOR_ONLY)
+        response = client.get(CONTRIBUTOR_ONLY)
         assert response.status_code == 403
         assert response.json()["code"] == "FORBIDDEN"
 
     def test_promoted_member_gains_rights_without_logging_in_again(self, client, db_session):
         complete_login(client, db_session, VIEWER_SUB)
-        assert client.get(AUTHOR_ONLY).status_code == 403
+        assert client.get(CONTRIBUTOR_ONLY).status_code == 403
 
         viewer = _user(db_session, VIEWER_SUB)
         with _admin_client(db_session) as admin:
-            changed = admin.patch(f"/admin/users/{viewer.id}", json={"role": "author"})
+            changed = admin.patch(f"/admin/users/{viewer.id}", json={"role": "contributor"})
         assert changed.status_code == 200
 
-        assert client.get(AUTHOR_ONLY).status_code == 200
+        assert client.get(CONTRIBUTOR_ONLY).status_code == 200
 
 
 class TestDeactivationKillsTheOpenSession:
@@ -154,7 +153,7 @@ class TestRolePayloadIsStrict:
         response = client.patch(
             f"/admin/users/{viewer.id}",
             json={
-                "role": "author",
+                "role": "contributor",
                 "is_active": False,
                 "email": "attacker@evil.test",
                 "name": "Hijacked",
@@ -164,7 +163,7 @@ class TestRolePayloadIsStrict:
         assert response.status_code == 200
 
         after = _user(db_session, VIEWER_SUB)
-        assert after.role == "author"
+        assert after.role == "contributor"
         assert after.is_active is True
         assert (after.email, after.name) == (email, name)
 
