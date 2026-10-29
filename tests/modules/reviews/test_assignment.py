@@ -16,7 +16,7 @@ import pytest
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
 from app.modules.reviews import service
-from app.modules.reviews.ports import NoopNotifier, ReviewerLoad
+from app.modules.reviews.ports import DeferredNotifier, NoopNotifier, ReviewerLoad
 from app.shared import request_context
 from app.shared.security import Role
 
@@ -580,3 +580,90 @@ def test_store_nyata_open_queue_menghitung_beban_dengan_benar(db_session, buat_u
 def test_noop_notifier_menerima_panggilan_tanpa_efek():
     # Act + Assert
     assert NoopNotifier().notify([uuid.uuid4()], "review_assigned", {"title": "t"}) is None
+
+
+# --- SCRUM-196 AC5: Admin diberi tahu bila kandidat kurang dari dua ---
+
+
+@pytest.mark.parametrize("jumlah_reviewer", [0, 1])
+def test_kurang_dari_dua_memberitahu_semua_admin_sekali(
+    db_session, buat_user, store, notifier, jumlah_reviewer
+):
+    """AC5: 0 atau 1 kandidat → needs-assignment + semua Admin aktif diberitahu sekali."""
+    # Arrange
+    penulis = buat_user(1, Role.AUTHOR)
+    for nomor in range(2, 2 + jumlah_reviewer):
+        buat_user(nomor)
+    admin_a = buat_user(10, Role.ADMIN)
+    admin_b = buat_user(11, Role.ADMIN)
+    buat_user(12, Role.ADMIN, is_active=False)
+    round_id = uuid.uuid4()
+
+    # Act
+    terpilih = _tugaskan(db_session, store, notifier, author_id=penulis, round_id=round_id)
+
+    # Assert
+    assert terpilih == []
+    assert store.perlu_penugasan == [round_id]
+    assert len(notifier.panggilan) == 1
+    user_ids, jenis, payload = notifier.panggilan[0]
+    assert sorted(user_ids) == sorted([admin_a, admin_b])
+    assert jenis == "review_needs_assignment"
+    assert set(payload) == {"title", "body", "link"}
+    assert payload["link"] == "/admin/reviews"
+
+
+def test_cukup_kandidat_tidak_memberitahu_admin(db_session, buat_user, store, notifier):
+    # Arrange
+    penulis = buat_user(1, Role.AUTHOR)
+    buat_user(2)
+    buat_user(3)
+    buat_user(10, Role.ADMIN)
+    round_id = uuid.uuid4()
+
+    # Act
+    terpilih = _tugaskan(db_session, store, notifier, author_id=penulis, round_id=round_id)
+
+    # Assert
+    assert len(terpilih) == 2
+    assert all(jenis == "review_assigned" for _, jenis, _ in notifier.panggilan)
+    assert not any(jenis == "review_needs_assignment" for _, jenis, _ in notifier.panggilan)
+
+
+def test_notifikasi_admin_ditahan_oleh_deferred_notifier(db_session, buat_user, store):
+    """AC5: notifikasi Admin hanya keluar setelah send (setelah commit pemanggil)."""
+    # Arrange
+    penulis = buat_user(1, Role.AUTHOR)
+    admin = buat_user(10, Role.ADMIN)
+    tertunda = DeferredNotifier()
+    tujuan = FakeNotifier()
+    round_id = uuid.uuid4()
+
+    # Act
+    terpilih = service.assign_on_submit(
+        db_session,
+        round_id=round_id,
+        author_id=penulis,
+        store=store,
+        notifier=tertunda,
+    )
+
+    # Assert: belum terkirim sebelum send
+    assert terpilih == []
+    assert store.perlu_penugasan == [round_id]
+    assert tujuan.panggilan == []
+
+    tertunda.send(tujuan)
+
+    assert len(tujuan.panggilan) == 1
+    user_ids, jenis, _payload = tujuan.panggilan[0]
+    assert user_ids == [admin]
+    assert jenis == "review_needs_assignment"
+
+
+def test_is_case_author_satu_aturan_untuk_tiga_jalur():
+    """SCRUM-196: helper bersama dipakai auto-assign, replace, dan verdict."""
+    penulis = uuid.uuid4()
+    lain = uuid.uuid4()
+    assert service._is_case_author(user_id=penulis, author_id=penulis) is True
+    assert service._is_case_author(user_id=lain, author_id=penulis) is False

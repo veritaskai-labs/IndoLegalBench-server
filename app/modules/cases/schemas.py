@@ -305,6 +305,13 @@ class CaseSummary(BaseModel):
     status: CaseStatus
     completeness_pct: int = Field(ge=0, le=100)
     updated_at: datetime
+    masked: bool = Field(
+        default=False,
+        description=(
+            "True for a test case shown to Developer AI: case_code and title are "
+            "server placeholders and the case cannot be opened (SCRUM-183)."
+        ),
+    )
 
 
 class CompletenessIssue(BaseModel):

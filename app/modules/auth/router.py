@@ -21,6 +21,7 @@ from app.modules.auth.cookies import (
 )
 from app.modules.auth.oidc import OidcClient, get_oidc_client
 from app.modules.auth.schemas import (
+    ConfirmationRequiredBody,
     ErrorBody,
     MeResponse,
     UserCreateRequest,
@@ -163,6 +164,23 @@ def get_auth_service(db: Session = Depends(get_db)) -> AuthService:
     return AuthService(db)
 
 
+# PBI-24 AC8: ubah peran / nonaktifkan reviewer yang masih punya kasus menunggu
+# penilaian dibalas 409 sampai Admin mengirim ulang dengan confirm=true.
+_CONFIRM = Query(
+    default=False,
+    description="true setelah Admin menyetujui dialog konfirmasi dari respons 409",
+)
+_CONFIRM_RESPONSES: dict[int | str, dict] = {
+    409: {
+        "model": ConfirmationRequiredBody,
+        "description": (
+            "Masih ada kasus menunggu penilaian anggota ini (`CONFIRMATION_REQUIRED`). "
+            "Kirim ulang dengan confirm=true setelah Admin setuju."
+        ),
+    }
+}
+
+
 @admin_router.get("", response_model=list[UserResponse])
 def get_users(
     is_active: bool | None = Query(default=None), service: AuthService = Depends(get_auth_service)
@@ -175,23 +193,29 @@ def create_user(payload: UserCreateRequest, service: AuthService = Depends(get_a
     return service.create_member(payload)
 
 
-@admin_router.patch("/{user_id}", response_model=UserResponse)
+@admin_router.patch("/{user_id}", response_model=UserResponse, responses=_CONFIRM_RESPONSES)
 def update_user_role(
     user_id: UUID,
     payload: UserUpdateRoleRequest,
+    confirm: bool = _CONFIRM,
     current_user: CurrentUser = Depends(get_current_user),
     service: AuthService = Depends(get_auth_service),
 ):
-    return service.update_member_role(user_id, payload, current_user=current_user)
+    return service.update_member_role(user_id, payload, current_user=current_user, confirm=confirm)
 
 
-@admin_router.post("/{user_id}/deactivate", response_model=UserResponse)
+@admin_router.post(
+    "/{user_id}/deactivate", response_model=UserResponse, responses=_CONFIRM_RESPONSES
+)
 def deactivate_user(
     user_id: UUID,
+    confirm: bool = _CONFIRM,
     current_user: CurrentUser = Depends(get_current_user),
     service: AuthService = Depends(get_auth_service),
 ):
-    return service.deactivate_member(target_user_id=user_id, current_user=current_user)
+    return service.deactivate_member(
+        target_user_id=user_id, current_user=current_user, confirm=confirm
+    )
 
 
 @admin_router.post("/{user_id}/activate", response_model=UserResponse)

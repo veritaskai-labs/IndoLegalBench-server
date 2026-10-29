@@ -345,6 +345,18 @@
               "format": "uuid",
               "title": "User Id"
             }
+          },
+          {
+            "name": "confirm",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "true setelah Admin menyetujui dialog konfirmasi dari respons 409",
+              "default": false,
+              "title": "Confirm"
+            },
+            "description": "true setelah Admin menyetujui dialog konfirmasi dari respons 409"
           }
         ],
         "requestBody": {
@@ -364,6 +376,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Masih ada kasus menunggu penilaian anggota ini (`CONFIRMATION_REQUIRED`). Kirim ulang dengan confirm=true setelah Admin setuju.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmationRequiredBody"
                 }
               }
             }
@@ -398,6 +420,18 @@
               "format": "uuid",
               "title": "User Id"
             }
+          },
+          {
+            "name": "confirm",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "true setelah Admin menyetujui dialog konfirmasi dari respons 409",
+              "default": false,
+              "title": "Confirm"
+            },
+            "description": "true setelah Admin menyetujui dialog konfirmasi dari respons 409"
           }
         ],
         "responses": {
@@ -407,6 +441,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Masih ada kasus menunggu penilaian anggota ini (`CONFIRMATION_REQUIRED`). Kirim ulang dengan confirm=true setelah Admin setuju.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmationRequiredBody"
                 }
               }
             }
@@ -522,6 +566,7 @@
           "suites"
         ],
         "summary": "Daftar suite",
+        "description": "For Developer AI, case_count is the approved cases, dev and test together.",
         "operationId": "list_suites_suites_get",
         "parameters": [
           {
@@ -587,6 +632,7 @@
           "suites"
         ],
         "summary": "Detail satu suite",
+        "description": "For Developer AI, case_count is the approved cases, dev and test together.",
         "operationId": "get_suite_suites__suite_id__get",
         "parameters": [
           {
@@ -1086,7 +1132,7 @@
           "cases"
         ],
         "summary": "Daftar ringkas kasus di dalam satu suite",
-        "description": "List the short case summary for one suite.",
+        "description": "List the short case summary for one suite.\n\nDeveloper AI gets approved cases only. Test rows come back with\n`masked` = true and placeholder `case_code` and `title`.",
         "operationId": "list_cases_suites__suite_id__cases_get",
         "parameters": [
           {
@@ -1176,7 +1222,7 @@
           "cases"
         ],
         "summary": "Detail satu kasus",
-        "description": "Return the full case.",
+        "description": "Return the full case.\n\nDeveloper AI gets the approved version of a dev case only.",
         "operationId": "get_case_cases__case_id__get",
         "parameters": [
           {
@@ -1201,8 +1247,18 @@
               }
             }
           },
+          "403": {
+            "description": "Developer AI membuka kasus test (`TEST_CASE_HIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "404": {
-            "description": "Kasus atau suite tidak ditemukan.",
+            "description": "Kasus tidak ditemukan. Untuk Developer AI juga kasus yang belum disetujui.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3946,6 +4002,15 @@
         "title": "AssignmentStatus",
         "description": "replaced: diganti Admin (AC7). void: reviewer dinonaktifkan (AC8)."
       },
+      "AssignmentVoidReason": {
+        "type": "string",
+        "enum": [
+          "deactivated",
+          "role_changed"
+        ],
+        "title": "AssignmentVoidReason",
+        "description": "end_reason assignment void (D11). Kode stabil; FE yang memetakan ke teks (SCRUM-198)."
+      },
       "AuditEntityType": {
         "type": "string",
         "enum": [
@@ -4465,6 +4530,12 @@
             "type": "string",
             "format": "date-time",
             "title": "Updated At"
+          },
+          "masked": {
+            "type": "boolean",
+            "title": "Masked",
+            "description": "True for a test case shown to Developer AI: case_code and title are server placeholders and the case cannot be opened (SCRUM-183).",
+            "default": false
           }
         },
         "type": "object",
@@ -4670,6 +4741,47 @@
         ],
         "title": "CompletenessIssue",
         "description": "Satu bagian yang belum terisi, dengan pesan untuk ditampilkan editor."
+      },
+      "ConfirmationRequiredBody": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "examples": [
+              "No platform account is mapped to this identity."
+            ]
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field",
+            "description": "Lokasi field yang gagal, misalnya legal_refs[0].links[0].pasal"
+          },
+          "affected_count": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Affected Count",
+            "description": "Jumlah kasus yang terdampak aksi ini"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "affected_count"
+        ],
+        "title": "ConfirmationRequiredBody",
+        "description": "409 CONFIRMATION_REQUIRED: kirim ulang dengan confirm=true untuk melanjutkan."
       },
       "ConnectionTestErrorCategory": {
         "type": "string",
@@ -5708,7 +5820,19 @@
                 "type": "null"
               }
             ],
-            "title": "End Reason"
+            "title": "End Reason",
+            "description": "Teks bebas Admin untuk replaced; kode void_reason untuk void"
+          },
+          "void_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentVoidReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hanya untuk status void: kenapa reviewer dilepas (SCRUM-197)"
           }
         },
         "type": "object",
@@ -6006,7 +6130,8 @@
           "author",
           "reviewer",
           "admin",
-          "viewer"
+          "viewer",
+          "developer_ai"
         ],
         "title": "Role"
       },

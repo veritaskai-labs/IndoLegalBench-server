@@ -341,6 +341,48 @@ def test_perevisi_nonaktif_tidak_diganti_dan_round_menunggu_penugasan(db_session
     assert db_session.query(ReviewVerdict).filter_by(comment=KOMENTAR).one().comment == KOMENTAR
 
 
+def test_perevisi_nonaktif_memberitahu_admin_aktif(db_session):
+    """Round menunggu penugasan: hanya Admin aktif yang diberi tahu, beserta kode kasus."""
+    # Arrange
+    penulis = _user(db_session, 1, Role.AUTHOR)
+    penyetuju = _user(db_session, 2, Role.REVIEWER)
+    perevisi = _user(db_session, 3, Role.REVIEWER, is_active=False)
+    pengganti = _user(db_session, 4, Role.REVIEWER)
+    admin = _user(db_session, 10, Role.ADMIN)
+    _user(db_session, 11, Role.ADMIN, is_active=False)
+    kasus = _kasus(db_session, penulis, status=CaseStatus.NEEDS_REVISION)
+    _putaran(
+        db_session,
+        kasus,
+        [
+            (penyetuju, VerdictDecision.APPROVE, None),
+            (perevisi, VerdictDecision.REVISE, KOMENTAR),
+        ],
+    )
+
+    # Act
+    hasil, assign, notify = _ajukan(db_session, kasus, penulis)
+
+    # Assert
+    assert hasil.round_status == RoundStatus.AWAITING_ASSIGNMENT
+    baru = (
+        db_session.query(ReviewRound)
+        .filter_by(case_version_id=kasus.current_version_id, round_no=2)
+        .one()
+    )
+    tugas = _tugas(db_session, baru)
+    assert {baris.reviewer_id for baris in tugas} == {penyetuju}
+    assert perevisi not in {baris.reviewer_id for baris in tugas}
+    assert pengganti not in {baris.reviewer_id for baris in tugas}
+    assert assign.call_count == 0
+    assert notify.call_count == 1
+    user_ids, jenis, payload = notify.call_args.args
+    assert user_ids == [admin]
+    assert jenis == "review_needs_assignment"
+    assert payload["title"] == f"{kasus.case_code} perlu penugasan reviewer"
+    assert payload["link"] == "/admin/reviews"
+
+
 def test_dua_perevisi_satu_nonaktif_round_menunggu_dengan_satu_kursi(db_session):
     """Kedua revise, satu nonaktif: round 2 kurang kursi, jadi awaiting_assignment."""
     # Arrange

@@ -225,7 +225,7 @@ def test_replace_reviewer_void_tanpa_notifier_memberi_tahu_reviewer_baru(
     monkeypatch.setattr(service, "DbNotifier", lambda: notifier)
     tugas1 = case_data["tugas1"]
     tugas1.status = AssignmentStatus.VOID
-    tugas1.end_reason = "Reviewer deactivated"
+    tugas1.end_reason = "deactivated"
     case_data["round"].status = RoundStatus.AWAITING_ASSIGNMENT
     db_session.commit()
 
@@ -266,7 +266,7 @@ def test_replace_reviewer_service_mengganti_assignment_void(db_session, case_dat
     tugas1 = case_data["tugas1"]
     ronde = case_data["round"]
     tugas1.status = AssignmentStatus.VOID
-    tugas1.end_reason = "Reviewer deactivated"
+    tugas1.end_reason = "deactivated"
     ronde.status = RoundStatus.AWAITING_ASSIGNMENT
     db_session.commit()
 
@@ -458,7 +458,7 @@ def test_void_reviewer_assignments_service(db_session, case_data):
     assert voided[0].id == tugas1.id
     assert voided[0].status == AssignmentStatus.VOID
     assert voided[0].ended_at is not None
-    assert voided[0].end_reason == "Reviewer deactivated"
+    assert voided[0].end_reason == "deactivated"
 
     db_session.refresh(ronde)
     assert ronde.status == RoundStatus.AWAITING_ASSIGNMENT
@@ -483,7 +483,7 @@ def test_get_needs_reassignment_service(db_session, case_data):
     """AC8: Antrean penugasan ulang memuat kasus yang perlu penugasan."""
     tugas1 = case_data["tugas1"]
     tugas1.status = AssignmentStatus.VOID
-    tugas1.end_reason = "Reviewer deactivated"
+    tugas1.end_reason = "deactivated"
     case_data["round"].status = RoundStatus.AWAITING_ASSIGNMENT
     db_session.commit()
 
@@ -635,8 +635,14 @@ def test_e2e_deactivate_reviewer_muncul_di_antrean_lalu_diganti_dan_tercatat_aud
     tugas1 = case_data["tugas1"]
     kasus = case_data["case"]
 
-    # 1. Admin menonaktifkan Reviewer 1 (endpoint PBI-1)
-    deact_resp = admin_client.post(f"/admin/users/{REVIEWER_1}/deactivate")
+    # 1. Admin menonaktifkan Reviewer 1 (endpoint PBI-1). Masih ada kasus
+    #    menunggu penilaiannya, jadi server minta konfirmasi dulu (SCRUM-197).
+    minta = admin_client.post(f"/admin/users/{REVIEWER_1}/deactivate")
+    assert minta.status_code == 409
+    assert minta.json()["affected_count"] == 1
+    deact_resp = admin_client.post(
+        f"/admin/users/{REVIEWER_1}/deactivate", params={"confirm": "true"}
+    )
     assert deact_resp.status_code == 200
 
     # 2. Assignment otomatis void di DB
@@ -696,3 +702,51 @@ def test_e2e_deactivate_reviewer_muncul_di_antrean_lalu_diganti_dan_tercatat_aud
         if log.action == "review.reviewer_assigned" and log.after.get("source") == "admin"
     )
     assert assigned_log.after == {"reviewer_id": str(REVIEWER_3), "source": "admin"}
+
+
+# ==============================================================================
+# Cabang yang belum teruji (SCRUM-197 menyentuh file ini, target 100%)
+# ==============================================================================
+
+
+def test_replace_saat_reviewer_lain_sudah_void_round_tetap_menunggu(db_session, case_data):
+    """Pengganti hanya mengisi satu slot: round tetap awaiting_assignment."""
+    case_data["tugas2"].status = AssignmentStatus.VOID
+    case_data["round"].status = RoundStatus.AWAITING_ASSIGNMENT
+    db_session.commit()
+
+    service.replace_reviewer(
+        db_session,
+        assignment_id=case_data["tugas1"].id,
+        new_reviewer_id=REVIEWER_3,
+        reason="Reviewer berhalangan hadir",
+        admin_id=ADMIN_ID,
+        notifier=FakeNotifier(),
+    )
+
+    db_session.refresh(case_data["round"])
+    assert case_data["round"].status == RoundStatus.AWAITING_ASSIGNMENT
+
+
+def test_antrean_tanpa_salinan_versi_memakai_potongan_id(db_session, case_data, monkeypatch):
+    """Bila isi versi tidak ditemukan, antrean tetap tampil dengan kode dari case_id."""
+    case_data["tugas1"].status = AssignmentStatus.VOID
+    case_data["tugas1"].end_reason = "deactivated"
+    db_session.commit()
+    monkeypatch.setattr("app.modules.cases.service.review_copies", lambda db, ids: {})
+
+    antrean = service.get_needs_reassignment(db_session)
+
+    assert antrean[0].case_code == str(case_data["case"].id)[:8]
+    assert antrean[0].case_title == ""
+
+
+@pytest.mark.parametrize("aksi", ["save_assignments", "mark_needs_assignment"])
+def test_store_round_tidak_ada_tidak_error(db_session, aksi):
+    store = service.ReviewTableStore(db_session)
+    round_id = uuid.uuid4()
+
+    if aksi == "save_assignments":
+        assert store.save_assignments(round_id, []) == {}
+    else:
+        assert store.mark_needs_assignment(round_id) is None

@@ -19,8 +19,11 @@ from app.modules.auth.oidc import OidcClient
 from app.modules.auth.pending import pending_store
 from app.modules.auth.pkce import code_challenge_s256, generate_code_verifier, generate_nonce
 from app.modules.auth.schemas import UserCreateRequest, UserUpdateRoleRequest
+from app.modules.notifications.service import DbNotifier
+from app.modules.reviews.ports import Notifier
 from app.shared.config import get_settings
 from app.shared.exceptions import (
+    ConfirmationRequiredError,
     ConflictError,
     InvalidOidcStateError,
     NotFoundError,
@@ -162,6 +165,11 @@ def active_reviewer_ids(db: DbSession) -> list[uuid.UUID]:
     return repository.get_active_reviewer_ids(db)
 
 
+def active_admin_ids(db: DbSession) -> list[uuid.UUID]:
+    """Admin aktif yang menerima notifikasi operasional (SCRUM-196 AC5)."""
+    return repository.get_active_admin_ids(db)
+
+
 def user_names(db: DbSession, user_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
     """Display names for audit, version history, and snapshot authors.
 
@@ -199,8 +207,11 @@ def get_user(db: DbSession, user_id: uuid.UUID) -> User | None:
 
 
 class AuthService:
-    def __init__(self, db: DbSession):
+    def __init__(self, db: DbSession, notifier: Notifier | None = None):
         self.db = db
+        # DbNotifier commit di sesinya sendiri, jadi hanya dipanggil setelah
+        # perubahan anggota di-commit (SCRUM-197).
+        self.notifier = notifier if notifier is not None else DbNotifier()
 
     def list_users(self, is_active: bool | None = None) -> list[User]:
         return repository.get_users(self.db, is_active=is_active)
@@ -219,7 +230,12 @@ class AuthService:
         )
 
     def update_member_role(
-        self, user_id: uuid.UUID, payload: UserUpdateRoleRequest, current_user: CurrentUser
+        self,
+        user_id: uuid.UUID,
+        payload: UserUpdateRoleRequest,
+        current_user: CurrentUser,
+        *,
+        confirm: bool = False,
     ) -> User:
         # Together with CANNOT_DEACTIVATE_SELF this keeps at least one active
         # admin: the one making the request can neither demote nor
@@ -232,9 +248,29 @@ class AuthService:
         user = repository.get_user_by_id(self.db, user_id)
         if not user:
             raise NotFoundError(USER_NOT_FOUND)
+        if payload.role != user.role:
+            self._require_release_confirmed(user.id, confirm=confirm)
+            from app.modules.reviews import service as reviews_service
+            from app.modules.reviews.models import AssignmentVoidReason
+
+            repository.lock_user(self.db, user.id)
+            dilepas = reviews_service.void_reviewer_assignments(
+                self.db, user.id, reason=AssignmentVoidReason.ROLE_CHANGED
+            )
+            user = repository.update_user_role(self.db, user, payload.role)
+            reviews_service.notify_cases_released(
+                self.db,
+                self.notifier,
+                released=dilepas,
+                member_name=user.name,
+                reason=AssignmentVoidReason.ROLE_CHANGED,
+            )
+            return user
         return repository.update_user_role(self.db, user, payload.role)
 
-    def deactivate_member(self, target_user_id: uuid.UUID, current_user: CurrentUser) -> User:
+    def deactivate_member(
+        self, target_user_id: uuid.UUID, current_user: CurrentUser, *, confirm: bool = False
+    ) -> User:
         if current_user.user_id == target_user_id:
             raise ValidationError(
                 "Anda tidak dapat menonaktifkan akun Anda sendiri.",
@@ -245,12 +281,39 @@ class AuthService:
         if not user:
             raise NotFoundError(USER_NOT_FOUND)
 
+        # Sebelum hapus sesi: request yang belum dikonfirmasi tidak boleh
+        # mengubah apa pun, termasuk me-logout anggota itu.
+        self._require_release_confirmed(user.id, confirm=confirm)
         repository.delete_sessions_by_user_id(self.db, user.id)
 
         from app.modules.reviews import service as reviews_service
+        from app.modules.reviews.models import AssignmentVoidReason
 
-        reviews_service.void_reviewer_assignments(self.db, user.id)
-        return repository.deactivate_user(self.db, user)
+        # Dikunci sesudah hapus sesi: commit di sana melepas kunci lagi.
+        repository.lock_user(self.db, user.id)
+        dilepas = reviews_service.void_reviewer_assignments(self.db, user.id)
+        user = repository.deactivate_user(self.db, user)
+        reviews_service.notify_cases_released(
+            self.db,
+            self.notifier,
+            released=dilepas,
+            member_name=user.name,
+            reason=AssignmentVoidReason.DEACTIVATED,
+        )
+        return user
+
+    def _require_release_confirmed(self, user_id: uuid.UUID, *, confirm: bool) -> None:
+        """PBI-24 AC8: Admin harus sadar ada kasus yang akan kehilangan reviewer."""
+        if confirm:
+            return
+        from app.modules.reviews import service as reviews_service
+
+        jumlah = reviews_service.count_cases_waiting_for_reviewer(self.db, user_id)
+        if jumlah:
+            raise ConfirmationRequiredError(
+                f"{jumlah} kasus menunggu penilaian akan masuk daftar penugasan ulang. Lanjutkan?",
+                affected_count=jumlah,
+            )
 
     def activate_member(self, target_user_id: uuid.UUID) -> User:
         # Undo of deactivate_member. Reviewer assignments voided at

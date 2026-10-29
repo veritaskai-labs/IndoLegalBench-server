@@ -6,7 +6,7 @@ catch what the mocks cannot: the guard itself, the database, and sessions.
 """
 
 from app.modules.auth.models import User, UserSession
-from app.modules.auth.seeds import ADMIN_SUB, AUTHOR_SUB
+from app.modules.auth.seeds import ADMIN_SUB, AUTHOR_SUB, DEVELOPER_AI_SUB
 from tests.login import complete_login
 
 
@@ -124,3 +124,41 @@ def test_login_links_by_email_case_insensitively(client, db_session):
     assert callback.status_code == 302
     assert "error=" not in callback.headers["location"]
     assert client.get("/me").json()["email"].lower() == "pending@veritask.ai"
+
+
+def test_admin_registers_a_developer_ai_member(client, db_session):
+    """SCRUM-183: Developer AI goes through the same PBI-1 flow as every role."""
+    complete_login(client, db_session, ADMIN_SUB)
+
+    created = client.post(
+        "/admin/users",
+        json={"email": "dev.ai@veritask.ai", "name": "Dev AI", "role": "developer_ai"},
+    )
+    assert created.status_code == 201
+    assert created.json()["role"] == "developer_ai"
+    client.cookies.clear()
+
+    callback = complete_login(client, db_session, "777777777777777777", email="dev.ai@veritask.ai")
+    assert "error=" not in callback.headers["location"]
+    assert client.get("/me").json()["role"] == "developer_ai"
+
+
+def test_admin_changes_a_role_to_and_from_developer_ai(client, db_session):
+    complete_login(client, db_session, ADMIN_SUB)
+    member = client.post(
+        "/admin/users", json={"email": "swap@veritask.ai", "name": "Swap", "role": "viewer"}
+    ).json()
+
+    to_dev = client.patch(f"/admin/users/{member['id']}", json={"role": "developer_ai"})
+    back = client.patch(f"/admin/users/{member['id']}", json={"role": "viewer"})
+
+    assert to_dev.status_code == 200
+    assert to_dev.json()["role"] == "developer_ai"
+    assert back.json()["role"] == "viewer"
+
+
+def test_seeded_developer_ai_logs_in_without_a_dashboard(client, db_session):
+    complete_login(client, db_session, DEVELOPER_AI_SUB)
+
+    assert client.get("/me").json()["role"] == "developer_ai"
+    assert client.get("/dashboard").status_code == 403
