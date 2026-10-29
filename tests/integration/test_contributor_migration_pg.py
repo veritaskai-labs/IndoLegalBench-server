@@ -63,15 +63,21 @@ def engine():
     mesin.dispose()
 
 
-def _pengguna(koneksi, role: str) -> uuid.UUID:
+def _pengguna(koneksi, role: str, *, aktif: bool = True) -> uuid.UUID:
     """Ditulis lewat SQL: model Role di kode sudah tidak mengenal author dan reviewer."""
     user_id = uuid.uuid4()
     koneksi.execute(
         text(
             "INSERT INTO users (id, email, name, role, is_active, created_at, updated_at) "
-            "VALUES (:id, :email, :name, :role, true, now(), now())"
+            "VALUES (:id, :email, :name, :role, :aktif, now(), now())"
         ),
-        {"id": user_id, "email": f"m195-{user_id.hex}@veritask.test", "name": role, "role": role},
+        {
+            "id": user_id,
+            "email": f"m195-{user_id.hex}@veritask.test",
+            "name": role,
+            "role": role,
+            "aktif": aktif,
+        },
     )
     return user_id
 
@@ -235,3 +241,55 @@ def test_rollback_mengembalikan_peran_lama_dengan_jejak_audit(alembic_cfg, engin
             {"role": "author"},
             ALASAN_BALIK,
         )
+
+
+def test_akun_nonaktif_ikut_dimigrasi_dan_tetap_nonaktif(alembic_cfg, engine):
+    """AC7: akun nonaktif juga punya riwayat kasus dan review, jadi ikut berubah peran."""
+    # Arrange
+    command.downgrade(alembic_cfg, SEBELUM)
+    with engine.begin() as koneksi:
+        penulis = _pengguna(koneksi, "author", aktif=False)
+        reviewer = _pengguna(koneksi, "reviewer", aktif=False)
+
+    # Act
+    command.upgrade(alembic_cfg, "head")
+
+    # Assert
+    with engine.connect() as koneksi:
+        assert _peran(koneksi, penulis, reviewer) == ["contributor", "contributor"]
+        aktif = koneksi.execute(
+            text("SELECT bool_or(is_active) FROM users WHERE id IN (:a, :b)"),
+            {"a": penulis, "b": reviewer},
+        ).scalar_one()
+        assert aktif is False
+        assert [len(_audit(koneksi, u)) for u in (penulis, reviewer)] == [1, 1]
+
+
+def test_siklus_berulang_memakai_peran_asal_terbaru(alembic_cfg, engine):
+    """Baris balik (ALASAN_BALIK) diabaikan; baris migrasi terbaru yang menentukan.
+
+    Di antara dua siklus, peran akun diubah di revisi lama. Downgrade kedua harus
+    mengembalikan peran terbaru itu, bukan peran dari siklus pertama.
+    """
+    # Arrange
+    command.downgrade(alembic_cfg, SEBELUM)
+    with engine.begin() as koneksi:
+        akun = _pengguna(koneksi, "author")
+    command.upgrade(alembic_cfg, "head")
+    command.downgrade(alembic_cfg, SEBELUM)
+    with engine.begin() as koneksi:
+        koneksi.execute(text("UPDATE users SET role = 'reviewer' WHERE id = :id"), {"id": akun})
+    command.upgrade(alembic_cfg, "head")
+
+    # Act
+    command.downgrade(alembic_cfg, SEBELUM)
+
+    # Assert
+    with engine.connect() as koneksi:
+        assert _peran(koneksi, akun) == ["reviewer"]
+        assert [(b["role"], a["role"], r) for _, b, a, r in _audit(koneksi, akun)] == [
+            ("author", "contributor", ALASAN),
+            ("contributor", "author", ALASAN_BALIK),
+            ("reviewer", "contributor", ALASAN),
+            ("contributor", "reviewer", ALASAN_BALIK),
+        ]

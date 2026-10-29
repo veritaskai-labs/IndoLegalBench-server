@@ -35,6 +35,9 @@ class Role(StrEnum):
 # PBI-24 AC2: tabel izin. Wewenang menulis (Author lama) dan mereview (Reviewer
 # lama) sama-sama dipegang Kontributor. Penulis dan reviewer satu kasus dibedakan
 # lewat relasi (cases.created_by, review_assignments.reviewer_id), bukan peran.
+# Isinya sengaja sama: kedua wewenang tetap dinamai terpisah supaya setiap
+# endpoint menyebut wewenang yang ia butuhkan, dan matriks peran berikutnya
+# cukup mengubah salah satu set tanpa menyisir router.
 WRITER_ROLES = frozenset({Role.CONTRIBUTOR})
 REVIEWER_ROLES = frozenset({Role.CONTRIBUTOR})
 

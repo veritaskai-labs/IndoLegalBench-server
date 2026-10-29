@@ -21,6 +21,8 @@ DEACTIVATED_SUB = "555555555555555555"
 DEVELOPER_AI_SUB = "666666666666666666"
 UNKNOWN_SUB = "999999999999999999"
 
+# PBI-24: 111… dan 222… kini keduanya Kontributor. Nama konstanta, sub, dan email
+# lama dipertahankan supaya fake login (?sub=) dan dokumen yang sudah ada tetap berlaku.
 AUTHOR_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 REVIEWER_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")
 ADMIN_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
