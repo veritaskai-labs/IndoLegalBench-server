@@ -241,21 +241,59 @@ def add_verdict(db: Session, verdict: ReviewVerdict) -> None:
     db.flush()
 
 
-def get_active_assignments_by_reviewer(
-    db: Session, reviewer_id: uuid.UUID
-) -> list[ReviewAssignment]:
-    """Semua penugasan active reviewer pada round yang belum diputuskan (AC8)."""
+def _menunggu_penilaian(reviewer_id: uuid.UUID):
+    """Assignment active reviewer ini tanpa verdict, di round yang belum diputuskan (AC8)."""
+    return and_(
+        ReviewAssignment.reviewer_id == reviewer_id,
+        ReviewAssignment.status == AssignmentStatus.ACTIVE,
+        ~ReviewAssignment.verdict.has(),
+        ReviewRound.decision.is_(None),
+        ReviewRound.status != RoundStatus.DECIDED,
+    )
+
+
+def count_cases_waiting_for_reviewer(db: Session, reviewer_id: uuid.UUID) -> int:
+    """Jumlah kasus berbeda yang masih menunggu penilaian reviewer ini (AC8)."""
+    return int(
+        db.scalar(
+            select(func.count(func.distinct(ReviewRound.case_id)))
+            .select_from(ReviewAssignment)
+            .join(ReviewAssignment.review_round)
+            .where(_menunggu_penilaian(reviewer_id))
+        )
+        or 0
+    )
+
+
+def lock_waiting_rounds(db: Session, reviewer_id: uuid.UUID) -> None:
+    """Kunci round yang masih menunggu penilaian reviewer ini (SELECT ... FOR UPDATE).
+
+    Urut id supaya dua Admin yang melepas reviewer berbeda tidak saling deadlock.
+    submit_verdict mengunci round yang sama, jadi verdict yang sedang ditulis
+    selesai dulu. SQLite mengabaikan FOR UPDATE; perilakunya diuji di PostgreSQL.
+    """
+    db.execute(
+        select(ReviewRound.id)
+        .join(ReviewAssignment, ReviewAssignment.review_round_id == ReviewRound.id)
+        .where(_menunggu_penilaian(reviewer_id))
+        .order_by(ReviewRound.id)
+        .with_for_update(of=ReviewRound)
+    )
+
+
+def waiting_assignments_for_reviewer(db: Session, reviewer_id: uuid.UUID) -> list[ReviewAssignment]:
+    """Penugasan reviewer yang masih menunggu penilaiannya (AC8), sama dengan hitungan.
+
+    Dibaca ulang dari database (populate_existing): dipanggil setelah
+    lock_waiting_rounds, jadi verdict yang baru di-commit sudah terlihat.
+    """
     return list(
         db.scalars(
             select(ReviewAssignment)
             .join(ReviewAssignment.review_round)
             .options(joinedload(ReviewAssignment.review_round))
-            .where(
-                ReviewAssignment.reviewer_id == reviewer_id,
-                ReviewAssignment.status == AssignmentStatus.ACTIVE,
-                ReviewRound.decision.is_(None),
-                ReviewRound.status != RoundStatus.DECIDED,
-            )
+            .where(_menunggu_penilaian(reviewer_id))
+            .execution_options(populate_existing=True)
         ).all()
     )
 

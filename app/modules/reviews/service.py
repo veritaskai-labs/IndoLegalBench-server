@@ -30,6 +30,7 @@ from app.modules.reviews.decision import counted_decisions, decide
 from app.modules.reviews.models import (
     AssignmentSource,
     AssignmentStatus,
+    AssignmentVoidReason,
     ReviewAssignment,
     ReviewRound,
     ReviewVerdict,
@@ -353,13 +354,21 @@ def _notify_needs_assignment(db: Session, notifier: Notifier, *, case_code: str 
     """Beri tahu semua Admin aktif bahwa round menunggu penugasan (SCRUM-196 AC5).
 
     Lewat notifier pemanggil (DeferredNotifier saat submit) supaya tidak
-    terkirim bila transaksi di-rollback. Tidak ada Admin aktif berarti
-    tidak ada panggilan.
+    terkirim bila transaksi di-rollback.
+    """
+    _notify_admins(db, notifier, _payload_perlu_penugasan(case_code))
+
+
+def _notify_admins(db: Session, notifier: Notifier, payload: dict[str, str]) -> None:
+    """Satu jalur ke Admin untuk antrean perlu penugasan (SCRUM-196, SCRUM-197).
+
+    Semua Admin aktif, type review_needs_assignment. Tidak ada Admin aktif
+    berarti tidak ada panggilan.
     """
     admin_ids = auth_service.active_admin_ids(db)
     if not admin_ids:
         return
-    notifier.notify(admin_ids, REVIEW_NEEDS_ASSIGNMENT, _payload_perlu_penugasan(case_code))
+    notifier.notify(admin_ids, REVIEW_NEEDS_ASSIGNMENT, payload)
 
 
 def _payload_perlu_penugasan(case_code: str | None = None) -> dict[str, str]:
@@ -652,42 +661,72 @@ def _view(verdict: ReviewVerdict | None) -> VerdictView | None:
     )
 
 
+def count_cases_waiting_for_reviewer(db: Session, reviewer_id: uuid.UUID) -> int:
+    """Kasus yang akan masuk antrean penugasan ulang bila reviewer ini dilepas (AC8)."""
+    return repository.count_cases_waiting_for_reviewer(db, reviewer_id)
+
+
 def void_reviewer_assignments(
     db: Session,
     reviewer_id: uuid.UUID,
     *,
-    reason: str = "Reviewer deactivated",
+    reason: AssignmentVoidReason = AssignmentVoidReason.DEACTIVATED,
 ) -> list[ReviewAssignment]:
-    """Void semua penugasan aktif milik reviewer yang dinonaktifkan (AC8, SCRUM-147).
+    """Lepas penugasan yang masih menunggu penilaian reviewer ini (AC8, SCRUM-147, SCRUM-197).
 
-    Dipanggil oleh AuthService.deactivate_member saat akun reviewer dinonaktifkan.
-    Setiap assignment diubah statusnya jadi void, ended_at diisi, dan bila round-nya
-    belum diputuskan (decided), status round dikembalikan ke awaiting_assignment.
+    Dipanggil AuthService saat reviewer dinonaktifkan atau perannya diubah.
+    Assignment jadi void dengan end_reason = kode alasan, ended_at diisi, dan
+    round kembali ke awaiting_assignment. Satu reviewer paling banyak punya satu
+    assignment active per round (uq_review_assignments_active_reviewer).
+
+    Round dikunci dulu, baru assignment dipilih ulang: verdict yang sedang
+    ditulis saat itu sudah ter-commit ketika dibaca, jadi tidak ikut di-void
+    (keputusan PO 28 Okt). Round yang sudah diputuskan tidak lolos filter.
     """
-    assignments = repository.get_active_assignments_by_reviewer(db, reviewer_id)
+    repository.lock_waiting_rounds(db, reviewer_id)
     voided: list[ReviewAssignment] = []
-    locked_rounds: set[uuid.UUID] = set()
-    for assignment in assignments:
-        round_id = assignment.review_round_id
-        if round_id not in locked_rounds:
-            ronde = repository.lock_round(db, round_id)
-            locked_rounds.add(round_id)
-        else:
-            ronde = repository.get_round(db, round_id)
-
-        if ronde is None or ronde.status == RoundStatus.DECIDED or ronde.decision is not None:
-            continue
-
+    for assignment in repository.waiting_assignments_for_reviewer(db, reviewer_id):
         assignment.status = AssignmentStatus.VOID
         assignment.ended_at = datetime.now(UTC)
         assignment.end_reason = reason
-        assignment.review_round = ronde
-        ronde.status = RoundStatus.AWAITING_ASSIGNMENT
+        assignment.review_round.status = RoundStatus.AWAITING_ASSIGNMENT
         voided.append(assignment)
 
     if voided:
         db.flush()
     return voided
+
+
+def notify_cases_released(
+    db: Session,
+    notifier: Notifier,
+    *,
+    released: list[ReviewAssignment],
+    member_name: str,
+    reason: AssignmentVoidReason,
+) -> None:
+    """Beri tahu Admin aktif bahwa kasus anggota ini kembali ke antrean (SCRUM-197).
+
+    Dipanggil setelah commit. Keputusan PO 28 Okt: semua Admin aktif, termasuk
+    yang melakukan aksi, karena tim klien hanya punya satu Admin.
+    """
+    jumlah = len({tugas.review_round.case_id for tugas in released})
+    if not jumlah:
+        return
+    sebab = (
+        f"{member_name} dinonaktifkan."
+        if reason == AssignmentVoidReason.DEACTIVATED
+        else f"Peran {member_name} diubah."
+    )
+    _notify_admins(
+        db,
+        notifier,
+        {
+            "title": f"{jumlah} kasus perlu penugasan ulang",
+            "body": f"{sebab} Tugaskan reviewer pengganti dari antrean perlu penugasan.",
+            "link": "/admin/reviews",
+        },
+    )
 
 
 def _clean_reason(reason: str) -> str:
@@ -873,6 +912,7 @@ def get_needs_reassignment(db: Session) -> list[NeedsReassignmentResponse]:
                 assigned_at=a.assigned_at,
                 ended_at=a.ended_at,
                 end_reason=a.end_reason,
+                void_reason=a.end_reason if a.status == AssignmentStatus.VOID else None,
             )
             for a in assignments
         ]

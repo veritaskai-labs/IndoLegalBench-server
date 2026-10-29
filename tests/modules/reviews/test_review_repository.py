@@ -179,7 +179,7 @@ def test_get_active_assignments_by_reviewer_hanya_yang_aktif_dan_belum_decided(d
     _tugaskan(db_session, ronde3, REVIEWER, AssignmentStatus.ACTIVE)
 
     # Act
-    aktif = repository.get_active_assignments_by_reviewer(db_session, REVIEWER)
+    aktif = repository.waiting_assignments_for_reviewer(db_session, REVIEWER)
 
     # Assert
     assert len(aktif) == 1
@@ -235,3 +235,7 @@ def test_get_rounds_needing_reassignment(db_session):
     assert ronde2.id in ids
     assert ronde3.id not in ids
     assert ronde4.id not in ids
+
+
+def test_reviewer_assignments_tanpa_reviewer_tidak_query(db_session):
+    assert repository.reviewer_assignments(db_session, []) == []

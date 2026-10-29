@@ -44,6 +44,10 @@ def test_service_deactivate_member_success(auth_service, mock_db, monkeypatch):
     # Mock the functional repository methods
     monkeypatch.setattr("app.modules.auth.repository.get_user_by_id", lambda db, uid: dummy_user)
     monkeypatch.setattr("app.modules.auth.repository.delete_sessions_by_user_id", lambda db, uid: 1)
+    # SCRUM-197: anggota tanpa kasus menunggu penilaian, jadi tidak perlu konfirmasi.
+    monkeypatch.setattr(
+        "app.modules.reviews.service.count_cases_waiting_for_reviewer", lambda db, uid: 0
+    )
 
     def fake_deactivate(db, user):
         user.is_active = False
