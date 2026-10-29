@@ -354,13 +354,21 @@ def _notify_needs_assignment(db: Session, notifier: Notifier, *, case_code: str 
     """Beri tahu semua Admin aktif bahwa round menunggu penugasan (SCRUM-196 AC5).
 
     Lewat notifier pemanggil (DeferredNotifier saat submit) supaya tidak
-    terkirim bila transaksi di-rollback. Tidak ada Admin aktif berarti
-    tidak ada panggilan.
+    terkirim bila transaksi di-rollback.
+    """
+    _notify_admins(db, notifier, _payload_perlu_penugasan(case_code))
+
+
+def _notify_admins(db: Session, notifier: Notifier, payload: dict[str, str]) -> None:
+    """Satu jalur ke Admin untuk antrean perlu penugasan (SCRUM-196, SCRUM-197).
+
+    Semua Admin aktif, type review_needs_assignment. Tidak ada Admin aktif
+    berarti tidak ada panggilan.
     """
     admin_ids = auth_service.active_admin_ids(db)
     if not admin_ids:
         return
-    notifier.notify(admin_ids, REVIEW_NEEDS_ASSIGNMENT, _payload_perlu_penugasan(case_code))
+    notifier.notify(admin_ids, REVIEW_NEEDS_ASSIGNMENT, payload)
 
 
 def _payload_perlu_penugasan(case_code: str | None = None) -> dict[str, str]:
@@ -705,17 +713,14 @@ def notify_cases_released(
     jumlah = len({tugas.review_round.case_id for tugas in released})
     if not jumlah:
         return
-    admin_ids = auth_service.active_admin_ids(db)
-    if not admin_ids:
-        return
     sebab = (
         f"{member_name} dinonaktifkan."
         if reason == AssignmentVoidReason.DEACTIVATED
         else f"Peran {member_name} diubah."
     )
-    notifier.notify(
-        admin_ids,
-        REVIEW_NEEDS_ASSIGNMENT,
+    _notify_admins(
+        db,
+        notifier,
         {
             "title": f"{jumlah} kasus perlu penugasan ulang",
             "body": f"{sebab} Tugaskan reviewer pengganti dari antrean perlu penugasan.",
