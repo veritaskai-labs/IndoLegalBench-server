@@ -30,14 +30,14 @@ LEAVING_NAME = "Anggota Keluar"
 
 @pytest.fixture(autouse=True)
 def notices_land_in_the_test_db(db_session, monkeypatch):
-    """Stub: DbNotifier opens its own session, point it at this test database."""
+    """Stub: point DbNotifier's own session at the test database."""
     factory = sessionmaker(bind=db_session.get_bind(), autoflush=False, autocommit=False)
     monkeypatch.setattr("app.modules.notifications.service.get_session_factory", lambda: factory)
 
 
 @pytest.fixture
 def suite_id(db_session) -> uuid.UUID:
-    """Two active admins, one retired admin, an author, the leaving member, a peer."""
+    """Active and retired admins, an author, the leaving member and a peer."""
     people = [
         (ACTING_ADMIN, Role.ADMIN, "Admin Pelaku", True),
         (OTHER_ADMIN, Role.ADMIN, "Admin Lain", True),
@@ -63,7 +63,7 @@ def suite_id(db_session) -> uuid.UUID:
 
 
 def _waiting_case(db_session, suite_id: uuid.UUID, code: str) -> None:
-    """A case in review where the leaving member and the peer both still owe a verdict."""
+    """A case where the leaving member and the peer still owe a verdict."""
     version_id = uuid.uuid4()
     case = Case(
         case_code=code,
