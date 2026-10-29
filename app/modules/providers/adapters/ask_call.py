@@ -9,6 +9,8 @@ from app.modules.providers.adapters.base import FailureKind, ProviderResponse
 from app.modules.providers.adapters.http import clip, http_failure, json_object, post_json
 
 _CONNECT_SECONDS = 15.0
+_TRUNCATED = "truncated by length limit"
+_EMPTY = "empty response"
 
 
 def ask_client_timeout(seconds: float) -> httpx.Timeout:
@@ -161,10 +163,10 @@ def interpret_openai(
         error = refusal
     elif finish == "length":
         kind = FailureKind.TRUNCATED
-        error = "truncated by length limit"
+        error = _TRUNCATED
     elif not text.strip():
         kind = FailureKind.EMPTY
-        error = "empty response"
+        error = _EMPTY
     model = payload.get("model")
     return _done(
         text=text,
@@ -215,10 +217,10 @@ def interpret_gemini(
         error = "model refused to answer"
     elif reason.upper() in {"MAX_TOKENS", "LENGTH"}:
         kind = FailureKind.TRUNCATED
-        error = "truncated by length limit"
+        error = _TRUNCATED
     elif not text.strip():
         kind = FailureKind.EMPTY
-        error = "empty response"
+        error = _EMPTY
     model = payload.get("model")
     return _done(
         text=text,
@@ -257,13 +259,13 @@ def interpret_anthropic(
     error = None
     if stop == "max_tokens":
         kind = FailureKind.TRUNCATED
-        error = "truncated by length limit"
+        error = _TRUNCATED
     elif stop == "refusal":
         kind = FailureKind.REFUSED
         error = "model refused to answer"
     elif not text.strip():
         kind = FailureKind.EMPTY
-        error = "empty response"
+        error = _EMPTY
     model = payload.get("model")
     return _done(
         text=text,
