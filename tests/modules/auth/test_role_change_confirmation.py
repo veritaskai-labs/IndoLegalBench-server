@@ -388,3 +388,94 @@ def test_nonaktif_dikonfirmasi_tidak_membatalkan_verdict_yang_sudah_masuk(
     assert sudah_menilai.status == AssignmentStatus.ACTIVE
     assert sudah_menilai.end_reason is None
     assert reviews_service.get_needs_reassignment(db_session) == []
+
+
+# --- Notifikasi Admin setelah kasus dilepas (Jira SCRUM-197, keputusan PO 28 Okt) ---
+
+
+class FakeNotifier:
+    def __init__(self):
+        self.panggilan = []
+
+    def notify(self, user_ids, type, payload):
+        self.panggilan.append((list(user_ids), type, dict(payload)))
+
+
+@pytest.fixture
+def pemberitahu():
+    return FakeNotifier()
+
+
+@pytest.fixture
+def service_notif(db_session, pemberitahu):
+    """AuthService dengan notifier palsu, supaya pesan ke Admin bisa diperiksa."""
+    return AuthService(db_session, notifier=pemberitahu)
+
+
+@pytest.fixture
+def admin_nonaktif(db_session, anggota):
+    db_session.add(
+        User(email="admin-off197@veritask.test", name="Admin Off", role=Role.ADMIN, is_active=False)
+    )
+    db_session.commit()
+
+
+@pytest.mark.parametrize(
+    ("jalankan", "isi"),
+    [
+        pytest.param(
+            lambda service, admin: service.deactivate_member(TARGET_ID, admin, confirm=True),
+            "Target dinonaktifkan",
+            id="nonaktifkan",
+        ),
+        pytest.param(_ubah_peran_dikonfirmasi, "Peran Target diubah", id="ubah-peran"),
+    ],
+)
+def test_admin_aktif_diberi_tahu_jumlah_kasus_yang_dilepas(
+    service_notif, admin, buat_tugas, pemberitahu, admin_nonaktif, jalankan, isi
+):
+    buat_tugas()
+    buat_tugas()
+    buat_tugas(dengan_verdict=True)  # verdict tetap sah, tidak dihitung
+
+    jalankan(service_notif, admin)
+
+    assert len(pemberitahu.panggilan) == 1
+    user_ids, jenis, payload = pemberitahu.panggilan[0]
+    assert user_ids == [ADMIN_ID]
+    assert jenis == "review_needs_assignment"
+    assert payload["title"] == "2 kasus perlu penugasan ulang"
+    assert isi in payload["body"]
+    assert payload["link"] == "/admin/reviews"
+
+
+def test_tanpa_kasus_dilepas_tidak_ada_notifikasi(service_notif, admin, anggota, pemberitahu):
+    service_notif.deactivate_member(TARGET_ID, admin, confirm=True)
+
+    assert pemberitahu.panggilan == []
+
+
+def test_409_tidak_mengirim_notifikasi(service_notif, admin, buat_tugas, pemberitahu):
+    buat_tugas()
+
+    with pytest.raises(DomainError):
+        service_notif.deactivate_member(TARGET_ID, admin)
+
+    assert pemberitahu.panggilan == []
+
+
+def test_notifikasi_tidak_terkirim_bila_simpan_gagal(
+    service_notif, admin, buat_tugas, pemberitahu, monkeypatch
+):
+    """Notifikasi baru dikirim setelah commit; commit gagal berarti tidak ada pesan."""
+    buat_tugas()
+
+    def gagal(db, user):
+        raise RuntimeError("commit gagal")
+
+    monkeypatch.setattr("app.modules.auth.repository.deactivate_user", gagal)
+
+    with pytest.raises(RuntimeError):
+        service_notif.deactivate_member(TARGET_ID, admin, confirm=True)
+
+    assert pemberitahu.panggilan == []
