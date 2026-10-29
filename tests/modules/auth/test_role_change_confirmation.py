@@ -363,6 +363,44 @@ def test_void_reason_kosong_untuk_assignment_yang_diganti(db_session, service, a
     assert tugas["void_reason"] is None
 
 
+@pytest.mark.parametrize(
+    "alasan",
+    [
+        pytest.param("Diubah manual di database", id="teks-tidak-dikenal"),
+        pytest.param(None, id="kosong"),
+    ],
+)
+def test_void_dengan_alasan_tidak_dikenal_tidak_menggagalkan_antrean(
+    db_session, buat_tugas, alasan
+):
+    """Satu baris void yang alasannya bukan kode tidak boleh membuat seluruh antrean 500.
+
+    void_reason jadi null, end_reason tetap ditampilkan apa adanya (review Adra di #78).
+    """
+    tugas = buat_tugas(round_status=RoundStatus.AWAITING_ASSIGNMENT, status=AssignmentStatus.VOID)
+    tugas.end_reason = alasan
+    db_session.commit()
+
+    antrean = reviews_service.get_needs_reassignment(db_session)
+
+    void = antrean[0].model_dump()["void_assignments"][0]
+    assert void["void_reason"] is None
+    assert void["end_reason"] == alasan
+
+
+def test_http_antrean_tetap_200_dengan_alasan_void_tidak_dikenal(
+    login_admin, db_session, buat_tugas
+):
+    tugas = buat_tugas(round_status=RoundStatus.AWAITING_ASSIGNMENT, status=AssignmentStatus.VOID)
+    tugas.end_reason = "Diubah manual di database"
+    db_session.commit()
+
+    respons = login_admin.get("/reviews/needs-reassignment")
+
+    assert respons.status_code == 200
+    assert respons.json()[0]["void_assignments"][0]["void_reason"] is None
+
+
 def test_http_confirm_true_melepas_tugas(login_admin, db_session, buat_tugas):
     tugas = buat_tugas()
 
