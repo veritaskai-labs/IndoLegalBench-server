@@ -19,6 +19,8 @@ from app.modules.auth.oidc import OidcClient
 from app.modules.auth.pending import pending_store
 from app.modules.auth.pkce import code_challenge_s256, generate_code_verifier, generate_nonce
 from app.modules.auth.schemas import UserCreateRequest, UserUpdateRoleRequest
+from app.modules.notifications.service import DbNotifier
+from app.modules.reviews.ports import Notifier
 from app.shared.config import get_settings
 from app.shared.exceptions import (
     ConfirmationRequiredError,
@@ -205,8 +207,11 @@ def get_user(db: DbSession, user_id: uuid.UUID) -> User | None:
 
 
 class AuthService:
-    def __init__(self, db: DbSession):
+    def __init__(self, db: DbSession, notifier: Notifier | None = None):
         self.db = db
+        # DbNotifier commit di sesinya sendiri, jadi hanya dipanggil setelah
+        # perubahan anggota di-commit (SCRUM-197).
+        self.notifier = notifier if notifier is not None else DbNotifier()
 
     def list_users(self, is_active: bool | None = None) -> list[User]:
         return repository.get_users(self.db, is_active=is_active)
@@ -248,9 +253,18 @@ class AuthService:
             from app.modules.reviews import service as reviews_service
             from app.modules.reviews.models import AssignmentVoidReason
 
-            reviews_service.void_reviewer_assignments(
+            dilepas = reviews_service.void_reviewer_assignments(
                 self.db, user.id, reason=AssignmentVoidReason.ROLE_CHANGED
             )
+            user = repository.update_user_role(self.db, user, payload.role)
+            reviews_service.notify_cases_released(
+                self.db,
+                self.notifier,
+                released=dilepas,
+                member_name=user.name,
+                reason=AssignmentVoidReason.ROLE_CHANGED,
+            )
+            return user
         return repository.update_user_role(self.db, user, payload.role)
 
     def deactivate_member(
@@ -272,9 +286,18 @@ class AuthService:
         repository.delete_sessions_by_user_id(self.db, user.id)
 
         from app.modules.reviews import service as reviews_service
+        from app.modules.reviews.models import AssignmentVoidReason
 
-        reviews_service.void_reviewer_assignments(self.db, user.id)
-        return repository.deactivate_user(self.db, user)
+        dilepas = reviews_service.void_reviewer_assignments(self.db, user.id)
+        user = repository.deactivate_user(self.db, user)
+        reviews_service.notify_cases_released(
+            self.db,
+            self.notifier,
+            released=dilepas,
+            member_name=user.name,
+            reason=AssignmentVoidReason.DEACTIVATED,
+        )
+        return user
 
     def _require_release_confirmed(self, user_id: uuid.UUID, *, confirm: bool) -> None:
         """PBI-24 AC8: Admin harus sadar ada kasus yang akan kehilangan reviewer."""

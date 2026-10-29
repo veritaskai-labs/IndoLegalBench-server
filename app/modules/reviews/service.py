@@ -689,6 +689,41 @@ def void_reviewer_assignments(
     return voided
 
 
+def notify_cases_released(
+    db: Session,
+    notifier: Notifier,
+    *,
+    released: list[ReviewAssignment],
+    member_name: str,
+    reason: AssignmentVoidReason,
+) -> None:
+    """Beri tahu Admin aktif bahwa kasus anggota ini kembali ke antrean (SCRUM-197).
+
+    Dipanggil setelah commit. Keputusan PO 28 Okt: semua Admin aktif, termasuk
+    yang melakukan aksi, karena tim klien hanya punya satu Admin.
+    """
+    jumlah = len({tugas.review_round.case_id for tugas in released})
+    if not jumlah:
+        return
+    admin_ids = auth_service.active_admin_ids(db)
+    if not admin_ids:
+        return
+    sebab = (
+        f"{member_name} dinonaktifkan."
+        if reason == AssignmentVoidReason.DEACTIVATED
+        else f"Peran {member_name} diubah."
+    )
+    notifier.notify(
+        admin_ids,
+        REVIEW_NEEDS_ASSIGNMENT,
+        {
+            "title": f"{jumlah} kasus perlu penugasan ulang",
+            "body": f"{sebab} Tugaskan reviewer pengganti dari antrean perlu penugasan.",
+            "link": "/admin/reviews",
+        },
+    )
+
+
 def _clean_reason(reason: str) -> str:
     clean = reason.strip() if reason else ""
     if not clean:
