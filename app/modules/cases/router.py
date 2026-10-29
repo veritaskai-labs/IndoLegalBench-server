@@ -30,6 +30,8 @@ from app.shared.security import CurrentUser, Role, require_roles
 router = APIRouter(tags=["cases"])
 
 _can_write = require_roles(Role.AUTHOR, Role.ADMIN)
+# SCRUM-183: Developer AI reads the case list and dev case detail, masked by the service.
+_can_read = require_roles(Role.AUTHOR, Role.ADMIN, Role.DEVELOPER_AI)
 # D5a: only an Author submits, and only their own case (checked in the service).
 _can_submit = require_roles(Role.AUTHOR)
 # D5a / PBI-9 AC3: after approval only the Admin changes the dev/test tag.
@@ -98,9 +100,17 @@ def list_cases(
     status_filter: CaseStatus | None = Query(default=None, alias="status"),
     split_tag: SplitTag | None = Query(default=None),
     db: Session = Depends(get_db),
-    _: CurrentUser = Depends(_can_write),
+    user: CurrentUser = Depends(_can_read),
 ) -> list[CaseSummary]:
-    """List the short case summary for one suite."""
+    """List the short case summary for one suite.
+
+    Developer AI gets approved cases only. Test rows come back with
+    `masked` = true and placeholder `case_code` and `title`.
+    """
+    if user.role == Role.DEVELOPER_AI:
+        return service.list_cases_for_developer_ai(
+            db, suite_id, status=status_filter, split_tag=split_tag
+        )
     return service.list_cases(db, suite_id, status=status_filter, split_tag=split_tag)
 
 
@@ -108,14 +118,30 @@ def list_cases(
     "/cases/{case_id}",
     response_model=CaseRead,
     summary="Detail satu kasus",
-    responses={404: _ERROR_CODES[404]},
+    responses={
+        403: {
+            "model": ErrorBody,
+            "description": "Developer AI membuka kasus test (`TEST_CASE_HIDDEN`).",
+        },
+        404: {
+            "model": ErrorBody,
+            "description": (
+                "Kasus tidak ditemukan. Untuk Developer AI juga kasus yang belum disetujui."
+            ),
+        },
+    },
 )
 def get_case(
     case_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: CurrentUser = Depends(_can_write),
+    user: CurrentUser = Depends(_can_read),
 ) -> CaseRead:
-    """Return the full case."""
+    """Return the full case.
+
+    Developer AI gets the approved version of a dev case only.
+    """
+    if user.role == Role.DEVELOPER_AI:
+        return service.get_case_for_developer_ai(db, case_id)
     return service.get_case(db, case_id)
 
 

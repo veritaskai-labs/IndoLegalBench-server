@@ -77,6 +77,15 @@ def count_for_suite(db: Session, suite_id: uuid.UUID) -> int:
     return db.query(Case).filter(Case.suite_id == suite_id).count()
 
 
+def count_approved_for_suite(db: Session, suite_id: uuid.UUID) -> int:
+    """Count the suite's cases that have an approved version, dev and test."""
+    return (
+        db.query(Case)
+        .filter(Case.suite_id == suite_id, Case.latest_approved_version_id.is_not(None))
+        .count()
+    )
+
+
 def has_approved(db: Session, suite_id: uuid.UUID) -> bool:
     """True when any case in the suite has an approved version."""
     return (

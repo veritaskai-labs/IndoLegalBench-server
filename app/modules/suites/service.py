@@ -53,15 +53,24 @@ def create_suite(db: Session, payload: SuiteCreate, *, created_by: uuid.UUID) ->
     return _tampilkan(db, tersimpan)
 
 
-def get_suite(db: Session, suite_id: uuid.UUID) -> SuiteRead:
-    return _tampilkan(db, _wajib_ada(db, suite_id))
+def get_suite(db: Session, suite_id: uuid.UUID, *, approved_only: bool = False) -> SuiteRead:
+    """approved_only: Developer AI only counts the cases it can see (SCRUM-183)."""
+    return _tampilkan(db, _wajib_ada(db, suite_id), approved_only=approved_only)
 
 
-def list_suites(db: Session, *, status: SuiteStatus, page: int, size: int) -> Page[SuiteRead]:
+def list_suites(
+    db: Session,
+    *,
+    status: SuiteStatus,
+    page: int,
+    size: int,
+    approved_only: bool = False,
+) -> Page[SuiteRead]:
+    """approved_only: Developer AI only counts the cases it can see (SCRUM-183)."""
     offset = (page - 1) * size
     baris = repository.list_by_status(db, status, offset=offset, limit=size)
     return Page[SuiteRead](
-        items=[_tampilkan(db, item) for item in baris],
+        items=[_tampilkan(db, item, approved_only=approved_only) for item in baris],
         total=repository.count_by_status(db, status),
         page=page,
         size=size,
@@ -244,16 +253,19 @@ def _pastikan_nama_bebas(db: Session, name: str) -> None:
         raise ConflictError(f"Nama suite '{name}' sudah dipakai", code=NAME_TAKEN)
 
 
-def _tampilkan(db: Session, suite: Suite) -> SuiteRead:
+def _tampilkan(db: Session, suite: Suite, *, approved_only: bool = False) -> SuiteRead:
     jumlah = cases_service.count_for_suite(db, suite.id)
     kosong = jumlah == 0
+    # SCRUM-183: dev and test together, but only approved cases, so the number
+    # matches the rows Developer AI gets from the case list.
+    terlihat = cases_service.count_approved_for_suite(db, suite.id) if approved_only else jumlah
     return SuiteRead(
         id=suite.id,
         name=suite.name,
         description=suite.description,
         status=suite.status,
-        case_count=jumlah,
-        is_empty=kosong,
+        case_count=terlihat,
+        is_empty=terlihat == 0,
         exportable=suite.status == SuiteStatus.ACTIVE and not kosong,
         created_at=suite.created_at,
         updated_at=suite.updated_at,

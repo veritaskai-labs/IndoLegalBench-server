@@ -1,6 +1,6 @@
 """In-memory test users for PBI-1 (SQLite).
 
-- Four active roles + one deactivated; `zitadel_sub` used by fake login (`?sub=`)
+- Five active roles (Developer AI since SCRUM-183) + one deactivated; `zitadel_sub` used by fake login (`?sub=`)
 - Not Alembic; production seed is SCRUM-89
 """
 
@@ -17,6 +17,7 @@ REVIEWER_SUB = "222222222222222222"
 ADMIN_SUB = "333333333333333333"
 VIEWER_SUB = "444444444444444444"
 DEACTIVATED_SUB = "555555555555555555"
+DEVELOPER_AI_SUB = "666666666666666666"
 UNKNOWN_SUB = "999999999999999999"
 
 AUTHOR_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
@@ -24,6 +25,7 @@ REVIEWER_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")
 ADMIN_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
 VIEWER_ID = uuid.UUID("44444444-4444-4444-4444-444444444444")
 DEACTIVATED_ID = uuid.UUID("55555555-5555-5555-5555-555555555555")
+DEVELOPER_AI_ID = uuid.UUID("66666666-6666-6666-6666-666666666666")
 
 _SEED_TS = datetime(2026, 9, 17, 7, 0, tzinfo=UTC)
 
@@ -75,6 +77,16 @@ SEED_USERS = (
         name="Deactivated One",
         role=Role.VIEWER,
         is_active=False,
+        created_at=_SEED_TS,
+        updated_at=_SEED_TS,
+    ),
+    User(
+        id=DEVELOPER_AI_ID,
+        zitadel_sub=DEVELOPER_AI_SUB,
+        email="developer-ai@veritask.test",
+        name="Developer AI One",
+        role=Role.DEVELOPER_AI,
+        is_active=True,
         created_at=_SEED_TS,
         updated_at=_SEED_TS,
     ),

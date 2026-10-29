@@ -18,8 +18,9 @@ from app.shared.security import CurrentUser, Role, require_roles
 
 router = APIRouter(tags=["legal-refs"])
 
-# Semua peran membaca rujukan (editor, review, riwayat), jadi semua butuh labelnya.
-_semua_peran = require_roles(Role.AUTHOR, Role.REVIEWER, Role.ADMIN, Role.VIEWER)
+# Semua peran membaca rujukan (editor, review, riwayat, detail kasus dev untuk
+# Developer AI), jadi semua butuh labelnya.
+_semua_peran = require_roles(Role.AUTHOR, Role.REVIEWER, Role.ADMIN, Role.VIEWER, Role.DEVELOPER_AI)
 # Pratinjau hanya untuk yang boleh menulis kasus (SCRUM-162).
 _penulis = require_roles(Role.AUTHOR, Role.ADMIN)
 
