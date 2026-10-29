@@ -6,14 +6,15 @@ from app.modules.auth.models import User
 from app.modules.auth.seeds import (
     ADMIN_SUB,
     AUTHOR_SUB,
+    DEVELOPER_AI_SUB,
     REVIEWER_SUB,
     UNKNOWN_SUB,
     VIEWER_SUB,
 )
 from tests.login import complete_login
 
-NON_ADMIN_SUBS = [AUTHOR_SUB, REVIEWER_SUB, VIEWER_SUB]
-NON_ADMIN_IDS = ["author", "reviewer", "viewer"]
+NON_ADMIN_SUBS = [AUTHOR_SUB, REVIEWER_SUB, VIEWER_SUB, DEVELOPER_AI_SUB]
+NON_ADMIN_IDS = ["author", "reviewer", "viewer", "developer-ai"]
 AUTHOR_ONLY = "/_test/rbac/author"
 
 
