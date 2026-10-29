@@ -887,6 +887,20 @@ def replace_reviewer(
     return old_assignment, new_assignment
 
 
+_KODE_VOID = frozenset(alasan.value for alasan in AssignmentVoidReason)
+
+
+def _void_reason(tugas: ReviewAssignment) -> AssignmentVoidReason | None:
+    """Kode alasan void untuk antrean (SCRUM-197), None bila bukan kode yang dikenal.
+
+    end_reason di luar kode (misalnya diubah manual di database) tidak boleh
+    membuat seluruh antrean gagal; teksnya tetap tampil lewat end_reason.
+    """
+    if tugas.status != AssignmentStatus.VOID or tugas.end_reason not in _KODE_VOID:
+        return None
+    return AssignmentVoidReason(tugas.end_reason)
+
+
 def get_needs_reassignment(db: Session) -> list[NeedsReassignmentResponse]:
     """Daftar kasus yang memerlukan penugasan reviewer ulang (AC8, SCRUM-147)."""
     rounds = repository.get_rounds_needing_reassignment(db)
@@ -912,7 +926,7 @@ def get_needs_reassignment(db: Session) -> list[NeedsReassignmentResponse]:
                 assigned_at=a.assigned_at,
                 ended_at=a.ended_at,
                 end_reason=a.end_reason,
-                void_reason=a.end_reason if a.status == AssignmentStatus.VOID else None,
+                void_reason=_void_reason(a),
             )
             for a in assignments
         ]
