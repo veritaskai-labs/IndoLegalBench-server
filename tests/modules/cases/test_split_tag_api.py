@@ -35,7 +35,7 @@ def _ubah(client, case_id: str, tag: str, **lain):
 @pytest.fixture
 def disetujui(as_role, buat_pengguna, db_session):
     """Kasus dev yang sudah disetujui, dengan Admin yang login."""
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     _setujui(db_session, case_id)
     _jadi(buat_pengguna(Role.ADMIN, user_id=ADMIN_LAIN))
@@ -113,7 +113,7 @@ def test_draf_versi_berikutnya_ikut_berganti_tag(disetujui):
     assert client.get(f"/cases/{case_id}").json()["split_tag"] == "test"
 
 
-@pytest.mark.parametrize("role", [Role.AUTHOR, Role.REVIEWER, Role.VIEWER])
+@pytest.mark.parametrize("role", [Role.CONTRIBUTOR, Role.CONTRIBUTOR, Role.VIEWER])
 def test_hanya_admin_yang_boleh(disetujui, buat_pengguna, role):
     # Arrange
     client, case_id = disetujui
@@ -128,7 +128,7 @@ def test_hanya_admin_yang_boleh(disetujui, buat_pengguna, role):
 
 def test_kasus_belum_disetujui_ditolak(as_role, buat_pengguna):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     _ganti(client, buat_pengguna(Role.ADMIN, user_id=ADMIN_LAIN))
 
@@ -159,7 +159,7 @@ def test_kasus_tidak_ada(disetujui):
 def test_penulis_tetap_mengubah_tag_lewat_put_sebelum_disetujui(as_role):
     """AC3 bagian pertama, sudah ada sejak PBI-3: tetap berlaku."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
 
     # Act

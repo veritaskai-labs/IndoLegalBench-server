@@ -26,7 +26,10 @@ def _pengguna(db_session) -> None:
     db_session.add_all(
         [
             User(
-                id=USER_ID_QA, name="Pengguna QA", email="qa-160h@veritask.test", role=Role.AUTHOR
+                id=USER_ID_QA,
+                name="Pengguna QA",
+                email="qa-160h@veritask.test",
+                role=Role.CONTRIBUTOR,
             ),
             User(id=ADMIN_LAIN, name="Admin QA", email="admin-160h@veritask.test", role=Role.ADMIN),
         ]
@@ -55,7 +58,7 @@ def _versi_2_judul_baru(client, case_id: str, *rujukan: dict) -> None:
 
 def test_compare_versi_sprint_1_dengan_versi_baru_berisi_display_text(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _pengguna(db_session)
     _, case_id = _kasus_sprint_1_approved(client, db_session)
     _versi_2_judul_baru(client, case_id, rujukan_ktk_001())
@@ -74,7 +77,7 @@ def test_compare_versi_sprint_1_dengan_versi_baru_berisi_display_text(as_role, d
 def test_rujukan_sprint_1_yang_disimpan_ulang_tidak_dihitung_berubah(as_role, db_session):
     """Bentuk penyimpanannya berbeda, isinya sama: yang berubah hanya judul."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _pengguna(db_session)
     _, case_id = _kasus_sprint_1_approved(client, db_session)
     _versi_2_judul_baru(client, case_id, rujukan_ktk_001())
@@ -90,7 +93,7 @@ def test_rujukan_sprint_1_yang_disimpan_ulang_tidak_dihitung_berubah(as_role, db
 
 def test_rujukan_yang_benar_benar_berubah_tetap_tercatat(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _pengguna(db_session)
     _, case_id = _kasus_sprint_1_approved(client, db_session)
     _versi_2_judul_baru(client, case_id, rujukan_ac10())
@@ -105,7 +108,7 @@ def test_rujukan_yang_benar_benar_berubah_tetap_tercatat(as_role, db_session):
 
 def test_snapshot_suite_menyimpan_rujukan_dalam_bentuk_baru(as_role, buat_pengguna, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _pengguna(db_session)
     suite_id, _ = _kasus_sprint_1_approved(client, db_session)
     _ganti(client, buat_pengguna(Role.ADMIN, user_id=ADMIN_LAIN, name="Admin QA"))

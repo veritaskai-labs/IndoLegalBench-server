@@ -60,7 +60,7 @@ def round_id(conn) -> uuid.UUID:
     kode = f"QA-197-{str(case_id)[:8]}"
     langkah = [
         (
-            "INSERT INTO users (id, email, name, role) VALUES (:user, :email, 'QA 197', 'author')",
+            "INSERT INTO users (id, email, name, role) VALUES (:user, :email, 'QA 197', 'contributor')",
             {"email": f"qa-197-{user_id}@veritask.test"},
         ),
         (
@@ -107,7 +107,7 @@ def tugas(conn, round_id):
         conn.execute(
             text(
                 "INSERT INTO users (id, email, name, role) "
-                "VALUES (:id, :email, 'QA reviewer', 'reviewer')"
+                "VALUES (:id, :email, 'QA reviewer', 'contributor')"
             ),
             {"id": reviewer, "email": f"qa-197-rev-{reviewer}@veritask.test"},
         )

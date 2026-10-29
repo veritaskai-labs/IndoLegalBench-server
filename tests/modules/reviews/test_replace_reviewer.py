@@ -47,15 +47,23 @@ class FakeNotifier:
 @pytest.fixture
 def users(db_session):
     u_admin = User(id=ADMIN_ID, email="admin@veritask.test", name="Admin", role=Role.ADMIN)
-    u_author = User(id=AUTHOR_ID, email="author@veritask.test", name="Author", role=Role.AUTHOR)
-    u_rev1 = User(id=REVIEWER_1, email="rev1@veritask.test", name="Reviewer 1", role=Role.REVIEWER)
-    u_rev2 = User(id=REVIEWER_2, email="rev2@veritask.test", name="Reviewer 2", role=Role.REVIEWER)
-    u_rev3 = User(id=REVIEWER_3, email="rev3@veritask.test", name="Reviewer 3", role=Role.REVIEWER)
+    u_author = User(
+        id=AUTHOR_ID, email="author@veritask.test", name="Author", role=Role.CONTRIBUTOR
+    )
+    u_rev1 = User(
+        id=REVIEWER_1, email="rev1@veritask.test", name="Reviewer 1", role=Role.CONTRIBUTOR
+    )
+    u_rev2 = User(
+        id=REVIEWER_2, email="rev2@veritask.test", name="Reviewer 2", role=Role.CONTRIBUTOR
+    )
+    u_rev3 = User(
+        id=REVIEWER_3, email="rev3@veritask.test", name="Reviewer 3", role=Role.CONTRIBUTOR
+    )
     u_inact = User(
         id=REVIEWER_INACTIVE,
         email="inact@veritask.test",
         name="Reviewer Inactive",
-        role=Role.REVIEWER,
+        role=Role.CONTRIBUTOR,
         is_active=False,
     )
     db_session.add_all([u_admin, u_author, u_rev1, u_rev2, u_rev3, u_inact])
@@ -529,7 +537,7 @@ def test_api_replace_reviewer_oleh_admin(as_role, case_data):
     assert data["source"] == "admin"
 
 
-@pytest.mark.parametrize("role", [Role.AUTHOR, Role.REVIEWER, Role.VIEWER])
+@pytest.mark.parametrize("role", [Role.CONTRIBUTOR, Role.CONTRIBUTOR, Role.VIEWER])
 def test_api_replace_reviewer_peran_non_admin_dilarang(as_role, case_data, role):
     client = as_role(role, user_id=AUTHOR_ID)
     tugas1 = case_data["tugas1"]
@@ -603,7 +611,7 @@ def test_api_needs_reassignment_oleh_admin(as_role, case_data, db_session):
     assert data[0]["round_status"] == "awaiting_assignment"
 
 
-@pytest.mark.parametrize("role", [Role.AUTHOR, Role.REVIEWER, Role.VIEWER])
+@pytest.mark.parametrize("role", [Role.CONTRIBUTOR, Role.CONTRIBUTOR, Role.VIEWER])
 def test_api_needs_reassignment_peran_non_admin_dilarang(as_role, role):
     client = as_role(role, user_id=AUTHOR_ID)
     resp = client.get("/reviews/needs-reassignment")

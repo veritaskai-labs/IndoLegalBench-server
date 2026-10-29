@@ -44,9 +44,9 @@ def test_create_list_update_deactivate(client, db_session):
     assert listed.status_code == 200
     assert member["id"] in [u["id"] for u in listed.json()]
 
-    updated = client.patch(f"/admin/users/{member['id']}", json={"role": "author"})
+    updated = client.patch(f"/admin/users/{member['id']}", json={"role": "contributor"})
     assert updated.status_code == 200
-    assert updated.json()["role"] == "author"
+    assert updated.json()["role"] == "contributor"
 
     deactivated = client.post(f"/admin/users/{member['id']}/deactivate")
     assert deactivated.status_code == 200
@@ -56,11 +56,11 @@ def test_create_list_update_deactivate(client, db_session):
 def test_duplicate_email_is_conflict_regardless_of_case(client, db_session):
     complete_login(client, db_session, ADMIN_SUB)
     first = client.post(
-        "/admin/users", json={"email": "dup@veritask.ai", "name": "Dup", "role": "author"}
+        "/admin/users", json={"email": "dup@veritask.ai", "name": "Dup", "role": "contributor"}
     )
     assert first.status_code == 201
     response = client.post(
-        "/admin/users", json={"email": "DUP@Veritask.ai", "name": "Dup", "role": "author"}
+        "/admin/users", json={"email": "DUP@Veritask.ai", "name": "Dup", "role": "contributor"}
     )
     assert response.status_code == 409
 
@@ -77,7 +77,7 @@ def test_blank_name_is_rejected(client, db_session):
     complete_login(client, db_session, ADMIN_SUB)
     response = client.post(
         "/admin/users",
-        json={"email": "blank@veritask.ai", "name": "   ", "role": "author"},
+        json={"email": "blank@veritask.ai", "name": "   ", "role": "contributor"},
     )
     assert response.status_code == 422
 
@@ -116,7 +116,7 @@ def test_login_links_by_email_case_insensitively(client, db_session):
     complete_login(client, db_session, ADMIN_SUB)
     client.post(
         "/admin/users",
-        json={"email": "pending@veritask.ai", "name": "Pending", "role": "author"},
+        json={"email": "pending@veritask.ai", "name": "Pending", "role": "contributor"},
     )
     client.cookies.clear()
 

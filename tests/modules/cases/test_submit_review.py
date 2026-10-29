@@ -37,7 +37,7 @@ def _status_versi(db_session, case_id: str) -> CaseStatus:
 def test_kasus_lengkap_diajukan_jadi_in_review_dengan_round_satu(as_role, db_session):
     """Tanpa reviewer aktif lain, round tetap awaiting_assignment (AC8)."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
 
     # Act
@@ -61,14 +61,14 @@ def test_kasus_lengkap_diajukan_jadi_in_review_dengan_round_satu(as_role, db_ses
 def test_dua_reviewer_aktif_membuka_round_dan_menyimpan_assignment(as_role, db_session):
     """SCRUM-144 / D3: dua reviewer tersimpan → round status open."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     for i in (1, 2):
         db_session.add(
             User(
                 email=f"reviewer{i}@veritask.test",
                 name=f"Reviewer {i}",
-                role=Role.REVIEWER,
+                role=Role.CONTRIBUTOR,
                 is_active=True,
             )
         )
@@ -92,7 +92,7 @@ def test_dua_reviewer_aktif_membuka_round_dan_menyimpan_assignment(as_role, db_s
 
 def test_kasus_belum_lengkap_ditolak_dengan_daftar_kekurangan(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(
         client, _suite(client), answer_criteria={"must_contain": [], "must_not_contain": []}
     ).json()["id"]
@@ -114,7 +114,7 @@ def test_kasus_belum_lengkap_ditolak_dengan_daftar_kekurangan(as_role, db_sessio
 def test_rujukan_rusak_di_versi_tersimpan_ditolak(as_role, db_session):
     """Rujukan rusak tidak bisa lewat PUT, jadi ditanam langsung ke versi."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     versi = db_session.get(Case, uuid.UUID(case_id)).current_version
     rujukan = versi.content["legal_refs"][0]
@@ -134,9 +134,9 @@ def test_rujukan_rusak_di_versi_tersimpan_ditolak(as_role, db_session):
 
 def test_author_lain_tidak_boleh_mengajukan(as_role, buat_pengguna, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
-    _ganti(client, buat_pengguna(Role.AUTHOR, user_id=AUTHOR_LAIN))
+    _ganti(client, buat_pengguna(Role.CONTRIBUTOR, user_id=AUTHOR_LAIN))
 
     # Act
     response = _ajukan(client, case_id)
@@ -146,11 +146,11 @@ def test_author_lain_tidak_boleh_mengajukan(as_role, buat_pengguna, db_session):
     assert _status_versi(db_session, case_id) == CaseStatus.DRAFT
 
 
-@pytest.mark.parametrize("role", [Role.ADMIN, Role.REVIEWER, Role.VIEWER])
-def test_hanya_author_yang_boleh_mengajukan(as_role, buat_pengguna, role):
-    """D5a: ajukan kasus ke review hanya untuk Author, kasus sendiri."""
+@pytest.mark.parametrize("role", [Role.ADMIN, Role.VIEWER, Role.DEVELOPER_AI])
+def test_hanya_penulis_yang_boleh_mengajukan(as_role, buat_pengguna, role):
+    """D5a / PBI-24: ajukan kasus ke review hanya untuk penulisnya (Kontributor)."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     _ganti(client, buat_pengguna(role))
 
@@ -168,7 +168,7 @@ def test_tanpa_sesi_ditolak(client):
 
 def test_kasus_tidak_dikenal(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     # Act
     response = _ajukan(client, str(uuid.uuid4()))
@@ -179,7 +179,7 @@ def test_kasus_tidak_dikenal(as_role):
 
 def test_pengajuan_ganda_ditolak(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     assert _ajukan(client, case_id).status_code == 200
 
@@ -194,7 +194,7 @@ def test_pengajuan_ganda_ditolak(as_role, db_session):
 
 def test_versi_yang_sudah_disetujui_tidak_bisa_diajukan(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     _setujui(db_session, case_id)
 
@@ -209,7 +209,7 @@ def test_versi_yang_sudah_disetujui_tidak_bisa_diajukan(as_role, db_session):
 def test_pengajuan_ulang_setelah_revisi_membuka_round_dua(as_role, db_session):
     """D3 langkah 43-44: versi yang sama, nomor round naik."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     assert _ajukan(client, case_id).status_code == 200
     versi = db_session.get(Case, uuid.UUID(case_id)).current_version
@@ -231,7 +231,7 @@ def test_pengajuan_ulang_setelah_revisi_membuka_round_dua(as_role, db_session):
 def test_versi_baru_dari_kasus_approved_bisa_diajukan(as_role, db_session):
     """PBI-8: draf v2 diajukan, v1 tetap yang berlaku sampai v2 disetujui."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     _setujui(db_session, case_id)
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
@@ -247,7 +247,7 @@ def test_versi_baru_dari_kasus_approved_bisa_diajukan(as_role, db_session):
 
 def test_kasus_di_suite_arsip_tidak_bisa_diajukan(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     assert client.post(f"/suites/{suite_id}/archive").status_code == 200
@@ -262,7 +262,7 @@ def test_kasus_di_suite_arsip_tidak_bisa_diajukan(as_role):
 
 def test_kasus_yang_diajukan_tidak_bisa_diubah(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     assert _ajukan(client, case_id).status_code == 200
     badan = client.get(f"/cases/{case_id}").json()

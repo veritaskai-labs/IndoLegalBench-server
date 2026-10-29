@@ -45,11 +45,11 @@ def test_reply_audit_notification_committed_together_in_migrated_postgres(buat_s
             )
         )
         db.commit()
-        request_context.bind(db, user_id=author_id, role=Role.AUTHOR, request_id=None)
+        request_context.bind(db, user_id=author_id, role=Role.CONTRIBUTOR, request_id=None)
         result = service.reply_to_comment(
             db,
             assignment_id,
-            Viewer(author_id, Role.AUTHOR),
+            Viewer(author_id, Role.CONTRIBUTOR),
             CommentReplyWrite(body="Which section?"),
         )
     with buat_sesi() as db:
@@ -72,7 +72,9 @@ def test_reply_audit_notification_committed_together_in_migrated_postgres(buat_s
         )
         assert notice.body
         assert (
-            service.read_comment_discussion(db, assignment_id, Viewer(reviewer_id, Role.REVIEWER))
+            service.read_comment_discussion(
+                db, assignment_id, Viewer(reviewer_id, Role.CONTRIBUTOR)
+            )
             .replies[0]
             .id
             == result.id
@@ -102,20 +104,24 @@ def test_reviewer_response_targets_author_and_keeps_sender_identity(buat_sesi):
             )
         )
         db.commit()
-        request_context.bind(db, user_id=reviewer_id, role=Role.REVIEWER, request_id=None)
+        request_context.bind(db, user_id=reviewer_id, role=Role.CONTRIBUTOR, request_id=None)
         result = service.reply_to_comment(
             db,
             assignment_id,
-            Viewer(reviewer_id, Role.REVIEWER),
+            Viewer(reviewer_id, Role.CONTRIBUTOR),
             CommentReplyWrite(body="Please clarify the cited article."),
         )
     with buat_sesi() as db:
         row = db.get(ReviewCommentReply, result.id)
         assert row.author_role == "reviewer"
         assert row.author_id == reviewer_id
-        thread = service.read_comment_discussion(db, assignment_id, Viewer(author_id, Role.AUTHOR))
+        thread = service.read_comment_discussion(
+            db, assignment_id, Viewer(author_id, Role.CONTRIBUTOR)
+        )
         assert thread.round_no == 3
-        assert thread.replies[0].author_name == "QA reviewer"
+        # PBI-24: penulis dan reviewer sama-sama Kontributor; identitas lewat user id.
+        assert thread.replies[0].author_id == reviewer_id
+        assert thread.replies[0].author_name
         assert thread.replies[0].author_role == "reviewer"
         assert (
             db.query(Notification)

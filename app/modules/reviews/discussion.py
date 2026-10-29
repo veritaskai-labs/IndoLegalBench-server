@@ -12,7 +12,7 @@ from app.modules.reviews.models import AssignmentStatus, ReviewCommentReply, Rou
 from app.modules.reviews.schemas import CommentDiscussion, CommentReplyRead, CommentReplyWrite
 from app.modules.reviews.visibility import Viewer, can_see_verdict
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError
-from app.shared.security import Role
+from app.shared.security import REVIEWER_ROLES, WRITER_ROLES, Role
 
 
 def _context(db: Session, assignment_id: uuid.UUID, viewer: Viewer):
@@ -22,19 +22,17 @@ def _context(db: Session, assignment_id: uuid.UUID, viewer: Viewer):
     if task is None:
         raise NotFoundError("Penugasan review tidak ditemukan")
     author_id = cases.case_author(db, task.review_round.case_id)
-    is_author = viewer.role == Role.AUTHOR and viewer.user_id == author_id
-    allowed = (
-        viewer.role == Role.ADMIN
-        or is_author
-        or (viewer.role == Role.REVIEWER and viewer.user_id == task.reviewer_id)
-    )
-    if not allowed or not can_see_verdict(
+    # PBI-24: penulis dan peninjau bisa satu peran (Kontributor), jadi yang
+    # membedakan keduanya adalah relasi dengan kasus dan assignment ini.
+    is_author = viewer.role in WRITER_ROLES and viewer.user_id == author_id
+    is_reviewer = viewer.role in REVIEWER_ROLES and viewer.user_id == task.reviewer_id
+    if not (viewer.role == Role.ADMIN or is_author or is_reviewer) or not can_see_verdict(
         viewer, owner_id=task.reviewer_id, round_status=task.review_round.status
     ):
         raise ForbiddenError("Anda tidak berwenang melihat diskusi ini")
     if task.verdict is None or not task.verdict.comment:
         raise NotFoundError("Komentar peninjau belum tersedia", code="REVIEW_COMMENT_NOT_FOUND")
-    return task, is_author
+    return task, is_author, is_reviewer
 
 
 def _reply_view(row: ReviewCommentReply, names: dict) -> CommentReplyRead:
@@ -49,7 +47,7 @@ def _reply_view(row: ReviewCommentReply, names: dict) -> CommentReplyRead:
 
 
 def read(db: Session, assignment_id: uuid.UUID, viewer: Viewer) -> CommentDiscussion:
-    task, is_author = _context(db, assignment_id, viewer)
+    task, is_author, is_reviewer = _context(db, assignment_id, viewer)
     rows = repository.comment_replies(db, task.id)
     names = auth_service.user_names(db, {task.reviewer_id, *(r.author_id for r in rows)})
     return CommentDiscussion(
@@ -63,7 +61,7 @@ def read(db: Session, assignment_id: uuid.UUID, viewer: Viewer) -> CommentDiscus
         case_id=task.review_round.case_id,
         reviewer_name=names.get(task.reviewer_id, ""),
         comment=task.verdict.comment,
-        can_reply=(is_author or viewer.role == Role.REVIEWER)
+        can_reply=(is_author or is_reviewer)
         and task.status == AssignmentStatus.ACTIVE
         and task.review_round.status == RoundStatus.DECIDED,
         replies=[_reply_view(row, names) for row in rows],
@@ -75,8 +73,8 @@ def reply(
 ) -> CommentReplyRead:
     from app.modules.cases import service as cases
 
-    task, is_author = _context(db, assignment_id, viewer)
-    if not is_author and viewer.role != Role.REVIEWER:
+    task, is_author, is_reviewer = _context(db, assignment_id, viewer)
+    if not (is_author or is_reviewer):
         raise ForbiddenError(
             "Hanya penulis kasus dan peninjau pemilik komentar yang boleh membalas"
         )
@@ -91,7 +89,8 @@ def reply(
     row = ReviewCommentReply(
         assignment_id=task.id,
         author_id=viewer.user_id,
-        author_role=viewer.role.value,
+        # Peran di diskusi ini, bukan peran akun (ck_review_reply_author_role).
+        author_role="author" if is_author else "reviewer",
         body=payload.body,
     )
     db.add(row)
@@ -100,7 +99,7 @@ def reply(
         task.reviewer_id if is_author else cases.case_author(db, task.review_round.case_id)
     )
     notifications.enqueue_review_reply(
-        db, recipient_id=recipient_id, assignment_id=task.id, sender_role=viewer.role
+        db, recipient_id=recipient_id, assignment_id=task.id, from_reviewer=not is_author
     )
     result = _reply_view(row, auth_service.user_names(db, {viewer.user_id}))
     db.commit()

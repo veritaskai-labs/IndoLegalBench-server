@@ -31,16 +31,16 @@ from app.shared.config import get_settings  # noqa: E402
 from app.shared.database import get_session_factory  # noqa: E402
 from app.shared.security import Role  # noqa: E402
 
-# Empat akun aktif, satu per peran, ditambah satu akun yang sengaja
+# Empat akun aktif (dua Kontributor sejak PBI-24, Admin, Viewer), ditambah satu akun yang sengaja
 # dinonaktifkan. Yang terakhir dipakai SCRUM-90 untuk menguji
 # USER_DEACTIVATED dan SCRUM-92 untuk AC5, yaitu akun nonaktif yang
 # barisnya tetap ada dan tidak pernah dihapus.
 SEED_USERS = [
-    ("author@veritask.test", "Uji Author", Role.AUTHOR, True),
-    ("reviewer@veritask.test", "Uji Reviewer", Role.REVIEWER, True),
+    ("author@veritask.test", "Uji Kontributor Satu", Role.CONTRIBUTOR, True),
+    ("reviewer@veritask.test", "Uji Kontributor Dua", Role.CONTRIBUTOR, True),
     ("admin@veritask.test", "Uji Admin", Role.ADMIN, True),
     ("viewer@veritask.test", "Uji Viewer", Role.VIEWER, True),
-    ("nonaktif@veritask.test", "Uji Nonaktif", Role.AUTHOR, False),
+    ("nonaktif@veritask.test", "Uji Nonaktif", Role.CONTRIBUTOR, False),
 ]
 
 

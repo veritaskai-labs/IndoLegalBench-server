@@ -24,11 +24,11 @@ def test_session_baru_belum_punya_aktor(db_session):
 def test_bind_menyimpan_aktor_dan_request_id(db_session):
     request_id = uuid.uuid4()
 
-    request_context.bind(db_session, user_id=USER_ID, role=Role.REVIEWER, request_id=request_id)
+    request_context.bind(db_session, user_id=USER_ID, role=Role.CONTRIBUTOR, request_id=request_id)
 
     aktor = request_context.actor(db_session)
     assert aktor.user_id == USER_ID
-    assert aktor.role == "reviewer"
+    assert aktor.role == "contributor"
     assert request_context.request_id(db_session) == request_id
 
 

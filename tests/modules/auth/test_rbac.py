@@ -8,26 +8,26 @@ from tests.login import complete_login
 
 
 def test_require_role_without_session_is_unauthenticated(client):
-    response = client.get("/_test/rbac/author")
+    response = client.get("/_test/rbac/contributor")
     assert response.status_code == 401
     assert response.json()["code"] == "UNAUTHENTICATED"
 
 
 def test_require_role_wrong_role_is_forbidden(client, db_session):
     complete_login(client, db_session, VIEWER_SUB)
-    response = client.get("/_test/rbac/author")
+    response = client.get("/_test/rbac/contributor")
     assert response.status_code == 403
     assert response.json()["code"] == "FORBIDDEN"
 
 
-def test_require_role_author_allowed(client, db_session):
+def test_require_role_contributor_allowed(client, db_session):
     complete_login(client, db_session, AUTHOR_SUB)
-    response = client.get("/_test/rbac/author")
+    response = client.get("/_test/rbac/contributor")
     assert response.status_code == 200
     assert response.json() == {"ok": True}
 
 
-def test_require_role_author_forbidden_on_admin(client, db_session):
+def test_require_role_contributor_forbidden_on_admin(client, db_session):
     complete_login(client, db_session, AUTHOR_SUB)
     response = client.get("/_test/rbac/admin")
     assert response.status_code == 403

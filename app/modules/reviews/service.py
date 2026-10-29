@@ -53,7 +53,7 @@ from app.modules.reviews.schemas import (
 )
 from app.modules.reviews.visibility import Viewer, can_open_case_review, can_see_verdict
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
-from app.shared.security import Role
+from app.shared.security import REVIEWER_ROLES, Role
 
 REVIEWERS_PER_ROUND = 2
 REVIEW_ASSIGNED = "review_assigned"
@@ -590,7 +590,7 @@ def get_case_review(db: Session, case_id: uuid.UUID, viewer: Viewer) -> CaseRevi
     sudah diganti tidak dihitung, jadi juga tidak ditampilkan (AC7).
     """
     author_id = _cases().case_author(db, case_id)
-    assigned = viewer.role == Role.REVIEWER and case_id in assigned_case_ids(db, viewer.user_id)
+    assigned = viewer.role in REVIEWER_ROLES and case_id in assigned_case_ids(db, viewer.user_id)
     if not can_open_case_review(viewer, author_id=author_id, assigned=assigned):
         raise ForbiddenError("Anda tidak berwenang melihat review kasus ini")
     ronde = repository.latest_round_for_case(db, case_id)
@@ -778,9 +778,9 @@ def _validate_new_reviewer(
             field="new_reviewer_id",
         )
 
-    if not new_user.is_active or new_user.role != Role.REVIEWER:
+    if not new_user.is_active or new_user.role not in REVIEWER_ROLES:
         raise ValidationError(
-            "Reviewer baru harus berupa akun reviewer yang aktif",
+            "Reviewer baru harus berupa akun Kontributor yang aktif",
             code="INVALID_REVIEWER",
             field="new_reviewer_id",
         )

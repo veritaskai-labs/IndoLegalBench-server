@@ -1,6 +1,7 @@
 """In-memory test users for PBI-1 (SQLite).
 
-- Five active roles (Developer AI since SCRUM-183) + one deactivated; `zitadel_sub` used by fake login (`?sub=`)
+- Two Contributors (111…, 222…; Author and Reviewer before PBI-24), Admin, Viewer,
+  Developer AI (SCRUM-183) + one deactivated; `zitadel_sub` used by fake login (`?sub=`)
 - Not Alembic; production seed is SCRUM-89
 """
 
@@ -20,6 +21,8 @@ DEACTIVATED_SUB = "555555555555555555"
 DEVELOPER_AI_SUB = "666666666666666666"
 UNKNOWN_SUB = "999999999999999999"
 
+# PBI-24: 111… dan 222… kini keduanya Kontributor. Nama konstanta, sub, dan email
+# lama dipertahankan supaya fake login (?sub=) dan dokumen yang sudah ada tetap berlaku.
 AUTHOR_ID = uuid.UUID("11111111-1111-1111-1111-111111111111")
 REVIEWER_ID = uuid.UUID("22222222-2222-2222-2222-222222222222")
 ADMIN_ID = uuid.UUID("33333333-3333-3333-3333-333333333333")
@@ -34,8 +37,8 @@ SEED_USERS = (
         id=AUTHOR_ID,
         zitadel_sub=AUTHOR_SUB,
         email="author@veritask.test",
-        name="Author One",
-        role=Role.AUTHOR,
+        name="Contributor One",
+        role=Role.CONTRIBUTOR,
         is_active=True,
         created_at=_SEED_TS,
         updated_at=_SEED_TS,
@@ -44,8 +47,8 @@ SEED_USERS = (
         id=REVIEWER_ID,
         zitadel_sub=REVIEWER_SUB,
         email="reviewer@veritask.test",
-        name="Reviewer One",
-        role=Role.REVIEWER,
+        name="Contributor Two",
+        role=Role.CONTRIBUTOR,
         is_active=True,
         created_at=_SEED_TS,
         updated_at=_SEED_TS,

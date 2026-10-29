@@ -78,7 +78,7 @@ def as_role(db_session, jenis_peraturan, buat_pengguna) -> Callable[..., TestCli
     Pemakaian:
 
         def test_author_boleh_membuat_suite(as_role):
-            client = as_role(Role.AUTHOR)
+            client = as_role(Role.CONTRIBUTOR)
             assert client.post("/suites", json={...}).status_code == 201
 
     Panggil SEKALI per test. Override dipasang pada objek app yang sama,

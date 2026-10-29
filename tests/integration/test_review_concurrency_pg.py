@@ -64,8 +64,8 @@ def _pengguna(db: Session, role: Role) -> uuid.UUID:
 def _round_siap_dinilai(buat_sesi) -> tuple[uuid.UUID, uuid.UUID, dict[uuid.UUID, uuid.UUID]]:
     """Kasus in_review dengan round open dan dua assignment aktif, sudah di-commit."""
     with buat_sesi() as db:
-        penulis = _pengguna(db, Role.AUTHOR)
-        reviewer = [_pengguna(db, Role.REVIEWER), _pengguna(db, Role.REVIEWER)]
+        penulis = _pengguna(db, Role.CONTRIBUTOR)
+        reviewer = [_pengguna(db, Role.CONTRIBUTOR), _pengguna(db, Role.CONTRIBUTOR)]
         suite = Suite(name=f"QA concurrency {uuid.uuid4().hex}", created_by=penulis)
         db.add(suite)
         db.flush()
@@ -220,8 +220,8 @@ def test_dua_admin_mengganti_assignment_yang_sama_bersamaan(buat_sesi):
     with buat_sesi() as db:
         admin_1 = _pengguna(db, Role.ADMIN)
         admin_2 = _pengguna(db, Role.ADMIN)
-        baru_1 = _pengguna(db, Role.REVIEWER)
-        baru_2 = _pengguna(db, Role.REVIEWER)
+        baru_1 = _pengguna(db, Role.CONTRIBUTOR)
+        baru_2 = _pengguna(db, Role.CONTRIBUTOR)
         db.commit()
 
     gerbang = threading.Barrier(2)

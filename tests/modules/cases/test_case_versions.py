@@ -24,7 +24,7 @@ from tests.modules.cases.test_cases import (
 
 
 def test_put_versi_approved_ditolak_dan_isinya_tetap(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     dibuat = _buat(client, suite_id).json()
     _setujui(db_session, dibuat["id"])
@@ -49,7 +49,7 @@ def test_put_versi_approved_ditolak_dan_isinya_tetap(as_role, db_session):
 
 
 def test_pembuat_membuat_versi_draf_tanpa_mengganti_yang_berlaku(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     dibuat = _buat(client, suite_id).json()
     _setujui(db_session, dibuat["id"])
@@ -70,7 +70,7 @@ def test_pembuat_membuat_versi_draf_tanpa_mengganti_yang_berlaku(as_role, db_ses
 
 
 def test_admin_boleh_membuat_versi_baru(as_role, buat_pengguna, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     _setujui(db_session, case_id)
@@ -85,7 +85,7 @@ def test_admin_boleh_membuat_versi_baru(as_role, buat_pengguna, db_session):
 
 @pytest.mark.parametrize("status", ["draft", "in_review", "needs_revision"])
 def test_versi_baru_ditolak_selama_masih_berjalan(as_role, db_session, status):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     _setujui(db_session, case_id)
@@ -102,7 +102,7 @@ def test_versi_baru_ditolak_selama_masih_berjalan(as_role, db_session, status):
 
 
 def test_versi_baru_sebelum_disetujui_ditolak(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
 
@@ -113,11 +113,11 @@ def test_versi_baru_sebelum_disetujui_ditolak(as_role):
 
 
 def test_author_lain_tidak_boleh_membuat_versi(as_role, buat_pengguna, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     _setujui(db_session, case_id)
-    _ganti(client, buat_pengguna(Role.AUTHOR, user_id=AUTHOR_LAIN))
+    _ganti(client, buat_pengguna(Role.CONTRIBUTOR, user_id=AUTHOR_LAIN))
 
     response = client.post(f"/cases/{case_id}/versions")
 
@@ -125,9 +125,9 @@ def test_author_lain_tidak_boleh_membuat_versi(as_role, buat_pengguna, db_sessio
     assert response.json()["code"] == ForbiddenError.code
 
 
-@pytest.mark.parametrize("role", [Role.VIEWER, Role.REVIEWER])
+@pytest.mark.parametrize("role", [Role.VIEWER, Role.CONTRIBUTOR])
 def test_reviewer_dan_viewer_ditolak(as_role, buat_pengguna, db_session, role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     _setujui(db_session, case_id)
@@ -140,7 +140,7 @@ def test_reviewer_dan_viewer_ditolak(as_role, buat_pengguna, db_session, role):
 
 
 def test_put_draf_baru_tidak_mengubah_versi_yang_berlaku(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     dibuat = _buat(client, suite_id).json()
     _setujui(db_session, dibuat["id"])
@@ -168,7 +168,7 @@ def test_put_draf_baru_tidak_mengubah_versi_yang_berlaku(as_role, db_session):
 
 
 def test_kode_kasus_tidak_berubah_saat_draf_baru(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     dibuat = _buat(client, suite_id).json()
     _setujui(db_session, dibuat["id"])
@@ -182,7 +182,7 @@ def test_kode_kasus_tidak_berubah_saat_draf_baru(as_role, db_session):
 
 
 def test_put_saat_ditinjau_ditolak(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     _setujui(db_session, case_id)
@@ -200,7 +200,7 @@ def test_put_saat_ditinjau_ditolak(as_role, db_session):
 def test_versi_baru_yang_kalah_balapan_dijawab_409_dan_versi_berlaku_tetap(
     as_role, db_session, monkeypatch
 ):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     dibuat = _buat(client, suite_id).json()
     _setujui(db_session, dibuat["id"])

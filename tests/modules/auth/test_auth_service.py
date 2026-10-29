@@ -38,7 +38,11 @@ def test_service_deactivate_member_success(auth_service, mock_db, monkeypatch):
     )
 
     dummy_user = User(
-        id=target_id, email="member@veritask.ai", name="Member", role=Role.REVIEWER, is_active=True
+        id=target_id,
+        email="member@veritask.ai",
+        name="Member",
+        role=Role.CONTRIBUTOR,
+        is_active=True,
     )
 
     # Mock the functional repository methods

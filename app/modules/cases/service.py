@@ -587,12 +587,13 @@ def apply_review_decision(db: Session, case_version_id: uuid.UUID, *, approved: 
     case.latest_approved_version_id = version.id
 
 
-def count_by_status(db: Session) -> dict[CaseStatus, int]:
+def count_by_status(db: Session, *, created_by: uuid.UUID | None = None) -> dict[CaseStatus, int]:
     """Jumlah kasus per status versi yang berlaku. Dipanggil modul dashboard (SCRUM-154).
 
-    Setiap status selalu ada di hasil, nol bila tidak ada kasusnya.
+    Setiap status selalu ada di hasil, nol bila tidak ada kasusnya. created_by
+    membatasi ke kasus tulisan satu pengguna (PBI-24 AC6); None berarti semua kasus.
     """
-    counts = repository.count_by_status(db)
+    counts = repository.count_by_status(db, created_by=created_by)
     return {status: counts.get(status, 0) for status in CaseStatus}
 
 

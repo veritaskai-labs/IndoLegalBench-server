@@ -70,7 +70,7 @@ def _nama_saja(**link: Any) -> dict[str, Any]:
 )
 def test_ac3_positif_tentang_kosong_spasi_atau_500_karakter_tersimpan(as_role, tentang):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     tambahan = {} if tentang is None else {"about": tentang}
     rujukan = {"kind": "structured", "links": [link_pasal("156", **tambahan)]}
 
@@ -86,7 +86,7 @@ def test_ac3_positif_tentang_kosong_spasi_atau_500_karakter_tersimpan(as_role, t
 
 def test_ac3_negatif_tentang_501_karakter_ditolak_di_field_yang_tepat(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     panjang = {"kind": "structured", "links": [link_pasal("1", about="x" * (TENTANG_MAKS + 1))]}
 
     # Act
@@ -103,7 +103,7 @@ def test_ac3_negatif_tentang_501_karakter_ditolak_di_field_yang_tepat(as_role):
 
 def test_ac7_positif_teks_bebas_tersimpan_utuh_tanpa_spasi_tepi_dan_ditandai_free_text(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     isi = "Baris pertama format uji.\nBaris kedua  dua spasi; (kurung), titik."
     teks_bebas = {"kind": "free_text", "links": [], "free_text": f"  {isi}  "}
 
@@ -122,7 +122,7 @@ def test_ac7_positif_teks_bebas_tersimpan_utuh_tanpa_spasi_tepi_dan_ditandai_fre
 
 def test_ac6_edge_rantai_empat_peraturan_dengan_jis_tersimpan_berurutan(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     links = [link_pasal("1", number="1", year=2020)] + [
         {**link_pasal(str(i), number=str(i), year=2019 + i), "connector": "jis"}
         for i in range(2, 5)
@@ -151,7 +151,7 @@ def test_ac6_edge_rantai_empat_peraturan_dengan_jis_tersimpan_berurutan(as_role)
 def test_edge_nomor_alfanumerik_dari_jira_tidak_mengulang_tahun(as_role):
     """Input format dari teks Jira, bukan contoh tim legal (aturan display 3)."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     rujukan = _nama_saja(number="5/PUU-XX/2022", year=2022)
 
     # Act
@@ -171,7 +171,7 @@ def test_edge_nomor_alfanumerik_dari_jira_tidak_mengulang_tahun(as_role):
 def test_ac8_edge_tahun_sama_dengan_tahun_berjalan_diterima(as_role):
     """Memakai jam sungguhan (WIB), tanpa monkeypatch: begini yang dialami Author."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     tahun = current_year_wib()
     rujukan = {"kind": "structured", "links": [link_pasal("1", number="1", year=tahun)]}
 
@@ -190,7 +190,7 @@ def test_ac8_edge_tahun_sama_dengan_tahun_berjalan_diterima(as_role):
 @pytest.mark.parametrize("hapus_key", [True, False], ids=["tanpa-key", "daftar-kosong"])
 def test_ac9_edge_kasus_lama_tanpa_rujukan_tetap_bisa_dibuka(as_role, db_session, hapus_key):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     versi = db_session.get(Case, uuid.UUID(case_id)).current_version
     isi = {key: nilai for key, nilai in versi.content.items() if key != "legal_refs"}
@@ -212,7 +212,7 @@ def test_ac9_edge_kasus_lama_tanpa_rujukan_tetap_bisa_dibuka(as_role, db_session
 
 def test_ac9_positif_ktk_001_sprint_1_bisa_disimpan_ulang_tanpa_ditulis_ulang(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _kasus_dengan_isi_lama(client, db_session, LAMA_KTK_001)
     sebelum = _detail(client, case_id)["legal_refs"]
 
@@ -252,7 +252,7 @@ def test_ac9_edge_varian_sprint_1_bisa_disimpan_ulang_dan_isinya_tetap(
     as_role, db_session, lama, kind, teks
 ):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _kasus_dengan_isi_lama(client, db_session, LAMA_KTK_001, lama)
     sebelum = _detail(client, case_id)["legal_refs"]
 
@@ -272,7 +272,7 @@ def test_ac9_negatif_rujukan_lama_tanpa_tahun_harus_dilengkapi_sebelum_disimpan(
 ):
     """Keputusan PO 17 Okt (Q2): tahun lama yang kosong wajib diisi saat disimpan ulang."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _kasus_dengan_isi_lama(client, db_session, {**LAMA_KTK_001, "year": None})
 
     # Act
@@ -287,7 +287,7 @@ def test_ac9_negatif_rujukan_lama_tanpa_tahun_harus_dilengkapi_sebelum_disimpan(
 def test_ac9_positif_rujukan_lama_tersimpan_setelah_tahun_dilengkapi(as_role, db_session):
     """Jawaban PO 18 Okt: Author hanya melengkapi tahun, field lain tidak diketik ulang."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _kasus_dengan_isi_lama(client, db_session, {**LAMA_KTK_001, "year": None})
     rujukan = _untuk_ditulis(_detail(client, case_id)["legal_refs"])
     rujukan[0]["links"][0]["year"] = 2003
