@@ -1,7 +1,7 @@
 """Add measurement_type, manual columns, immutability trigger, and unique name to ai_products.
 
 Revision ID: a1f8c7e3d092
-Revises: ad76e1ba6c12
+Revises: b19c5e7d2a41
 Create Date: 2026-10-27 14:30:00.000000
 
 PBI-23 SCRUM-177 (SCRUM-200):
@@ -22,7 +22,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "a1f8c7e3d092"  # pragma: allowlist secret
-down_revision: str | None = "ad76e1ba6c12"  # pragma: allowlist secret
+down_revision: str | None = "b19c5e7d2a41"  # pragma: allowlist secret
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
