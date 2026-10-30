@@ -16,6 +16,7 @@ from unittest.mock import MagicMock
 import pytest
 from cryptography.fernet import Fernet
 
+from app.modules.audit.models import AuditLog
 from app.modules.providers import service
 from app.modules.providers.models import AiProduct, MeasurementType
 from app.modules.providers.schemas import AiProductCreate
@@ -228,6 +229,31 @@ def test_ubah_isian_sesuai_jenis_tetap_boleh(admin):
     assert respons.json()["site_url"] == "https://baru.contoh.test"
 
 
+def test_produk_otomatis_dengan_parameter_bisa_pindah_ke_manual(admin, db_session):
+    """Edge: parameter model yang dikosongkan harus menjadi SQL NULL, bukan JSON null.
+
+    C1 mensyaratkan model_params IS NULL untuk produk Manual. Tanpa none_as_null,
+    produk Otomatis yang punya parameter tidak pernah bisa dipindah ke Manual.
+    """
+    # Arrange
+    product_id = _daftar(admin, _otomatis(model_params={"temperature": 0.3}))
+
+    # Act
+    respons = admin.patch(
+        f"/admin/providers/{product_id}",
+        json={
+            "measurement_type": "manual",
+            "vendor_name": "Penyedia",
+            "site_url": "https://x.test",
+        },
+    )
+
+    # Assert
+    assert respons.status_code == 200, respons.text
+    db_session.expire_all()
+    assert db_session.get(AiProduct, uuid.UUID(product_id)).model_params is None
+
+
 def test_pindah_ke_otomatis_wajib_kredensial_baru(admin):
     """Edge: produk Manual tidak punya kredensial, jadi pindah ke Otomatis wajib mengirimnya."""
     # Arrange
@@ -243,6 +269,68 @@ def test_pindah_ke_otomatis_wajib_kredensial_baru(admin):
     assert (respons.json()["code"], respons.json()["field"]) == (
         "FIELD_REQUIRED_FOR_TYPE",
         "credential",
+    )
+
+
+# --- Audit perubahan produk (PBI-18 lewat listener) ----------------------------------------
+# Diuji ujung ke ujung: perubahan lewat API, lalu baris audit_logs yang benar-benar ditulis.
+
+
+def _audit(db_session, action: str) -> list[AuditLog]:
+    return db_session.query(AuditLog).filter_by(action=action).order_by(AuditLog.id).all()
+
+
+def test_perubahan_isian_manual_tercatat_di_audit(admin, db_session):
+    """Positif: isian dari SCRUM-200 (URL situs, catatan akses) ikut dipantau audit."""
+    # Arrange
+    product_id = _daftar(admin, _manual())
+
+    # Act
+    admin.patch(
+        f"/admin/providers/{product_id}",
+        json={"site_url": "https://baru.contoh.test", "access_note": "Akun baru"},
+    )
+
+    # Assert
+    [baris] = _audit(db_session, "ai_product.updated")
+    assert baris.before == {"site_url": "https://contoh.test", "access_note": None}
+    assert baris.after == {"site_url": "https://baru.contoh.test", "access_note": "Akun baru"}
+    [daftar] = _audit(db_session, "ai_product.registered")
+    assert daftar.after["measurement_type"] == "manual"
+
+
+def test_audit_tidak_pernah_memuat_kredensial(admin, db_session):
+    """Negatif: kredensial, ciphertext, dan hint tidak muncul di audit mana pun.
+
+    Mencakup pendaftaran, rotasi kredensial, dan pindah ke Manual. Kredensial yang
+    dihapus saat pindah jenis tercatat sebagai penanda "removed", bukan "diganti".
+    """
+    # Arrange
+    product_id = _daftar(admin, _otomatis())
+    lain = "kredensial-pengganti-201"  # pragma: allowlist secret
+    ciphertext = db_session.get(AiProduct, uuid.UUID(product_id)).credential_encrypted
+
+    # Act
+    admin.patch(f"/admin/providers/{product_id}", json={"credential": lain})
+    admin.patch(
+        f"/admin/providers/{product_id}",
+        json={
+            "measurement_type": "manual",
+            "vendor_name": "Penyedia",
+            "site_url": "https://x.test",
+        },
+    )
+
+    # Assert
+    semua = str([(b.action, b.before, b.after) for b in db_session.query(AuditLog).all()])
+    for rahasia in (_SECRET, lain, _SECRET[-4:], lain[-4:], ciphertext.decode(errors="ignore")):
+        assert rahasia not in semua
+    assert len(_audit(db_session, "ai_product.credential_rotated")) == 1
+    pindah = _audit(db_session, "ai_product.updated")[-1]
+    assert (pindah.before["credential"], pindah.after["credential"]) == ("stored", "removed")
+    assert (pindah.before["measurement_type"], pindah.after["measurement_type"]) == (
+        "automatic",
+        "manual",
     )
 
 

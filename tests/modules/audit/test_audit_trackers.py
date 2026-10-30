@@ -15,6 +15,7 @@ import pytest
 
 from app.modules.audit.models import AuditEntityType
 from app.modules.audit.trackers import Change, tracker_for
+from app.modules.providers.models import MeasurementType
 
 ROW_ID = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 
@@ -540,6 +541,134 @@ def test_produk_ai_diubah_field_non_rahasia():
     # Assert
     assert event.action == "ai_product.updated"
     assert event.after == {"rate_limit_per_minute": 120}
+
+
+# --- Produk AI: jenis pengukuran (PBI-23, SCRUM-201) ---------------------------------------
+# Kolom yang ditambah SCRUM-200 ikut tercatat. Kredensial, ciphertext, maupun hint-nya
+# (empat karakter terakhir kredensial) tidak pernah masuk before/after.
+
+
+def test_produk_manual_didaftarkan_dengan_isian_manual_saja():
+    """Positif dan edge: registered memuat jenis dan isian Manual; isian Otomatis yang kosong
+    tidak ditulis sebagai null."""
+    # Arrange
+    row = _row(
+        name="LegalHero",
+        measurement_type=MeasurementType.MANUAL,
+        vendor_name="LegalHero",
+        site_url="https://legalhero.example.test",
+        access_note="Akun tim legal",
+        manual_params="Paket Premium",
+        is_active=True,
+        provider_type=None,
+        credential_encrypted=None,
+    )
+
+    # Act
+    event = _satu(tracker_for("ai_products").created(row))
+
+    # Assert
+    assert event.action == "ai_product.registered"
+    assert event.after == {
+        "name": "LegalHero",
+        "measurement_type": "manual",
+        "vendor_name": "LegalHero",
+        "site_url": "https://legalhero.example.test",
+        "access_note": "Akun tim legal",
+        "manual_params": "Paket Premium",
+        "is_active": True,
+    }
+
+
+def test_produk_otomatis_didaftarkan_dengan_parameter_dan_harga():
+    """Positif: jenis, parameter model, dan harga ikut tercatat; kredensial dan hint tidak."""
+    # Arrange
+    row = _row(
+        name="DeepSeek",
+        measurement_type=MeasurementType.AUTOMATIC,
+        provider_type="openai_compatible",
+        base_url="https://api.example.test/v1",
+        model_name="deepseek-x",
+        rate_limit_per_minute=30,
+        monthly_budget_idr=Decimal("500000.00"),
+        model_params={"temperature": 0.3},
+        price_output_usd_per_mtok=Decimal("1.2000"),
+        is_active=True,
+        credential_encrypted=b"rahasia",
+        credential_hint="ahia",
+    )
+
+    # Act
+    event = _satu(tracker_for("ai_products").created(row))
+
+    # Assert
+    assert event.after["measurement_type"] == "automatic"
+    assert event.after["model_params"] == {"temperature": 0.3}
+    assert event.after["price_output_usd_per_mtok"] == "1.2000"
+    assert not {"credential_encrypted", "credential_hint", "vendor_name"} & set(event.after)
+
+
+def test_isian_manual_dan_parameter_tercatat_saat_diubah():
+    """Positif: bentuk event updated untuk isian baru (pemantauannya diuji lewat API)."""
+    # Act
+    event = _satu(
+        tracker_for("ai_products").updated(
+            _row(),
+            {
+                "site_url": Change("https://lama.test", "https://baru.test"),
+                "model_params": Change({"temperature": 0.3}, {"effort": "low"}),
+            },
+        )
+    )
+
+    # Assert
+    assert event.action == "ai_product.updated"
+    assert event.before == {
+        "site_url": "https://lama.test",
+        "model_params": {"temperature": 0.3},
+    }
+    assert event.after == {"site_url": "https://baru.test", "model_params": {"effort": "low"}}
+
+
+def test_pindah_ke_manual_mencatat_kredensial_dihapus_tanpa_nilai():
+    """Edge: kredensial yang dihapus saat pindah jenis bukan "kredensial diganti".
+
+    Dicatat sebagai credential "stored" → "removed" di event updated yang sama:
+    penanda tetap yang lolos redaksi, tanpa nilai rahasia apa pun.
+    """
+    # Act
+    events = tracker_for("ai_products").updated(
+        _row(),
+        {
+            "measurement_type": Change(MeasurementType.AUTOMATIC, MeasurementType.MANUAL),
+            "credential_encrypted": Change(b"rahasia", None),
+            "base_url": Change("https://api.example.test/v1", None),
+            "vendor_name": Change(None, "Penyedia"),
+        },
+    )
+
+    # Assert
+    event = _satu(events)
+    assert event.action == "ai_product.updated"
+    assert event.before == {
+        "measurement_type": "automatic",
+        "credential": "stored",
+        "base_url": "https://api.example.test/v1",
+        "vendor_name": None,
+    }
+    assert event.after["credential"] == "removed"
+    assert "credential_encrypted" not in event.after
+
+
+def test_kredensial_dan_hint_tidak_pernah_dipantau():
+    """Negatif (pengaman): listener hanya meneruskan kolom di fields, jadi hint (empat
+    karakter terakhir kredensial) tidak boleh ada di sana; ciphertext hanya penanda."""
+    # Act
+    dipantau = set(tracker_for("ai_products").fields)
+
+    # Assert
+    assert "credential_hint" not in dipantau
+    assert "credential_encrypted" in tracker_for("ai_products").special
 
 
 # --- User ---------------------------------------------------------------------
