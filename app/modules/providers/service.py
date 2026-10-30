@@ -13,7 +13,7 @@ from datetime import UTC, datetime
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.modules.providers import repository, visibility
+from app.modules.providers import repository, rules, visibility
 from app.modules.providers.adapters.dispatch import run_connection_test
 from app.modules.providers.adapters.http import clip
 from app.modules.providers.crypto import (
@@ -36,6 +36,7 @@ from app.modules.providers.schemas import (
     AiProductUpdate,
     ConnectionTestRead,
 )
+from app.shared.config import get_settings
 from app.shared.exceptions import (
     ConflictError,
     ForbiddenError,
@@ -59,18 +60,19 @@ _LABEL_PROVIDER = {
 def create_product(
     db: Session, payload: AiProductCreate, *, created_by: uuid.UUID
 ) -> AiProductRead:
+    jenis = payload.measurement_type
+    isian = payload.model_dump(include=set(_SEMUA_ISIAN_JENIS))
+    _pastikan_isian_sesuai_jenis(jenis, isian)
     _pastikan_nama_bebas(db, payload.name)
+    # Hanya isian milik jenis ini yang ditulis; kredensial hanya ada di produk Otomatis.
+    credential = isian.pop("credential")
+    milik_jenis = {field: isian[field] for field in rules.TYPE_FIELDS[jenis] if field in isian}
     product = AiProduct(
-        name=payload.name,
-        provider_type=payload.provider_type,
-        base_url=payload.base_url,
-        model_name=payload.model_name,
-        credential_encrypted=_enkripsi(payload.credential),
-        credential_hint=credential_hint(payload.credential),
-        rate_limit_per_minute=payload.rate_limit_per_minute,
-        monthly_budget_idr=payload.monthly_budget_idr,
-        created_by=created_by,
+        name=payload.name, measurement_type=jenis, created_by=created_by, **milik_jenis
     )
+    if credential is not None:
+        product.credential_encrypted = _enkripsi(credential)
+        product.credential_hint = credential_hint(credential)
     try:
         tersimpan = repository.create(db, product)
     except IntegrityError:
@@ -120,39 +122,44 @@ def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate)
     credential = perubahan.pop("credential", None)
 
     # Immutability & Type switching check (C2: terkunci setelah punya riwayat pengukuran)
-    if "measurement_type" in perubahan:
-        tipe_baru = perubahan.pop("measurement_type")
-        if tipe_baru != product.measurement_type:
-            if repository.has_measurement_sessions(db, product.id):
-                raise ValidationError(
-                    "Jenis pengukuran tidak dapat diubah karena produk sudah memiliki riwayat pengukuran",
-                    code="MEASUREMENT_TYPE_IMMUTABLE",
-                    field="measurement_type",
-                )
-            # Belum punya riwayat: reset isian khusus jenis lama sesuai AC5 & D1 C2
-            product.measurement_type = tipe_baru
-            if tipe_baru == MeasurementType.MANUAL:
-                # Otomatis -> Manual
-                product.provider_type = None
-                product.base_url = None
-                product.model_name = None
-                product.credential_encrypted = None
-                product.credential_hint = None
-                product.rate_limit_per_minute = None
-                product.monthly_budget_idr = None
-                product.last_test_at = None
-                product.last_test_status = None
-                product.last_test_message = None
-                product.last_test_error_category = None
-                product.model_params = None
-                product.price_input_usd_per_mtok = None
-                product.price_output_usd_per_mtok = None
-            else:
-                # Manual -> Otomatis
-                product.vendor_name = None
-                product.site_url = None
-                product.access_note = None
-                product.manual_params = None
+    tipe_baru = perubahan.pop("measurement_type", product.measurement_type)
+    berganti = tipe_baru != product.measurement_type
+    if berganti and repository.has_measurement_sessions(db, product.id):
+        raise ValidationError(
+            "Jenis pengukuran tidak dapat diubah karena produk sudah memiliki riwayat pengukuran",
+            code="MEASUREMENT_TYPE_IMMUTABLE",
+            field="measurement_type",
+        )
+    # SCRUM-201: kombinasi akhir dicek sebelum produk diubah, jadi isian yang tidak
+    # sesuai jenis menjadi 422 dengan field-nya, bukan pelanggaran C1 di database.
+    _pastikan_isian_sesuai_jenis(
+        tipe_baru, _isian_setelah_ubah(product, perubahan, credential, berganti=berganti)
+    )
+    if berganti:
+        # Belum punya riwayat: reset isian khusus jenis lama sesuai AC5 & D1 C2
+        product.measurement_type = tipe_baru
+        if tipe_baru == MeasurementType.MANUAL:
+            # Otomatis -> Manual
+            product.provider_type = None
+            product.base_url = None
+            product.model_name = None
+            product.credential_encrypted = None
+            product.credential_hint = None
+            product.rate_limit_per_minute = None
+            product.monthly_budget_idr = None
+            product.last_test_at = None
+            product.last_test_status = None
+            product.last_test_message = None
+            product.last_test_error_category = None
+            product.model_params = None
+            product.price_input_usd_per_mtok = None
+            product.price_output_usd_per_mtok = None
+        else:
+            # Manual -> Otomatis
+            product.vendor_name = None
+            product.site_url = None
+            product.access_note = None
+            product.manual_params = None
 
     if "name" in perubahan:
         _pastikan_nama_bebas(db, perubahan["name"], kecuali=product.id)
@@ -268,6 +275,40 @@ def _pastikan_nama_bebas(db: Session, name: str, *, kecuali: uuid.UUID | None = 
     ada = repository.get_by_name(db, name)
     if ada is not None and ada.id != kecuali:
         raise ConflictError(f"Nama produk AI '{name}' sudah dipakai", code=NAME_TAKEN)
+
+
+# Semua isian khusus jenis (Otomatis dan Manual), untuk aturan per jenis SCRUM-201.
+_SEMUA_ISIAN_JENIS = tuple(f for jenis in MeasurementType for f in rules.TYPE_FIELDS[jenis])
+
+
+def _pastikan_isian_sesuai_jenis(jenis: MeasurementType, isian: dict) -> None:
+    """422 FIELD_REQUIRED / FIELD_NOT_ALLOWED bila isian tidak sesuai jenis (AC1-AC3)."""
+    masalah = rules.type_field_problem(
+        jenis, isian, access_note_required=get_settings().ai_product_access_note_required
+    )
+    if masalah is not None:
+        raise ValidationError(masalah.message, code=masalah.code, field=masalah.field)
+
+
+def _isian_setelah_ubah(
+    product: AiProduct, perubahan: dict, credential: str | None, *, berganti: bool
+) -> dict:
+    """Nilai akhir tiap isian jenis setelah PATCH, sebelum produk benar-benar diubah.
+
+    Saat jenis berganti, isian jenis lama dikosongkan (D1 C2), jadi hanya isian
+    di body yang dihitung. Kredensial lama tetap berlaku selama jenisnya sama.
+    """
+
+    def nilai(field: str):
+        if field == "credential":
+            if credential is not None:
+                return credential
+            return None if berganti else product.credential_encrypted
+        if field in perubahan:
+            return perubahan[field]
+        return None if berganti else getattr(product, field)
+
+    return {field: nilai(field) for field in _SEMUA_ISIAN_JENIS}
 
 
 def _label_penyedia(product: AiProduct) -> str | None:

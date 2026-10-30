@@ -36,25 +36,48 @@ def _base_url_http(value: str) -> str:
 
 
 class AiProductCreate(BaseModel):
+    """Pendaftaran produk AI (PBI-10, PBI-23 AC1-AC3).
+
+    Isian per jenis sengaja opsional di sini: wajib atau terlarangnya diputuskan
+    rules.type_field_problem sesuai measurement_type, supaya kesalahan dilaporkan
+    sebagai FIELD_REQUIRED / FIELD_NOT_ALLOWED dengan nama field-nya. Tanpa
+    measurement_type produk dianggap Otomatis, sama seperti body PBI-10.
+    """
+
     model_config = ConfigDict(str_strip_whitespace=True)
 
     name: str = Field(min_length=1, max_length=200)
-    provider_type: ProviderType
-    base_url: str = Field(min_length=1, max_length=2048)
-    model_name: str = Field(min_length=1, max_length=200)
-    credential: str = Field(min_length=4)
-    rate_limit_per_minute: int = Field(gt=0)
-    monthly_budget_idr: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+    measurement_type: MeasurementType = MeasurementType.AUTOMATIC
+    # Otomatis
+    provider_type: ProviderType | None = None
+    base_url: str | None = Field(default=None, min_length=1, max_length=2048)
+    model_name: str | None = Field(default=None, min_length=1, max_length=200)
+    credential: str | None = Field(default=None, min_length=4)
+    rate_limit_per_minute: int | None = Field(default=None, gt=0)
+    monthly_budget_idr: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=2)
+    model_params: dict | None = None
+    price_input_usd_per_mtok: Decimal | None = None
+    price_output_usd_per_mtok: Decimal | None = None
+    # Manual
+    vendor_name: str | None = Field(default=None, min_length=1, max_length=200)
+    site_url: str | None = Field(default=None, min_length=1, max_length=2048)
+    access_note: str | None = None
+    manual_params: str | None = None
 
-    @field_validator("name", "model_name")
+    @field_validator("name")
     @classmethod
-    def wajib_ada(cls, value: str) -> str:
+    def nama_wajib_ada(cls, value: str) -> str:
         return _teks_bersih(value)
+
+    @field_validator("model_name", "vendor_name")
+    @classmethod
+    def teks_tidak_kosong(cls, value: str | None) -> str | None:
+        return None if value is None else _teks_bersih(value)
 
     @field_validator("base_url")
     @classmethod
-    def url_http(cls, value: str) -> str:
-        return _base_url_http(value)
+    def url_http(cls, value: str | None) -> str | None:
+        return None if value is None else _base_url_http(value)
 
 
 class AiProductUpdate(BaseModel):

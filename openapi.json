@@ -3709,29 +3709,68 @@
             "minLength": 1,
             "title": "Name"
           },
+          "measurement_type": {
+            "$ref": "#/components/schemas/MeasurementType",
+            "default": "automatic"
+          },
           "provider_type": {
-            "$ref": "#/components/schemas/ProviderType"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProviderType"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "base_url": {
-            "type": "string",
-            "maxLength": 2048,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Base Url"
           },
           "model_name": {
-            "type": "string",
-            "maxLength": 200,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Model Name"
           },
           "credential": {
-            "type": "string",
-            "minLength": 4,
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 4
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Credential"
           },
           "rate_limit_per_minute": {
-            "type": "integer",
-            "exclusiveMinimum": 0.0,
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Rate Limit Per Minute"
           },
           "monthly_budget_idr": {
@@ -3743,22 +3782,110 @@
               {
                 "type": "string",
                 "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,16}|(?=[\\d.]{1,19}0*$)\\d{0,16}\\.\\d{0,2}0*$)"
+              },
+              {
+                "type": "null"
               }
             ],
             "title": "Monthly Budget Idr"
+          },
+          "model_params": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Params"
+          },
+          "price_input_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Input Usd Per Mtok"
+          },
+          "price_output_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number"
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Output Usd Per Mtok"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
+          },
+          "site_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Url"
+          },
+          "access_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Note"
+          },
+          "manual_params": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Params"
           }
         },
         "type": "object",
         "required": [
-          "name",
-          "provider_type",
-          "base_url",
-          "model_name",
-          "credential",
-          "rate_limit_per_minute",
-          "monthly_budget_idr"
+          "name"
         ],
-        "title": "AiProductCreate"
+        "title": "AiProductCreate",
+        "description": "Pendaftaran produk AI (PBI-10, PBI-23 AC1-AC3).\n\nIsian per jenis sengaja opsional di sini: wajib atau terlarangnya diputuskan\nrules.type_field_problem sesuai measurement_type, supaya kesalahan dilaporkan\nsebagai FIELD_REQUIRED / FIELD_NOT_ALLOWED dengan nama field-nya. Tanpa\nmeasurement_type produk dianggap Otomatis, sama seperti body PBI-10."
       },
       "AiProductOption": {
         "properties": {
