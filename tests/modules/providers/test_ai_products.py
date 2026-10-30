@@ -20,7 +20,12 @@ from app.modules.providers.models import (
     MeasurementType,
     ProviderType,
 )
-from app.modules.providers.schemas import AiProductCreate, AiProductUpdate, _teks_bersih
+from app.modules.providers.schemas import (
+    AiProductCreate,
+    AiProductUpdate,
+    ModelParams,
+    _teks_bersih,
+)
 from app.modules.providers.service import (
     _as_bytes,
     _enkripsi,
@@ -480,3 +485,172 @@ def test_schemas_whitespace_and_update_base_url():
 
     with pytest.raises(PydanticValidationError):
         AiProductUpdate(base_url="not-http-url")
+
+
+def test_schemas_site_url_and_prices_and_model_params():
+    # site_url rejects javascript: URL (XSS)
+    with pytest.raises(PydanticValidationError):
+        AiProductUpdate(site_url="javascript:alert(1)")
+
+    valid_site = AiProductUpdate(site_url="https://site.example.com")
+    assert valid_site.site_url == "https://site.example.com"
+
+    # Prices reject negative and out of bound numbers
+    with pytest.raises(PydanticValidationError):
+        AiProductUpdate(price_input_usd_per_mtok=Decimal("-1.0"))
+
+    with pytest.raises(PydanticValidationError):
+        AiProductUpdate(price_output_usd_per_mtok=Decimal("-0.0001"))
+
+    with pytest.raises(PydanticValidationError):
+        # 9 digits before decimal (exceeding 8 digits max for Numeric(12, 4))
+        AiProductUpdate(price_input_usd_per_mtok=Decimal("100000000.0000"))
+
+    valid_price = AiProductUpdate(price_input_usd_per_mtok=Decimal("15.5000"))
+    assert valid_price.price_input_usd_per_mtok == Decimal("15.5000")
+
+    # model_params rejects extra fields and invalid values
+    with pytest.raises(PydanticValidationError):
+        ModelParams.model_validate({"rm_rf": True})
+
+    with pytest.raises(PydanticValidationError):
+        ModelParams(temperature=3.5)
+
+    valid_params = ModelParams(temperature=0.7, effort="medium", thinking=True, web_search=False)
+    assert valid_params.temperature == 0.7
+    assert valid_params.effort == "medium"
+
+
+def test_update_product_same_measurement_type_branch(db_session):
+    admin = _admin(db_session)
+    prod = _product(admin.id, name="SameTypeProd")
+    db_session.add(prod)
+    db_session.commit()
+
+    # PATCH with the exact same measurement_type (branch 85->117)
+    updated = update_product(
+        db_session,
+        prod.id,
+        AiProductUpdate(measurement_type=MeasurementType.AUTOMATIC),
+    )
+    assert updated.measurement_type == MeasurementType.AUTOMATIC
+
+
+def test_update_product_type_field_validation(db_session):
+    admin = _admin(db_session)
+    auto_prod = _product(admin.id, name="AutoFieldCheck")
+    db_session.add(auto_prod)
+    db_session.commit()
+
+    # Passing manual fields to automatic product -> 422
+    with pytest.raises(ValidationError) as exc:
+        update_product(db_session, auto_prod.id, AiProductUpdate(vendor_name="Vendor X"))
+    assert exc.value.field == "vendor_name"
+    assert exc.value.code == "FIELD_NOT_ALLOWED_FOR_TYPE"
+
+    # Switching to manual without vendor_name and site_url -> 422
+    with pytest.raises(ValidationError) as exc:
+        update_product(
+            db_session, auto_prod.id, AiProductUpdate(measurement_type=MeasurementType.MANUAL)
+        )
+    assert exc.value.field == "vendor_name"
+    assert exc.value.code == "FIELD_REQUIRED_FOR_TYPE"
+
+    # Manual product created
+    manual_prod = AiProduct(
+        name="ManualFieldCheck",
+        measurement_type=MeasurementType.MANUAL,
+        vendor_name="Vendor M",
+        site_url="https://vendor.test",
+        created_by=admin.id,
+    )
+    db_session.add(manual_prod)
+    db_session.commit()
+
+    # Passing automatic fields to manual product -> 422
+    with pytest.raises(ValidationError) as exc:
+        update_product(db_session, manual_prod.id, AiProductUpdate(rate_limit_per_minute=50))
+    assert exc.value.field == "rate_limit_per_minute"
+    assert exc.value.code == "FIELD_NOT_ALLOWED_FOR_TYPE"
+
+    with pytest.raises(ValidationError) as exc:
+        update_product(
+            db_session,
+            manual_prod.id,
+            AiProductUpdate(credential="secret-key"),  # pragma: allowlist secret
+        )
+    assert exc.value.field == "credential"
+    assert exc.value.code == "FIELD_NOT_ALLOWED_FOR_TYPE"
+
+    with pytest.raises(ValidationError) as exc:
+        update_product(
+            db_session,
+            manual_prod.id,
+            AiProductUpdate(measurement_type=MeasurementType.AUTOMATIC),
+        )
+    assert exc.value.code == "FIELD_REQUIRED_FOR_TYPE"
+
+
+def test_update_product_clearing_optional_fields(db_session):
+    admin = _admin(db_session)
+    manual_prod = AiProduct(
+        name="ClearOptionalProd",
+        measurement_type=MeasurementType.MANUAL,
+        vendor_name="Vendor",
+        site_url="https://vendor.test",
+        access_note="Some note",
+        manual_params="Some params",
+        created_by=admin.id,
+    )
+    db_session.add(manual_prod)
+    db_session.commit()
+
+    # Clear access_note and manual_params
+    updated = update_product(
+        db_session,
+        manual_prod.id,
+        AiProductUpdate(access_note=None, manual_params=None),
+    )
+    assert updated.access_note is None
+    assert updated.manual_params is None
+
+
+def test_update_product_integrity_error_mapping(db_session):
+    admin = _admin(db_session)
+    prod = _product(admin.id, name="IntegrityMapProd")
+    db_session.add(prod)
+    db_session.commit()
+
+    from unittest.mock import patch
+
+    # Trigger error string mapped to 422 MEASUREMENT_TYPE_IMMUTABLE
+    with (
+        patch(
+            "app.modules.providers.repository.save",
+            side_effect=IntegrityError("stmt", {}, Exception("MEASUREMENT_TYPE_IMMUTABLE")),
+        ),
+        pytest.raises(ValidationError) as exc,
+    ):
+        update_product(db_session, prod.id, AiProductUpdate(name="NewName"))
+    assert exc.value.code == "MEASUREMENT_TYPE_IMMUTABLE"
+
+    # Check constraint error string mapped to 422 TYPE_FIELDS_INVALID
+    with (
+        patch(
+            "app.modules.providers.repository.save",
+            side_effect=IntegrityError("stmt", {}, Exception("ck_ai_products_type_fields")),
+        ),
+        pytest.raises(ValidationError) as exc,
+    ):
+        update_product(db_session, prod.id, AiProductUpdate(name="NewName"))
+    assert exc.value.code == "TYPE_FIELDS_INVALID"
+
+    # Unique constraint error mapped to 409
+    with (
+        patch(
+            "app.modules.providers.repository.save",
+            side_effect=IntegrityError("stmt", {}, Exception("uq_ai_products_name")),
+        ),
+        pytest.raises(ConflictError),
+    ):
+        update_product(db_session, prod.id, AiProductUpdate(name="NewName"))
