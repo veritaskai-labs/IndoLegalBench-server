@@ -64,7 +64,7 @@ def siap(as_role, buat_pengguna, db_session):
         case_id = _buat(client, suite_id, case_code=kode, split_tag=tag).json()["id"]
         _setujui(db_session, case_id)
     produk = _tambah_produk(db_session)
-    app.dependency_overrides[get_settings] = _settings
+    app.dependency_overrides[get_settings] = lambda: _settings()
     app.dependency_overrides[dependencies.get_exchange_rate] = lambda: (
         exchange_rate.ConfiguredExchangeRate(Decimal("16000"))
     )
