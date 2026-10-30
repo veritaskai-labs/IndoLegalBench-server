@@ -11,8 +11,9 @@ from typing import Any
 
 from app.modules.providers.models import MeasurementType
 
-FIELD_REQUIRED = "FIELD_REQUIRED"
-FIELD_NOT_ALLOWED = "FIELD_NOT_ALLOWED"
+# Kode yang sama dengan SCRUM-200 (#79), supaya POST dan PATCH berbicara satu kontrak.
+FIELD_REQUIRED = "FIELD_REQUIRED_FOR_TYPE"
+FIELD_NOT_ALLOWED = "FIELD_NOT_ALLOWED_FOR_TYPE"
 
 # Isian khusus tiap jenis (D1 C1). Wajib dulu, opsional sesudahnya.
 _WAJIB = {

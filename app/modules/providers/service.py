@@ -62,6 +62,9 @@ def create_product(
 ) -> AiProductRead:
     jenis = payload.measurement_type
     isian = payload.model_dump(include=set(_SEMUA_ISIAN_JENIS))
+    if payload.model_params is not None:
+        # D1: kunci parameter yang kosong tidak disimpan, supaya dipakai default penyedia.
+        isian["model_params"] = payload.model_params.model_dump(exclude_none=True)
     _pastikan_isian_sesuai_jenis(jenis, isian)
     _pastikan_nama_bebas(db, payload.name)
     # Hanya isian milik jenis ini yang ditulis; kredensial hanya ada di produk Otomatis.
@@ -115,55 +118,99 @@ def list_options(
     ]
 
 
+_KOLOM_TETAP = {
+    "name",
+    "provider_type",
+    "base_url",
+    "model_name",
+    "rate_limit_per_minute",
+    "monthly_budget_idr",
+    "vendor_name",
+    "site_url",
+}
+
+
+def _filter_unchanged_nulls(perubahan: dict) -> None:
+    for col in _KOLOM_TETAP:
+        if col in perubahan and perubahan[col] is None:
+            perubahan.pop(col)
+
+
+def _apply_measurement_type_switch(product: AiProduct, tipe_baru: MeasurementType) -> None:
+    product.measurement_type = tipe_baru
+    if tipe_baru == MeasurementType.MANUAL:
+        product.provider_type = None
+        product.base_url = None
+        product.model_name = None
+        product.credential_encrypted = None
+        product.credential_hint = None
+        product.rate_limit_per_minute = None
+        product.monthly_budget_idr = None
+        product.last_test_at = None
+        product.last_test_status = None
+        product.last_test_message = None
+        product.last_test_error_category = None
+        product.model_params = None
+        product.price_input_usd_per_mtok = None
+        product.price_output_usd_per_mtok = None
+    else:
+        product.vendor_name = None
+        product.site_url = None
+        product.access_note = None
+        product.manual_params = None
+
+
+def _handle_integrity_error(exc: IntegrityError, product_name: str) -> None:
+    orig_str = str(getattr(exc, "orig", exc))
+    diag = getattr(getattr(exc, "orig", None), "diag", None)
+    constraint = getattr(diag, "constraint_name", None) or ""
+
+    if "MEASUREMENT_TYPE_IMMUTABLE" in orig_str:
+        raise ValidationError(
+            "Jenis pengukuran tidak dapat diubah karena produk sudah memiliki riwayat pengukuran",
+            code="MEASUREMENT_TYPE_IMMUTABLE",
+            field="measurement_type",
+        ) from None
+    if "ck_ai_products_type_fields" in constraint or "ck_ai_products_type_fields" in orig_str:
+        raise ValidationError(
+            "Kombinasi isian tidak sesuai dengan jenis pengukuran produk",
+            code="TYPE_FIELDS_INVALID",
+        ) from None
+    raise ConflictError(
+        f"Nama produk AI '{product_name}' sudah dipakai",
+        code=NAME_TAKEN,
+    ) from None
+
+
 def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate) -> AiProductRead:
     product = _wajib_ada(db, product_id)
-    # null berarti "tidak diubah": semua kolom ini NOT NULL, jadi null tidak boleh ditulis.
-    perubahan = payload.model_dump(exclude_unset=True, exclude_none=True)
+    perubahan = payload.model_dump(exclude_unset=True)
     credential = perubahan.pop("credential", None)
+    _filter_unchanged_nulls(perubahan)
 
-    # Immutability & Type switching check (C2: terkunci setelah punya riwayat pengukuran)
-    tipe_baru = perubahan.pop("measurement_type", product.measurement_type)
-    berganti = tipe_baru != product.measurement_type
-    if berganti and repository.has_measurement_sessions(db, product.id):
+    tipe_baru = perubahan.pop("measurement_type", None)
+    tipe_berubah = tipe_baru is not None and tipe_baru != product.measurement_type
+    target_type = tipe_baru if tipe_berubah else product.measurement_type
+
+    # Immutability check (C2)
+    if tipe_berubah and repository.has_measurement_sessions(db, product.id):
         raise ValidationError(
             "Jenis pengukuran tidak dapat diubah karena produk sudah memiliki riwayat pengukuran",
             code="MEASUREMENT_TYPE_IMMUTABLE",
             field="measurement_type",
         )
-    # SCRUM-201: kombinasi akhir dicek sebelum produk diubah, jadi isian yang tidak
-    # sesuai jenis menjadi 422 dengan field-nya, bukan pelanggaran C1 di database.
+
+    # SCRUM-201: satu aturan per jenis (providers/rules.py) untuk POST dan PATCH.
     _pastikan_isian_sesuai_jenis(
-        tipe_baru, _isian_setelah_ubah(product, perubahan, credential, berganti=berganti)
+        target_type, _isian_setelah_ubah(product, perubahan, credential, berganti=tipe_berubah)
     )
-    if berganti:
-        # Belum punya riwayat: reset isian khusus jenis lama sesuai AC5 & D1 C2
-        product.measurement_type = tipe_baru
-        if tipe_baru == MeasurementType.MANUAL:
-            # Otomatis -> Manual
-            product.provider_type = None
-            product.base_url = None
-            product.model_name = None
-            product.credential_encrypted = None
-            product.credential_hint = None
-            product.rate_limit_per_minute = None
-            product.monthly_budget_idr = None
-            product.last_test_at = None
-            product.last_test_status = None
-            product.last_test_message = None
-            product.last_test_error_category = None
-            product.model_params = None
-            product.price_input_usd_per_mtok = None
-            product.price_output_usd_per_mtok = None
-        else:
-            # Manual -> Otomatis
-            product.vendor_name = None
-            product.site_url = None
-            product.access_note = None
-            product.manual_params = None
 
     if "name" in perubahan:
         _pastikan_nama_bebas(db, perubahan["name"], kecuali=product.id)
         product.name = perubahan.pop("name")
+
+    if tipe_berubah and tipe_baru is not None:
+        _apply_measurement_type_switch(product, tipe_baru)
 
     for field, value in perubahan.items():
         setattr(product, field, value)
@@ -174,12 +221,10 @@ def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate)
 
     try:
         tersimpan = repository.save(db, product)
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise ConflictError(
-            f"Nama produk AI '{product.name}' sudah dipakai",
-            code=NAME_TAKEN,
-        ) from None
+        _handle_integrity_error(exc, product.name)
+
     return _tampilkan(tersimpan)
 
 

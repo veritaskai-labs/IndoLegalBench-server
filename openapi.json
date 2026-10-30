@@ -3792,23 +3792,22 @@
           "model_params": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/ModelParams"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Model Params"
+            ]
           },
           "price_input_usd_per_mtok": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "minimum": 0.0
               },
               {
                 "type": "string",
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
               },
               {
                 "type": "null"
@@ -3819,11 +3818,12 @@
           "price_output_usd_per_mtok": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "minimum": 0.0
               },
               {
                 "type": "string",
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
               },
               {
                 "type": "null"
@@ -4000,14 +4000,12 @@
           "model_params": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/ModelParams"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Model Params"
+            ]
           },
           "price_input_usd_per_mtok": {
             "anyOf": [
@@ -4268,23 +4266,22 @@
           "model_params": {
             "anyOf": [
               {
-                "additionalProperties": true,
-                "type": "object"
+                "$ref": "#/components/schemas/ModelParams"
               },
               {
                 "type": "null"
               }
-            ],
-            "title": "Model Params"
+            ]
           },
           "price_input_usd_per_mtok": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "minimum": 0.0
               },
               {
                 "type": "string",
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
               },
               {
                 "type": "null"
@@ -4295,11 +4292,12 @@
           "price_output_usd_per_mtok": {
             "anyOf": [
               {
-                "type": "number"
+                "type": "number",
+                "minimum": 0.0
               },
               {
                 "type": "string",
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
               },
               {
                 "type": "null"
@@ -5944,6 +5942,64 @@
         ],
         "title": "MeasurementType",
         "description": "MeasurementType:\n- automatic: dijalankan otomatis oleh sistem via API\n- manual: dijalankan manual dan dicatat oleh tim legal via situs"
+      },
+      "ModelParams": {
+        "properties": {
+          "temperature": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "thinking": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thinking"
+          },
+          "web_search": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Web Search"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ModelParams"
       },
       "NeedsReassignmentResponse": {
         "properties": {

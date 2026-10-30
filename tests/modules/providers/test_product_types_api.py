@@ -88,8 +88,12 @@ def test_admin_mendaftarkan_produk_manual_tanpa_kredensial(admin, db_session):
     assert body["rate_limit_per_minute"] is None
 
 
-def test_admin_mendaftarkan_produk_otomatis_dengan_parameter_model(admin):
-    """Positif: produk Otomatis dengan parameter model dan harga opsional (AC2, D1)."""
+def test_admin_mendaftarkan_produk_otomatis_dengan_parameter_model(admin, db_session):
+    """Positif dan edge: parameter model tersimpan hanya kunci yang diisi (AC2, D1).
+
+    Kunci kosong tidak boleh tersimpan sebagai null, karena D1 meminta kunci yang
+    kosong tidak dikirim ke penyedia sehingga default penyedia yang dipakai.
+    """
     # Act
     respons = admin.post(
         "/admin/providers",
@@ -101,7 +105,8 @@ def test_admin_mendaftarkan_produk_otomatis_dengan_parameter_model(admin):
     body = respons.json()
     assert body["measurement_type"] == "automatic"
     assert body["has_credential"] is True
-    assert body["model_params"] == {"temperature": 0.3}
+    assert body["model_params"]["temperature"] == 0.3
+    assert db_session.query(AiProduct).one().model_params == {"temperature": 0.3}
 
 
 def test_tanpa_jenis_produk_dianggap_otomatis(admin):
@@ -121,11 +126,11 @@ def test_tanpa_jenis_produk_dianggap_otomatis(admin):
 @pytest.mark.parametrize(
     ("body", "kode", "field"),
     [
-        (_manual(credential=_SECRET), "FIELD_NOT_ALLOWED", "credential"),
-        (_manual(rate_limit_per_minute=30), "FIELD_NOT_ALLOWED", "rate_limit_per_minute"),
-        (_otomatis(vendor_name="Penyedia"), "FIELD_NOT_ALLOWED", "vendor_name"),
-        (_otomatis(credential=None), "FIELD_REQUIRED", "credential"),
-        (_manual(site_url=None), "FIELD_REQUIRED", "site_url"),
+        (_manual(credential=_SECRET), "FIELD_NOT_ALLOWED_FOR_TYPE", "credential"),
+        (_manual(rate_limit_per_minute=30), "FIELD_NOT_ALLOWED_FOR_TYPE", "rate_limit_per_minute"),
+        (_otomatis(vendor_name="Penyedia"), "FIELD_NOT_ALLOWED_FOR_TYPE", "vendor_name"),
+        (_otomatis(credential=None), "FIELD_REQUIRED_FOR_TYPE", "credential"),
+        (_manual(site_url=None), "FIELD_REQUIRED_FOR_TYPE", "site_url"),
     ],
     ids=[
         "manual-dengan-kredensial",
@@ -157,7 +162,10 @@ def test_catatan_akses_wajib_bila_flag_konfigurasi_menyala(admin, monkeypatch):
 
     # Assert
     assert respons.status_code == 422
-    assert (respons.json()["code"], respons.json()["field"]) == ("FIELD_REQUIRED", "access_note")
+    assert (respons.json()["code"], respons.json()["field"]) == (
+        "FIELD_REQUIRED_FOR_TYPE",
+        "access_note",
+    )
 
 
 # --- Mengubah produk -----------------------------------------------------------------------
@@ -179,7 +187,10 @@ def test_isian_manual_di_produk_otomatis_ditolak_422_bukan_409(admin):
 
     # Assert
     assert respons.status_code == 422, respons.text
-    assert (respons.json()["code"], respons.json()["field"]) == ("FIELD_NOT_ALLOWED", "vendor_name")
+    assert (respons.json()["code"], respons.json()["field"]) == (
+        "FIELD_NOT_ALLOWED_FOR_TYPE",
+        "vendor_name",
+    )
 
 
 def test_pindah_ke_manual_tanpa_isian_manual_ditolak(admin, db_session):
@@ -192,7 +203,10 @@ def test_pindah_ke_manual_tanpa_isian_manual_ditolak(admin, db_session):
 
     # Assert
     assert respons.status_code == 422, respons.text
-    assert (respons.json()["code"], respons.json()["field"]) == ("FIELD_REQUIRED", "vendor_name")
+    assert (respons.json()["code"], respons.json()["field"]) == (
+        "FIELD_REQUIRED_FOR_TYPE",
+        "vendor_name",
+    )
     db_session.expire_all()
     produk = db_session.get(AiProduct, uuid.UUID(product_id))
     assert produk.measurement_type == MeasurementType.AUTOMATIC
@@ -226,7 +240,10 @@ def test_pindah_ke_otomatis_wajib_kredensial_baru(admin):
 
     # Assert
     assert respons.status_code == 422, respons.text
-    assert (respons.json()["code"], respons.json()["field"]) == ("FIELD_REQUIRED", "credential")
+    assert (respons.json()["code"], respons.json()["field"]) == (
+        "FIELD_REQUIRED_FOR_TYPE",
+        "credential",
+    )
 
 
 # --- Service dengan repository di-mock -----------------------------------------------------

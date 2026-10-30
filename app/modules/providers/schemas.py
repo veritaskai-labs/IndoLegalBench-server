@@ -27,12 +27,21 @@ def _teks_bersih(value: str) -> str:
     return bersih
 
 
-def _base_url_http(value: str) -> str:
+def _url_http(value: str) -> str:
     bersih = value.strip()
     parsed = urlparse(bersih)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError("base_url harus berupa URL http atau https")
+        raise ValueError("harus berupa URL http atau https")
     return bersih
+
+
+class ModelParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    effort: Literal["low", "medium", "high"] | None = None
+    thinking: bool | None = None
+    web_search: bool | None = None
 
 
 class AiProductCreate(BaseModel):
@@ -55,9 +64,13 @@ class AiProductCreate(BaseModel):
     credential: str | None = Field(default=None, min_length=4)
     rate_limit_per_minute: int | None = Field(default=None, gt=0)
     monthly_budget_idr: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=2)
-    model_params: dict | None = None
-    price_input_usd_per_mtok: Decimal | None = None
-    price_output_usd_per_mtok: Decimal | None = None
+    model_params: ModelParams | None = None
+    price_input_usd_per_mtok: Decimal | None = Field(
+        default=None, ge=0, max_digits=12, decimal_places=4
+    )
+    price_output_usd_per_mtok: Decimal | None = Field(
+        default=None, ge=0, max_digits=12, decimal_places=4
+    )
     # Manual
     vendor_name: str | None = Field(default=None, min_length=1, max_length=200)
     site_url: str | None = Field(default=None, min_length=1, max_length=2048)
@@ -74,10 +87,10 @@ class AiProductCreate(BaseModel):
     def teks_tidak_kosong(cls, value: str | None) -> str | None:
         return None if value is None else _teks_bersih(value)
 
-    @field_validator("base_url")
+    @field_validator("base_url", "site_url")
     @classmethod
     def url_http(cls, value: str | None) -> str | None:
-        return None if value is None else _base_url_http(value)
+        return None if value is None else _url_http(value)
 
 
 class AiProductUpdate(BaseModel):
@@ -91,9 +104,13 @@ class AiProductUpdate(BaseModel):
     credential: str | None = Field(default=None, min_length=4)
     rate_limit_per_minute: int | None = Field(default=None, gt=0)
     monthly_budget_idr: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=2)
-    model_params: dict | None = None
-    price_input_usd_per_mtok: Decimal | None = None
-    price_output_usd_per_mtok: Decimal | None = None
+    model_params: ModelParams | None = None
+    price_input_usd_per_mtok: Decimal | None = Field(
+        default=None, ge=0, max_digits=12, decimal_places=4
+    )
+    price_output_usd_per_mtok: Decimal | None = Field(
+        default=None, ge=0, max_digits=12, decimal_places=4
+    )
     vendor_name: str | None = Field(default=None, min_length=1, max_length=200)
     site_url: str | None = Field(default=None, min_length=1, max_length=2048)
     access_note: str | None = None
@@ -106,12 +123,12 @@ class AiProductUpdate(BaseModel):
             return None
         return _teks_bersih(value)
 
-    @field_validator("base_url")
+    @field_validator("base_url", "site_url")
     @classmethod
     def url_http(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        return _base_url_http(value)
+        return _url_http(value)
 
 
 class AiProductRead(BaseModel):
@@ -129,7 +146,7 @@ class AiProductRead(BaseModel):
     has_credential: bool = False
     rate_limit_per_minute: int | None = None
     monthly_budget_idr: Decimal | None = None
-    model_params: dict | None = None
+    model_params: ModelParams | None = None
     price_input_usd_per_mtok: Decimal | None = None
     price_output_usd_per_mtok: Decimal | None = None
     vendor_name: str | None = None
