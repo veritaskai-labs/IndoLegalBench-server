@@ -12,7 +12,12 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.modules.providers.models import ConnectionTestErrorCategory, LastTestStatus, ProviderType
+from app.modules.providers.models import (
+    ConnectionTestErrorCategory,
+    LastTestStatus,
+    MeasurementType,
+    ProviderType,
+)
 
 
 def _teks_bersih(value: str) -> str:
@@ -22,12 +27,21 @@ def _teks_bersih(value: str) -> str:
     return bersih
 
 
-def _base_url_http(value: str) -> str:
+def _url_http(value: str) -> str:
     bersih = value.strip()
     parsed = urlparse(bersih)
     if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError("base_url harus berupa URL http atau https")
+        raise ValueError("harus berupa URL http atau https")
     return bersih
+
+
+class ModelParams(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
+    effort: Literal["low", "medium", "high"] | None = None
+    thinking: bool | None = None
+    web_search: bool | None = None
 
 
 class AiProductCreate(BaseModel):
@@ -49,33 +63,45 @@ class AiProductCreate(BaseModel):
     @field_validator("base_url")
     @classmethod
     def url_http(cls, value: str) -> str:
-        return _base_url_http(value)
+        return _url_http(value)
 
 
 class AiProductUpdate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
+    measurement_type: MeasurementType | None = None
     provider_type: ProviderType | None = None
     base_url: str | None = Field(default=None, min_length=1, max_length=2048)
     model_name: str | None = Field(default=None, min_length=1, max_length=200)
     credential: str | None = Field(default=None, min_length=4)
     rate_limit_per_minute: int | None = Field(default=None, gt=0)
     monthly_budget_idr: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=2)
+    model_params: ModelParams | None = None
+    price_input_usd_per_mtok: Decimal | None = Field(
+        default=None, ge=0, max_digits=12, decimal_places=4
+    )
+    price_output_usd_per_mtok: Decimal | None = Field(
+        default=None, ge=0, max_digits=12, decimal_places=4
+    )
+    vendor_name: str | None = Field(default=None, min_length=1, max_length=200)
+    site_url: str | None = Field(default=None, min_length=1, max_length=2048)
+    access_note: str | None = None
+    manual_params: str | None = None
 
-    @field_validator("name", "model_name")
+    @field_validator("name", "model_name", "vendor_name")
     @classmethod
     def wajib_ada(cls, value: str | None) -> str | None:
         if value is None:
             return None
         return _teks_bersih(value)
 
-    @field_validator("base_url")
+    @field_validator("base_url", "site_url")
     @classmethod
     def url_http(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        return _base_url_http(value)
+        return _url_http(value)
 
 
 class AiProductRead(BaseModel):
@@ -85,18 +111,26 @@ class AiProductRead(BaseModel):
 
     id: uuid.UUID
     name: str
-    provider_type: ProviderType
-    base_url: str
-    model_name: str
-    credential_hint: str
-    has_credential: bool = True
-    rate_limit_per_minute: int
-    monthly_budget_idr: Decimal
+    measurement_type: MeasurementType = MeasurementType.AUTOMATIC
+    provider_type: ProviderType | None = None
+    base_url: str | None = None
+    model_name: str | None = None
+    credential_hint: str | None = None
+    has_credential: bool = False
+    rate_limit_per_minute: int | None = None
+    monthly_budget_idr: Decimal | None = None
+    model_params: ModelParams | None = None
+    price_input_usd_per_mtok: Decimal | None = None
+    price_output_usd_per_mtok: Decimal | None = None
+    vendor_name: str | None = None
+    site_url: str | None = None
+    access_note: str | None = None
+    manual_params: str | None = None
     is_active: bool
-    last_test_at: datetime | None
-    last_test_status: LastTestStatus | None
-    last_test_message: str | None
-    last_test_error_category: ConnectionTestErrorCategory | None
+    last_test_at: datetime | None = None
+    last_test_status: LastTestStatus | None = None
+    last_test_message: str | None = None
+    last_test_error_category: ConnectionTestErrorCategory | None = None
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime

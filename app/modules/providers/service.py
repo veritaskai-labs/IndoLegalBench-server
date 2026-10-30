@@ -9,6 +9,7 @@ exception dari app.shared.exceptions.
 
 import uuid
 from datetime import UTC, datetime
+from typing import NoReturn
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -22,7 +23,12 @@ from app.modules.providers.crypto import (
     decrypt_credential,
     encrypt_credential,
 )
-from app.modules.providers.models import AiProduct, ConnectionTestErrorCategory, LastTestStatus
+from app.modules.providers.models import (
+    AiProduct,
+    ConnectionTestErrorCategory,
+    LastTestStatus,
+    MeasurementType,
+)
 from app.modules.providers.schemas import (
     AiProductCreate,
     AiProductRead,
@@ -68,15 +74,171 @@ def list_products(db: Session, *, is_active: bool | None) -> list[AiProductRead]
     return [_tampilkan(item) for item in repository.list_products(db, is_active=is_active)]
 
 
+_KOLOM_TETAP = {
+    "name",
+    "provider_type",
+    "base_url",
+    "model_name",
+    "rate_limit_per_minute",
+    "monthly_budget_idr",
+    "vendor_name",
+    "site_url",
+}
+_MANUAL_KHUSUS = {"vendor_name", "site_url", "access_note", "manual_params"}
+_OTOMATIS_KHUSUS = {
+    "provider_type",
+    "base_url",
+    "model_name",
+    "rate_limit_per_minute",
+    "monthly_budget_idr",
+    "model_params",
+    "price_input_usd_per_mtok",
+    "price_output_usd_per_mtok",
+}
+
+
+def _filter_unchanged_nulls(perubahan: dict) -> None:
+    for col in _KOLOM_TETAP:
+        if col in perubahan and perubahan[col] is None:
+            perubahan.pop(col)
+
+
+def _check_type_fields_allowed(
+    target_type: MeasurementType, perubahan: dict, *, has_credential: bool
+) -> None:
+    if target_type == MeasurementType.AUTOMATIC:
+        for f in _MANUAL_KHUSUS:
+            if perubahan.get(f) is not None:
+                raise ValidationError(
+                    f"Kolom '{f}' tidak diizinkan untuk produk otomatis",
+                    field=f,
+                    code="FIELD_NOT_ALLOWED_FOR_TYPE",
+                )
+        return
+
+    for f in _OTOMATIS_KHUSUS:
+        if perubahan.get(f) is not None:
+            raise ValidationError(
+                f"Kolom '{f}' tidak diizinkan untuk produk manual",
+                field=f,
+                code="FIELD_NOT_ALLOWED_FOR_TYPE",
+            )
+    if has_credential:
+        raise ValidationError(
+            "Kredensial tidak diizinkan untuk produk manual",
+            field="credential",
+            code="FIELD_NOT_ALLOWED_FOR_TYPE",
+        )
+
+
+def _check_target_type_requirements(
+    target_type: MeasurementType, product: AiProduct, perubahan: dict, credential: str | None
+) -> None:
+    if target_type == MeasurementType.MANUAL:
+        vendor_val = perubahan.get("vendor_name") or product.vendor_name
+        site_val = perubahan.get("site_url") or product.site_url
+        if not vendor_val or not site_val:
+            raise ValidationError(
+                "vendor_name dan site_url wajib diisi untuk produk manual",
+                field="vendor_name" if not vendor_val else "site_url",
+                code="FIELD_REQUIRED_FOR_TYPE",
+            )
+        return
+
+    p_type = perubahan.get("provider_type") or product.provider_type
+    b_url = perubahan.get("base_url") or product.base_url
+    m_name = perubahan.get("model_name") or product.model_name
+    rl = perubahan.get("rate_limit_per_minute", product.rate_limit_per_minute)
+    budget = perubahan.get("monthly_budget_idr", product.monthly_budget_idr)
+    cred = credential or product.credential_encrypted
+    if not p_type or not b_url or not m_name or rl is None or budget is None or not cred:
+        raise ValidationError(
+            "Semua kolom otomatis wajib diisi untuk produk otomatis",
+            code="FIELD_REQUIRED_FOR_TYPE",
+        )
+
+
+def _apply_measurement_type_switch(product: AiProduct, tipe_baru: MeasurementType) -> None:
+    product.measurement_type = tipe_baru
+    if tipe_baru == MeasurementType.MANUAL:
+        product.provider_type = None
+        product.base_url = None
+        product.model_name = None
+        product.credential_encrypted = None
+        product.credential_hint = None
+        product.rate_limit_per_minute = None
+        product.monthly_budget_idr = None
+        product.last_test_at = None
+        product.last_test_status = None
+        product.last_test_message = None
+        product.last_test_error_category = None
+        product.model_params = None
+        product.price_input_usd_per_mtok = None
+        product.price_output_usd_per_mtok = None
+    else:
+        product.vendor_name = None
+        product.site_url = None
+        product.access_note = None
+        product.manual_params = None
+
+
+def _handle_integrity_error(exc: IntegrityError, product_name: str) -> NoReturn:
+    orig_str = str(getattr(exc, "orig", exc))
+    diag = getattr(getattr(exc, "orig", None), "diag", None)
+    constraint = getattr(diag, "constraint_name", None) or ""
+
+    if "MEASUREMENT_TYPE_IMMUTABLE" in orig_str:
+        raise ValidationError(
+            "Jenis pengukuran tidak dapat diubah karena produk sudah memiliki riwayat pengukuran",
+            code="MEASUREMENT_TYPE_IMMUTABLE",
+            field="measurement_type",
+        ) from None
+    if "ck_ai_products_type_fields" in constraint or "ck_ai_products_type_fields" in orig_str:
+        raise ValidationError(
+            "Kombinasi isian tidak sesuai dengan jenis pengukuran produk",
+            code="TYPE_FIELDS_INVALID",
+        ) from None
+    if (
+        constraint == "uq_ai_products_name"
+        or "uq_ai_products_name" in orig_str
+        or "unique constraint" in orig_str.lower()
+    ):
+        raise ConflictError(
+            f"Nama produk AI '{product_name}' sudah dipakai",
+            code=NAME_TAKEN,
+        ) from None
+    raise exc
+
+
 def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate) -> AiProductRead:
     product = _wajib_ada(db, product_id)
-    # null berarti "tidak diubah": semua kolom ini NOT NULL, jadi null tidak boleh ditulis.
-    perubahan = payload.model_dump(exclude_unset=True, exclude_none=True)
+    perubahan = payload.model_dump(exclude_unset=True)
     credential = perubahan.pop("credential", None)
+    _filter_unchanged_nulls(perubahan)
+
+    tipe_baru = perubahan.pop("measurement_type", None)
+    tipe_berubah = tipe_baru is not None and tipe_baru != product.measurement_type
+    target_type = tipe_baru if tipe_berubah else product.measurement_type
+
+    # Immutability check (C2)
+    if tipe_berubah and repository.has_measurement_sessions(db, product.id):
+        raise ValidationError(
+            "Jenis pengukuran tidak dapat diubah karena produk sudah memiliki riwayat pengukuran",
+            code="MEASUREMENT_TYPE_IMMUTABLE",
+            field="measurement_type",
+        )
+
+    _check_type_fields_allowed(target_type, perubahan, has_credential=credential is not None)
+
+    if tipe_berubah:
+        _check_target_type_requirements(target_type, product, perubahan, credential)
 
     if "name" in perubahan:
         _pastikan_nama_bebas(db, perubahan["name"], kecuali=product.id)
         product.name = perubahan.pop("name")
+
+    if tipe_berubah and tipe_baru is not None:
+        _apply_measurement_type_switch(product, tipe_baru)
 
     for field, value in perubahan.items():
         setattr(product, field, value)
@@ -87,12 +249,10 @@ def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate)
 
     try:
         tersimpan = repository.save(db, product)
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise ConflictError(
-            f"Nama produk AI '{product.name}' sudah dipakai",
-            code=NAME_TAKEN,
-        ) from None
+        _handle_integrity_error(exc, product.name)
+
     return _tampilkan(tersimpan)
 
 
@@ -127,6 +287,11 @@ def test_connection(db: Session, product_id: uuid.UUID) -> ConnectionTestRead:
     last_test_* tidak diubah. Kegagalan provider tetap HTTP 200.
     """
     product = _wajib_ada(db, product_id)
+    if product.measurement_type == MeasurementType.MANUAL:
+        raise ValidationError("Produk manual tidak memiliki uji koneksi", field="measurement_type")
+
+    if product.credential_encrypted is None:
+        raise ValidationError("Kredensial produk belum diisi", field="credential")
     try:
         secret = decrypt_credential(_as_bytes(product.credential_encrypted))
     except CredentialError:
@@ -189,13 +354,21 @@ def _tampilkan(product: AiProduct) -> AiProductRead:
     return AiProductRead(
         id=product.id,
         name=product.name,
+        measurement_type=product.measurement_type,
         provider_type=product.provider_type,
         base_url=product.base_url,
         model_name=product.model_name,
         credential_hint=product.credential_hint,
-        has_credential=True,
+        has_credential=product.credential_encrypted is not None,
         rate_limit_per_minute=product.rate_limit_per_minute,
         monthly_budget_idr=product.monthly_budget_idr,
+        model_params=product.model_params,
+        price_input_usd_per_mtok=product.price_input_usd_per_mtok,
+        price_output_usd_per_mtok=product.price_output_usd_per_mtok,
+        vendor_name=product.vendor_name,
+        site_url=product.site_url,
+        access_note=product.access_note,
+        manual_params=product.manual_params,
         is_active=product.is_active,
         last_test_at=product.last_test_at,
         last_test_status=product.last_test_status,

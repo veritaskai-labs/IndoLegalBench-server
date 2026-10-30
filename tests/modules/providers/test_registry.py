@@ -286,3 +286,18 @@ def test_author_is_forbidden(client, db_session):
     response = client.post("/admin/providers", json=_payload())
     assert response.status_code == 403
     assert response.json()["code"] == "FORBIDDEN"
+
+
+def test_user_id_dari_string_tetap_uuid():
+    from app.modules.providers.router import _user_id
+
+    expected = uuid.UUID("33333333-3333-3333-3333-333333333333")
+
+    class PenggunaStr:
+        user_id = str(expected)
+
+    class PenggunaUuid:
+        user_id = expected
+
+    assert _user_id(PenggunaStr()) == expected
+    assert _user_id(PenggunaUuid()) == expected
