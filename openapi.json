@@ -3695,34 +3695,158 @@
             "type": "string",
             "title": "Name"
           },
+          "measurement_type": {
+            "$ref": "#/components/schemas/MeasurementType",
+            "default": "automatic"
+          },
           "provider_type": {
-            "$ref": "#/components/schemas/ProviderType"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProviderType"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "base_url": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Base Url"
           },
           "model_name": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Model Name"
           },
           "credential_hint": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Credential Hint"
           },
           "has_credential": {
             "type": "boolean",
             "title": "Has Credential",
-            "default": true
+            "default": false
           },
           "rate_limit_per_minute": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Rate Limit Per Minute"
           },
           "monthly_budget_idr": {
-            "type": "string",
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Monthly Budget Idr"
+          },
+          "model_params": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelParams"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price_input_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Input Usd Per Mtok"
+          },
+          "price_output_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Output Usd Per Mtok"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
+          },
+          "site_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Url"
+          },
+          "access_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Note"
+          },
+          "manual_params": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Params"
           },
           "is_active": {
             "type": "boolean",
@@ -3791,17 +3915,7 @@
         "required": [
           "id",
           "name",
-          "provider_type",
-          "base_url",
-          "model_name",
-          "credential_hint",
-          "rate_limit_per_minute",
-          "monthly_budget_idr",
           "is_active",
-          "last_test_at",
-          "last_test_status",
-          "last_test_message",
-          "last_test_error_category",
           "created_by",
           "created_at",
           "updated_at"
@@ -3823,6 +3937,16 @@
               }
             ],
             "title": "Name"
+          },
+          "measurement_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeasurementType"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "provider_type": {
             "anyOf": [
@@ -3899,6 +4023,96 @@
               }
             ],
             "title": "Monthly Budget Idr"
+          },
+          "model_params": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelParams"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price_input_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Input Usd Per Mtok"
+          },
+          "price_output_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Output Usd Per Mtok"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
+          },
+          "site_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Url"
+          },
+          "access_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Note"
+          },
+          "manual_params": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Params"
           }
         },
         "type": "object",
@@ -5480,6 +5694,73 @@
           "role"
         ],
         "title": "MeResponse"
+      },
+      "MeasurementType": {
+        "type": "string",
+        "enum": [
+          "automatic",
+          "manual"
+        ],
+        "title": "MeasurementType",
+        "description": "MeasurementType:\n- automatic: dijalankan otomatis oleh sistem via API\n- manual: dijalankan manual dan dicatat oleh tim legal via situs"
+      },
+      "ModelParams": {
+        "properties": {
+          "temperature": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "thinking": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thinking"
+          },
+          "web_search": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Web Search"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ModelParams"
       },
       "NeedsReassignmentResponse": {
         "properties": {

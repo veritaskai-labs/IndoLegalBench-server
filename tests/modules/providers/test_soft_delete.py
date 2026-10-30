@@ -213,7 +213,7 @@ def test_deleted_product_cannot_be_connection_tested(client, db_session, encrypt
 # --- name reuse ---
 
 
-def test_deleted_name_can_be_reused_via_endpoint(client, db_session, encryption_key):
+def test_deleted_name_cannot_be_reused_via_endpoint(client, db_session, encryption_key):
     # Arrange: hapus produk pertama
     complete_login(client, db_session, ADMIN_SUB)
     first = client.post("/admin/providers", json=_payload(name="ReusedName"))
@@ -223,10 +223,9 @@ def test_deleted_name_can_be_reused_via_endpoint(client, db_session, encryption_
     # Act: buat produk baru dengan nama sama
     second = client.post("/admin/providers", json=_payload(name="ReusedName"))
 
-    # Assert: berhasil, bukan 409
-    assert second.status_code == 201
-    assert second.json()["name"] == "ReusedName"
-    assert second.json()["id"] != first.json()["id"]
+    # Assert: ditolak 409 AI_PRODUCT_NAME_TAKEN (nama unik selamanya per SCRUM-200 / C3)
+    assert second.status_code == 409
+    assert second.json()["code"] == "AI_PRODUCT_NAME_TAKEN"
 
 
 def test_deleted_product_cannot_be_activated(client, db_session, encryption_key):
