@@ -622,6 +622,19 @@ def count_approved_for_suite(db: Session, suite_id: uuid.UUID) -> int:
     return repository.count_approved_for_suite(db, suite_id)
 
 
+def count_approved_by_split(db: Session, suite_ids: set[uuid.UUID]) -> dict[SplitTag, int]:
+    """Count approved cases per split tag across suites (SCRUM-206).
+
+    Called by the runs module for the measurement summary. Both tags are
+    always present, with 0 when a split has no case. Whether the suites
+    exist is not checked here.
+    """
+    counts = dict.fromkeys(SplitTag, 0)
+    if suite_ids:
+        counts.update(repository.count_approved_by_split(db, suite_ids))
+    return counts
+
+
 def has_approved_case(db: Session, suite_id: uuid.UUID) -> bool:
     """True when the suite contains a case that has an approved version."""
     return repository.has_approved(db, suite_id)
