@@ -176,3 +176,98 @@ def test_port_methods_are_not_a_working_store():
         SessionStore.mark_status(None, session_id, "running")
     with pytest.raises(NotImplementedError):
         QueuePort.take_next(None)
+
+
+class ManualClock:
+    def __init__(self) -> None:
+        self.now = 0.0
+        self.waits: list[float] = []
+
+    def clock(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.waits.append(seconds)
+        self.now += seconds
+
+
+class ShortSleep:
+    """Tidur paling lama setengah detik, supaya loop tunggu harus mengulang."""
+
+    def __init__(self) -> None:
+        self.now = 0.0
+
+    def clock(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.now += min(seconds, 0.5)
+
+
+class StartRecorder:
+    def __init__(self, clock: ShortSleep) -> None:
+        self.clock = clock
+        self.starts: list[float] = []
+
+    def ask(self, prompt: str, *, parameters=None, timeout: float = 240.0):
+        del prompt, parameters, timeout
+        self.starts.append(self.clock.clock())
+        return ProviderResponse(text="ok", model_version="m", latency_ms=1, raw={})
+
+
+def test_rate_limit_30_waits_two_seconds_between_call_starts():
+    clock = ManualClock()
+    store = FakeSessionStore(["a", "b", "c"])
+    run_session(
+        uuid.uuid4(),
+        store,
+        MockProviderAdapter("success"),
+        repeats=1,
+        rate_limit_per_minute=30,
+        sleep=clock.sleep,
+        clock=clock.clock,
+    )
+    assert clock.waits == [2.0, 2.0]
+    assert len(store.attempts) == 3
+
+
+def test_missing_rate_limit_does_not_wait():
+    clock = ManualClock()
+    store = FakeSessionStore(["a", "b"])
+    run_session(
+        uuid.uuid4(),
+        store,
+        MockProviderAdapter("success"),
+        repeats=1,
+        sleep=clock.sleep,
+        clock=clock.clock,
+    )
+    assert clock.waits == []
+    assert len(store.attempts) == 2
+
+
+def test_short_sleep_cannot_start_the_next_call_early():
+    clock = ShortSleep()
+    adapter = StartRecorder(clock)
+    run_session(
+        uuid.uuid4(),
+        FakeSessionStore(["a", "b"]),
+        adapter,
+        repeats=1,
+        rate_limit_per_minute=30,
+        sleep=clock.sleep,
+        clock=clock.clock,
+    )
+    assert adapter.starts[0] == 0.0
+    assert adapter.starts[1] >= 2.0
+
+
+def test_non_positive_rate_limit_is_rejected():
+    with pytest.raises(ValidationError):
+        run_session(
+            uuid.uuid4(),
+            FakeSessionStore(["q"]),
+            MockProviderAdapter("success"),
+            repeats=1,
+            rate_limit_per_minute=0,
+        )

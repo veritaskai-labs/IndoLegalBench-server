@@ -179,7 +179,29 @@ def interpret_openai(
     )
 
 
+def _text_blocks(content: object) -> list[str]:
+    if not isinstance(content, list):
+        return []
+    parts: list[str] = []
+    for block in content:
+        if (
+            isinstance(block, dict)
+            and block.get("type") == "text"
+            and isinstance(block.get("text"), str)
+        ):
+            parts.append(block["text"])
+    return parts
+
+
 def _gemini_text(payload: dict) -> str:
+    steps = payload.get("steps")
+    if isinstance(steps, list):
+        parts: list[str] = []
+        for step in steps:
+            if isinstance(step, dict) and step.get("type") == "model_output":
+                parts.extend(_text_blocks(step.get("content")))
+        if parts:
+            return "".join(parts)
     output_text = payload.get("output_text")
     if isinstance(output_text, str):
         return output_text
@@ -189,7 +211,7 @@ def _gemini_text(payload: dict) -> str:
     outputs = payload.get("outputs")
     if not isinstance(outputs, list):
         return ""
-    parts: list[str] = []
+    parts = []
     for item in outputs:
         if isinstance(item, dict) and isinstance(item.get("text"), str):
             parts.append(item["text"])
@@ -206,16 +228,30 @@ def interpret_gemini(
     if not isinstance(payload, dict):
         return _invalid(latency_ms, secret, raw)
     text = _gemini_text(payload)
-    reason = str(payload.get("finish_reason") or payload.get("stop_reason") or "")
+    status = payload.get("status")
+    if isinstance(status, str):
+        reason = status
+        status_known = status in {"completed", "incomplete", "failed"}
+    else:
+        reason = str(payload.get("finish_reason") or payload.get("stop_reason") or "")
+        status_known = False
     kind = None
     error = None
-    if payload.get("block_reason") or reason.upper() in {"SAFETY", "BLOCKED", "PROHIBITED_CONTENT"}:
+    if payload.get("block_reason") or (
+        not status_known and reason.upper() in {"SAFETY", "BLOCKED", "PROHIBITED_CONTENT"}
+    ):
         kind = FailureKind.BLOCKED
         error = "blocked by safety filter"
-    elif reason.lower() in {"refusal", "refused"}:
+    elif status_known and reason == "failed":
+        kind = FailureKind.PROVIDER_ERROR
+        error = "provider failed"
+    elif status_known and reason == "incomplete":
+        kind = FailureKind.TRUNCATED
+        error = _TRUNCATED
+    elif not status_known and reason.lower() in {"refusal", "refused"}:
         kind = FailureKind.REFUSED
         error = "model refused to answer"
-    elif reason.upper() in {"MAX_TOKENS", "LENGTH"}:
+    elif not status_known and reason.upper() in {"MAX_TOKENS", "LENGTH"}:
         kind = FailureKind.TRUNCATED
         error = _TRUNCATED
     elif not text.strip():

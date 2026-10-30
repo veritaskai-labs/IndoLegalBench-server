@@ -247,6 +247,54 @@ def test_gemini_success_drops_temperature_and_reads_outputs(monkeypatch):
     assert seen["key"] == _KEY
 
 
+def test_gemini_interactions_steps_and_status(monkeypatch):
+    payloads = [
+        (
+            {
+                "status": "completed",
+                "steps": [
+                    {"type": "model_output", "content": "bukan-list"},
+                    {"type": "user_input", "content": [{"type": "text", "text": "tanya"}]},
+                    {
+                        "type": "model_output",
+                        "content": [{"type": "text", "text": "jawab"}, {"type": "other"}],
+                    },
+                ],
+            },
+            None,
+            "jawab",
+        ),
+        (
+            {
+                "status": "incomplete",
+                "steps": [
+                    {"type": "model_output", "content": [{"type": "text", "text": "potong"}]}
+                ],
+            },
+            FailureKind.TRUNCATED,
+            "potong",
+        ),
+        (
+            {"status": "failed", "steps": []},
+            FailureKind.PROVIDER_ERROR,
+            "",
+        ),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = payloads[handler.index][0]
+        handler.index += 1
+        return httpx.Response(200, json=payload)
+
+    handler.index = 0
+    _transport(monkeypatch, handler)
+    adapter = _gemini()
+    for _, kind, text in payloads:
+        result = adapter.ask("q")
+        assert result.failure_kind == kind
+        assert result.text == text
+
+
 def test_gemini_block_truncation_refusal_and_empty(monkeypatch):
     payloads = [
         ({"outputs": [{"text": ""}], "block_reason": "SAFETY"}, FailureKind.BLOCKED),
