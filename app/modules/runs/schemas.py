@@ -7,6 +7,7 @@ TODO(PBI-11, PBI-12, PBI-13): definisikan schema sesuai kontrak.
 """
 
 import uuid
+from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
@@ -56,3 +57,16 @@ class SummaryRequest(BaseModel):
     @classmethod
     def gabungkan_suite_ganda(cls, value: list[uuid.UUID]) -> list[uuid.UUID]:
         return list(dict.fromkeys(value))
+
+
+class SummaryResponse(BaseModel):
+    """Ringkasan sebelum menekan Mulai (PBI-11 AC5). Uang dikirim sebagai string."""
+
+    case_count: int = Field(description="Kasus approved yang ikut, sesuai filter")
+    total_calls: int = Field(description="Kasus kali pengulangan")
+    case_filter: CaseFilter
+    repeat_count: int
+    estimated_cost_idr: Decimal = Field(
+        description="Perkiraan biaya dalam rupiah, sudah termasuk margin pengaman"
+    )
+    remaining_budget_idr: Decimal = Field(description="Sisa anggaran bulan ini untuk produk")
