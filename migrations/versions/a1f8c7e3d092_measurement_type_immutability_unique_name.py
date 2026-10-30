@@ -73,7 +73,22 @@ def upgrade() -> None:
     bind = op.get_bind()
     is_postgres = bind.dialect.name == "postgresql"
 
-    # 1. Cek nama ganda yang sudah ada sebelum constraint dipasang (AC4)
+    # 1. Bersihkan duplikat nama dari produk soft-deleted (Sprint 2 mengizinkan reuse nama setelah delete)
+    # Ubah nama produk yang sudah dihapus agar constraint unik global (C3) dapat dipasang dengan aman.
+    bind.execute(
+        sa.text(
+            """
+            UPDATE ai_products
+            SET name = name || ' (dihapus ' || substr(cast(id as text), 1, 8) || ')'
+            WHERE deleted_at IS NOT NULL
+              AND name IN (
+                  SELECT name FROM ai_products GROUP BY name HAVING count(*) > 1
+              )
+            """
+        )
+    )
+
+    # Cek apakah masih ada nama ganda di antara produk yang sama-sama aktif
     duplicates = bind.execute(
         sa.text("SELECT name, count(*) FROM ai_products GROUP BY name HAVING count(*) > 1")
     ).fetchall()
@@ -168,14 +183,14 @@ def upgrade() -> None:
             CREATE OR REPLACE FUNCTION ai_products_check_measurement_type_immutability()
             RETURNS trigger AS $$
             DECLARE
-                session_count integer;
+                session_found integer;
             BEGIN
                 IF OLD.measurement_type IS DISTINCT FROM NEW.measurement_type THEN
                     IF to_regclass('measurement_sessions') IS NOT NULL THEN
-                        EXECUTE 'SELECT count(*) FROM measurement_sessions WHERE product_id = $1'
-                        INTO session_count
+                        EXECUTE 'SELECT 1 FROM measurement_sessions WHERE product_id = $1 LIMIT 1'
+                        INTO session_found
                         USING OLD.id;
-                        IF session_count > 0 THEN
+                        IF session_found IS NOT NULL THEN
                             RAISE EXCEPTION 'MEASUREMENT_TYPE_IMMUTABLE: jenis pengukuran tidak dapat diubah karena produk sudah memiliki riwayat pengukuran'
                                 USING ERRCODE = 'check_violation';
                         END IF;
