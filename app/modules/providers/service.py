@@ -9,6 +9,7 @@ exception dari app.shared.exceptions.
 
 import uuid
 from datetime import UTC, datetime
+from typing import NoReturn
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
@@ -160,7 +161,7 @@ def _apply_measurement_type_switch(product: AiProduct, tipe_baru: MeasurementTyp
         product.manual_params = None
 
 
-def _handle_integrity_error(exc: IntegrityError, product_name: str) -> None:
+def _handle_integrity_error(exc: IntegrityError, product_name: str) -> NoReturn:
     orig_str = str(getattr(exc, "orig", exc))
     diag = getattr(getattr(exc, "orig", None), "diag", None)
     constraint = getattr(diag, "constraint_name", None) or ""
@@ -176,10 +177,16 @@ def _handle_integrity_error(exc: IntegrityError, product_name: str) -> None:
             "Kombinasi isian tidak sesuai dengan jenis pengukuran produk",
             code="TYPE_FIELDS_INVALID",
         ) from None
-    raise ConflictError(
-        f"Nama produk AI '{product_name}' sudah dipakai",
-        code=NAME_TAKEN,
-    ) from None
+    if (
+        constraint == "uq_ai_products_name"
+        or "uq_ai_products_name" in orig_str
+        or "unique constraint" in orig_str.lower()
+    ):
+        raise ConflictError(
+            f"Nama produk AI '{product_name}' sudah dipakai",
+            code=NAME_TAKEN,
+        ) from None
+    raise exc
 
 
 def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate) -> AiProductRead:
