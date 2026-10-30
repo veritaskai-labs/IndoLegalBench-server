@@ -204,6 +204,16 @@ def is_exportable(db: Session, suite_id: uuid.UUID) -> bool:
     return get_suite(db, suite_id).exportable
 
 
+def require_existing(db: Session, suite_ids: set[uuid.UUID]) -> None:
+    """Every id must be a suite that is not deleted, else 404 (SCRUM-206).
+
+    Called by the runs module for the measurement summary. An archived suite
+    still counts as existing: archiving only hides it from the list.
+    """
+    for suite_id in suite_ids:
+        _wajib_ada(db, suite_id)
+
+
 def suite_names(db: Session, suite_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
     """Nama suite untuk kolom Objek audit log (F-06).
 
