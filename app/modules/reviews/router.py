@@ -26,14 +26,14 @@ from app.modules.reviews.schemas import (
 )
 from app.modules.reviews.visibility import Viewer
 from app.shared.database import get_db
-from app.shared.security import CurrentUser, Role, require_roles
+from app.shared.security import REVIEWER_ROLES, WRITER_ROLES, CurrentUser, Role, require_roles
 
 router = APIRouter(tags=["reviews"])
 
-# D5a: hanya Reviewer yang menilai dan punya dashboard "Perlu Direview".
-_reviewer = require_roles(Role.REVIEWER)
+# D5a / D10: hanya yang memegang wewenang mereview yang menilai dan punya "Perlu Direview".
+_reviewer = require_roles(*REVIEWER_ROLES)
 # D5a: Author kasus sendiri, Reviewer yang ditugaskan, dan Admin. Dicek lagi di service.
-_can_read_review = require_roles(Role.AUTHOR, Role.REVIEWER, Role.ADMIN)
+_can_read_review = require_roles(*WRITER_ROLES, *REVIEWER_ROLES, Role.ADMIN)
 _can_manage = require_roles(Role.ADMIN)
 
 
@@ -259,7 +259,7 @@ def reply_to_comment(
     assignment_id: uuid.UUID,
     payload: CommentReplyWrite,
     db: Session = Depends(get_db),
-    user: CurrentUser = Depends(require_roles(Role.AUTHOR, Role.REVIEWER)),
+    user: CurrentUser = Depends(require_roles(*WRITER_ROLES, *REVIEWER_ROLES)),
 ) -> CommentReplyRead:
     return service.reply_to_comment(
         db, assignment_id, Viewer(_user_id(user), Role(user.role)), payload

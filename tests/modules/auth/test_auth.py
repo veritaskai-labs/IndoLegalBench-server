@@ -53,7 +53,7 @@ def test_null_sub_binds_on_matching_email(client, db_session):
     pending = User(
         email="pending@veritask.test",
         name="Pending Author",
-        role=Role.AUTHOR,
+        role=Role.CONTRIBUTOR,
         zitadel_sub=None,
         is_active=True,
     )
@@ -121,9 +121,9 @@ def test_happy_path_sets_httponly_samesite_cookie_and_me(client, db_session):
     body = me.json()
     assert body == {
         "id": str(AUTHOR_ID),
-        "name": "Author One",
+        "name": "Contributor One",
         "email": "author@veritask.test",
-        "role": "author",
+        "role": "contributor",
     }
     refreshed = me.headers.get("set-cookie", "").lower()
     assert "veritask_session=" in refreshed
@@ -178,7 +178,7 @@ def test_auth_done_returns_me_payload(client, db_session):
     complete_login(client, db_session, AUTHOR_SUB)
     done = client.get("/auth/done")
     assert done.status_code == 200
-    assert done.json()["role"] == "author"
+    assert done.json()["role"] == "contributor"
 
 
 def test_me_with_unknown_session_id_is_unauthenticated(client, db_session):

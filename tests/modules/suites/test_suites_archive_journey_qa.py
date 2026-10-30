@@ -81,7 +81,7 @@ def _daftar(client, status: str) -> list[str]:
 class TestAC4ArsipSebagaiJalanKeluar:
     def test_hapus_ditolak_lalu_arsip_menyelamatkan_isinya(self, as_role, db_session):
         """Perjalanan penuh AC-4: ditolak, diarahkan ke arsip, isinya utuh, bisa dibuka lagi."""
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client)
         kasus = _kasus(client, suite_id)
         _setujui(db_session, kasus["id"])
@@ -112,7 +112,7 @@ class TestAC4ArsipSebagaiJalanKeluar:
 
     def test_setelah_diaktifkan_kembali_penjagaan_hapus_masih_berlaku(self, as_role, db_session):
         """Mengaktifkan kembali bukan celah untuk menghapus suite berisi kasus approved."""
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client)
         kasus = _kasus(client, suite_id)
         _setujui(db_session, kasus["id"])
@@ -131,7 +131,7 @@ class TestAC4ArsipSebagaiJalanKeluar:
         langkah yang benar (aktifkan kembali dulu), bukan alasan yang tidak
         bisa ditindaklanjuti.
         """
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client)
         kasus = _kasus(client, suite_id)
         _setujui(db_session, kasus["id"])
@@ -145,7 +145,7 @@ class TestAC4ArsipSebagaiJalanKeluar:
 
     def test_suite_berisi_draft_saja_tetap_boleh_dihapus(self, as_role):
         """Penjagaannya khusus kasus yang sudah disetujui, bukan semua isi."""
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client)
         _kasus(client, suite_id)
 
@@ -161,7 +161,7 @@ class TestAC5JumlahKasusMengikutiIsiSebenarnya:
 
     @pytest.mark.parametrize("jumlah", [1, 3])
     def test_jumlah_kasus_benar_setelah_kasus_ditambah(self, as_role, jumlah):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client)
         for nomor in range(jumlah):
             _kasus(client, suite_id, kode=f"QA-{nomor:03d}")
@@ -175,7 +175,7 @@ class TestAC5JumlahKasusMengikutiIsiSebenarnya:
     def test_jumlah_kasus_ikut_terbaca_di_daftar_bukan_hanya_di_detail(self, as_role):
         # AC-6: "Daftar suite menampilkan jumlah kasus di masing-masing suite
         # agar mudah dipantau." Detail dan daftar memakai jalur berbeda.
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client)
         _kasus(client, suite_id, kode="QA-A")
         _kasus(client, suite_id, kode="QA-B")
@@ -188,7 +188,7 @@ class TestAC5JumlahKasusMengikutiIsiSebenarnya:
 
     def test_kasus_milik_suite_lain_tidak_ikut_terhitung(self, as_role):
         """Hitungannya harus per suite, bukan seluruh tabel."""
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_a = _suite(client, "Ketenagakerjaan A")
         suite_b = _suite(client, "Ketenagakerjaan B")
         _kasus(client, suite_a, kode="QA-A1")
@@ -200,7 +200,7 @@ class TestAC5JumlahKasusMengikutiIsiSebenarnya:
 
     def test_suite_berisi_kasus_tapi_diarsipkan_tidak_bisa_diekspor(self, as_role):
         """AC-5: tidak dapat dipilih untuk pengukuran baru selama diarsipkan."""
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client)
         _kasus(client, suite_id)
         client.post(f"/suites/{suite_id}/archive")
@@ -212,7 +212,7 @@ class TestAC5JumlahKasusMengikutiIsiSebenarnya:
         assert badan["exportable"] is False
 
     def test_mengubah_deskripsi_tidak_mengusik_jumlah_kasus(self, as_role):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client)
         _kasus(client, suite_id)
 

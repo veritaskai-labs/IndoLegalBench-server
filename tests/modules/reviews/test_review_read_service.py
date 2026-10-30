@@ -101,7 +101,7 @@ def _verdicts(hasil) -> dict:
 
 def test_reviewer_hanya_melihat_verdictnya_sendiri_selama_round_open(dep):
     # Act
-    hasil = service.get_case_review(MagicMock(), KASUS, Viewer(SAYA, Role.REVIEWER))
+    hasil = service.get_case_review(MagicMock(), KASUS, Viewer(SAYA, Role.CONTRIBUTOR))
 
     # Assert
     terlihat = _verdicts(hasil)
@@ -127,7 +127,7 @@ def test_admin_melihat_semua_verdict_selama_round_open(dep):
 
 def test_penulis_belum_melihat_verdict_selama_round_open(dep):
     # Act
-    hasil = service.get_case_review(MagicMock(), KASUS, Viewer(PENULIS, Role.AUTHOR))
+    hasil = service.get_case_review(MagicMock(), KASUS, Viewer(PENULIS, Role.CONTRIBUTOR))
 
     # Assert
     assert set(_verdicts(hasil).values()) == {None}
@@ -139,7 +139,7 @@ def test_semua_terbuka_setelah_round_diputuskan(dep):
     dep.ronde.decision = RoundDecision.REVISE
 
     # Act
-    hasil = service.get_case_review(MagicMock(), KASUS, Viewer(PENULIS, Role.AUTHOR))
+    hasil = service.get_case_review(MagicMock(), KASUS, Viewer(PENULIS, Role.CONTRIBUTOR))
 
     # Assert
     assert _verdicts(hasil)[REKAN].comment == "Pasal salah"
@@ -148,7 +148,7 @@ def test_semua_terbuka_setelah_round_diputuskan(dep):
 
 def test_nama_reviewer_ikut_ditampilkan(dep):
     # Act
-    hasil = service.get_case_review(MagicMock(), KASUS, Viewer(SAYA, Role.REVIEWER))
+    hasil = service.get_case_review(MagicMock(), KASUS, Viewer(SAYA, Role.CONTRIBUTOR))
 
     # Assert
     assert {slot.reviewer.name for slot in hasil.reviewers} == {"Sari", "Rudi"}
@@ -156,10 +156,14 @@ def test_nama_reviewer_ikut_ditampilkan(dep):
 
 @pytest.mark.parametrize(
     "viewer",
-    [Viewer(uuid.uuid4(), Role.AUTHOR), Viewer(uuid.uuid4(), Role.VIEWER)],
-    ids=["author-lain", "viewer"],
+    [Viewer(uuid.uuid4(), Role.CONTRIBUTOR), Viewer(uuid.uuid4(), Role.VIEWER)],
+    ids=["kontributor-lain", "viewer"],
 )
 def test_yang_tidak_terlibat_ditolak(dep, viewer):
+    """Bukan penulis dan tidak pernah ditugaskan di kasus ini."""
+    # Arrange
+    dep.repo.case_ids_assigned_to.return_value = []
+
     # Act + Assert
     with pytest.raises(ForbiddenError):
         service.get_case_review(MagicMock(), KASUS, viewer)
@@ -171,7 +175,7 @@ def test_reviewer_yang_tidak_pernah_ditugaskan_ditolak(dep):
 
     # Act + Assert
     with pytest.raises(ForbiddenError):
-        service.get_case_review(MagicMock(), KASUS, Viewer(SAYA, Role.REVIEWER))
+        service.get_case_review(MagicMock(), KASUS, Viewer(SAYA, Role.CONTRIBUTOR))
 
 
 def test_kasus_belum_pernah_diajukan(dep):
@@ -180,7 +184,7 @@ def test_kasus_belum_pernah_diajukan(dep):
 
     # Act
     with pytest.raises(NotFoundError) as info:
-        service.get_case_review(MagicMock(), KASUS, Viewer(PENULIS, Role.AUTHOR))
+        service.get_case_review(MagicMock(), KASUS, Viewer(PENULIS, Role.CONTRIBUTOR))
 
     # Assert
     assert info.value.code == "NO_REVIEW_ROUND"

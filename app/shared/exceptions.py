@@ -48,6 +48,20 @@ class ConflictError(DomainError):
     code = "conflict"
 
 
+class ConfirmationRequiredError(DomainError):
+    """Aksi berdampak luas yang harus dikonfirmasi pengguna lebih dulu.
+
+    Client menampilkan dialog dari message dan affected_count, lalu mengirim
+    ulang request yang sama dengan confirm=true (PBI-24 AC8, SCRUM-197).
+    """
+
+    status_code = 409
+    code = "CONFIRMATION_REQUIRED"
+
+    def __init__(self, message: str, *, affected_count: int) -> None:
+        super().__init__(message, details={"affected_count": affected_count})
+
+
 class ValidationError(DomainError):
     status_code = 422
     code = "validation_error"

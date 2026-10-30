@@ -11,8 +11,10 @@ from app.shared.security import CurrentUser, Role, require_role
 probe = APIRouter(prefix="/_test/rbac", include_in_schema=False)
 
 
-@probe.get("/author")
-def author_only(_user: CurrentUser = Depends(require_role(Role.AUTHOR))) -> dict[str, bool]:
+@probe.get("/contributor")
+def contributor_only(
+    _user: CurrentUser = Depends(require_role(Role.CONTRIBUTOR)),
+) -> dict[str, bool]:
     return {"ok": True}
 
 

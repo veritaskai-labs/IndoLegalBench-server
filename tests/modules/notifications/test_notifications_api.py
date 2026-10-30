@@ -29,7 +29,7 @@ def pengguna_di_db(db_session):
                 id=user_id,
                 email=email,
                 name=name,
-                role=Role.AUTHOR,
+                role=Role.CONTRIBUTOR,
                 is_active=True,
             )
         )
@@ -64,7 +64,7 @@ def _buat(
 
 def test_daftar_kosong(as_role, pengguna_di_db):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     # Act
     response = client.get("/notifications")
@@ -86,7 +86,7 @@ def test_daftar_dan_filter_unread(as_role, db_session, pengguna_di_db):
         type="review_decided",
     )
     _buat(db_session, user_id=USER_LAIN, title="Milik orang lain")
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     # Act
     semua = client.get("/notifications").json()
@@ -106,7 +106,7 @@ def test_unread_count(as_role, db_session, pengguna_di_db):
     _buat(db_session, title="Kedua")
     _buat(db_session, title="Sudah", read_at=AWAL)
     _buat(db_session, user_id=USER_LAIN)
-    client = as_role(Role.REVIEWER)
+    client = as_role(Role.CONTRIBUTOR)
 
     # Act
     response = client.get("/notifications/unread-count")
@@ -136,7 +136,7 @@ def test_tandai_dibaca_idempotent(as_role, db_session, pengguna_di_db):
 def test_tandai_milik_orang_lain_403(as_role, db_session, pengguna_di_db):
     # Arrange
     row = _buat(db_session, user_id=USER_LAIN)
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     # Act
     response = client.post(f"/notifications/{row.id}/read")
@@ -148,7 +148,7 @@ def test_tandai_milik_orang_lain_403(as_role, db_session, pengguna_di_db):
 
 def test_tandai_tidak_ada_404(as_role, pengguna_di_db):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     # Act
     response = client.post(f"/notifications/{uuid.uuid4()}/read")

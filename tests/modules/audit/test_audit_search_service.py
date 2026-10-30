@@ -217,7 +217,7 @@ def test_reviewer_otomatis_dibatasi_kasus_yang_ditugaskan(repo, auth, review):
     review.assigned_case_ids.return_value = frozenset({KASUS})
 
     # Act
-    _cari(role=Role.REVIEWER, viewer=REVIEWER)
+    _cari(role=Role.CONTRIBUTOR, viewer=REVIEWER)
 
     # Assert
     assert repo.search.call_args.args[1].case_scope == frozenset({KASUS})
@@ -227,7 +227,7 @@ def test_reviewer_otomatis_dibatasi_kasus_yang_ditugaskan(repo, auth, review):
 def test_reviewer_tanpa_tugas_tidak_melihat_apa_pun(repo, auth, review):
     """Reviewer yang belum pernah ditugaskan mendapat cakupan kosong, bukan tanpa batas."""
     # Act
-    _cari(role=Role.REVIEWER, viewer=REVIEWER)
+    _cari(role=Role.CONTRIBUTOR, viewer=REVIEWER)
 
     # Assert
     assert repo.search.call_args.args[1].case_scope == frozenset()
@@ -236,7 +236,7 @@ def test_reviewer_tanpa_tugas_tidak_melihat_apa_pun(repo, auth, review):
 def test_reviewer_minta_kasus_di_luar_tugas_ditolak(repo, auth, review):
     # Act
     with pytest.raises(ForbiddenError):
-        _cari(AuditLogFilter(case_id=KASUS), role=Role.REVIEWER, viewer=REVIEWER)
+        _cari(AuditLogFilter(case_id=KASUS), role=Role.CONTRIBUTOR, viewer=REVIEWER)
 
     # Assert
     repo.search.assert_not_called()
@@ -247,7 +247,7 @@ def test_reviewer_minta_kasus_yang_ditugaskan_boleh(repo, auth, review):
     review.assigned_case_ids.return_value = frozenset({KASUS})
 
     # Act
-    _cari(AuditLogFilter(case_id=KASUS), role=Role.REVIEWER, viewer=REVIEWER)
+    _cari(AuditLogFilter(case_id=KASUS), role=Role.CONTRIBUTOR, viewer=REVIEWER)
 
     # Assert
     assert repo.search.call_args.args[1].case_id == KASUS
@@ -261,7 +261,8 @@ def test_admin_tidak_menanyakan_tugas_review(repo, auth, review):
     review.assigned_case_ids.assert_not_called()
 
 
-@pytest.mark.parametrize("role", [Role.AUTHOR, Role.VIEWER])
+# PBI-24: Kontributor memegang cakupan Reviewer lama, jadi tidak lagi di daftar ini.
+@pytest.mark.parametrize("role", [Role.VIEWER, Role.DEVELOPER_AI])
 def test_peran_lain_ditolak(repo, auth, review, role):
     # Act
     with pytest.raises(ForbiddenError):
@@ -295,7 +296,7 @@ def test_catatan_tidak_ada(repo, auth):
 def test_reviewer_membuka_catatan_di_luar_tugas_ditolak(repo, auth, review):
     # Act + Assert
     with pytest.raises(ForbiddenError):
-        service.get_log(MagicMock(), 1, viewer_id=REVIEWER, viewer_role=Role.REVIEWER)
+        service.get_log(MagicMock(), 1, viewer_id=REVIEWER, viewer_role=Role.CONTRIBUTOR)
 
 
 def test_reviewer_membuka_catatan_kasus_yang_ditugaskan(repo, auth, review):
@@ -303,7 +304,7 @@ def test_reviewer_membuka_catatan_kasus_yang_ditugaskan(repo, auth, review):
     review.assigned_case_ids.return_value = frozenset({KASUS})
 
     # Act
-    catatan = service.get_log(MagicMock(), 1, viewer_id=REVIEWER, viewer_role=Role.REVIEWER)
+    catatan = service.get_log(MagicMock(), 1, viewer_id=REVIEWER, viewer_role=Role.CONTRIBUTOR)
 
     # Assert
     assert catatan.case_id == KASUS
@@ -341,7 +342,7 @@ def test_ekspor_terlalu_besar_diminta_mempersempit(repo, auth):
 def test_ekspor_reviewer_ikut_cakupan(repo, auth, review):
     # Act
     service.list_for_export(
-        MagicMock(), AuditLogFilter(), viewer_id=REVIEWER, viewer_role=Role.REVIEWER
+        MagicMock(), AuditLogFilter(), viewer_id=REVIEWER, viewer_role=Role.CONTRIBUTOR
     )
 
     # Assert

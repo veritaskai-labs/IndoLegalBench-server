@@ -57,19 +57,20 @@ def list_for_suite(
     return query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc()).all()
 
 
-def count_by_status(db: Session) -> dict[CaseStatus, int]:
-    """Count every case by the status of its in-effect version, in one GROUP BY.
+def count_by_status(db: Session, *, created_by: uuid.UUID | None = None) -> dict[CaseStatus, int]:
+    """Count cases by the status of their in-effect version, in one GROUP BY.
 
     Same in-effect rule as list_for_suite, so the numbers match the case list.
+    created_by limits the count to one writer's cases (PBI-24 AC6); None counts
+    every case.
     """
     in_effect_id = func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
-    rows = (
-        db.query(CaseVersion.status, func.count(Case.id))
-        .join(CaseVersion, CaseVersion.id == in_effect_id)
-        .group_by(CaseVersion.status)
-        .all()
+    query = db.query(CaseVersion.status, func.count(Case.id)).join(
+        CaseVersion, CaseVersion.id == in_effect_id
     )
-    return dict(rows)
+    if created_by is not None:
+        query = query.filter(Case.created_by == created_by)
+    return dict(query.group_by(CaseVersion.status).all())
 
 
 def count_for_suite(db: Session, suite_id: uuid.UUID) -> int:

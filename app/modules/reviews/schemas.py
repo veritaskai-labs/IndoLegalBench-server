@@ -15,6 +15,7 @@ from app.modules.cases.schemas import ReviewCopy
 from app.modules.reviews.models import (
     AssignmentSource,
     AssignmentStatus,
+    AssignmentVoidReason,
     RoundDecision,
     RoundStatus,
     VerdictDecision,
@@ -154,7 +155,12 @@ class ReassignmentAssignmentRead(BaseModel):
     source: AssignmentSource
     assigned_at: datetime
     ended_at: datetime | None = None
-    end_reason: str | None = None
+    end_reason: str | None = Field(
+        default=None, description="Teks bebas Admin untuk replaced; kode void_reason untuk void"
+    )
+    void_reason: AssignmentVoidReason | None = Field(
+        default=None, description="Hanya untuk status void: kenapa reviewer dilepas (SCRUM-197)"
+    )
 
 
 class ReplaceReviewerResponse(BaseModel):

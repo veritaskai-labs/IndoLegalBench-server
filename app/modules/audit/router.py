@@ -28,11 +28,11 @@ from app.modules.audit.schemas import AuditLogFilter, AuditLogRead
 from app.modules.auth.schemas import ErrorBody
 from app.shared.database import get_db
 from app.shared.pagination import Page
-from app.shared.security import CurrentUser, Role, require_roles
+from app.shared.security import REVIEWER_ROLES, CurrentUser, Role, require_roles
 
 router = APIRouter(prefix="/audit-logs", tags=["audit"])
 
-_boleh_melihat = require_roles(Role.ADMIN, Role.REVIEWER)
+_boleh_melihat = require_roles(Role.ADMIN, *REVIEWER_ROLES)
 
 _TOLAK = {
     403: {

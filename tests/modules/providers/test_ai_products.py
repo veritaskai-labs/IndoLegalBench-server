@@ -9,11 +9,33 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 import pytest
+from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import text
 from sqlalchemy.exc import IntegrityError
 
 from app.modules.auth.models import User
-from app.modules.providers.models import AiProduct, LastTestStatus, ProviderType
+from app.modules.providers.models import (
+    AiProduct,
+    LastTestStatus,
+    MeasurementType,
+    ProviderType,
+)
+from app.modules.providers.schemas import (
+    AiProductCreate,
+    AiProductUpdate,
+    ModelParams,
+    _teks_bersih,
+)
+from app.modules.providers.service import (
+    _as_bytes,
+    _enkripsi,
+    create_product,
+    update_product,
+)
+from app.modules.providers.service import (
+    test_connection as service_test_connection,
+)
+from app.shared.exceptions import ConflictError, InternalError, ValidationError
 from app.shared.security import Role
 
 
@@ -102,22 +124,18 @@ def test_duplicate_active_name_is_rejected(db_session):
         db_session.commit()
 
 
-def test_deleted_name_can_be_reused(db_session):
+def test_deleted_name_cannot_be_reused(db_session):
     # Arrange: produk pertama sudah dihapus (deleted_at diisi)
     admin = _admin(db_session)
     first = _product(admin.id, deleted_at=datetime.now(UTC))
     db_session.add(first)
     db_session.commit()
 
-    # Act: produk baru dengan nama yang sama boleh dibuat
+    # Act & Assert: nama unik selamanya (C3), sehingga nama produk terhapus tetap ditolak
     second = _product(admin.id, model_name="aiyu-2")
     db_session.add(second)
-    db_session.commit()  # tidak boleh raise IntegrityError
-
-    # Assert
-    assert second.id != first.id
-    assert second.name == first.name
-    assert second.deleted_at is None
+    with pytest.raises(IntegrityError):
+        db_session.commit()
 
 
 def test_new_product_has_no_deleted_at(db_session):
@@ -129,6 +147,142 @@ def test_new_product_has_no_deleted_at(db_session):
 
     # Assert
     assert product.deleted_at is None
+
+
+def test_new_product_defaults_to_automatic(db_session):
+    admin = _admin(db_session)
+    product = _product(admin.id)
+    db_session.add(product)
+    db_session.commit()
+
+    assert product.measurement_type == MeasurementType.AUTOMATIC
+
+
+def test_manual_product_can_be_stored(db_session):
+    admin = _admin(db_session)
+    manual_prod = AiProduct(
+        name="Justisio",
+        measurement_type=MeasurementType.MANUAL,
+        vendor_name="PT Justisio AI",
+        site_url="https://justisio.test",
+        access_note="Akun Pro tim legal",
+        manual_params="mode pro",
+        created_by=admin.id,
+    )
+    db_session.add(manual_prod)
+    db_session.commit()
+
+    assert manual_prod.id is not None
+    assert manual_prod.measurement_type == MeasurementType.MANUAL
+    assert manual_prod.vendor_name == "PT Justisio AI"
+    assert manual_prod.provider_type is None
+    assert manual_prod.credential_encrypted is None
+
+
+def test_manual_product_with_automatic_fields_violates_check(db_session):
+    admin = _admin(db_session)
+    # Manual tidak boleh punya rate_limit_per_minute / credential dsb
+    manual_prod = AiProduct(
+        name="InvalidManual",
+        measurement_type=MeasurementType.MANUAL,
+        vendor_name="Vendor",
+        site_url="https://vendor.test",
+        rate_limit_per_minute=30,
+        created_by=admin.id,
+    )
+    db_session.add(manual_prod)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+
+def test_automatic_product_missing_credentials_violates_check(db_session):
+    admin = _admin(db_session)
+    # Otomatis wajib punya credential_encrypted dsb
+    auto_prod = AiProduct(
+        name="InvalidAuto",
+        measurement_type=MeasurementType.AUTOMATIC,
+        provider_type=ProviderType.OPENAI_COMPATIBLE,
+        base_url="https://api.example.test",
+        model_name="m1",
+        rate_limit_per_minute=30,
+        monthly_budget_idr=Decimal("1000000.00"),
+        created_by=admin.id,
+    )
+    db_session.add(auto_prod)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+
+def test_automatic_product_with_manual_fields_violates_check(db_session):
+    admin = _admin(db_session)
+    # Otomatis tidak boleh punya vendor_name / site_url
+    auto_prod = _product(admin.id, vendor_name="Vendor X")
+    db_session.add(auto_prod)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+
+
+def test_measurement_type_can_be_changed_without_history(db_session):
+    admin = _admin(db_session)
+    prod = _product(admin.id, name="DeepSeek-R1")
+    db_session.add(prod)
+    db_session.commit()
+
+    # Ubah dari automatic ke manual sebelum punya riwayat
+    updated = update_product(
+        db_session,
+        prod.id,
+        AiProductUpdate(
+            measurement_type=MeasurementType.MANUAL,
+            vendor_name="DeepSeek Inc",
+            site_url="https://chat.deepseek.com",
+        ),
+    )
+
+    assert updated.measurement_type == MeasurementType.MANUAL
+    assert updated.vendor_name == "DeepSeek Inc"
+    assert updated.site_url == "https://chat.deepseek.com"
+    assert updated.provider_type is None
+    assert updated.credential_hint is None
+
+
+def test_measurement_type_cannot_be_changed_with_history(db_session):
+    admin = _admin(db_session)
+    prod = _product(admin.id, name="DeepSeek-R2")
+    db_session.add(prod)
+    db_session.commit()
+
+    # Buat tabel measurement_sessions tiruan sementara untuk menguji deteksi riwayat
+    db_session.execute(
+        text(
+            """
+            CREATE TABLE IF NOT EXISTS measurement_sessions (
+                id TEXT PRIMARY KEY,
+                product_id TEXT NOT NULL
+            )
+            """
+        )
+    )
+    db_session.execute(
+        text("INSERT INTO measurement_sessions (id, product_id) VALUES ('sess-1', :pid)"),
+        {"pid": str(prod.id)},
+    )
+    db_session.commit()
+
+    # Coba ubah jenis saat sudah ada riwayat
+    with pytest.raises(ValidationError) as exc_info:
+        update_product(
+            db_session,
+            prod.id,
+            AiProductUpdate(
+                measurement_type=MeasurementType.MANUAL,
+                vendor_name="DeepSeek Inc",
+                site_url="https://chat.deepseek.com",
+            ),
+        )
+
+    assert exc_info.value.code == "MEASUREMENT_TYPE_IMMUTABLE"
+    assert exc_info.value.status_code == 422
 
 
 @pytest.mark.parametrize("rate_limit", [0, -1])
@@ -147,3 +301,368 @@ def test_monthly_budget_must_be_positive(db_session, budget):
 
     with pytest.raises(IntegrityError):
         db_session.commit()
+
+
+def test_manual_to_automatic_type_switch_clears_manual_fields(db_session, monkeypatch):
+    from cryptography.fernet import Fernet
+
+    from app.shared.config import get_settings
+
+    monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    get_settings.cache_clear()
+
+    admin = _admin(db_session)
+    manual_prod = AiProduct(
+        name="ManualToAuto",
+        measurement_type=MeasurementType.MANUAL,
+        vendor_name="Manual Vendor",
+        site_url="https://manual.test",
+        access_note="Notes",
+        manual_params="Params",
+        created_by=admin.id,
+    )
+    db_session.add(manual_prod)
+    db_session.commit()
+
+    updated = update_product(
+        db_session,
+        manual_prod.id,
+        AiProductUpdate(
+            measurement_type=MeasurementType.AUTOMATIC,
+            provider_type=ProviderType.OPENAI_COMPATIBLE,
+            base_url="https://api.example.test",
+            model_name="model-x",
+            credential="new-secret-key",  # pragma: allowlist secret
+            rate_limit_per_minute=20,
+            monthly_budget_idr=Decimal("500000.00"),
+        ),
+    )
+
+    assert updated.measurement_type == MeasurementType.AUTOMATIC
+    assert updated.provider_type == ProviderType.OPENAI_COMPATIBLE
+    assert updated.vendor_name is None
+    assert updated.site_url is None
+    assert updated.access_note is None
+    assert updated.manual_params is None
+
+
+def test_test_connection_rejects_manual_product(db_session):
+    admin = _admin(db_session)
+    manual_prod = AiProduct(
+        name="Justisio-Test",
+        measurement_type=MeasurementType.MANUAL,
+        vendor_name="Vendor",
+        site_url="https://vendor.test",
+        created_by=admin.id,
+    )
+    db_session.add(manual_prod)
+    db_session.commit()
+
+    with pytest.raises(ValidationError) as exc_info:
+        service_test_connection(db_session, manual_prod.id)
+    assert exc_info.value.field == "measurement_type"
+    assert "Produk manual tidak memiliki uji koneksi" in str(exc_info.value)
+
+
+def test_test_connection_rejects_missing_credentials(db_session):
+    admin = _admin(db_session)
+    prod = AiProduct(
+        name="AutoNoCred",
+        measurement_type=MeasurementType.AUTOMATIC,
+        provider_type=ProviderType.OPENAI_COMPATIBLE,
+        base_url="https://api.example.test",
+        model_name="model-x",
+        rate_limit_per_minute=20,
+        monthly_budget_idr=Decimal("500000.00"),
+        created_by=admin.id,
+    )
+    from unittest.mock import patch
+
+    with (
+        patch("app.modules.providers.service._wajib_ada", return_value=prod),
+        pytest.raises(ValidationError) as exc_info,
+    ):
+        service_test_connection(db_session, prod.id)
+    assert exc_info.value.field == "credential"
+    assert "Kredensial produk belum diisi" in str(exc_info.value)
+
+
+def test_test_connection_decrypt_failure_raises_internal_error(db_session):
+    admin = _admin(db_session)
+    prod = _product(admin.id, credential_encrypted=b"corrupted-ciphertext")
+    db_session.add(prod)
+    db_session.commit()
+
+    from unittest.mock import patch
+
+    from app.modules.providers.crypto import CredentialError
+
+    with (
+        patch(
+            "app.modules.providers.service.decrypt_credential",
+            side_effect=CredentialError("invalid"),
+        ),
+        pytest.raises(InternalError) as exc_info,
+    ):
+        service_test_connection(db_session, prod.id)
+    assert "credential could not be decrypted" in str(exc_info.value)
+
+
+def test_service_create_and_update_integrity_error_raises_conflict(db_session, monkeypatch):
+    from cryptography.fernet import Fernet
+
+    from app.shared.config import get_settings
+
+    monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", Fernet.generate_key().decode())
+    get_settings.cache_clear()
+
+    admin = _admin(db_session)
+    payload_create = AiProductCreate(
+        name="AiYU-Unique",
+        provider_type=ProviderType.OPENAI_COMPATIBLE,
+        base_url="https://api.example.test",
+        model_name="model-x",
+        credential="secret-pass",  # pragma: allowlist secret
+        rate_limit_per_minute=10,
+        monthly_budget_idr=Decimal("10000.00"),
+    )
+    from unittest.mock import patch
+
+    with (
+        patch(
+            "app.modules.providers.repository.create",
+            side_effect=IntegrityError(
+                "stmt", {}, Exception("UNIQUE constraint failed: ai_products.name")
+            ),
+        ),
+        pytest.raises(ConflictError),
+    ):
+        create_product(db_session, payload_create, created_by=admin.id)
+
+    prod = _product(admin.id, name="AiYU-Existing")
+    db_session.add(prod)
+    db_session.commit()
+
+    with (
+        patch(
+            "app.modules.providers.repository.save",
+            side_effect=IntegrityError("stmt", {}, Exception("uq_ai_products_name")),
+        ),
+        pytest.raises(ConflictError),
+    ):
+        update_product(db_session, prod.id, AiProductUpdate(name="NewName"))
+
+
+def test_as_bytes_with_non_bytes():
+    assert _as_bytes(bytearray(b"test")) == b"test"
+    assert _as_bytes(b"test") == b"test"
+
+
+def test_enkripsi_missing_key_raises_validation_error(monkeypatch):
+    monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", "")
+    from app.shared.config import get_settings
+
+    get_settings.cache_clear()
+
+    with pytest.raises(ValidationError) as exc_info:
+        _enkripsi("secret-text")
+    assert exc_info.value.field == "credential"
+
+
+def test_schemas_whitespace_and_update_base_url():
+    with pytest.raises(PydanticValidationError):
+        AiProductUpdate(name="   ")
+
+    with pytest.raises(PydanticValidationError):
+        AiProductUpdate(vendor_name="   ")
+
+    with pytest.raises(ValueError, match="tidak boleh kosong"):
+        _teks_bersih("   ")
+
+    update_none_url = AiProductUpdate(base_url=None)
+    assert update_none_url.base_url is None
+
+    update_valid_url = AiProductUpdate(base_url="https://api.example.com")
+    assert update_valid_url.base_url == "https://api.example.com"
+
+    with pytest.raises(PydanticValidationError):
+        AiProductUpdate(base_url="not-http-url")
+
+
+def test_schemas_site_url_and_prices_and_model_params():
+    # site_url rejects javascript: URL (XSS)
+    with pytest.raises(PydanticValidationError):
+        AiProductUpdate(site_url="javascript:alert(1)")
+
+    valid_site = AiProductUpdate(site_url="https://site.example.com")
+    assert valid_site.site_url == "https://site.example.com"
+
+    # Prices reject negative and out of bound numbers
+    with pytest.raises(PydanticValidationError):
+        AiProductUpdate(price_input_usd_per_mtok=Decimal("-1.0"))
+
+    with pytest.raises(PydanticValidationError):
+        AiProductUpdate(price_output_usd_per_mtok=Decimal("-0.0001"))
+
+    with pytest.raises(PydanticValidationError):
+        # 9 digits before decimal (exceeding 8 digits max for Numeric(12, 4))
+        AiProductUpdate(price_input_usd_per_mtok=Decimal("100000000.0000"))
+
+    valid_price = AiProductUpdate(price_input_usd_per_mtok=Decimal("15.5000"))
+    assert valid_price.price_input_usd_per_mtok == Decimal("15.5000")
+
+    # model_params rejects extra fields and invalid values
+    with pytest.raises(PydanticValidationError):
+        ModelParams.model_validate({"rm_rf": True})
+
+    with pytest.raises(PydanticValidationError):
+        ModelParams(temperature=3.5)
+
+    valid_params = ModelParams(temperature=0.7, effort="medium", thinking=True, web_search=False)
+    assert valid_params.temperature == 0.7
+    assert valid_params.effort == "medium"
+
+
+def test_update_product_same_measurement_type_branch(db_session):
+    admin = _admin(db_session)
+    prod = _product(admin.id, name="SameTypeProd")
+    db_session.add(prod)
+    db_session.commit()
+
+    # PATCH with the exact same measurement_type (branch 85->117)
+    updated = update_product(
+        db_session,
+        prod.id,
+        AiProductUpdate(measurement_type=MeasurementType.AUTOMATIC),
+    )
+    assert updated.measurement_type == MeasurementType.AUTOMATIC
+
+
+def test_update_product_type_field_validation(db_session):
+    admin = _admin(db_session)
+    auto_prod = _product(admin.id, name="AutoFieldCheck")
+    db_session.add(auto_prod)
+    db_session.commit()
+
+    # Passing manual fields to automatic product -> 422
+    with pytest.raises(ValidationError) as exc:
+        update_product(db_session, auto_prod.id, AiProductUpdate(vendor_name="Vendor X"))
+    assert exc.value.field == "vendor_name"
+    assert exc.value.code == "FIELD_NOT_ALLOWED_FOR_TYPE"
+
+    # Switching to manual without vendor_name and site_url -> 422
+    with pytest.raises(ValidationError) as exc:
+        update_product(
+            db_session, auto_prod.id, AiProductUpdate(measurement_type=MeasurementType.MANUAL)
+        )
+    assert exc.value.field == "vendor_name"
+    assert exc.value.code == "FIELD_REQUIRED_FOR_TYPE"
+
+    # Manual product created
+    manual_prod = AiProduct(
+        name="ManualFieldCheck",
+        measurement_type=MeasurementType.MANUAL,
+        vendor_name="Vendor M",
+        site_url="https://vendor.test",
+        created_by=admin.id,
+    )
+    db_session.add(manual_prod)
+    db_session.commit()
+
+    # Passing automatic fields to manual product -> 422
+    with pytest.raises(ValidationError) as exc:
+        update_product(db_session, manual_prod.id, AiProductUpdate(rate_limit_per_minute=50))
+    assert exc.value.field == "rate_limit_per_minute"
+    assert exc.value.code == "FIELD_NOT_ALLOWED_FOR_TYPE"
+
+    with pytest.raises(ValidationError) as exc:
+        update_product(
+            db_session,
+            manual_prod.id,
+            AiProductUpdate(credential="secret-key"),  # pragma: allowlist secret
+        )
+    assert exc.value.field == "credential"
+    assert exc.value.code == "FIELD_NOT_ALLOWED_FOR_TYPE"
+
+    with pytest.raises(ValidationError) as exc:
+        update_product(
+            db_session,
+            manual_prod.id,
+            AiProductUpdate(measurement_type=MeasurementType.AUTOMATIC),
+        )
+    assert exc.value.code == "FIELD_REQUIRED_FOR_TYPE"
+
+
+def test_update_product_clearing_optional_fields(db_session):
+    admin = _admin(db_session)
+    manual_prod = AiProduct(
+        name="ClearOptionalProd",
+        measurement_type=MeasurementType.MANUAL,
+        vendor_name="Vendor",
+        site_url="https://vendor.test",
+        access_note="Some note",
+        manual_params="Some params",
+        created_by=admin.id,
+    )
+    db_session.add(manual_prod)
+    db_session.commit()
+
+    # Clear access_note and manual_params
+    updated = update_product(
+        db_session,
+        manual_prod.id,
+        AiProductUpdate(access_note=None, manual_params=None),
+    )
+    assert updated.access_note is None
+    assert updated.manual_params is None
+
+
+def test_update_product_integrity_error_mapping(db_session):
+    admin = _admin(db_session)
+    prod = _product(admin.id, name="IntegrityMapProd")
+    db_session.add(prod)
+    db_session.commit()
+
+    from unittest.mock import patch
+
+    # Trigger error string mapped to 422 MEASUREMENT_TYPE_IMMUTABLE
+    with (
+        patch(
+            "app.modules.providers.repository.save",
+            side_effect=IntegrityError("stmt", {}, Exception("MEASUREMENT_TYPE_IMMUTABLE")),
+        ),
+        pytest.raises(ValidationError) as exc,
+    ):
+        update_product(db_session, prod.id, AiProductUpdate(name="NewName"))
+    assert exc.value.code == "MEASUREMENT_TYPE_IMMUTABLE"
+
+    # Check constraint error string mapped to 422 TYPE_FIELDS_INVALID
+    with (
+        patch(
+            "app.modules.providers.repository.save",
+            side_effect=IntegrityError("stmt", {}, Exception("ck_ai_products_type_fields")),
+        ),
+        pytest.raises(ValidationError) as exc,
+    ):
+        update_product(db_session, prod.id, AiProductUpdate(name="NewName"))
+    assert exc.value.code == "TYPE_FIELDS_INVALID"
+
+    # Unique constraint error mapped to 409
+    with (
+        patch(
+            "app.modules.providers.repository.save",
+            side_effect=IntegrityError("stmt", {}, Exception("uq_ai_products_name")),
+        ),
+        pytest.raises(ConflictError),
+    ):
+        update_product(db_session, prod.id, AiProductUpdate(name="NewName"))
+
+    # Unknown integrity error is re-raised
+    with (
+        patch(
+            "app.modules.providers.repository.save",
+            side_effect=IntegrityError("stmt", {}, Exception("some_other_constraint")),
+        ),
+        pytest.raises(IntegrityError),
+    ):
+        update_product(db_session, prod.id, AiProductUpdate(name="NewName"))

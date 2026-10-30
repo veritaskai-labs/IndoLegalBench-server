@@ -31,14 +31,14 @@ def isolate_existing_notifications(monkeypatch):
 @pytest.fixture
 def thread(kasus, jadi):
     client, case_id, assignments = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     assert (
         _nilai(client, assignments[REVIEWER_A], "revise", "Mohon perjelas rujukan.").status_code
         == 201
     )
-    jadi(Role.REVIEWER, REVIEWER_B)
+    jadi(Role.CONTRIBUTOR, REVIEWER_B)
     assert _nilai(client, assignments[REVIEWER_B]).status_code == 201
-    jadi(Role.AUTHOR, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
     return client, case_id, assignments
 
 
@@ -71,7 +71,7 @@ def test_author_reply_persists_and_notifies_only_comment_owner(thread, jadi, db_
     assert notification.user_id == REVIEWER_A
     assert notification.link == url(ids[REVIEWER_A])
     assert reply["body"] not in notification.body
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     mine = client.get(url(ids[REVIEWER_A]))
     assert mine.status_code == 200
     assert mine.json()["replies"] == [reply]
@@ -80,7 +80,7 @@ def test_author_reply_persists_and_notifies_only_comment_owner(thread, jadi, db_
 
 @pytest.mark.parametrize(
     "role, identity",
-    [(Role.AUTHOR, uuid.uuid4()), (Role.REVIEWER, REVIEWER_B), (Role.VIEWER, uuid.uuid4())],
+    [(Role.CONTRIBUTOR, uuid.uuid4()), (Role.CONTRIBUTOR, REVIEWER_B), (Role.VIEWER, uuid.uuid4())],
 )
 def test_unrelated_users_cannot_read_or_reply(thread, jadi, role, identity):
     client, _, ids = thread
@@ -116,12 +116,12 @@ def test_no_comment_and_missing_assignment(thread):
 
 def test_blind_review_cannot_be_bypassed(kasus, jadi):
     client, _, ids = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, ids[REVIEWER_A], "revise", "Private comment")
-    jadi(Role.AUTHOR, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
     assert client.get(url(ids[REVIEWER_A])).status_code == 403
     assert post(client, ids[REVIEWER_A]).status_code == 403
-    jadi(Role.REVIEWER, REVIEWER_B)
+    jadi(Role.CONTRIBUTOR, REVIEWER_B)
     assert client.get(url(ids[REVIEWER_A])).status_code == 403
 
 
@@ -144,7 +144,7 @@ def test_replies_keep_order_and_maximum_body(thread):
 
 def test_pending_comment_hidden_even_if_assignment_exists(kasus, jadi):
     client, _, ids = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     assert client.get(url(ids[REVIEWER_A])).status_code == 404
 
 
@@ -187,7 +187,7 @@ def test_notification_failure_rolls_back_reply_and_audit(thread, db_session, mon
         service.reply_to_comment(
             db_session,
             uuid.UUID(ids[REVIEWER_A]),
-            Viewer(USER_ID_QA, Role.AUTHOR),
+            Viewer(USER_ID_QA, Role.CONTRIBUTOR),
             CommentReplyWrite(body="Please clarify"),
         )
     db_session.rollback()
@@ -219,7 +219,7 @@ def test_author_and_own_reviewer_discuss_in_later_rounds(thread, jadi, db_sessio
     db_session.commit()
     first = post(client, ids[REVIEWER_A], "Apa dasar catatan ini?")
     assert first.status_code == 201
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     response = post(client, ids[REVIEWER_A], "Yang perlu diperjelas adalah bagian penjelasannya.")
     assert response.status_code == 201
     assert response.json()["author_role"] == "reviewer"
@@ -234,13 +234,13 @@ def test_author_and_own_reviewer_discuss_in_later_rounds(thread, jadi, db_sessio
     assert "peninjau" in notices[1].title.lower()
     events = db_session.query(AuditLog).filter_by(action="review.comment_replied").all()
     assert [e.actor_user_id for e in events] == [USER_ID_QA, REVIEWER_A]
-    jadi(Role.AUTHOR, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
     assert client.get(url(ids[REVIEWER_A])).json()["replies"] == discussion["replies"]
 
 
 def test_reviewer_cannot_write_while_round_is_still_blind(kasus, jadi):
     client, _, ids = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, ids[REVIEWER_A], "revise", "Private until both reviews finish")
     assert client.get(url(ids[REVIEWER_A])).json()["can_reply"] is False
     assert post(client, ids[REVIEWER_A]).status_code == 409

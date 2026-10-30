@@ -91,20 +91,20 @@ def _produk(client) -> str:
 
 
 def test_baris_mencatat_pelaku_dan_request(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     response = client.post("/suites", json={"name": "Pidana"})
 
     baris = _log(db_session)[0]
     assert baris.action == "suite.created"
-    assert (baris.actor_user_id, baris.actor_role) == (USER_ID_QA, "author")
+    assert (baris.actor_user_id, baris.actor_role) == (USER_ID_QA, "contributor")
     assert str(baris.request_id) == response.headers["X-Request-ID"]
     assert str(baris.entity_id) == response.json()["id"]
 
 
 def test_audit_gagal_maka_perubahan_ikut_batal(as_role, db_session):
     """D6b: tidak ada perubahan tanpa log."""
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     with (
         patch.object(listener.audit_service, "record", side_effect=RuntimeError("audit mati")),
@@ -119,7 +119,7 @@ def test_audit_gagal_maka_perubahan_ikut_batal(as_role, db_session):
 
 def test_audit_gagal_tercatat_jelas_di_log_server(as_role, db_session, caplog):
     """Error tetap dilempar (D6b), tapi log server menyebut event mana yang gagal."""
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     with (
         patch.object(listener.audit_service, "record", side_effect=RuntimeError("audit mati")),
@@ -136,7 +136,7 @@ def test_audit_gagal_tercatat_jelas_di_log_server(as_role, db_session, caplog):
 
 def test_aksi_baca_tidak_dicatat(as_role, db_session):
     """D6a: aksi melihat tidak dicatat di Sprint 2."""
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     client.get("/suites")
@@ -146,7 +146,7 @@ def test_aksi_baca_tidak_dicatat(as_role, db_session):
 
 
 def test_simpan_tanpa_perubahan_nilai_tidak_dicatat(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     client.patch(f"/suites/{suite_id}", json={"name": "Ketenagakerjaan 2026"})
@@ -158,7 +158,7 @@ def test_simpan_tanpa_perubahan_nilai_tidak_dicatat(as_role, db_session):
 
 
 def test_suite_diubah_mencatat_field_yang_berubah_saja(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     client.patch(f"/suites/{suite_id}", json={"name": "Perdata"})
@@ -169,7 +169,7 @@ def test_suite_diubah_mencatat_field_yang_berubah_saja(as_role, db_session):
 
 
 def test_suite_diarsip_lalu_dibuka(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     client.post(f"/suites/{suite_id}/archive")
@@ -179,7 +179,7 @@ def test_suite_diarsip_lalu_dibuka(as_role, db_session):
 
 
 def test_suite_dihapus(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     assert client.delete(f"/suites/{suite_id}").status_code == 204
@@ -193,7 +193,7 @@ def test_suite_dihapus(as_role, db_session):
 
 
 def test_kasus_dibuat_dan_diubah(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     kasus = client.post(f"/suites/{suite_id}/cases", json=_kasus()).json()
 
@@ -213,7 +213,7 @@ def test_kasus_dibuat_dan_diubah(as_role, db_session):
 
 
 def test_tag_kasus_diubah_dev_ke_test(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     kasus = client.post(f"/suites/{suite_id}/cases", json=_kasus()).json()
 
@@ -227,7 +227,7 @@ def test_tag_kasus_diubah_dev_ke_test(as_role, db_session):
 def test_kasus_diajukan_tercatat_sekali_dengan_nomor_round(as_role, db_session):
     """SCRUM-143: pengajuan tercatat di audit (D6a case.submitted)."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     kasus = client.post(f"/suites/{_suite(client)}/cases", json=_kasus()).json()
 
     # Act
@@ -243,7 +243,7 @@ def test_kasus_diajukan_tercatat_sekali_dengan_nomor_round(as_role, db_session):
 
 def test_pengajuan_ditolak_tidak_tercatat(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     kasus = client.post(
         f"/suites/{_suite(client)}/cases", json=_kasus(traps=[], answer_criteria={})
     ).json()
@@ -311,18 +311,18 @@ def test_produk_ai_dihapus_tercatat(as_role, db_session, encryption_key):
 def test_anggota_ditambah_diubah_perannya_lalu_dinonaktifkan(as_role, db_session):
     client = as_role(Role.ADMIN)
     anggota = client.post(
-        "/admin/users", json={"email": "baru@veritask.ai", "name": "Baru", "role": "author"}
+        "/admin/users", json={"email": "baru@veritask.ai", "name": "Baru", "role": "contributor"}
     ).json()
 
-    client.patch(f"/admin/users/{anggota['id']}", json={"role": "reviewer"})
+    client.patch(f"/admin/users/{anggota['id']}", json={"role": "viewer"})
     client.post(f"/admin/users/{anggota['id']}/deactivate")
 
     ditambah, diubah, dinonaktifkan = _log(db_session)
     assert (ditambah.action, ditambah.after) == (
         "user.added",
-        {"email": "baru@veritask.ai", "role": "author"},
+        {"email": "baru@veritask.ai", "role": "contributor"},
     )
-    assert (diubah.action, diubah.after) == ("user.role_changed", {"role": "reviewer"})
+    assert (diubah.action, diubah.after) == ("user.role_changed", {"role": "viewer"})
     assert dinonaktifkan.action == "user.deactivated"
     # Nonaktifkan menghapus sesi dan commit lebih dulu, jadi baris user sudah
     # kedaluwarsa saat is_active diubah. Nilai lama tetap harus tercatat.
@@ -335,7 +335,7 @@ def test_anggota_ditambah_diubah_perannya_lalu_dinonaktifkan(as_role, db_session
 
 def test_nilai_lama_tercatat_walau_baris_kedaluwarsa(as_role, db_session):
     """Commit di tengah request membuat atribut kedaluwarsa. before tidak boleh jadi null."""
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     suite = db_session.get(Suite, uuid.UUID(suite_id))
     db_session.expire(suite)
@@ -370,7 +370,7 @@ def test_model_yang_dipetakan_belakangan_ikut_memuat_nilai_lama():
 def test_verdict_tercatat_tanpa_komentar_dan_bisa_dicari_per_kasus(as_role, db_session):
     """SCRUM-145: review.verdict_submitted ditulis listener di transaksi verdict."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     kasus = client.post(f"/suites/{_suite(client)}/cases", json=_kasus()).json()
     assert client.post(f"/cases/{kasus['id']}/submit-review").status_code == 200
     ronde = db_session.query(ReviewRound).one()
@@ -380,7 +380,7 @@ def test_verdict_tercatat_tanpa_komentar_dan_bisa_dicari_per_kasus(as_role, db_s
     db_session.add(tugas)
     db_session.commit()
     app.dependency_overrides[get_current_user] = lambda: CurrentUser(
-        user_id=reviewer_id, name="R", email="r@veritask.test", role=Role.REVIEWER
+        user_id=reviewer_id, name="R", email="r@veritask.test", role=Role.CONTRIBUTOR
     )
 
     # Act

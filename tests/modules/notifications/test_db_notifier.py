@@ -28,7 +28,7 @@ def _factory(db_session):
 def users(db_session):
     for user_id, email in ((USER_A, "a@veritask.test"), (USER_B, "b@veritask.test")):
         db_session.add(
-            User(id=user_id, email=email, name=email, role=Role.REVIEWER, is_active=True)
+            User(id=user_id, email=email, name=email, role=Role.CONTRIBUTOR, is_active=True)
         )
     db_session.commit()
 

@@ -86,7 +86,7 @@ class TestBentukBadanError:
         ],
     )
     def test_setiap_penolakan_memakai_kunci_yang_dibaca_frontend(self, as_role, nama, ubah):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client, "Ketenagakerjaan QA")
 
         respons = client.post(f"/suites/{suite_id}/cases", json=_badan(**ubah))
@@ -109,7 +109,7 @@ class TestBentukBadanError:
         Kalau formatnya berubah jadi `legal_refs.1.links.0.pasal`, pesannya tetap muncul tetapi tidak
         lagi menempel di baris mana pun, dan tidak ada yang merah.
         """
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client, "Ketenagakerjaan QA")
 
         respons = client.post(f"/suites/{suite_id}/cases", json=_badan(legal_refs=_tanpa_pasal(1)))
@@ -118,7 +118,7 @@ class TestBentukBadanError:
 
     @pytest.mark.parametrize("baris", [0, 1])
     def test_jalur_menunjuk_baris_yang_benar_bukan_selalu_yang_pertama(self, as_role, baris):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client, "Ketenagakerjaan QA")
 
         respons = client.post(
@@ -128,7 +128,7 @@ class TestBentukBadanError:
         assert respons.json()["field"] == f"legal_refs[{baris}].links[0].pasal"
 
     def test_jalur_bersarang_tetap_terbaca(self, as_role):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client, "Ketenagakerjaan QA")
 
         respons = client.post(
@@ -141,7 +141,7 @@ class TestBentukBadanError:
         assert POLA_FIELD.match(field), f"jalur {field!r} di luar format yang dikenal editor"
 
     def test_jalur_pada_daftar_jebakan_menunjuk_barisnya(self, as_role):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client, "Ketenagakerjaan QA")
 
         respons = client.post(
@@ -156,7 +156,7 @@ class TestKodeYangDicabangkanFrontend:
     """Editor bercabang berdasarkan `code`. Tiap cabang harus benar-benar ada."""
 
     def test_field_required_untuk_isian_wajib_yang_kosong(self, as_role):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client, "Ketenagakerjaan QA")
 
         respons = client.post(f"/suites/{suite_id}/cases", json=_badan(legal_refs=_tanpa_pasal(0)))
@@ -164,7 +164,7 @@ class TestKodeYangDicabangkanFrontend:
         assert respons.json()["code"] == "FIELD_REQUIRED"
 
     def test_split_tag_required_didahulukan_agar_pesannya_khusus(self, as_role):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client, "Ketenagakerjaan QA")
 
         respons = client.post(f"/suites/{suite_id}/cases", json=_badan(split_tag=""))
@@ -174,7 +174,7 @@ class TestKodeYangDicabangkanFrontend:
         assert badan["field"] == "split_tag"
 
     def test_validation_error_untuk_pelanggaran_yang_bukan_soal_kosong(self, as_role):
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client, "Ketenagakerjaan QA")
 
         respons = client.post(
@@ -190,7 +190,7 @@ class TestKodeYangDicabangkanFrontend:
         Nama suite di dalam pesan adalah satu-satunya petunjuk Author untuk
         menemukan kasus yang bentrok, dan editor menampilkannya apa adanya.
         """
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_a = _suite(client, "Ketenagakerjaan A")
         suite_b = _suite(client, "Ketenagakerjaan B")
         client.post(f"/suites/{suite_a}/cases", json=BADAN)
@@ -205,7 +205,7 @@ class TestKodeYangDicabangkanFrontend:
 
     def test_suite_tidak_aktif_punya_kode_sendiri_agar_bisa_jadi_spanduk(self, as_role):
         """Editor menampilkannya sebagai spanduk di atas formulir, bukan di satu field."""
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client, "Ketenagakerjaan QA")
         client.post(f"/suites/{suite_id}/archive")
 
@@ -228,7 +228,7 @@ class TestPesanTidakMembocorkanIsiDalam:
     )
     def test_pesan_tidak_memuat_jejak_teknis(self, as_role, ubah):
         """OWASP A05: kegagalan tidak boleh membocorkan isi dalam sistem."""
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client, "Ketenagakerjaan QA")
 
         pesan = client.post(f"/suites/{suite_id}/cases", json=_badan(**ubah)).json()["message"]
@@ -243,7 +243,7 @@ class TestPesanTidakMembocorkanIsiDalam:
         muncul diam-diam berarti ada informasi yang dikirim tetapi tidak pernah
         sampai ke pengguna.
         """
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = _suite(client, "Ketenagakerjaan QA")
 
         badan = client.post(f"/suites/{suite_id}/cases", json=_badan(split_tag="")).json()

@@ -65,7 +65,7 @@ def _ganti(client: TestClient, user) -> None:
 
 
 def test_buat_kasus_draft(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     response = _buat(client, suite_id)
@@ -93,7 +93,7 @@ def test_buat_kasus_draft(as_role, db_session):
 
 
 def test_detail_kasus(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
 
@@ -105,7 +105,7 @@ def test_detail_kasus(as_role):
 
 
 def test_kasus_tidak_ditemukan(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     response = client.get(f"/cases/{uuid.uuid4()}")
 
@@ -114,7 +114,7 @@ def test_kasus_tidak_ditemukan(as_role):
 
 
 def test_suite_tidak_aktif_ditolak(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     assert client.post(f"/suites/{suite_id}/archive").status_code == 200
 
@@ -125,7 +125,7 @@ def test_suite_tidak_aktif_ditolak(as_role):
 
 
 def test_ubah_suite_tidak_aktif_ditolak(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     assert client.post(f"/suites/{suite_id}/archive").status_code == 200
@@ -137,7 +137,7 @@ def test_ubah_suite_tidak_aktif_ditolak(as_role):
 
 
 def test_suite_hilang_ditolak(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     response = _buat(client, str(uuid.uuid4()))
 
@@ -145,7 +145,7 @@ def test_suite_hilang_ditolak(as_role):
 
 
 def test_kode_bentrok_menyebut_suite_pemilik(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     pertama = _suite(client, name="Suite Pemilik")
     kedua = _suite(client, name="Suite Lain")
     assert _buat(client, pertama).status_code == 201
@@ -159,7 +159,7 @@ def test_kode_bentrok_menyebut_suite_pemilik(as_role):
 
 
 def test_split_tag_kosong(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     badan = _badan()
     del badan["split_tag"]
@@ -175,7 +175,7 @@ def test_split_tag_kosong(as_role):
 def test_draf_tidak_bisa_kehilangan_tag_lewat_put(as_role, tanpa_tag):
     """PBI-6 AC1: tag tidak bisa hilang, jadi kasus tanpa tag tak pernah diajukan."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     badan = _badan()
     if tanpa_tag == "dihapus":
@@ -193,7 +193,7 @@ def test_draf_tidak_bisa_kehilangan_tag_lewat_put(as_role, tanpa_tag):
 
 
 def test_pasal_kosong_menyebut_field(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     badan = _badan()
     del badan["legal_refs"][0]["links"][0]["pasal"]
@@ -206,7 +206,7 @@ def test_pasal_kosong_menyebut_field(as_role):
 
 
 def test_judul_kosong(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     badan = _badan()
     badan["identity"]["title"] = "   "
@@ -218,7 +218,7 @@ def test_judul_kosong(as_role):
 
 
 def test_pola_case_code_placeholder_ditolak(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     response = _buat(client, suite_id, case_code="kode tidak sah")
@@ -229,7 +229,7 @@ def test_pola_case_code_placeholder_ditolak(as_role):
 
 
 def test_judul_lebih_dari_300_bukan_wajib(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     badan = _badan()
     badan["identity"]["title"] = "x" * 301
@@ -245,7 +245,7 @@ def test_judul_lebih_dari_300_bukan_wajib(as_role):
 
 
 def test_tahun_nol_bukan_wajib(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     badan = _badan()
     badan["legal_refs"][0]["links"][0]["year"] = 0
@@ -260,7 +260,7 @@ def test_tahun_nol_bukan_wajib(as_role):
 
 
 def test_judul_bukan_string_bukan_wajib(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     badan = _badan()
     badan["identity"]["title"] = 123
@@ -274,7 +274,7 @@ def test_judul_bukan_string_bukan_wajib(as_role):
 
 
 def test_draft_boleh_belum_lengkap(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     response = _buat(
@@ -291,7 +291,7 @@ def test_draft_boleh_belum_lengkap(as_role):
 
 
 def test_daftar_menyaring_tag(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     dev_id = _buat(client, suite_id, case_code="PHK-001").json()["id"]
     test_id = _buat(client, suite_id, case_code="PHK-002", split_tag="test").json()["id"]
@@ -319,7 +319,7 @@ def test_daftar_menyaring_tag(as_role):
 
 
 def test_daftar_menghitung_ulang_completeness(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     case_id = _buat(client, suite_id, traps=[]).json()["id"]
@@ -344,7 +344,7 @@ def test_daftar_menghitung_ulang_completeness(as_role, db_session):
 
 
 def test_pembuat_boleh_mengubah_termasuk_tag(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
 
@@ -369,10 +369,10 @@ def test_pembuat_boleh_mengubah_termasuk_tag(as_role):
 
 
 def test_author_lain_ditolak(as_role, buat_pengguna):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
-    _ganti(client, buat_pengguna(Role.AUTHOR, user_id=AUTHOR_LAIN))
+    _ganti(client, buat_pengguna(Role.CONTRIBUTOR, user_id=AUTHOR_LAIN))
 
     response = client.put(f"/cases/{case_id}", json=_badan(case_code="PHK-009"))
 
@@ -381,7 +381,7 @@ def test_author_lain_ditolak(as_role, buat_pengguna):
 
 
 def test_admin_boleh_mengubah_tapi_bukan_tag_sebelum_approved(as_role, buat_pengguna):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     _ganti(client, buat_pengguna(Role.ADMIN, user_id=ADMIN_LAIN))
@@ -411,7 +411,7 @@ def test_setelah_approved_tag_tidak_diubah_lewat_put(as_role, buat_pengguna, db_
     Sebelumnya Admin boleh mengganti tag di draf versi berikutnya lewat PUT;
     jalur itu melewati konfirmasi dev ke test dan penanda was_dev.
     """
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     _setujui(db_session, case_id)
@@ -439,7 +439,8 @@ def test_tanpa_sesi_ditolak(client):
     assert response.json()["code"] == "UNAUTHENTICATED"
 
 
-@pytest.mark.parametrize("role", [Role.VIEWER, Role.REVIEWER])
+# PBI-24: Kontributor membaca kasus; Developer AI juga (disamarkan, SCRUM-183).
+@pytest.mark.parametrize("role", [Role.VIEWER])
 def test_peran_lain_ditolak(as_role, role):
     client = as_role(role)
 
@@ -459,7 +460,7 @@ def test_bentrok_unik_saat_simpan_tetap_case_code_taken(as_role, monkeypatch):
         raise IntegrityError("INSERT", {}, Exception(BENTROK_KODE_PG))
 
     monkeypatch.setattr(repository, "create", bentrok)
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     response = _buat(client, suite_id, case_code="PHK-100")
@@ -472,7 +473,7 @@ def test_bentrok_unik_saat_ubah_tetap_case_code_taken(as_role, monkeypatch):
     def bentrok(*_args, **_kwargs):
         raise IntegrityError("UPDATE", {}, Exception(BENTROK_KODE_PG))
 
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     monkeypatch.setattr(repository, "save", bentrok)
@@ -484,7 +485,7 @@ def test_bentrok_unik_saat_ubah_tetap_case_code_taken(as_role, monkeypatch):
 
 
 def test_ubah_pola_case_code_ditolak(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
 
@@ -495,7 +496,7 @@ def test_ubah_pola_case_code_ditolak(as_role):
 
 
 def test_filter_status_tidak_dikenal(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     response = client.get(f"/suites/{suite_id}/cases", params={"status": "bukan"})
@@ -505,7 +506,7 @@ def test_filter_status_tidak_dikenal(as_role):
 
 
 def test_suite_berisi_draft_boleh_dihapus(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     assert _buat(client, suite_id).status_code == 201
 
@@ -522,7 +523,7 @@ def _setujui(db_session, case_id: str) -> None:
 
 
 def test_suite_berisi_kasus_approved_tidak_bisa_dihapus(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
     _setujui(db_session, case_id)
@@ -561,7 +562,7 @@ def test_openapi_memakai_pola_placeholder(client):
 
 
 def test_completeness_kasus_lengkap(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
 
@@ -578,7 +579,7 @@ def test_completeness_kasus_lengkap(as_role):
 
 
 def test_completeness_tanpa_jebakan_lengkap(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id, traps=[]).json()["id"]
 
@@ -592,7 +593,7 @@ def test_completeness_tanpa_jebakan_lengkap(as_role):
 
 
 def test_completeness_kasus_tidak_dikenal(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     response = client.get(f"/cases/{uuid.uuid4()}/completeness")
 

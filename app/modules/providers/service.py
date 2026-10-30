@@ -9,11 +9,12 @@ exception dari app.shared.exceptions.
 
 import uuid
 from datetime import UTC, datetime
+from typing import NoReturn
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from app.modules.providers import repository
+from app.modules.providers import repository, rules, visibility
 from app.modules.providers.adapters.dispatch import run_connection_test
 from app.modules.providers.adapters.http import clip
 from app.modules.providers.crypto import (
@@ -22,41 +23,67 @@ from app.modules.providers.crypto import (
     decrypt_credential,
     encrypt_credential,
 )
-from app.modules.providers.models import AiProduct, ConnectionTestErrorCategory, LastTestStatus
+from app.modules.providers.models import (
+    AiProduct,
+    ConnectionTestErrorCategory,
+    LastTestStatus,
+    MeasurementType,
+    ProviderType,
+)
 from app.modules.providers.schemas import (
     AiProductCreate,
+    AiProductOption,
     AiProductRead,
     AiProductUpdate,
     ConnectionTestRead,
 )
-from app.shared.exceptions import ConflictError, InternalError, NotFoundError, ValidationError
+from app.shared.config import get_settings
+from app.shared.exceptions import (
+    ConflictError,
+    ForbiddenError,
+    InternalError,
+    NotFoundError,
+    ValidationError,
+)
+from app.shared.security import Role
 
 NAME_TAKEN = "AI_PRODUCT_NAME_TAKEN"
+
+# Label penyedia produk Otomatis di daftar (PBI-23 AC6), sama dengan client
+# (src/lib/providers/format.ts) supaya daftar dan detail menulis nama yang sama.
+_LABEL_PROVIDER = {
+    ProviderType.OPENAI_COMPATIBLE: "OpenAI-compatible",
+    ProviderType.GEMINI_INTERACTIONS: "Gemini Interactions",
+    ProviderType.ANTHROPIC_MESSAGES: "Anthropic Messages",
+}
 
 
 def create_product(
     db: Session, payload: AiProductCreate, *, created_by: uuid.UUID
 ) -> AiProductRead:
+    jenis = payload.measurement_type
+    isian = payload.model_dump(include=set(_SEMUA_ISIAN_JENIS))
+    if payload.model_params is not None:
+        # D1: kunci parameter yang kosong tidak disimpan, supaya dipakai default penyedia.
+        isian["model_params"] = payload.model_params.model_dump(exclude_none=True)
+    _pastikan_isian_sesuai_jenis(jenis, isian)
+    _pastikan_catatan_tanpa_rahasia(payload.access_note)
     _pastikan_nama_bebas(db, payload.name)
+    # Hanya isian milik jenis ini yang ditulis; kredensial hanya ada di produk Otomatis.
+    credential = isian.pop("credential")
+    milik_jenis = {field: isian[field] for field in rules.TYPE_FIELDS[jenis] if field in isian}
     product = AiProduct(
-        name=payload.name,
-        provider_type=payload.provider_type,
-        base_url=payload.base_url,
-        model_name=payload.model_name,
-        credential_encrypted=_enkripsi(payload.credential),
-        credential_hint=credential_hint(payload.credential),
-        rate_limit_per_minute=payload.rate_limit_per_minute,
-        monthly_budget_idr=payload.monthly_budget_idr,
-        created_by=created_by,
+        name=payload.name, measurement_type=jenis, created_by=created_by, **milik_jenis
     )
+    if credential is not None:
+        product.credential_encrypted = _enkripsi(credential)
+        product.credential_hint = credential_hint(credential)
     try:
         tersimpan = repository.create(db, product)
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise ConflictError(
-            f"Nama produk AI '{payload.name}' sudah dipakai",
-            code=NAME_TAKEN,
-        ) from None
+        # Hanya pelanggaran unik nama yang menjadi 409; FK atau constraint lain tidak disamarkan.
+        _handle_integrity_error(exc, payload.name)
     return _tampilkan(tersimpan)
 
 
@@ -64,19 +91,131 @@ def get_product(db: Session, product_id: uuid.UUID) -> AiProductRead:
     return _tampilkan(_wajib_ada(db, product_id))
 
 
-def list_products(db: Session, *, is_active: bool | None) -> list[AiProductRead]:
-    return [_tampilkan(item) for item in repository.list_products(db, is_active=is_active)]
+def list_products(
+    db: Session, *, is_active: bool | None, measurement_type: MeasurementType | None = None
+) -> list[AiProductRead]:
+    """Daftar Admin, disaring status dan jenis (PBI-23 AC6)."""
+    produk = repository.list_products(db, is_active=is_active, measurement_type=measurement_type)
+    return [_tampilkan(item) for item in produk]
+
+
+def list_options(
+    db: Session, *, purpose: visibility.ProductPurpose, role: Role
+) -> list[AiProductOption]:
+    """Pilihan produk untuk satu tujuan: hanya produk aktif berjenis sesuai (AC7, AC8).
+
+    Peran diperiksa sebelum membaca produk, jadi peran yang tidak berhak tidak
+    pernah memicu query.
+    """
+    if not visibility.can_list_options(role, purpose):
+        raise ForbiddenError("Peran Anda tidak berwenang melihat daftar produk untuk tujuan ini")
+    produk = repository.list_options(db, measurement_type=visibility.measurement_type_for(purpose))
+    return [
+        AiProductOption(id=item.id, name=item.name, measurement_type=item.measurement_type)
+        for item in produk
+    ]
+
+
+_KOLOM_TETAP = {
+    "name",
+    "provider_type",
+    "base_url",
+    "model_name",
+    "rate_limit_per_minute",
+    "monthly_budget_idr",
+    "vendor_name",
+    "site_url",
+}
+
+
+def _filter_unchanged_nulls(perubahan: dict) -> None:
+    for col in _KOLOM_TETAP:
+        if col in perubahan and perubahan[col] is None:
+            perubahan.pop(col)
+
+
+def _apply_measurement_type_switch(product: AiProduct, tipe_baru: MeasurementType) -> None:
+    product.measurement_type = tipe_baru
+    if tipe_baru == MeasurementType.MANUAL:
+        product.provider_type = None
+        product.base_url = None
+        product.model_name = None
+        product.credential_encrypted = None
+        product.credential_hint = None
+        product.rate_limit_per_minute = None
+        product.monthly_budget_idr = None
+        product.last_test_at = None
+        product.last_test_status = None
+        product.last_test_message = None
+        product.last_test_error_category = None
+        product.model_params = None
+        product.price_input_usd_per_mtok = None
+        product.price_output_usd_per_mtok = None
+    else:
+        product.vendor_name = None
+        product.site_url = None
+        product.access_note = None
+        product.manual_params = None
+
+
+def _handle_integrity_error(exc: IntegrityError, product_name: str) -> NoReturn:
+    orig_str = str(getattr(exc, "orig", exc))
+    diag = getattr(getattr(exc, "orig", None), "diag", None)
+    constraint = getattr(diag, "constraint_name", None) or ""
+
+    if "MEASUREMENT_TYPE_IMMUTABLE" in orig_str:
+        raise ValidationError(
+            "Jenis pengukuran tidak dapat diubah karena produk sudah memiliki riwayat pengukuran",
+            code="MEASUREMENT_TYPE_IMMUTABLE",
+            field="measurement_type",
+        ) from None
+    if "ck_ai_products_type_fields" in constraint or "ck_ai_products_type_fields" in orig_str:
+        raise ValidationError(
+            "Kombinasi isian tidak sesuai dengan jenis pengukuran produk",
+            code="TYPE_FIELDS_INVALID",
+        ) from None
+    if (
+        constraint == "uq_ai_products_name"
+        or "uq_ai_products_name" in orig_str
+        or "unique constraint" in orig_str.lower()
+    ):
+        raise ConflictError(
+            f"Nama produk AI '{product_name}' sudah dipakai",
+            code=NAME_TAKEN,
+        ) from None
+    raise exc
 
 
 def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate) -> AiProductRead:
     product = _wajib_ada(db, product_id)
-    # null berarti "tidak diubah": semua kolom ini NOT NULL, jadi null tidak boleh ditulis.
-    perubahan = payload.model_dump(exclude_unset=True, exclude_none=True)
+    perubahan = payload.model_dump(exclude_unset=True)
     credential = perubahan.pop("credential", None)
+    _filter_unchanged_nulls(perubahan)
+
+    tipe_baru = perubahan.pop("measurement_type", None)
+    tipe_berubah = tipe_baru is not None and tipe_baru != product.measurement_type
+    target_type = tipe_baru if tipe_berubah else product.measurement_type
+
+    # Immutability check (C2)
+    if tipe_berubah and repository.has_measurement_sessions(db, product.id):
+        raise ValidationError(
+            "Jenis pengukuran tidak dapat diubah karena produk sudah memiliki riwayat pengukuran",
+            code="MEASUREMENT_TYPE_IMMUTABLE",
+            field="measurement_type",
+        )
+
+    # SCRUM-201: satu aturan per jenis (providers/rules.py) untuk POST dan PATCH.
+    _pastikan_isian_sesuai_jenis(
+        target_type, _isian_setelah_ubah(product, perubahan, credential, berganti=tipe_berubah)
+    )
+    _pastikan_catatan_tanpa_rahasia(perubahan.get("access_note"))
 
     if "name" in perubahan:
         _pastikan_nama_bebas(db, perubahan["name"], kecuali=product.id)
         product.name = perubahan.pop("name")
+
+    if tipe_berubah and tipe_baru is not None:
+        _apply_measurement_type_switch(product, tipe_baru)
 
     for field, value in perubahan.items():
         setattr(product, field, value)
@@ -87,12 +226,10 @@ def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate)
 
     try:
         tersimpan = repository.save(db, product)
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise ConflictError(
-            f"Nama produk AI '{product.name}' sudah dipakai",
-            code=NAME_TAKEN,
-        ) from None
+        _handle_integrity_error(exc, product.name)
+
     return _tampilkan(tersimpan)
 
 
@@ -127,6 +264,11 @@ def test_connection(db: Session, product_id: uuid.UUID) -> ConnectionTestRead:
     last_test_* tidak diubah. Kegagalan provider tetap HTTP 200.
     """
     product = _wajib_ada(db, product_id)
+    if product.measurement_type == MeasurementType.MANUAL:
+        raise ValidationError("Produk manual tidak memiliki uji koneksi", field="measurement_type")
+
+    if product.credential_encrypted is None:
+        raise ValidationError("Kredensial produk belum diisi", field="credential")
     try:
         secret = decrypt_credential(_as_bytes(product.credential_encrypted))
     except CredentialError:
@@ -185,17 +327,74 @@ def _pastikan_nama_bebas(db: Session, name: str, *, kecuali: uuid.UUID | None = 
         raise ConflictError(f"Nama produk AI '{name}' sudah dipakai", code=NAME_TAKEN)
 
 
+# Semua isian khusus jenis (Otomatis dan Manual), untuk aturan per jenis SCRUM-201.
+_SEMUA_ISIAN_JENIS = tuple(f for jenis in MeasurementType for f in rules.TYPE_FIELDS[jenis])
+
+
+def _pastikan_isian_sesuai_jenis(jenis: MeasurementType, isian: dict) -> None:
+    """422 FIELD_REQUIRED / FIELD_NOT_ALLOWED bila isian tidak sesuai jenis (AC1-AC3)."""
+    masalah = rules.type_field_problem(
+        jenis, isian, access_note_required=get_settings().ai_product_access_note_required
+    )
+    if masalah is not None:
+        raise ValidationError(masalah.message, code=masalah.code, field=masalah.field)
+
+
+def _pastikan_catatan_tanpa_rahasia(catatan: str | None) -> None:
+    """422 ACCESS_NOTE_SECRET sebelum catatan tersimpan dan tersalin ke audit (AC3)."""
+    masalah = rules.access_note_problem(catatan)
+    if masalah is not None:
+        raise ValidationError(masalah.message, code=masalah.code, field=masalah.field)
+
+
+def _isian_setelah_ubah(
+    product: AiProduct, perubahan: dict, credential: str | None, *, berganti: bool
+) -> dict:
+    """Nilai akhir tiap isian jenis setelah PATCH, sebelum produk benar-benar diubah.
+
+    Saat jenis berganti, isian jenis lama dikosongkan (D1 C2), jadi hanya isian
+    di body yang dihitung. Kredensial lama tetap berlaku selama jenisnya sama.
+    """
+
+    def nilai(field: str):
+        if field == "credential":
+            if credential is not None:
+                return credential
+            return None if berganti else product.credential_encrypted
+        if field in perubahan:
+            return perubahan[field]
+        return None if berganti else getattr(product, field)
+
+    return {field: nilai(field) for field in _SEMUA_ISIAN_JENIS}
+
+
+def _label_penyedia(product: AiProduct) -> str | None:
+    """vendor_name untuk produk Manual, label provider_type untuk produk Otomatis (D1)."""
+    if product.measurement_type == MeasurementType.MANUAL:
+        return product.vendor_name
+    return _LABEL_PROVIDER.get(product.provider_type)
+
+
 def _tampilkan(product: AiProduct) -> AiProductRead:
     return AiProductRead(
         id=product.id,
         name=product.name,
+        measurement_type=product.measurement_type,
         provider_type=product.provider_type,
         base_url=product.base_url,
         model_name=product.model_name,
         credential_hint=product.credential_hint,
-        has_credential=True,
+        has_credential=product.credential_encrypted is not None,
         rate_limit_per_minute=product.rate_limit_per_minute,
         monthly_budget_idr=product.monthly_budget_idr,
+        model_params=product.model_params,
+        price_input_usd_per_mtok=product.price_input_usd_per_mtok,
+        price_output_usd_per_mtok=product.price_output_usd_per_mtok,
+        vendor_name=product.vendor_name,
+        vendor_label=_label_penyedia(product),
+        site_url=product.site_url,
+        access_note=product.access_note,
+        manual_params=product.manual_params,
         is_active=product.is_active,
         last_test_at=product.last_test_at,
         last_test_status=product.last_test_status,

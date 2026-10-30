@@ -51,7 +51,7 @@ def kasus():
         conn.execute(
             text(
                 "INSERT INTO users (id, email, name, role) "
-                "VALUES (:id, 'qa-139@veritask.test', 'QA 139', 'author')"
+                "VALUES (:id, 'qa-139@veritask.test', 'QA 139', 'contributor')"
             ),
             {"id": user_id},
         )

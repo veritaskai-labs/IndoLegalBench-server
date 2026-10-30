@@ -66,12 +66,12 @@ def test_user_create_request_valid():
     payload = {
         "email": "author@veritask.ai",
         "name": "Author Veritask",
-        "role": "author",
+        "role": "contributor",
     }
     req = UserCreateRequest(**payload)
     assert req.email == "author@veritask.ai"
     assert req.name == "Author Veritask"
-    assert req.role == Role.AUTHOR
+    assert req.role == Role.CONTRIBUTOR
 
 
 @pytest.mark.parametrize(
@@ -86,7 +86,7 @@ def test_user_create_request_valid():
 )
 def test_user_create_request_invalid_email(invalid_email):
     with pytest.raises(ValidationError):
-        UserCreateRequest(email=invalid_email, name="Budi", role=Role.REVIEWER)
+        UserCreateRequest(email=invalid_email, name="Budi", role=Role.CONTRIBUTOR)
 
 
 def test_user_create_request_invalid_role():
@@ -116,8 +116,8 @@ def test_user_create_request_missing_required_fields(missing_field_payload):
 # 3. UserUpdateRoleRequest Validation
 # ----------------------------------------------------------------------
 def test_user_update_role_valid():
-    req = UserUpdateRoleRequest(role=Role.REVIEWER)
-    assert req.role == Role.REVIEWER
+    req = UserUpdateRoleRequest(role=Role.CONTRIBUTOR)
+    assert req.role == Role.CONTRIBUTOR
 
 
 def test_user_update_role_invalid():

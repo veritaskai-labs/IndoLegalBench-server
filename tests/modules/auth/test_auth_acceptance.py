@@ -26,7 +26,7 @@ from app.shared.security import Role
 
 def test_ac2_author_boleh_membuat_suite(as_role):
     # Author tetap bisa membuat suite setelah guard peran dipasang di SCRUM-99.
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     response = client.post(
         "/suites",

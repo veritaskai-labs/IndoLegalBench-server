@@ -345,6 +345,18 @@
               "format": "uuid",
               "title": "User Id"
             }
+          },
+          {
+            "name": "confirm",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "true setelah Admin menyetujui dialog konfirmasi dari respons 409",
+              "default": false,
+              "title": "Confirm"
+            },
+            "description": "true setelah Admin menyetujui dialog konfirmasi dari respons 409"
           }
         ],
         "requestBody": {
@@ -364,6 +376,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Masih ada kasus menunggu penilaian anggota ini (`CONFIRMATION_REQUIRED`). Kirim ulang dengan confirm=true setelah Admin setuju.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmationRequiredBody"
                 }
               }
             }
@@ -398,6 +420,18 @@
               "format": "uuid",
               "title": "User Id"
             }
+          },
+          {
+            "name": "confirm",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "true setelah Admin menyetujui dialog konfirmasi dari respons 409",
+              "default": false,
+              "title": "Confirm"
+            },
+            "description": "true setelah Admin menyetujui dialog konfirmasi dari respons 409"
           }
         ],
         "responses": {
@@ -407,6 +441,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/UserResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Masih ada kasus menunggu penilaian anggota ini (`CONFIRMATION_REQUIRED`). Kirim ulang dengan confirm=true setelah Admin setuju.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ConfirmationRequiredBody"
                 }
               }
             }
@@ -1874,6 +1918,24 @@
               ],
               "title": "Is Active"
             }
+          },
+          {
+            "name": "measurement_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/MeasurementType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Saring per jenis pengukuran (PBI-23 AC6).",
+              "title": "Measurement Type"
+            },
+            "description": "Saring per jenis pengukuran (PBI-23 AC6)."
           }
         ],
         "responses": {
@@ -2210,6 +2272,64 @@
           },
           "404": {
             "description": "Produk AI tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai-products": {
+      "get": {
+        "tags": [
+          "providers"
+        ],
+        "summary": "Daftar pilihan produk AI per tujuan",
+        "description": "Hanya produk aktif yang jenisnya sesuai tujuan: automatic_run untuk pengukuran otomatis (Admin, Developer AI), manual_entry untuk pencatatan manual (Admin, Kontributor). Produk berjenis lain tidak dikirim sama sekali (PBI-23 AC7, AC8).",
+        "operationId": "list_product_options_ai_products_get",
+        "parameters": [
+          {
+            "name": "purpose",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ProductPurpose",
+              "description": "Untuk apa daftar pilihan ini dipakai."
+            },
+            "description": "Untuk apa daftar pilihan ini dipakai."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AiProductOption"
+                  },
+                  "title": "Response List Product Options Ai Products Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Peran tidak berwenang untuk tujuan ini.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3589,196 +3709,9 @@
             "minLength": 1,
             "title": "Name"
           },
-          "provider_type": {
-            "$ref": "#/components/schemas/ProviderType"
-          },
-          "base_url": {
-            "type": "string",
-            "maxLength": 2048,
-            "minLength": 1,
-            "title": "Base Url"
-          },
-          "model_name": {
-            "type": "string",
-            "maxLength": 200,
-            "minLength": 1,
-            "title": "Model Name"
-          },
-          "credential": {
-            "type": "string",
-            "minLength": 4,
-            "title": "Credential"
-          },
-          "rate_limit_per_minute": {
-            "type": "integer",
-            "exclusiveMinimum": 0.0,
-            "title": "Rate Limit Per Minute"
-          },
-          "monthly_budget_idr": {
-            "anyOf": [
-              {
-                "type": "number",
-                "exclusiveMinimum": 0.0
-              },
-              {
-                "type": "string",
-                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,16}|(?=[\\d.]{1,19}0*$)\\d{0,16}\\.\\d{0,2}0*$)"
-              }
-            ],
-            "title": "Monthly Budget Idr"
-          }
-        },
-        "type": "object",
-        "required": [
-          "name",
-          "provider_type",
-          "base_url",
-          "model_name",
-          "credential",
-          "rate_limit_per_minute",
-          "monthly_budget_idr"
-        ],
-        "title": "AiProductCreate"
-      },
-      "AiProductRead": {
-        "properties": {
-          "id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Id"
-          },
-          "name": {
-            "type": "string",
-            "title": "Name"
-          },
-          "provider_type": {
-            "$ref": "#/components/schemas/ProviderType"
-          },
-          "base_url": {
-            "type": "string",
-            "title": "Base Url"
-          },
-          "model_name": {
-            "type": "string",
-            "title": "Model Name"
-          },
-          "credential_hint": {
-            "type": "string",
-            "title": "Credential Hint"
-          },
-          "has_credential": {
-            "type": "boolean",
-            "title": "Has Credential",
-            "default": true
-          },
-          "rate_limit_per_minute": {
-            "type": "integer",
-            "title": "Rate Limit Per Minute"
-          },
-          "monthly_budget_idr": {
-            "type": "string",
-            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
-            "title": "Monthly Budget Idr"
-          },
-          "is_active": {
-            "type": "boolean",
-            "title": "Is Active"
-          },
-          "last_test_at": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "date-time"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Test At"
-          },
-          "last_test_status": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/LastTestStatus"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "last_test_message": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Last Test Message"
-          },
-          "last_test_error_category": {
-            "anyOf": [
-              {
-                "$ref": "#/components/schemas/ConnectionTestErrorCategory"
-              },
-              {
-                "type": "null"
-              }
-            ]
-          },
-          "created_by": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Created By"
-          },
-          "created_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Created At"
-          },
-          "updated_at": {
-            "type": "string",
-            "format": "date-time",
-            "title": "Updated At"
-          }
-        },
-        "type": "object",
-        "required": [
-          "id",
-          "name",
-          "provider_type",
-          "base_url",
-          "model_name",
-          "credential_hint",
-          "rate_limit_per_minute",
-          "monthly_budget_idr",
-          "is_active",
-          "last_test_at",
-          "last_test_status",
-          "last_test_message",
-          "last_test_error_category",
-          "created_by",
-          "created_at",
-          "updated_at"
-        ],
-        "title": "AiProductRead",
-        "description": "Kredensial tidak ada di sini. Hanya hint, dan penanda bahwa ciphertext tersimpan."
-      },
-      "AiProductUpdate": {
-        "properties": {
-          "name": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 200,
-                "minLength": 1
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Name"
+          "measurement_type": {
+            "$ref": "#/components/schemas/MeasurementType",
+            "default": "automatic"
           },
           "provider_type": {
             "anyOf": [
@@ -3855,6 +3788,574 @@
               }
             ],
             "title": "Monthly Budget Idr"
+          },
+          "model_params": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelParams"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price_input_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Input Usd Per Mtok"
+          },
+          "price_output_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Output Usd Per Mtok"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
+          },
+          "site_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Url"
+          },
+          "access_note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Note"
+          },
+          "manual_params": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Params"
+          }
+        },
+        "type": "object",
+        "required": [
+          "name"
+        ],
+        "title": "AiProductCreate",
+        "description": "Pendaftaran produk AI (PBI-10, PBI-23 AC1-AC3).\n\nIsian per jenis sengaja opsional di sini: wajib atau terlarangnya diputuskan\nrules.type_field_problem sesuai measurement_type, supaya kesalahan dilaporkan\nsebagai FIELD_REQUIRED / FIELD_NOT_ALLOWED dengan nama field-nya. Tanpa\nmeasurement_type produk dianggap Otomatis, sama seperti body PBI-10."
+      },
+      "AiProductOption": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "measurement_type": {
+            "$ref": "#/components/schemas/MeasurementType"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "measurement_type"
+        ],
+        "title": "AiProductOption",
+        "description": "Satu pilihan produk di form pengukuran atau pencatatan manual (PBI-23 AC7, AC8).\n\nSengaja hanya id, nama, dan jenis: Kontributor hanya boleh melihat nama produk\nmanual aktif. Isian lengkap tetap di /admin/providers untuk Admin."
+      },
+      "AiProductRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "measurement_type": {
+            "$ref": "#/components/schemas/MeasurementType",
+            "default": "automatic"
+          },
+          "provider_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProviderType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "credential_hint": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential Hint"
+          },
+          "has_credential": {
+            "type": "boolean",
+            "title": "Has Credential",
+            "default": false
+          },
+          "rate_limit_per_minute": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Limit Per Minute"
+          },
+          "monthly_budget_idr": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Budget Idr"
+          },
+          "model_params": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelParams"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price_input_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Input Usd Per Mtok"
+          },
+          "price_output_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Output Usd Per Mtok"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
+          },
+          "vendor_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Label",
+            "description": "Nama penyedia untuk daftar (PBI-23 AC6): vendor_name untuk produk Manual, label provider_type untuk produk Otomatis."
+          },
+          "site_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Url"
+          },
+          "access_note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Note"
+          },
+          "manual_params": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Params"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "last_test_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test At"
+          },
+          "last_test_status": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/LastTestStatus"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "last_test_message": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Last Test Message"
+          },
+          "last_test_error_category": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ConnectionTestErrorCategory"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Created By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "is_active",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "AiProductRead",
+        "description": "Kredensial tidak ada di sini. Hanya hint, dan penanda bahwa ciphertext tersimpan."
+      },
+      "AiProductUpdate": {
+        "properties": {
+          "name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name"
+          },
+          "measurement_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/MeasurementType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "provider_type": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProviderType"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "base_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Base Url"
+          },
+          "model_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Name"
+          },
+          "credential": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 4
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential"
+          },
+          "rate_limit_per_minute": {
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rate Limit Per Minute"
+          },
+          "monthly_budget_idr": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,16}|(?=[\\d.]{1,19}0*$)\\d{0,16}\\.\\d{0,2}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Budget Idr"
+          },
+          "model_params": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelParams"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price_input_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Input Usd Per Mtok"
+          },
+          "price_output_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Output Usd Per Mtok"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
+          },
+          "site_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Url"
+          },
+          "access_note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Note"
+          },
+          "manual_params": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Params"
           }
         },
         "type": "object",
@@ -3957,6 +4458,15 @@
         ],
         "title": "AssignmentStatus",
         "description": "replaced: diganti Admin (AC7). void: reviewer dinonaktifkan (AC8)."
+      },
+      "AssignmentVoidReason": {
+        "type": "string",
+        "enum": [
+          "deactivated",
+          "role_changed"
+        ],
+        "title": "AssignmentVoidReason",
+        "description": "end_reason assignment void (D11). Kode stabil; FE yang memetakan ke teks (SCRUM-198)."
       },
       "AuditEntityType": {
         "type": "string",
@@ -4689,6 +5199,47 @@
         "title": "CompletenessIssue",
         "description": "Satu bagian yang belum terisi, dengan pesan untuk ditampilkan editor."
       },
+      "ConfirmationRequiredBody": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "examples": [
+              "No platform account is mapped to this identity."
+            ]
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field",
+            "description": "Lokasi field yang gagal, misalnya legal_refs[0].links[0].pasal"
+          },
+          "affected_count": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Affected Count",
+            "description": "Jumlah kasus yang terdampak aksi ini"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "affected_count"
+        ],
+        "title": "ConfirmationRequiredBody",
+        "description": "409 CONFIRMATION_REQUIRED: kirim ulang dengan confirm=true untuk melanjutkan."
+      },
       "ConnectionTestErrorCategory": {
         "type": "string",
         "enum": [
@@ -4771,6 +5322,17 @@
             "title": "Waiting For Review",
             "description": "Kasus in_review yang round berjalannya belum punya verdict sah dari kedua slot reviewer, termasuk kasus dengan 0 atau 1 reviewer. Bisa lebih besar dari total antrean reviewer."
           },
+          "own_cases": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/OwnCaseSummary"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hanya Kontributor: kasus yang ia tulis per status versi yang berlaku, berisi nol bila belum ada (PBI-24 AC6). null untuk peran lain. case_counts dan total_cases di atas tetap menghitung semua kasus."
+          },
           "review_queue": {
             "anyOf": [
               {
@@ -4816,6 +5378,7 @@
           "case_counts",
           "total_cases",
           "waiting_for_review",
+          "own_cases",
           "review_queue",
           "needs_reassignment"
         ],
@@ -5375,6 +5938,73 @@
         ],
         "title": "MeResponse"
       },
+      "MeasurementType": {
+        "type": "string",
+        "enum": [
+          "automatic",
+          "manual"
+        ],
+        "title": "MeasurementType",
+        "description": "MeasurementType:\n- automatic: dijalankan otomatis oleh sistem via API\n- manual: dijalankan manual dan dicatat oleh tim legal via situs"
+      },
+      "ModelParams": {
+        "properties": {
+          "temperature": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 2.0,
+                "minimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Temperature"
+          },
+          "effort": {
+            "anyOf": [
+              {
+                "type": "string",
+                "enum": [
+                  "low",
+                  "medium",
+                  "high"
+                ]
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Effort"
+          },
+          "thinking": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Thinking"
+          },
+          "web_search": {
+            "anyOf": [
+              {
+                "type": "boolean"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Web Search"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "ModelParams"
+      },
       "NeedsReassignmentResponse": {
         "properties": {
           "case_id": {
@@ -5488,6 +6118,24 @@
           "created_at"
         ],
         "title": "NotificationRead"
+      },
+      "OwnCaseSummary": {
+        "properties": {
+          "case_counts": {
+            "$ref": "#/components/schemas/CaseCounts"
+          },
+          "total_cases": {
+            "type": "integer",
+            "title": "Total Cases"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_counts",
+          "total_cases"
+        ],
+        "title": "OwnCaseSummary",
+        "description": "Kasus yang ditulis pengguna yang login, per status versi yang berlaku (PBI-24 AC6)."
       },
       "Page_AuditLogRead_": {
         "properties": {
@@ -5661,6 +6309,15 @@
         "title": "PendingReview",
         "description": "Satu baris antrean dashboard reviewer (PBI-19 AC6, SCRUM-154).\n\nwaiting_since adalah saat round dibuka; antrean diurutkan dari yang\nterlama. assigned_at bisa lebih baru bila reviewer ini pengganti."
       },
+      "ProductPurpose": {
+        "type": "string",
+        "enum": [
+          "automatic_run",
+          "manual_entry"
+        ],
+        "title": "ProductPurpose",
+        "description": "Untuk apa daftar pilihan produk dipakai."
+      },
       "ProviderType": {
         "type": "string",
         "enum": [
@@ -5726,7 +6383,19 @@
                 "type": "null"
               }
             ],
-            "title": "End Reason"
+            "title": "End Reason",
+            "description": "Teks bebas Admin untuk replaced; kode void_reason untuk void"
+          },
+          "void_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/AssignmentVoidReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Hanya untuk status void: kenapa reviewer dilepas (SCRUM-197)"
           }
         },
         "type": "object",
@@ -6021,13 +6690,13 @@
       "Role": {
         "type": "string",
         "enum": [
-          "author",
-          "reviewer",
           "admin",
           "viewer",
-          "developer_ai"
+          "developer_ai",
+          "contributor"
         ],
-        "title": "Role"
+        "title": "Role",
+        "description": "Satu akun satu peran (D10). Author dan Reviewer digabung jadi Kontributor (PBI-24)."
       },
       "RoundDecision": {
         "type": "string",
