@@ -32,9 +32,9 @@ class CaseCountAdapter:
 class ProductAdapter:
     """Produk AI sebagai ProductInfo, tanpa alamat dan kredensialnya.
 
-    Tabel produk belum punya tipe pengukuran dan harga per produk (SCRUM-200),
-    jadi semua produk dianggap otomatis dan tanpa harga. Setelah kolomnya ada,
-    pemetaan ini membaca kolom aslinya.
+    Tipe pengukuran dan harga output dibaca dari produk. Produk manual tidak
+    punya provider dan model, jadi field itu bisa kosong. Harga kosong berarti
+    service memakai katalog harga dari konfigurasi.
     """
 
     def __init__(self, db: Session) -> None:
@@ -48,12 +48,12 @@ class ProductAdapter:
         return ProductInfo(
             id=product.id,
             name=product.name,
-            measurement_type="automatic",
+            measurement_type=product.measurement_type.value,
             is_active=product.is_active,
-            provider_type=product.provider_type.value,
+            provider_type=product.provider_type.value if product.provider_type else None,
             model_name=product.model_name,
             monthly_budget_idr=product.monthly_budget_idr,
-            price_output_usd_per_mtok=None,
+            price_output_usd_per_mtok=product.price_output_usd_per_mtok,
         )
 
 
