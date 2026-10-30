@@ -24,6 +24,7 @@ from sqlalchemy import (
     Numeric,
     String,
     Text,
+    UniqueConstraint,
     Uuid,
     func,
     text,
@@ -133,11 +134,7 @@ class AiProduct(Base):
             name="ck_ai_products_type_fields",
         ),
         # C3: nama produk unik selamanya, termasuk produk nonaktif dan soft-deleted.
-        Index(
-            "uq_ai_products_name",
-            "name",
-            unique=True,
-        ),
+        UniqueConstraint("name", name="uq_ai_products_name"),
         # C4: daftar pilihan disaring per jenis dan status aktif (produk yang belum dihapus)
         Index(
             "ix_ai_products_type_active",

@@ -75,9 +75,30 @@ def list_products(db: Session, *, is_active: bool | None) -> list[AiProductRead]
 
 def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate) -> AiProductRead:
     product = _wajib_ada(db, product_id)
-    # null berarti "tidak diubah": semua kolom ini NOT NULL, jadi null tidak boleh ditulis.
-    perubahan = payload.model_dump(exclude_unset=True, exclude_none=True)
+    perubahan = payload.model_dump(exclude_unset=True)
     credential = perubahan.pop("credential", None)
+
+    # Untuk kolom NOT NULL, nilai None di payload berarti "tidak diubah" (diabaikan)
+    # sesuai kontrak test_patch_null_leaves_the_field_unchanged.
+    # Sedangkan untuk kolom opsional (access_note, manual_params, model_params, price_*),
+    # nilai None disimpan untuk mengosongkan isian kolom tersebut.
+    kolom_tetap = {
+        "name",
+        "provider_type",
+        "base_url",
+        "model_name",
+        "rate_limit_per_minute",
+        "monthly_budget_idr",
+        "vendor_name",
+        "site_url",
+    }
+    for col in list(perubahan.keys()):
+        if col in kolom_tetap and perubahan[col] is None:
+            perubahan.pop(col)
+
+    target_type = product.measurement_type
+    tipe_berubah = False
+    tipe_baru = None
 
     # Immutability & Type switching check (C2: terkunci setelah punya riwayat pengukuran)
     if "measurement_type" in perubahan:
@@ -89,34 +110,106 @@ def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate)
                     code="MEASUREMENT_TYPE_IMMUTABLE",
                     field="measurement_type",
                 )
-            # Belum punya riwayat: reset isian khusus jenis lama sesuai AC5 & D1 C2
-            product.measurement_type = tipe_baru
-            if tipe_baru == MeasurementType.MANUAL:
-                # Otomatis -> Manual
-                product.provider_type = None
-                product.base_url = None
-                product.model_name = None
-                product.credential_encrypted = None
-                product.credential_hint = None
-                product.rate_limit_per_minute = None
-                product.monthly_budget_idr = None
-                product.last_test_at = None
-                product.last_test_status = None
-                product.last_test_message = None
-                product.last_test_error_category = None
-                product.model_params = None
-                product.price_input_usd_per_mtok = None
-                product.price_output_usd_per_mtok = None
-            else:
-                # Manual -> Otomatis
-                product.vendor_name = None
-                product.site_url = None
-                product.access_note = None
-                product.manual_params = None
+            target_type = tipe_baru
+            tipe_berubah = True
+
+    # Validasi kesesuaian field per jenis pengukuran (C1 check di level service)
+    manual_khusus = {"vendor_name", "site_url", "access_note", "manual_params"}
+    otomatis_khusus = {
+        "provider_type",
+        "base_url",
+        "model_name",
+        "rate_limit_per_minute",
+        "monthly_budget_idr",
+        "model_params",
+        "price_input_usd_per_mtok",
+        "price_output_usd_per_mtok",
+    }
+
+    if target_type == MeasurementType.AUTOMATIC:
+        for f in manual_khusus:
+            if f in perubahan and perubahan[f] is not None:
+                raise ValidationError(
+                    f"Kolom '{f}' tidak diizinkan untuk produk otomatis",
+                    field=f,
+                    code="FIELD_NOT_ALLOWED_FOR_TYPE",
+                )
+    else:
+        for f in otomatis_khusus:
+            if f in perubahan and perubahan[f] is not None:
+                raise ValidationError(
+                    f"Kolom '{f}' tidak diizinkan untuk produk manual",
+                    field=f,
+                    code="FIELD_NOT_ALLOWED_FOR_TYPE",
+                )
+        if credential is not None:
+            raise ValidationError(
+                "Kredensial tidak diizinkan untuk produk manual",
+                field="credential",
+                code="FIELD_NOT_ALLOWED_FOR_TYPE",
+            )
+
+    # Validasi kelengkapan field wajib bila ada perpindahan jenis
+    if tipe_berubah:
+        if target_type == MeasurementType.MANUAL:
+            vendor_val = perubahan.get("vendor_name") or product.vendor_name
+            site_val = perubahan.get("site_url") or product.site_url
+            if not vendor_val or not site_val:
+                raise ValidationError(
+                    "vendor_name dan site_url wajib diisi untuk produk manual",
+                    field="vendor_name" if not vendor_val else "site_url",
+                    code="FIELD_REQUIRED_FOR_TYPE",
+                )
+        else:
+            p_type = perubahan.get("provider_type") or product.provider_type
+            b_url = perubahan.get("base_url") or product.base_url
+            m_name = perubahan.get("model_name") or product.model_name
+            rl = (
+                perubahan.get("rate_limit_per_minute")
+                if "rate_limit_per_minute" in perubahan
+                else product.rate_limit_per_minute
+            )
+            budget = (
+                perubahan.get("monthly_budget_idr")
+                if "monthly_budget_idr" in perubahan
+                else product.monthly_budget_idr
+            )
+            cred = credential or product.credential_encrypted
+            if not p_type or not b_url or not m_name or rl is None or budget is None or not cred:
+                raise ValidationError(
+                    "Semua kolom otomatis wajib diisi untuk produk otomatis",
+                    code="FIELD_REQUIRED_FOR_TYPE",
+                )
 
     if "name" in perubahan:
         _pastikan_nama_bebas(db, perubahan["name"], kecuali=product.id)
         product.name = perubahan.pop("name")
+
+    # Semua validasi lolos, sekarang aman menerapkan perubahan ke objek
+    if tipe_berubah and tipe_baru is not None:
+        product.measurement_type = tipe_baru
+        if tipe_baru == MeasurementType.MANUAL:
+            # Otomatis -> Manual
+            product.provider_type = None
+            product.base_url = None
+            product.model_name = None
+            product.credential_encrypted = None
+            product.credential_hint = None
+            product.rate_limit_per_minute = None
+            product.monthly_budget_idr = None
+            product.last_test_at = None
+            product.last_test_status = None
+            product.last_test_message = None
+            product.last_test_error_category = None
+            product.model_params = None
+            product.price_input_usd_per_mtok = None
+            product.price_output_usd_per_mtok = None
+        else:
+            # Manual -> Otomatis
+            product.vendor_name = None
+            product.site_url = None
+            product.access_note = None
+            product.manual_params = None
 
     for field, value in perubahan.items():
         setattr(product, field, value)
@@ -127,8 +220,34 @@ def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate)
 
     try:
         tersimpan = repository.save(db, product)
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
+        orig_str = str(getattr(exc, "orig", exc))
+        diag = getattr(getattr(exc, "orig", None), "diag", None)
+        constraint_name = getattr(diag, "constraint_name", None) or ""
+        if "MEASUREMENT_TYPE_IMMUTABLE" in orig_str:
+            raise ValidationError(
+                "Jenis pengukuran tidak dapat diubah karena produk sudah memiliki riwayat pengukuran",
+                code="MEASUREMENT_TYPE_IMMUTABLE",
+                field="measurement_type",
+            ) from None
+        if (
+            "ck_ai_products_type_fields" in constraint_name
+            or "ck_ai_products_type_fields" in orig_str
+        ):
+            raise ValidationError(
+                "Kombinasi isian tidak sesuai dengan jenis pengukuran produk",
+                code="TYPE_FIELDS_INVALID",
+            ) from None
+        if (
+            "uq_ai_products_name" in constraint_name
+            or "uq_ai_products_name" in orig_str
+            or "unique constraint" in orig_str.lower()
+        ):
+            raise ConflictError(
+                f"Nama produk AI '{product.name}' sudah dipakai",
+                code=NAME_TAKEN,
+            ) from None
         raise ConflictError(
             f"Nama produk AI '{product.name}' sudah dipakai",
             code=NAME_TAKEN,
