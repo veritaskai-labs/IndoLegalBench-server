@@ -60,12 +60,12 @@ class ProductAdapter:
 class PendingSpend:
     """Pengeluaran bulan ini. Log panggilan belum ada (SCRUM-209), jadi selalu nol."""
 
-    def spent_this_month_idr(self, product_id: uuid.UUID) -> Decimal:
+    def spent_this_month_idr(self, _product_id: uuid.UUID) -> Decimal:
         return Decimal("0.00")
 
 
 class PendingAnswerHistory:
     """Panjang jawaban sebelumnya. Log panggilan belum ada (SCRUM-209), jadi kosong."""
 
-    def average_answer_tokens(self, product_id: uuid.UUID) -> Decimal | None:
+    def average_answer_tokens(self, _product_id: uuid.UUID) -> Decimal | None:
         return None
