@@ -14,7 +14,7 @@ from unittest.mock import MagicMock, patch
 import pytest
 
 from app.modules.cases.models import SplitTag
-from app.modules.providers.models import ProviderType
+from app.modules.providers.models import MeasurementType, ProviderType
 from app.modules.providers.schemas import AiProductRead
 from app.modules.runs import adapters
 from app.shared.exceptions import NotFoundError
@@ -83,16 +83,18 @@ def test_suite_tidak_ada_menghentikan_sebelum_menghitung_kasus():
     cases.count_approved_by_split.assert_not_called()
 
 
-def test_produk_dipetakan_ke_info_tanpa_kredensial_dan_tanpa_harga():
+def test_produk_dipetakan_ke_info_tanpa_kredensial():
     # Arrange
     db = MagicMock(name="db")
     with patch.object(adapters, "providers_service") as providers:
-        providers.get_product.return_value = _produk_read()
+        providers.get_product.return_value = _produk_read(
+            price_output_usd_per_mtok=Decimal("0.4200")
+        )
 
         # Act
         info = adapters.ProductAdapter(db).get(PRODUCT_ID)
 
-    # Assert: tabel produk belum punya tipe dan harga, jadi semuanya otomatis tanpa harga
+    # Assert
     providers.get_product.assert_called_once_with(db, PRODUCT_ID)
     assert info.id == PRODUCT_ID
     assert info.name == "AiYU"
@@ -102,9 +104,44 @@ def test_produk_dipetakan_ke_info_tanpa_kredensial_dan_tanpa_harga():
     assert type(info.provider_type) is str
     assert info.model_name == "deepseek-flash"
     assert info.monthly_budget_idr == Decimal("500000.00")
-    assert info.price_output_usd_per_mtok is None
+    assert info.price_output_usd_per_mtok == Decimal("0.4200")
     assert not hasattr(info, "base_url")
     assert not hasattr(info, "credential_hint")
+
+
+def test_produk_manual_dipetakan_dengan_tipe_asli_dan_tanpa_provider():
+    # Arrange
+    db = MagicMock(name="db")
+    with patch.object(adapters, "providers_service") as providers:
+        providers.get_product.return_value = _produk_read(
+            measurement_type=MeasurementType.MANUAL,
+            provider_type=None,
+            model_name=None,
+            base_url=None,
+        )
+
+        # Act
+        info = adapters.ProductAdapter(db).get(PRODUCT_ID)
+
+    # Assert
+    assert info.measurement_type == "manual"
+    assert type(info.measurement_type) is str
+    assert info.provider_type is None
+    assert info.model_name is None
+
+
+def test_produk_otomatis_tanpa_harga_menjadi_none_agar_katalog_dipakai():
+    # Arrange
+    db = MagicMock(name="db")
+    with patch.object(adapters, "providers_service") as providers:
+        providers.get_product.return_value = _produk_read(price_output_usd_per_mtok=None)
+
+        # Act
+        info = adapters.ProductAdapter(db).get(PRODUCT_ID)
+
+    # Assert
+    assert info.measurement_type == "automatic"
+    assert info.price_output_usd_per_mtok is None
 
 
 def test_produk_nonaktif_tetap_dikembalikan_agar_service_yang_menolak():
