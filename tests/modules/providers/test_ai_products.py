@@ -444,7 +444,7 @@ def test_service_create_and_update_integrity_error_raises_conflict(db_session, m
     with (
         patch(
             "app.modules.providers.repository.save",
-            side_effect=IntegrityError("stmt", {}, Exception("dup")),
+            side_effect=IntegrityError("stmt", {}, Exception("uq_ai_products_name")),
         ),
         pytest.raises(ConflictError),
     ):
@@ -652,5 +652,15 @@ def test_update_product_integrity_error_mapping(db_session):
             side_effect=IntegrityError("stmt", {}, Exception("uq_ai_products_name")),
         ),
         pytest.raises(ConflictError),
+    ):
+        update_product(db_session, prod.id, AiProductUpdate(name="NewName"))
+
+    # Unknown integrity error is re-raised
+    with (
+        patch(
+            "app.modules.providers.repository.save",
+            side_effect=IntegrityError("stmt", {}, Exception("some_other_constraint")),
+        ),
+        pytest.raises(IntegrityError),
     ):
         update_product(db_session, prod.id, AiProductUpdate(name="NewName"))

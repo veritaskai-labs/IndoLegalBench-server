@@ -75,11 +75,12 @@ def upgrade() -> None:
 
     # 1. Bersihkan duplikat nama dari produk soft-deleted (Sprint 2 mengizinkan reuse nama setelah delete)
     # Ubah nama produk yang sudah dihapus agar constraint unik global (C3) dapat dipasang dengan aman.
+    # Batasi panjang nama awal ke 181 karakter agar total panjang dengan akhiran tidak melebihi VARCHAR(200).
     bind.execute(
         sa.text(
             """
             UPDATE ai_products
-            SET name = name || ' (dihapus ' || substr(cast(id as text), 1, 8) || ')'
+            SET name = substr(name, 1, 181) || ' (dihapus ' || substr(cast(id as text), 1, 8) || ')'
             WHERE deleted_at IS NOT NULL
               AND name IN (
                   SELECT name FROM ai_products GROUP BY name HAVING count(*) > 1
