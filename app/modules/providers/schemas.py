@@ -12,7 +12,12 @@ from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
-from app.modules.providers.models import ConnectionTestErrorCategory, LastTestStatus, ProviderType
+from app.modules.providers.models import (
+    ConnectionTestErrorCategory,
+    LastTestStatus,
+    MeasurementType,
+    ProviderType,
+)
 
 
 def _teks_bersih(value: str) -> str:
@@ -56,14 +61,22 @@ class AiProductUpdate(BaseModel):
     model_config = ConfigDict(str_strip_whitespace=True)
 
     name: str | None = Field(default=None, min_length=1, max_length=200)
+    measurement_type: MeasurementType | None = None
     provider_type: ProviderType | None = None
     base_url: str | None = Field(default=None, min_length=1, max_length=2048)
     model_name: str | None = Field(default=None, min_length=1, max_length=200)
     credential: str | None = Field(default=None, min_length=4)
     rate_limit_per_minute: int | None = Field(default=None, gt=0)
     monthly_budget_idr: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=2)
+    model_params: dict | None = None
+    price_input_usd_per_mtok: Decimal | None = None
+    price_output_usd_per_mtok: Decimal | None = None
+    vendor_name: str | None = Field(default=None, min_length=1, max_length=200)
+    site_url: str | None = Field(default=None, min_length=1, max_length=2048)
+    access_note: str | None = None
+    manual_params: str | None = None
 
-    @field_validator("name", "model_name")
+    @field_validator("name", "model_name", "vendor_name")
     @classmethod
     def wajib_ada(cls, value: str | None) -> str | None:
         if value is None:
@@ -85,18 +98,26 @@ class AiProductRead(BaseModel):
 
     id: uuid.UUID
     name: str
-    provider_type: ProviderType
-    base_url: str
-    model_name: str
-    credential_hint: str
-    has_credential: bool = True
-    rate_limit_per_minute: int
-    monthly_budget_idr: Decimal
+    measurement_type: MeasurementType = MeasurementType.AUTOMATIC
+    provider_type: ProviderType | None = None
+    base_url: str | None = None
+    model_name: str | None = None
+    credential_hint: str | None = None
+    has_credential: bool = False
+    rate_limit_per_minute: int | None = None
+    monthly_budget_idr: Decimal | None = None
+    model_params: dict | None = None
+    price_input_usd_per_mtok: Decimal | None = None
+    price_output_usd_per_mtok: Decimal | None = None
+    vendor_name: str | None = None
+    site_url: str | None = None
+    access_note: str | None = None
+    manual_params: str | None = None
     is_active: bool
-    last_test_at: datetime | None
-    last_test_status: LastTestStatus | None
-    last_test_message: str | None
-    last_test_error_category: ConnectionTestErrorCategory | None
+    last_test_at: datetime | None = None
+    last_test_status: LastTestStatus | None = None
+    last_test_message: str | None = None
+    last_test_error_category: ConnectionTestErrorCategory | None = None
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime

@@ -22,7 +22,12 @@ from app.modules.providers.crypto import (
     decrypt_credential,
     encrypt_credential,
 )
-from app.modules.providers.models import AiProduct, ConnectionTestErrorCategory, LastTestStatus
+from app.modules.providers.models import (
+    AiProduct,
+    ConnectionTestErrorCategory,
+    LastTestStatus,
+    MeasurementType,
+)
 from app.modules.providers.schemas import (
     AiProductCreate,
     AiProductRead,
@@ -73,6 +78,41 @@ def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate)
     # null berarti "tidak diubah": semua kolom ini NOT NULL, jadi null tidak boleh ditulis.
     perubahan = payload.model_dump(exclude_unset=True, exclude_none=True)
     credential = perubahan.pop("credential", None)
+
+    # Immutability & Type switching check (C2: terkunci setelah punya riwayat pengukuran)
+    if "measurement_type" in perubahan:
+        tipe_baru = perubahan.pop("measurement_type")
+        if tipe_baru != product.measurement_type:
+            if repository.has_measurement_sessions(db, product.id):
+                raise ValidationError(
+                    "Jenis pengukuran tidak dapat diubah karena produk sudah memiliki riwayat pengukuran",
+                    code="MEASUREMENT_TYPE_IMMUTABLE",
+                    field="measurement_type",
+                )
+            # Belum punya riwayat: reset isian khusus jenis lama sesuai AC5 & D1 C2
+            product.measurement_type = tipe_baru
+            if tipe_baru == MeasurementType.MANUAL:
+                # Otomatis -> Manual
+                product.provider_type = None
+                product.base_url = None
+                product.model_name = None
+                product.credential_encrypted = None
+                product.credential_hint = None
+                product.rate_limit_per_minute = None
+                product.monthly_budget_idr = None
+                product.last_test_at = None
+                product.last_test_status = None
+                product.last_test_message = None
+                product.last_test_error_category = None
+                product.model_params = None
+                product.price_input_usd_per_mtok = None
+                product.price_output_usd_per_mtok = None
+            else:
+                # Manual -> Otomatis
+                product.vendor_name = None
+                product.site_url = None
+                product.access_note = None
+                product.manual_params = None
 
     if "name" in perubahan:
         _pastikan_nama_bebas(db, perubahan["name"], kecuali=product.id)
@@ -127,6 +167,11 @@ def test_connection(db: Session, product_id: uuid.UUID) -> ConnectionTestRead:
     last_test_* tidak diubah. Kegagalan provider tetap HTTP 200.
     """
     product = _wajib_ada(db, product_id)
+    if product.measurement_type == MeasurementType.MANUAL:
+        raise ValidationError("Produk manual tidak memiliki uji koneksi", field="measurement_type")
+
+    if product.credential_encrypted is None:
+        raise ValidationError("Kredensial produk belum diisi", field="credential")
     try:
         secret = decrypt_credential(_as_bytes(product.credential_encrypted))
     except CredentialError:
@@ -189,13 +234,21 @@ def _tampilkan(product: AiProduct) -> AiProductRead:
     return AiProductRead(
         id=product.id,
         name=product.name,
+        measurement_type=product.measurement_type,
         provider_type=product.provider_type,
         base_url=product.base_url,
         model_name=product.model_name,
         credential_hint=product.credential_hint,
-        has_credential=True,
+        has_credential=product.credential_encrypted is not None,
         rate_limit_per_minute=product.rate_limit_per_minute,
         monthly_budget_idr=product.monthly_budget_idr,
+        model_params=product.model_params,
+        price_input_usd_per_mtok=product.price_input_usd_per_mtok,
+        price_output_usd_per_mtok=product.price_output_usd_per_mtok,
+        vendor_name=product.vendor_name,
+        site_url=product.site_url,
+        access_note=product.access_note,
+        manual_params=product.manual_params,
         is_active=product.is_active,
         last_test_at=product.last_test_at,
         last_test_status=product.last_test_status,
