@@ -12,6 +12,8 @@ from pydantic import ValidationError
 
 from app.shared.config import Settings
 
+KUNCI_UJI = "kunci-uji"  # pragma: allowlist secret
+
 
 def _settings(monkeypatch, **env) -> Settings:
     for nama, nilai in env.items():
@@ -54,6 +56,29 @@ def test_harga_model_dibaca_dari_json_environment(monkeypatch):
         "openai_compatible:model-a": Decimal("0.42"),
         "gemini_interactions:model-b": Decimal("2.5"),
     }
+
+
+def test_jisdor_bawaan_tanpa_key_dan_alamat_dari_dokumentasi_layanan(monkeypatch):
+    # Arrange + Act
+    settings = _settings(monkeypatch)
+
+    # Assert: key tidak punya nilai bawaan, alamat boleh punya
+    assert settings.jisdor_api_key == ""
+    assert settings.jisdor_api_url.endswith("/api/v1/central-bank/bi/latest")
+    assert settings.jisdor_api_url.startswith("https://")
+
+
+def test_jisdor_alamat_dan_key_dibaca_dari_environment(monkeypatch):
+    # Arrange + Act
+    settings = _settings(
+        monkeypatch,
+        JISDOR_API_URL="https://rates.example.test/latest",
+        JISDOR_API_KEY=KUNCI_UJI,
+    )
+
+    # Assert
+    assert settings.jisdor_api_url == "https://rates.example.test/latest"
+    assert settings.jisdor_api_key == KUNCI_UJI
 
 
 @pytest.mark.parametrize(
