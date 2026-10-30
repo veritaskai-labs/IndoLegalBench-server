@@ -58,11 +58,11 @@ def jadi(buat_pengguna):
 @pytest.fixture
 def kasus(as_role, db_session):
     """Kasus milik Author USER_ID_QA yang sudah diajukan, round 1 open dengan A dan B."""
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     db_session.add_all(
         [
-            User(id=REVIEWER_A, email="a@veritask.test", name="Reviewer A", role=Role.REVIEWER),
-            User(id=REVIEWER_B, email="b@veritask.test", name="Reviewer B", role=Role.REVIEWER),
+            User(id=REVIEWER_A, email="a@veritask.test", name="Reviewer A", role=Role.CONTRIBUTOR),
+            User(id=REVIEWER_B, email="b@veritask.test", name="Reviewer B", role=Role.CONTRIBUTOR),
         ]
     )
     db_session.commit()
@@ -116,7 +116,7 @@ def _verdict_terlihat(client, case_id: str) -> dict[str, dict | None]:
 def test_reviewer_melihat_kasus_yang_ditugaskan_beserta_isinya(kasus, jadi):
     # Arrange
     client, case_id, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
 
     # Act
     response = client.get("/reviews/assigned")
@@ -134,7 +134,7 @@ def test_reviewer_melihat_kasus_yang_ditugaskan_beserta_isinya(kasus, jadi):
 def test_reviewer_lain_tidak_melihat_tugas_orang(kasus, jadi):
     # Arrange
     client, _, _ = kasus
-    jadi(Role.REVIEWER, uuid.uuid4())
+    jadi(Role.CONTRIBUTOR, uuid.uuid4())
 
     # Act + Assert
     assert client.get("/reviews/assigned").json() == []
@@ -146,7 +146,7 @@ def test_reviewer_lain_tidak_melihat_tugas_orang(kasus, jadi):
 def test_verdict_pertama_tersembunyi_dari_rekan_dan_penulis(kasus, jadi):
     # Arrange
     client, case_id, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
 
     # Act
     response = _nilai(client, tugas[REVIEWER_A])
@@ -155,23 +155,27 @@ def test_verdict_pertama_tersembunyi_dari_rekan_dan_penulis(kasus, jadi):
     assert response.status_code == 201
     assert response.json()["round_status"] == "open"
     assert _verdict_terlihat(client, case_id)["Reviewer A"]["decision"] == "approve"
-    jadi(Role.REVIEWER, REVIEWER_B)
+    jadi(Role.CONTRIBUTOR, REVIEWER_B)
     assert _verdict_terlihat(client, case_id) == {"Reviewer A": None, "Reviewer B": None}
-    jadi(Role.AUTHOR, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
     assert _verdict_terlihat(client, case_id) == {"Reviewer A": None, "Reviewer B": None}
 
 
 @pytest.mark.parametrize(
     ("role", "user_id", "path"),
     [
-        pytest.param(Role.REVIEWER, REVIEWER_B, "/reviews/assigned", id="reviewer-daftar-tugas"),
-        pytest.param(Role.REVIEWER, REVIEWER_B, "/cases/{id}/review", id="reviewer-review-kasus"),
+        pytest.param(Role.CONTRIBUTOR, REVIEWER_B, "/reviews/assigned", id="reviewer-daftar-tugas"),
         pytest.param(
-            Role.REVIEWER, REVIEWER_B, "/cases/{id}/versions", id="reviewer-riwayat-versi"
+            Role.CONTRIBUTOR, REVIEWER_B, "/cases/{id}/review", id="reviewer-review-kasus"
         ),
-        pytest.param(Role.AUTHOR, USER_ID_QA, "/cases/{id}", id="penulis-detail-kasus"),
-        pytest.param(Role.AUTHOR, USER_ID_QA, "/cases/{id}/review", id="penulis-review-kasus"),
-        pytest.param(Role.AUTHOR, USER_ID_QA, "/cases/{id}/versions", id="penulis-riwayat-versi"),
+        pytest.param(
+            Role.CONTRIBUTOR, REVIEWER_B, "/cases/{id}/versions", id="reviewer-riwayat-versi"
+        ),
+        pytest.param(Role.CONTRIBUTOR, USER_ID_QA, "/cases/{id}", id="penulis-detail-kasus"),
+        pytest.param(Role.CONTRIBUTOR, USER_ID_QA, "/cases/{id}/review", id="penulis-review-kasus"),
+        pytest.param(
+            Role.CONTRIBUTOR, USER_ID_QA, "/cases/{id}/versions", id="penulis-riwayat-versi"
+        ),
     ],
 )
 def test_respons_mentah_tidak_memuat_verdict_rekan_selama_round_open(
@@ -179,7 +183,7 @@ def test_respons_mentah_tidak_memuat_verdict_rekan_selama_round_open(
 ):
     # Arrange
     client, case_id, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     assert _nilai(client, tugas[REVIEWER_A], "revise", KOMENTAR_REVISI).status_code == 201
     jadi(role, user_id)
 
@@ -195,17 +199,17 @@ def test_respons_mentah_tidak_memuat_verdict_rekan_selama_round_open(
 @pytest.mark.parametrize(
     ("role", "user_id"),
     [
-        pytest.param(Role.REVIEWER, REVIEWER_B, id="reviewer"),
-        pytest.param(Role.AUTHOR, USER_ID_QA, id="penulis"),
+        pytest.param(Role.CONTRIBUTOR, REVIEWER_B, id="reviewer"),
+        pytest.param(Role.CONTRIBUTOR, USER_ID_QA, id="penulis"),
     ],
 )
 def test_review_kasus_memuat_verdict_rekan_setelah_round_decided(kasus, jadi, role, user_id):
     """Kontrol positif: jalur yang sama membuka verdict begitu round selesai."""
     # Arrange
     client, case_id, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A], "revise", KOMENTAR_REVISI)
-    jadi(Role.REVIEWER, REVIEWER_B)
+    jadi(Role.CONTRIBUTOR, REVIEWER_B)
     _nilai(client, tugas[REVIEWER_B])
     jadi(role, user_id)
 
@@ -245,14 +249,14 @@ def _sesudah_verdict(response, jalur: str, log_id: int) -> dict | str | None:
 def test_reviewer_tidak_membaca_verdict_rekan_lewat_audit_log(kasus, jadi, db_session, jalur):
     # Arrange
     client, case_id, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     assert _nilai(client, tugas[REVIEWER_A], "revise", KOMENTAR_REVISI).status_code == 201
     log_id = (
         db_session.query(AuditLog.id)
         .filter_by(case_id=uuid.UUID(case_id), action=VERDICT_SUBMITTED)
         .scalar()
     )
-    jadi(Role.REVIEWER, REVIEWER_B)
+    jadi(Role.CONTRIBUTOR, REVIEWER_B)
 
     # Act
     response = _baca_audit(client, jalur, case_id, log_id)
@@ -271,9 +275,9 @@ def _isi_audit(client, case_id: str, action: str) -> list[dict | None]:
 def test_baris_verdict_rekan_tetap_ada_di_audit_tanpa_isinya(kasus, jadi):
     # Arrange
     client, case_id, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A], "revise", KOMENTAR_REVISI)
-    jadi(Role.REVIEWER, REVIEWER_B)
+    jadi(Role.CONTRIBUTOR, REVIEWER_B)
 
     # Act
     isi = _isi_audit(client, case_id, VERDICT_SUBMITTED)
@@ -284,7 +288,7 @@ def test_baris_verdict_rekan_tetap_ada_di_audit_tanpa_isinya(kasus, jadi):
 
 @pytest.mark.parametrize(
     ("role", "pembaca"),
-    [(Role.REVIEWER, REVIEWER_A), (Role.ADMIN, ADMIN)],
+    [(Role.CONTRIBUTOR, REVIEWER_A), (Role.ADMIN, ADMIN)],
     ids=["pemilik-verdict", "admin"],
 )
 def test_verdict_di_audit_terbuka_untuk_pemilik_dan_admin_selama_round_open(
@@ -292,7 +296,7 @@ def test_verdict_di_audit_terbuka_untuk_pemilik_dan_admin_selama_round_open(
 ):
     # Arrange
     client, case_id, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A], "revise", KOMENTAR_REVISI)
     jadi(role, pembaca)
 
@@ -306,9 +310,9 @@ def test_verdict_di_audit_terbuka_untuk_pemilik_dan_admin_selama_round_open(
 def test_verdict_rekan_di_audit_terbuka_setelah_round_decided(kasus, jadi):
     # Arrange
     client, case_id, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A], "revise", KOMENTAR_REVISI)
-    jadi(Role.REVIEWER, REVIEWER_B)
+    jadi(Role.CONTRIBUTOR, REVIEWER_B)
     _nilai(client, tugas[REVIEWER_B])
 
     # Act
@@ -320,11 +324,11 @@ def test_verdict_rekan_di_audit_terbuka_setelah_round_decided(kasus, jadi):
 
 def _ajukan_ulang_setelah_revisi_b(client, jadi, case_id: str, tugas) -> None:
     """Round 1: A setuju, B minta revisi; Author lalu mengajukan ulang (round 2)."""
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A])
-    jadi(Role.REVIEWER, REVIEWER_B)
+    jadi(Role.CONTRIBUTOR, REVIEWER_B)
     _nilai(client, tugas[REVIEWER_B], "revise", KOMENTAR_REVISI)
-    jadi(Role.AUTHOR, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
     assert client.put(f"/cases/{case_id}", json=_badan()).status_code == 200
     ronde = client.post(f"/cases/{case_id}/submit-review").json()
     assert (ronde["round_no"], ronde["round_status"]) == (2, "open")
@@ -334,7 +338,7 @@ def test_approve_yang_dibawa_ke_round_revisi_ikut_disamarkan(kasus, jadi):
     # Arrange
     client, case_id, tugas = kasus
     _ajukan_ulang_setelah_revisi_b(client, jadi, case_id, tugas)
-    jadi(Role.REVIEWER, REVIEWER_B)
+    jadi(Role.CONTRIBUTOR, REVIEWER_B)
 
     # Act
     isi = _isi_audit(client, case_id, "review.approval_carried")
@@ -346,7 +350,7 @@ def test_approve_yang_dibawa_ke_round_revisi_ikut_disamarkan(kasus, jadi):
 def test_admin_melihat_verdict_selama_round_open(kasus, jadi):
     # Arrange
     client, case_id, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A])
     jadi(Role.ADMIN, ADMIN)
 
@@ -363,9 +367,9 @@ def test_admin_melihat_verdict_selama_round_open(kasus, jadi):
 def test_dua_approve_menyetujui_kasus(kasus, jadi, db_session):
     # Arrange
     client, case_id, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A])
-    jadi(Role.REVIEWER, REVIEWER_B)
+    jadi(Role.CONTRIBUTOR, REVIEWER_B)
 
     # Act
     response = _nilai(client, tugas[REVIEWER_B])
@@ -374,17 +378,19 @@ def test_dua_approve_menyetujui_kasus(kasus, jadi, db_session):
     assert response.json()["round_status"] == "decided"
     assert response.json()["round_decision"] == "approved"
     assert _status_versi(db_session, case_id) == "approved"
-    jadi(Role.AUTHOR, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
     assert client.get(f"/cases/{case_id}").json()["status"] == "approved"
-    assert client.get("/reviews/assigned").status_code == 403
+    # PBI-24: penulis kini Kontributor, jadi boleh membuka antrean, tetapi tidak
+    # pernah mendapat tugas atas kasusnya sendiri.
+    assert client.get("/reviews/assigned").json() == []
 
 
 def test_satu_revise_mengembalikan_kasus_dengan_komentar(kasus, jadi, db_session):
     # Arrange
     client, case_id, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A])
-    jadi(Role.REVIEWER, REVIEWER_B)
+    jadi(Role.CONTRIBUTOR, REVIEWER_B)
 
     # Act
     response = _nilai(client, tugas[REVIEWER_B], "revise", "Pasal 151 sudah diubah")
@@ -392,11 +398,11 @@ def test_satu_revise_mengembalikan_kasus_dengan_komentar(kasus, jadi, db_session
     # Assert
     assert response.json()["round_decision"] == "revise"
     assert _status_versi(db_session, case_id) == "needs_revision"
-    jadi(Role.AUTHOR, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
     terlihat = _verdict_terlihat(client, case_id)
     assert terlihat["Reviewer B"]["comment"] == "Pasal 151 sudah diubah"
     assert terlihat["Reviewer A"]["decision"] == "approve"
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     assert client.get("/reviews/assigned").json() == []
 
 
@@ -406,7 +412,7 @@ def test_notifikasi_tugas_membuka_penugasan_milik_reviewer_itu(
 ):
     # Arrange
     client, _, tugas = kasus
-    jadi(Role.REVIEWER, reviewer)
+    jadi(Role.CONTRIBUTOR, reviewer)
 
     # Act
     response = client.get("/notifications")
@@ -420,11 +426,11 @@ def test_notifikasi_tugas_membuka_penugasan_milik_reviewer_itu(
 def test_penulis_mendapat_notifikasi_revisi_beserta_komentar(kasus, jadi, notifikasi_tersimpan):
     # Arrange
     client, case_id, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A])
-    jadi(Role.REVIEWER, REVIEWER_B)
+    jadi(Role.CONTRIBUTOR, REVIEWER_B)
     _nilai(client, tugas[REVIEWER_B], "revise", KOMENTAR_REVISI)
-    jadi(Role.AUTHOR, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
 
     # Act
     response = client.get("/notifications")
@@ -442,9 +448,9 @@ def test_penulis_mendapat_notifikasi_revisi_beserta_komentar(kasus, jadi, notifi
 def test_keputusan_tercatat_di_audit_atas_nama_reviewer_kedua(kasus, jadi, db_session):
     # Arrange
     client, case_id, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A])
-    jadi(Role.REVIEWER, REVIEWER_B)
+    jadi(Role.CONTRIBUTOR, REVIEWER_B)
 
     # Act
     _nilai(client, tugas[REVIEWER_B])
@@ -459,7 +465,7 @@ def test_keputusan_tercatat_di_audit_atas_nama_reviewer_kedua(kasus, jadi, db_se
 
 
 def _tugas_milik(client, jadi, reviewer_id: uuid.UUID) -> dict:
-    jadi(Role.REVIEWER, reviewer_id)
+    jadi(Role.CONTRIBUTOR, reviewer_id)
     [baris] = client.get("/reviews/assigned").json()
     return baris
 
@@ -513,7 +519,7 @@ def test_ditolak_dua_kali_membuka_round_tiga_dan_komentar_lama_utuh(kasus, jadi,
     _ajukan_ulang_setelah_revisi_b(client, jadi, case_id, tugas)
     tugas_b = _tugas_milik(client, jadi, REVIEWER_B)
     assert _nilai(client, tugas_b["assignment_id"], "revise", komentar_kedua).status_code == 201
-    jadi(Role.AUTHOR, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
     assert client.put(f"/cases/{case_id}", json=_badan()).status_code == 200
 
     # Act
@@ -535,7 +541,7 @@ def test_ditolak_dua_kali_membuka_round_tiga_dan_komentar_lama_utuh(kasus, jadi,
 def test_revise_tanpa_komentar_ditolak(kasus, jadi):
     # Arrange
     client, _, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
 
     # Act
     response = _nilai(client, tugas[REVIEWER_A], "revise", "  ")
@@ -548,7 +554,7 @@ def test_revise_tanpa_komentar_ditolak(kasus, jadi):
 def test_menilai_dua_kali_ditolak(kasus, jadi):
     # Arrange
     client, _, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A])
 
     # Act
@@ -562,7 +568,7 @@ def test_menilai_dua_kali_ditolak(kasus, jadi):
 def test_menilai_tugas_reviewer_lain_ditolak(kasus, jadi):
     # Arrange
     client, _, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
 
     # Act
     response = _nilai(client, tugas[REVIEWER_B])
@@ -578,7 +584,7 @@ def test_tugas_yang_diganti_atau_dibatalkan_ditolak(kasus, jadi, db_session, sta
     client, _, tugas = kasus
     db_session.get(ReviewAssignment, uuid.UUID(tugas[REVIEWER_A])).status = status
     db_session.commit()
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
 
     # Act
     response = _nilai(client, tugas[REVIEWER_A])
@@ -591,11 +597,11 @@ def test_tugas_yang_diganti_atau_dibatalkan_ditolak(kasus, jadi, db_session, sta
 def test_penulis_yang_ditugaskan_tidak_boleh_menilai(as_role, db_session, jadi):
     """AC2: misalnya penulis yang kemudian dijadikan reviewer."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     client.post(f"/cases/{case_id}/submit-review")
     tugas = _buka_round(db_session, case_id, [USER_ID_QA, REVIEWER_B])
-    jadi(Role.REVIEWER, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
 
     # Act
     response = _nilai(client, tugas[USER_ID_QA])
@@ -612,7 +618,7 @@ def test_round_yang_menunggu_penugasan_belum_menerima_verdict(kasus, jadi, db_se
         case_id=uuid.UUID(case_id)
     ).one().status = RoundStatus.AWAITING_ASSIGNMENT
     db_session.commit()
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
 
     # Act
     response = _nilai(client, tugas[REVIEWER_A])
@@ -625,13 +631,13 @@ def test_round_yang_menunggu_penugasan_belum_menerima_verdict(kasus, jadi, db_se
 def test_tugas_tidak_dikenal(kasus, jadi):
     # Arrange
     client, _, _ = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
 
     # Act + Assert
     assert _nilai(client, str(uuid.uuid4())).status_code == 404
 
 
-@pytest.mark.parametrize("role", [Role.AUTHOR, Role.ADMIN, Role.VIEWER])
+@pytest.mark.parametrize("role", [Role.CONTRIBUTOR, Role.ADMIN, Role.VIEWER])
 def test_hanya_reviewer_yang_menilai(kasus, jadi, role):
     # Arrange
     client, _, tugas = kasus
@@ -652,7 +658,7 @@ def test_viewer_tidak_melihat_review_kasus(kasus, jadi):
 
 def test_review_kasus_yang_belum_diajukan(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
 
     # Act
@@ -679,7 +685,7 @@ def _dalam_review(client) -> list[dict]:
 
 def _setujui_berdua(client, jadi, tugas: dict[uuid.UUID, str]) -> None:
     for reviewer in (REVIEWER_A, REVIEWER_B):
-        jadi(Role.REVIEWER, reviewer)
+        jadi(Role.CONTRIBUTOR, reviewer)
         assert _nilai(client, tugas[reviewer]).status_code == 201
 
 
@@ -707,7 +713,7 @@ def test_versi_baru_dari_kasus_yang_disetujui_ikut_tampil(kasus, jadi):
     # Arrange
     client, case_id, tugas = kasus
     _setujui_berdua(client, jadi, tugas)
-    jadi(Role.AUTHOR, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
     assert client.post(f"/cases/{case_id}/submit-review").status_code == 200
     assert client.get(f"/cases/{case_id}").json()["status"] == "approved"
@@ -730,9 +736,9 @@ def test_kasus_yang_rondenya_sudah_diputuskan_tidak_tampil(kasus, jadi, keputusa
         _setujui_berdua(client, jadi, tugas)
     else:
         # Round baru diputuskan setelah kedua reviewer menilai.
-        jadi(Role.REVIEWER, REVIEWER_A)
+        jadi(Role.CONTRIBUTOR, REVIEWER_A)
         assert _nilai(client, tugas[REVIEWER_A]).status_code == 201
-        jadi(Role.REVIEWER, REVIEWER_B)
+        jadi(Role.CONTRIBUTOR, REVIEWER_B)
         assert _nilai(client, tugas[REVIEWER_B], "revise", KOMENTAR_REVISI).status_code == 201
     jadi(Role.ADMIN, ADMIN)
 
@@ -743,7 +749,7 @@ def test_kasus_yang_rondenya_sudah_diputuskan_tidak_tampil(kasus, jadi, keputusa
 def test_admin_melihat_verdict_yang_sudah_masuk_di_daftar(kasus, jadi):
     # Arrange
     client, _, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A])
     jadi(Role.ADMIN, ADMIN)
 
@@ -797,7 +803,7 @@ def test_daftar_kosong_bila_tidak_ada_kasus_yang_direview(as_role):
     assert _dalam_review(client) == []
 
 
-@pytest.mark.parametrize("role", [Role.AUTHOR, Role.REVIEWER, Role.VIEWER])
+@pytest.mark.parametrize("role", [Role.CONTRIBUTOR, Role.CONTRIBUTOR, Role.VIEWER])
 def test_hanya_admin_yang_membuka_daftar_dalam_review(kasus, jadi, role):
     # Arrange
     client, _, _ = kasus
@@ -822,7 +828,7 @@ def test_verdict_tidak_menerima_tag(kasus, jadi):
     """Reviewer menilai substansi kasus, bukan tag dev/test."""
     # Arrange
     client, _, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
 
     # Act
     response = client.post(
@@ -840,7 +846,7 @@ def test_verdict_tidak_menerima_tag(kasus, jadi):
 def test_body_penilaian_lain_tetap_pakai_error_bawaan_tim(kasus, jadi):
     # Arrange
     client, _, tugas = kasus
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
 
     # Act
     response = client.post(f"/reviews/{tugas[REVIEWER_A]}/verdict", json={"decision": "tolak"})

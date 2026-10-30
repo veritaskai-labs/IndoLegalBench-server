@@ -11,7 +11,12 @@ JUDUL_REVISI = "PHK sepihak tanpa surat peringatan"
 def _pengguna(db_session) -> None:
     db_session.add_all(
         [
-            User(id=USER_ID_QA, name="Pengguna QA", email="qa-139@veritask.test", role=Role.AUTHOR),
+            User(
+                id=USER_ID_QA,
+                name="Pengguna QA",
+                email="qa-139@veritask.test",
+                role=Role.CONTRIBUTOR,
+            ),
             User(id=ADMIN_LAIN, name="Admin QA", email="admin-139@veritask.test", role=Role.ADMIN),
         ]
     )
@@ -19,7 +24,7 @@ def _pengguna(db_session) -> None:
 
 
 def _v2_disunting_admin(as_role, buat_pengguna, db_session) -> tuple:
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _pengguna(db_session)
     v1 = _buat(client, _suite(client)).json()
     _setujui(db_session, v1["id"])
@@ -33,7 +38,7 @@ def _v2_disunting_admin(as_role, buat_pengguna, db_session) -> tuple:
 
 def _v2_disunting_admin_lalu_diajukan_penulis(as_role, buat_pengguna, db_session) -> tuple:
     client, v1 = _v2_disunting_admin(as_role, buat_pengguna, db_session)
-    _ganti(client, buat_pengguna(Role.AUTHOR))
+    _ganti(client, buat_pengguna(Role.CONTRIBUTOR))
     diajukan = client.post(f"/cases/{v1['id']}/submit-review")
     assert diajukan.status_code == 200, diajukan.text
     assert diajukan.json()["version"] == 2

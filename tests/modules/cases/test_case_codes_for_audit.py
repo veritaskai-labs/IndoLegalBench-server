@@ -13,7 +13,7 @@ from tests.modules.cases.test_cases import _buat, _suite
 
 
 def _dua_kasus(as_role) -> dict[str, uuid.UUID]:
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     return {
         kode: uuid.UUID(_buat(client, suite_id, case_code=kode).json()["id"])

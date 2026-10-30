@@ -9,12 +9,15 @@ dihitung di sini dan juga di angka perlu penugasan ulang milik Admin.
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from unittest.mock import MagicMock
 
 import pytest
 from fastapi import Depends
 
 from app.main import app
 from app.modules.auth.models import User
+from app.modules.cases.models import CaseStatus
+from app.modules.dashboard import service as dashboard_service
 from app.modules.reviews.models import (
     AssignmentStatus,
     ReviewAssignment,
@@ -33,6 +36,7 @@ REVIEWER_A = uuid.UUID("00000000-0000-0000-0000-0000000154a1")
 REVIEWER_B = uuid.UUID("00000000-0000-0000-0000-0000000154a2")
 REVIEWER_C = uuid.UUID("00000000-0000-0000-0000-0000000154a3")
 ADMIN = uuid.UUID("00000000-0000-0000-0000-0000000154ad")
+KONTRIBUTOR_B = uuid.UUID("00000000-0000-0000-0000-0000000195b0")
 
 
 @pytest.fixture
@@ -54,7 +58,7 @@ def jadi(buat_pengguna):
 @pytest.fixture
 def author(as_role):
     """Client Author USER_ID_QA dan satu suite miliknya."""
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     return client, _suite(client)
 
 
@@ -65,7 +69,7 @@ def _reviewer(db_session, *ids: uuid.UUID) -> None:
                 id=i,
                 email=f"{str(i)[-3:]}@veritask.test",
                 name=f"R{str(i)[-3:]}",
-                role=Role.REVIEWER,
+                role=Role.CONTRIBUTOR,
             )
             for i in ids
         ]
@@ -123,7 +127,7 @@ def test_viewer_tidak_punya_dashboard(as_role):
     assert response.status_code == 403
 
 
-@pytest.mark.parametrize("role", [Role.AUTHOR, Role.REVIEWER, Role.ADMIN])
+@pytest.mark.parametrize("role", [Role.CONTRIBUTOR, Role.CONTRIBUTOR, Role.ADMIN])
 def test_author_reviewer_admin_mendapat_dashboard(as_role, role):
     # Act
     response = as_role(role).get("/dashboard")
@@ -181,7 +185,7 @@ def test_masih_menunggu_selama_satu_reviewer_belum_menilai(author, db_session, j
     _reviewer(db_session, REVIEWER_A, REVIEWER_B)
     case_id = _ajukan(client, suite_id, "REVIEW-001")
     tugas = _tugas(db_session, case_id)
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas[REVIEWER_A].id)
 
     # Act
@@ -198,7 +202,7 @@ def test_disetujui_keluar_dari_menunggu_dan_masuk_approved(author, db_session, j
     case_id = _ajukan(client, suite_id, "REVIEW-001")
     tugas = _tugas(db_session, case_id)
     for reviewer in (REVIEWER_A, REVIEWER_B):
-        jadi(Role.REVIEWER, reviewer)
+        jadi(Role.CONTRIBUTOR, reviewer)
         _nilai(client, tugas[reviewer].id)
 
     # Act
@@ -218,9 +222,9 @@ def test_status_mengikuti_versi_yang_berlaku_seperti_daftar_kasus(author, db_ses
     case_id = _ajukan(client, suite_id, "REVIEW-001")
     tugas = _tugas(db_session, case_id)
     for reviewer in (REVIEWER_A, REVIEWER_B):
-        jadi(Role.REVIEWER, reviewer)
+        jadi(Role.CONTRIBUTOR, reviewer)
         _nilai(client, tugas[reviewer].id)
-    jadi(Role.AUTHOR, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
 
     # Act
@@ -308,7 +312,7 @@ def test_kasus_tanpa_reviewer_dihitung_menunggu_tapi_tidak_di_antrean(author, db
     case_id = _ajukan(client, suite_id, "REVIEW-001")
     assert _round(db_session, case_id).status == RoundStatus.AWAITING_ASSIGNMENT
     _reviewer(db_session, REVIEWER_A)
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
 
     # Act
     body = _dashboard(client)
@@ -366,12 +370,13 @@ def test_sesi_pengukuran_terakhir_kosong_sampai_pbi11(author):
 # --- Bagian khusus peran --------------------------------------------------------------
 
 
-def test_author_tidak_mendapat_antrean_dan_angka_admin(author):
+def test_kontributor_tanpa_tugas_mendapat_antrean_kosong_tanpa_angka_admin(author):
+    """PBI-24: antrean ikut ke Kontributor; penulis tanpa tugas melihat daftar kosong."""
     # Act
     body = _dashboard(author[0])
 
     # Assert
-    assert body["review_queue"] is None
+    assert body["review_queue"] == []
     assert body["needs_reassignment"] is None
 
 
@@ -391,7 +396,7 @@ def test_antrean_reviewer_hanya_yang_belum_dinilai_terlama_dulu(author, db_sessi
     ronde_lama.opened_at = datetime.now(UTC) - timedelta(days=2)
     db_session.commit()
     tugas_sudah = _tugas(db_session, sudah)
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
     _nilai(client, tugas_sudah[REVIEWER_A].id)
 
     # Act
@@ -412,7 +417,7 @@ def test_antrean_reviewer_tidak_memuat_tugas_reviewer_lain(author, db_session, j
     client, suite_id = author
     _reviewer(db_session, REVIEWER_A, REVIEWER_B)
     _ajukan(client, suite_id, "REVIEW-001")
-    jadi(Role.REVIEWER, REVIEWER_C)
+    jadi(Role.CONTRIBUTOR, REVIEWER_C)
 
     # Act
     body = _dashboard(client)
@@ -429,7 +434,7 @@ def test_antrean_reviewer_tidak_memuat_tugas_yang_diganti(author, db_session, ja
     case_id = _ajukan(client, suite_id, "REVIEW-001")
     _tugas(db_session, case_id)[REVIEWER_A].status = AssignmentStatus.REPLACED
     db_session.commit()
-    jadi(Role.REVIEWER, REVIEWER_A)
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
 
     # Act
     body = _dashboard(client)
@@ -483,7 +488,7 @@ def test_admin_tidak_menghitung_round_yang_sudah_diputuskan(author, db_session, 
     case_id = _ajukan(client, suite_id, "REVIEW-001")
     tugas = _tugas(db_session, case_id)
     for reviewer in (REVIEWER_A, REVIEWER_B):
-        jadi(Role.REVIEWER, reviewer)
+        jadi(Role.CONTRIBUTOR, reviewer)
         _nilai(client, tugas[reviewer].id)
     jadi(Role.ADMIN, ADMIN)
 
@@ -492,3 +497,157 @@ def test_admin_tidak_menghitung_round_yang_sudah_diputuskan(author, db_session, 
 
     # Assert
     assert body["needs_reassignment"] == 0
+
+
+# --- PBI-24 AC6: pekerjaan menulis Kontributor (own_cases, SCRUM-195) ------------------
+# Dashboard Kontributor menampilkan kasus miliknya per status di samping antrean review.
+# own_cases menambah, tidak mengganti: case_counts, total_cases, dan waiting_for_review
+# tetap menghitung seluruh kasus supaya klien lama tidak berubah.
+
+NOL = {"draft": 0, "in_review": 0, "needs_revision": 0, "approved": 0}
+
+
+def _setujui(client, db_session, jadi, case_id: str) -> None:
+    """Dua reviewer menyetujui round yang berjalan, lalu login kembali sebagai penulis."""
+    tugas = _tugas(db_session, case_id)
+    for reviewer in (REVIEWER_A, REVIEWER_B):
+        jadi(Role.CONTRIBUTOR, reviewer)
+        _nilai(client, tugas[reviewer].id)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
+
+
+@pytest.fixture
+def dua_penulis(author, db_session, jadi):
+    """Kontributor A (USER_ID_QA): 1 draft dan 1 approved. Kontributor B: 3 draft.
+
+    Isinya sengaja beda status dan beda pemilik, supaya satu tes membuktikan
+    filter pemilik sekaligus hitungan per status.
+    """
+    client, suite_a = author
+    _reviewer(db_session, REVIEWER_A, REVIEWER_B)
+    _buat(client, suite_a, case_code="A-DRAFT-1")
+    _setujui(client, db_session, jadi, _ajukan(client, suite_a, "A-APPROVED-1"))
+    jadi(Role.CONTRIBUTOR, KONTRIBUTOR_B)
+    suite_b = _suite(client, name="Suite Kontributor B")
+    for nomor in range(1, 4):
+        _buat(client, suite_b, case_code=f"B-DRAFT-{nomor}")
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
+    return client
+
+
+def test_kontributor_hanya_menghitung_kasus_miliknya(dua_penulis):
+    """Positif: own_cases A hanya kasus A (2), per status versi yang berlaku (AC6)."""
+    # Act
+    body = _dashboard(dua_penulis)
+
+    # Assert
+    assert body["own_cases"] == {
+        "case_counts": {**NOL, "draft": 1, "approved": 1},
+        "total_cases": 2,
+    }
+
+
+def test_angka_seluruh_kasus_tidak_berubah(dua_penulis):
+    """Positif (regresi): case_counts, total_cases, waiting_for_review tetap semua kasus."""
+    # Act
+    body = _dashboard(dua_penulis)
+
+    # Assert
+    assert body["case_counts"] == {**NOL, "draft": 4, "approved": 1}
+    assert body["total_cases"] == 5
+    assert body["waiting_for_review"] == 0
+
+
+def test_kontributor_tanpa_kasus_mendapat_nol_bukan_null(dua_penulis, jadi):
+    """Edge: Kontributor yang belum menulis tetap mendapat objek berisi nol.
+
+    Kontributor bisa saja hanya mereview; FE tidak perlu membedakan null dan kosong.
+    """
+    # Arrange
+    jadi(Role.CONTRIBUTOR, REVIEWER_A)
+
+    # Act
+    body = _dashboard(dua_penulis)
+
+    # Assert
+    assert body["own_cases"] == {"case_counts": NOL, "total_cases": 0}
+
+
+def test_kasus_milik_sendiri_mengikuti_versi_yang_berlaku(author, db_session, jadi):
+    """Edge: kasus approved yang versi barunya sedang in_review tetap dihitung approved.
+
+    Aturannya sama dengan case_counts dan daftar kasus (versi berlaku =
+    latest_approved_version_id bila ada).
+    """
+    # Arrange
+    client, suite_id = author
+    _reviewer(db_session, REVIEWER_A, REVIEWER_B)
+    case_id = _ajukan(client, suite_id, "A-APPROVED-1")
+    _setujui(client, db_session, jadi, case_id)
+    assert client.post(f"/cases/{case_id}/versions").status_code == 201
+    assert client.post(f"/cases/{case_id}/submit-review").status_code == 200
+
+    # Act
+    body = _dashboard(client)
+
+    # Assert
+    assert body["own_cases"] == {"case_counts": {**NOL, "approved": 1}, "total_cases": 1}
+    assert body["case_counts"]["approved"] == 1
+
+
+def test_admin_tidak_mendapat_own_cases(dua_penulis, jadi):
+    """Negatif: own_cases hanya untuk peran penulis (WRITER_ROLES); Admin mendapat null."""
+    # Arrange
+    jadi(Role.ADMIN, ADMIN)
+
+    # Act
+    body = _dashboard(dua_penulis)
+
+    # Assert
+    assert body["own_cases"] is None
+
+
+# Viewer tetap 403 untuk seluruh dashboard: test_viewer_tidak_punya_dashboard di atas.
+
+
+# --- Service dengan dependency di-mock --------------------------------------------------
+# cases_service dan reviews_service diganti MagicMock, supaya yang diuji hanya keputusan
+# dashboard: hitungan milik siapa yang diminta, dan untuk peran apa.
+
+
+@pytest.fixture
+def layanan(monkeypatch):
+    cases = MagicMock()
+    cases.count_by_status.return_value = dict.fromkeys(CaseStatus, 0)
+    reviews = MagicMock()
+    reviews.count_cases_waiting.return_value = 0
+    reviews.pending_queue.return_value = []
+    reviews.count_cases_needing_reassignment.return_value = 0
+    monkeypatch.setattr(dashboard_service, "cases_service", cases)
+    monkeypatch.setattr(dashboard_service, "reviews_service", reviews)
+    return cases
+
+
+def test_service_meminta_hitungan_milik_kontributor_yang_login(layanan):
+    """Positif: hitungan pemilik memakai id pengguna yang login, di samping hitungan semua."""
+    # Arrange
+    db = MagicMock()
+
+    # Act
+    dashboard_service.summary(db, user_id=USER_ID_QA, role=Role.CONTRIBUTOR)
+
+    # Assert
+    assert layanan.count_by_status.call_args_list == [
+        ((db,), {}),
+        ((db,), {"created_by": USER_ID_QA}),
+    ]
+
+
+def test_service_admin_tidak_menghitung_milik_sendiri(layanan):
+    """Negatif: untuk Admin hanya hitungan semua kasus yang diminta, tanpa filter pemilik."""
+    # Act
+    dashboard_service.summary(MagicMock(), user_id=ADMIN, role=Role.ADMIN)
+
+    # Assert
+    layanan.count_by_status.assert_called_once()
+    assert "created_by" not in layanan.count_by_status.call_args.kwargs

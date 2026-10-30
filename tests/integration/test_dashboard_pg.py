@@ -126,17 +126,17 @@ def _round(
 def _ringkasan(db: Session, admin: uuid.UUID, reviewer: uuid.UUID):
     return (
         dashboard_service.summary(db, user_id=admin, role=Role.ADMIN),
-        dashboard_service.summary(db, user_id=reviewer, role=Role.REVIEWER),
+        dashboard_service.summary(db, user_id=reviewer, role=Role.CONTRIBUTOR),
     )
 
 
 def test_angka_dashboard_sesuai_aturan_di_postgres(db):
     # Arrange
-    penulis = _pengguna(db, Role.AUTHOR)
+    penulis = _pengguna(db, Role.CONTRIBUTOR)
     admin = _pengguna(db, Role.ADMIN)
-    saya = _pengguna(db, Role.REVIEWER)
-    lain = _pengguna(db, Role.REVIEWER)
-    lama = _pengguna(db, Role.REVIEWER)
+    saya = _pengguna(db, Role.CONTRIBUTOR)
+    lain = _pengguna(db, Role.CONTRIBUTOR)
+    lama = _pengguna(db, Role.CONTRIBUTOR)
     suite = Suite(name=f"QA dashboard {uuid.uuid4().hex}", created_by=penulis)
     db.add(suite)
     db.flush()
@@ -197,3 +197,52 @@ def test_angka_dashboard_sesuai_aturan_di_postgres(db):
         ada_void,
         ada_pengganti,
     ]
+
+
+def test_kasus_milik_kontributor_dihitung_per_versi_berlaku_di_postgres(db):
+    """Positif dan edge: own_cases di PostgreSQL (PBI-24 AC6, SCRUM-195).
+
+    Filter pemilik digabung dengan COALESCE versi berlaku, jadi kasus approved yang
+    versi barunya sedang in_review tetap dihitung approved. Penulis dibuat baru di tes
+    ini, sehingga hitungannya pasti, walau database CI dipakai bersama tes lain.
+    """
+    # Arrange
+    penulis = _pengguna(db, Role.CONTRIBUTOR)
+    lain = _pengguna(db, Role.CONTRIBUTOR)
+    admin = _pengguna(db, Role.ADMIN)
+    suite = Suite(name=f"QA own cases {uuid.uuid4().hex}", created_by=penulis)
+    db.add(suite)
+    db.flush()
+    _kasus(db, penulis, suite.id, CaseStatus.DRAFT)
+    _kasus(db, lain, suite.id, CaseStatus.DRAFT)
+    case_id, _, kode = _kasus(db, penulis, suite.id, CaseStatus.APPROVED)
+    versi_baru = uuid.uuid4()
+    db.add(
+        CaseVersion(
+            id=versi_baru,
+            case_id=case_id,
+            version_no=2,
+            status=CaseStatus.IN_REVIEW,
+            case_code=kode,
+            split_tag=SplitTag.DEV,
+            content={"title": f"Judul {kode} v2", "question": "Sah?"},
+            created_by=penulis,
+        )
+    )
+    db.flush()
+    db.get(Case, case_id).current_version_id = versi_baru
+    db.flush()
+
+    # Act
+    milik_penulis = dashboard_service.summary(db, user_id=penulis, role=Role.CONTRIBUTOR)
+    milik_admin = dashboard_service.summary(db, user_id=admin, role=Role.ADMIN)
+
+    # Assert
+    assert milik_penulis.own_cases.total_cases == 2
+    assert milik_penulis.own_cases.case_counts.model_dump() == {
+        "draft": 1,
+        "in_review": 0,
+        "needs_revision": 0,
+        "approved": 1,
+    }
+    assert milik_admin.own_cases is None

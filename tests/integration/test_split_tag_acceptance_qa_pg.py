@@ -55,7 +55,7 @@ def _pengguna(db: Session, role: Role) -> uuid.UUID:
 def kasus_disetujui(buat_sesi) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
     """Kasus dev yang sudah approved, di-commit. Mengembalikan (case_id, version_id, admin_id)."""
     with buat_sesi() as db:
-        penulis, admin = _pengguna(db, Role.AUTHOR), _pengguna(db, Role.ADMIN)
+        penulis, admin = _pengguna(db, Role.CONTRIBUTOR), _pengguna(db, Role.ADMIN)
         suite = Suite(name=f"QA 166 {uuid.uuid4().hex}", created_by=penulis)
         db.add(suite)
         db.flush()

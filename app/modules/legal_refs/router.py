@@ -14,15 +14,17 @@ from app.modules.cases.schemas import LegalRefPreviewRequest, LegalRefPreviewRes
 from app.modules.legal_refs import service
 from app.modules.legal_refs.schemas import RegulationTypeRead
 from app.shared.database import get_db
-from app.shared.security import CurrentUser, Role, require_roles
+from app.shared.security import REVIEWER_ROLES, WRITER_ROLES, CurrentUser, Role, require_roles
 
 router = APIRouter(tags=["legal-refs"])
 
 # Semua peran membaca rujukan (editor, review, riwayat, detail kasus dev untuk
 # Developer AI), jadi semua butuh labelnya.
-_semua_peran = require_roles(Role.AUTHOR, Role.REVIEWER, Role.ADMIN, Role.VIEWER, Role.DEVELOPER_AI)
+_semua_peran = require_roles(
+    *WRITER_ROLES, *REVIEWER_ROLES, Role.ADMIN, Role.VIEWER, Role.DEVELOPER_AI
+)
 # Pratinjau hanya untuk yang boleh menulis kasus (SCRUM-162).
-_penulis = require_roles(Role.AUTHOR, Role.ADMIN)
+_penulis = require_roles(*WRITER_ROLES, Role.ADMIN)
 
 
 @router.get(

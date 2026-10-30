@@ -201,7 +201,7 @@ class TestKelengkapanDariBentukYangTidakTerduga:
 class TestIsianOpsionalDibersihkan:
     def test_ayat_dan_huruf_yang_hanya_spasi_disimpan_sebagai_kosong(self, as_role):
         """Spasi yang tidak sengaja terketik tidak boleh tersimpan sebagai isi."""
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = client.post("/suites", json={"name": "S", "description": None}).json()["id"]
 
         respons = client.post(
@@ -220,7 +220,7 @@ class TestIsianOpsionalDibersihkan:
         Kalau pembersihnya ikut memaksa tipe, pesan yang sampai ke Author jadi
         pesan pembersih, bukan pesan tipe yang sebenarnya salah.
         """
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = client.post("/suites", json={"name": "S", "description": None}).json()["id"]
 
         respons = client.post(f"/suites/{suite_id}/cases", json=_payload(case_code=12345))
@@ -236,7 +236,7 @@ class TestNilaiTersimpanYangTidakTerbaca:
         Formulanya sendiri ditandai sementara di SCRUM-107, jadi baris yang
         ditulis sebelum formula berubah harus tetap bisa dibuka.
         """
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_id = client.post("/suites", json={"name": "S", "description": None}).json()["id"]
         case_id = client.post(f"/suites/{suite_id}/cases", json=_payload()).json()["id"]
         kasus = db_session.get(Case, uuid.UUID(case_id))
@@ -259,7 +259,7 @@ class TestNilaiTersimpanYangTidakTerbaca:
         dihapus tetap memblokir. Pesannya tidak boleh kosong atau meledak; ia
         harus mengakui bahwa pemiliknya ada tetapi tidak bisa ditunjuk lagi.
         """
-        client = as_role(Role.AUTHOR)
+        client = as_role(Role.CONTRIBUTOR)
         suite_lama = client.post("/suites", json={"name": "Lama", "description": None}).json()["id"]
         client.post(f"/suites/{suite_lama}/cases", json=_payload())
         assert client.delete(f"/suites/{suite_lama}").status_code == 204

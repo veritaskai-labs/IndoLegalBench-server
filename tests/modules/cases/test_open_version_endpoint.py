@@ -33,7 +33,7 @@ def _kasus_dengan_draf(client, db_session) -> str:
 
 def test_pembuat_membaca_draf_sementara_get_biasa_tetap_approved(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _kasus_dengan_draf(client, db_session)
 
     # Act
@@ -50,7 +50,7 @@ def test_pembuat_membaca_draf_sementara_get_biasa_tetap_approved(as_role, db_ses
 
 def test_draf_yang_disunting_terbaca_lagi_setelah_dibuka_ulang(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _kasus_dengan_draf(client, db_session)
     ubah = _badan(
         identity={
@@ -72,7 +72,7 @@ def test_draf_yang_disunting_terbaca_lagi_setelah_dibuka_ulang(as_role, db_sessi
 
 def test_kasus_yang_belum_pernah_disetujui_mengembalikan_draf_pertamanya(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
 
     # Act
@@ -86,7 +86,7 @@ def test_kasus_yang_belum_pernah_disetujui_mengembalikan_draf_pertamanya(as_role
 
 def test_versi_yang_sedang_ditinjau_masih_terbaca_pembuatnya(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _kasus_dengan_draf(client, db_session)
     kasus = db_session.get(Case, uuid.UUID(case_id))
     kasus.current_version.status = CaseStatus.IN_REVIEW
@@ -102,7 +102,7 @@ def test_versi_yang_sedang_ditinjau_masih_terbaca_pembuatnya(as_role, db_session
 
 def test_tanpa_draf_menjawab_404_no_open_version(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     _setujui(db_session, case_id)
 
@@ -116,7 +116,7 @@ def test_tanpa_draf_menjawab_404_no_open_version(as_role, db_session):
 
 def test_kasus_tidak_ada_menjawab_404_biasa(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     # Act
     response = client.get(f"/cases/{uuid.uuid4()}/versions/current")
@@ -128,9 +128,9 @@ def test_kasus_tidak_ada_menjawab_404_biasa(as_role):
 
 def test_author_lain_tidak_boleh_membaca_draf(as_role, buat_pengguna, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _kasus_dengan_draf(client, db_session)
-    _ganti(client, buat_pengguna(Role.AUTHOR, user_id=AUTHOR_LAIN))
+    _ganti(client, buat_pengguna(Role.CONTRIBUTOR, user_id=AUTHOR_LAIN))
 
     # Act
     response = client.get(f"/cases/{case_id}/versions/current")
@@ -142,7 +142,7 @@ def test_author_lain_tidak_boleh_membaca_draf(as_role, buat_pengguna, db_session
 
 def test_admin_boleh_membaca_draf_milik_author(as_role, buat_pengguna, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _kasus_dengan_draf(client, db_session)
     _ganti(client, buat_pengguna(Role.ADMIN, user_id=ADMIN_LAIN))
 
@@ -154,10 +154,10 @@ def test_admin_boleh_membaca_draf_milik_author(as_role, buat_pengguna, db_sessio
     assert response.json()["version"] == 2
 
 
-@pytest.mark.parametrize("role", [Role.REVIEWER, Role.VIEWER])
+@pytest.mark.parametrize("role", [Role.CONTRIBUTOR, Role.VIEWER])
 def test_reviewer_dan_viewer_tidak_boleh_membaca_draf(as_role, buat_pengguna, db_session, role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _kasus_dengan_draf(client, db_session)
     _ganti(client, buat_pengguna(role, user_id=uuid.uuid4()))
 

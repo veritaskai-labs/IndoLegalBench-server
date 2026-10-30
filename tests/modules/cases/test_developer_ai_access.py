@@ -25,7 +25,7 @@ def suite_campuran(as_role, buat_pengguna, db_session):
 
     Yang login di akhir fixture adalah Developer AI.
     """
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     ids = {
         "dev_ok": _buat(client, suite_id, case_code="DEV-001").json()["id"],
@@ -156,7 +156,7 @@ def test_detail_kasus_belum_disetujui_seperti_tidak_ada(suite_campuran, kunci):
 
 def test_detail_memakai_versi_disetujui_bukan_draf_versi_baru(as_role, buat_pengguna, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id, case_code="DEV-010").json()["id"]
     _setujui(db_session, case_id)
@@ -212,7 +212,7 @@ def test_jumlah_suite_menghitung_semua_kasus_disetujui(suite_campuran, buat_peng
 def test_jumlah_suite_untuk_author_tidak_berubah(suite_campuran, buat_pengguna):
     # Arrange
     client, suite_id, _ = suite_campuran
-    _jadi(buat_pengguna(Role.AUTHOR))
+    _jadi(buat_pengguna(Role.CONTRIBUTOR))
 
     # Act
     response = client.get(f"/suites/{suite_id}")
@@ -224,7 +224,7 @@ def test_jumlah_suite_untuk_author_tidak_berubah(suite_campuran, buat_pengguna):
 def test_suite_tanpa_kasus_disetujui_terlihat_kosong(as_role, buat_pengguna):
     """exportable tetap dari jumlah sebenarnya: itu soal pengukuran, bukan tampilan."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     _buat(client, suite_id)
     _jadi(buat_pengguna(Role.DEVELOPER_AI))

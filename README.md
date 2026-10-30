@@ -101,15 +101,15 @@ alembic upgrade head
 python scripts/seed_dev.py
 ```
 
-Creates four accounts, one per role, so you can exercise RBAC without a
+Creates two Contributors, an Admin, and a Viewer, so you can exercise RBAC without a
 working Zitadel login. Safe to run more than once, existing emails are
 skipped. These are development accounts only and deliberately live
 outside the migrations, so they never reach staging or production.
 
 | Email | Role |
 |---|---|
-| `author@veritask.test` | author |
-| `reviewer@veritask.test` | reviewer |
+| `author@veritask.test` | contributor |
+| `reviewer@veritask.test` | contributor |
 | `admin@veritask.test` | admin |
 | `viewer@veritask.test` | viewer |
 

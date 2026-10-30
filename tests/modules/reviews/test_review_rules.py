@@ -75,32 +75,36 @@ def test_verdict_bawaan_round_sebelumnya_ikut_dihitung():
 
 
 # --- Siapa boleh melihat verdict (AC3) -------------------------------------------
+# PBI-24: penulis dan reviewer sama-sama Kontributor; blind review dibedakan lewat
+# pemilik verdict (owner_id), bukan lewat peran.
 
 
 @pytest.mark.parametrize("status", [RoundStatus.OPEN, RoundStatus.DECIDED])
 def test_reviewer_selalu_melihat_verdictnya_sendiri(status):
     # Act + Assert
-    assert can_see_verdict(Viewer(SAYA, Role.REVIEWER), owner_id=SAYA, round_status=status)
+    assert can_see_verdict(Viewer(SAYA, Role.CONTRIBUTOR), owner_id=SAYA, round_status=status)
 
 
 def test_reviewer_tidak_melihat_verdict_rekan_selama_round_open():
     # Act + Assert
     assert not can_see_verdict(
-        Viewer(SAYA, Role.REVIEWER), owner_id=REKAN, round_status=RoundStatus.OPEN
+        Viewer(SAYA, Role.CONTRIBUTOR), owner_id=REKAN, round_status=RoundStatus.OPEN
     )
 
 
-@pytest.mark.parametrize("role", [Role.REVIEWER, Role.AUTHOR])
-def test_semua_verdict_terbuka_setelah_round_diputuskan(role):
-    """D3 langkah 41: kedua verdict terbuka untuk Author, A, B, Admin."""
+@pytest.mark.parametrize("viewer_id", [PENULIS, SAYA], ids=["penulis", "reviewer-lain"])
+def test_semua_verdict_terbuka_setelah_round_diputuskan(viewer_id):
+    """D3 langkah 41: kedua verdict terbuka untuk penulis, A, B, Admin."""
     # Act + Assert
-    assert can_see_verdict(Viewer(SAYA, role), owner_id=REKAN, round_status=RoundStatus.DECIDED)
+    assert can_see_verdict(
+        Viewer(viewer_id, Role.CONTRIBUTOR), owner_id=REKAN, round_status=RoundStatus.DECIDED
+    )
 
 
-def test_author_tidak_melihat_verdict_selama_round_open():
+def test_penulis_tidak_melihat_verdict_selama_round_open():
     # Act + Assert
     assert not can_see_verdict(
-        Viewer(PENULIS, Role.AUTHOR), owner_id=REKAN, round_status=RoundStatus.OPEN
+        Viewer(PENULIS, Role.CONTRIBUTOR), owner_id=REKAN, round_status=RoundStatus.OPEN
     )
 
 
@@ -117,15 +121,18 @@ def test_admin_melihat_semua_verdict_kapan_pun():
     ("viewer", "assigned", "boleh"),
     [
         (Viewer(SAYA, Role.ADMIN), False, True),
-        (Viewer(PENULIS, Role.AUTHOR), False, True),
-        (Viewer(SAYA, Role.AUTHOR), False, False),
-        (Viewer(SAYA, Role.REVIEWER), True, True),
-        (Viewer(SAYA, Role.REVIEWER), False, False),
+        (Viewer(PENULIS, Role.CONTRIBUTOR), False, True),
+        (Viewer(SAYA, Role.CONTRIBUTOR), True, True),
+        (Viewer(SAYA, Role.CONTRIBUTOR), False, False),
         (Viewer(SAYA, Role.VIEWER), True, False),
+        (Viewer(SAYA, Role.DEVELOPER_AI), True, False),
     ],
-    ids=["admin", "penulis", "author-lain", "reviewer-ditugaskan", "reviewer-lain", "viewer"],
+    ids=["admin", "penulis", "ditugaskan", "tidak-terkait", "viewer", "developer-ai"],
 )
 def test_akses_review_kasus(viewer, assigned, boleh):
-    """D5a: Author kasus sendiri, Reviewer yang ditugaskan, Admin. Viewer tidak."""
+    """D5a, D10: penulis kasus, Kontributor yang ditugaskan, dan Admin.
+
+    Kontributor memegang dua jalur akses; cukup salah satu relasinya terpenuhi.
+    """
     # Act + Assert
     assert can_open_case_review(viewer, author_id=PENULIS, assigned=assigned) is boleh

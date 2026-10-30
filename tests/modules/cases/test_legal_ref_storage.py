@@ -75,7 +75,7 @@ def _versi(db_session, case_id: str):
 
 def test_kasus_baru_menulis_tabel_sesuai_urutan(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     daftar = [rujukan_ktk_001(), rujukan_ac10(), TEKS_BEBAS]
 
     # Act
@@ -91,7 +91,7 @@ def test_kasus_baru_menulis_tabel_sesuai_urutan(as_role, db_session):
 
 def test_mengubah_kasus_mengganti_baris_bukan_menambah(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), legal_refs=[rujukan_ac10(), TEKS_BEBAS]).json()["id"]
 
     # Act
@@ -104,7 +104,7 @@ def test_mengubah_kasus_mengganti_baris_bukan_menambah(as_role, db_session):
 
 def test_field_opsional_link_ikut_tersimpan(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     rujukan = rujukan_ktk_001()
     rujukan["links"][0].update(about="Format tentang", ayat="1", huruf="a")
 
@@ -119,7 +119,7 @@ def test_field_opsional_link_ikut_tersimpan(as_role, db_session):
 def test_simpan_yang_gagal_tidak_mengubah_tabel(as_role, db_session):
     """Satu transaksi: kode kasus bentrok (409) membatalkan content dan baris tabel."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     _buat(client, suite_id, case_code="PHK-002")
     case_id = _buat(client, suite_id, legal_refs=[rujukan_ac10()]).json()["id"]
@@ -138,7 +138,7 @@ def test_simpan_yang_gagal_tidak_mengubah_tabel(as_role, db_session):
 
 def test_versi_baru_dari_approved_mendapat_baris_sendiri(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), legal_refs=[rujukan_ac10()]).json()["id"]
     approved_id = _versi(db_session, case_id).id
     _setujui(db_session, case_id)
@@ -156,7 +156,7 @@ def test_versi_baru_dari_approved_mendapat_baris_sendiri(as_role, db_session):
 
 def test_mengubah_draf_baru_tidak_menyentuh_baris_versi_approved(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), legal_refs=[rujukan_ac10()]).json()["id"]
     approved_id = _versi(db_session, case_id).id
     _setujui(db_session, case_id)
@@ -173,7 +173,7 @@ def test_mengubah_draf_baru_tidak_menyentuh_baris_versi_approved(as_role, db_ses
 def test_versi_baru_dari_isi_sprint_1_ditulis_dalam_bentuk_baru(as_role, db_session):
     """Versi approved lama yang content-nya bentuk Sprint 1 (teks jenis "UU")."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     versi = _versi(db_session, case_id)
     lama = {"regulation_type": "UU", "regulation_number": "13", "year": 2003, "pasal": "156"}
@@ -209,7 +209,7 @@ def test_pelanggaran_constraint_lain_saat_membuat_tidak_dilaporkan_sebagai_kode_
     as_role, monkeypatch
 ):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     monkeypatch.setattr(repository, "create", _gagal_dengan(PELANGGARAN_LAIN))
 
@@ -222,7 +222,7 @@ def test_pelanggaran_constraint_lain_saat_mengubah_tidak_dilaporkan_sebagai_kode
     as_role, monkeypatch
 ):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     monkeypatch.setattr(repository, "save", _gagal_dengan(PELANGGARAN_LAIN))
 
@@ -233,7 +233,7 @@ def test_pelanggaran_constraint_lain_saat_mengubah_tidak_dilaporkan_sebagai_kode
 
 def test_bentrok_kode_versi_sqlite_tetap_case_code_taken(as_role, monkeypatch):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     monkeypatch.setattr(
         repository, "create", _gagal_dengan("UNIQUE constraint failed: cases.case_code")

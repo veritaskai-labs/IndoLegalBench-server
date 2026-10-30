@@ -59,10 +59,16 @@ def setujui(db_session, jadi):
     db_session.add_all(
         [
             User(
-                id=REVIEWER_1, email="r1.166@veritask.test", name="Reviewer 1", role=Role.REVIEWER
+                id=REVIEWER_1,
+                email="r1.166@veritask.test",
+                name="Reviewer 1",
+                role=Role.CONTRIBUTOR,
             ),
             User(
-                id=REVIEWER_2, email="r2.166@veritask.test", name="Reviewer 2", role=Role.REVIEWER
+                id=REVIEWER_2,
+                email="r2.166@veritask.test",
+                name="Reviewer 2",
+                role=Role.CONTRIBUTOR,
             ),
         ]
     )
@@ -73,7 +79,7 @@ def setujui(db_session, jadi):
         assert diajukan.status_code == 200
         assert diajukan.json()["round_status"] == "open"
         for reviewer in (REVIEWER_1, REVIEWER_2):
-            jadi(Role.REVIEWER, reviewer)
+            jadi(Role.CONTRIBUTOR, reviewer)
             [tugas] = [
                 t for t in client.get("/reviews/assigned").json() if t["case"]["case_id"] == case_id
             ]
@@ -81,7 +87,7 @@ def setujui(db_session, jadi):
                 f"/reviews/{tugas['assignment_id']}/verdict", json={"decision": "approve"}
             )
             assert nilai.status_code == 201
-        jadi(Role.AUTHOR, USER_ID_QA)
+        jadi(Role.CONTRIBUTOR, USER_ID_QA)
         assert client.get(f"/cases/{case_id}").json()["status"] == "approved"
 
     return jalankan
@@ -105,7 +111,7 @@ def _riwayat_tag(db_session, case_id: str) -> list[AuditLog]:
 
 def test_ac3_positif_tag_kasus_yang_disetujui_lewat_review_diubah_admin(as_role, setujui, jadi):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), split_tag="test").json()["id"]
     setujui(client, case_id)
     jadi(Role.ADMIN, ADMIN)
@@ -121,7 +127,7 @@ def test_ac3_positif_tag_kasus_yang_disetujui_lewat_review_diubah_admin(as_role,
 
 def test_ac3_positif_test_ke_dev_tercatat_tanpa_peringatan(as_role, setujui, jadi, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), split_tag="test").json()["id"]
     setujui(client, case_id)
     jadi(Role.ADMIN, ADMIN)
@@ -141,7 +147,7 @@ def test_edge_bolak_balik_setiap_perubahan_tercatat_dan_pernah_dev_tetap(
 ):
     """dev -> test -> dev -> test: tiga baris audit, peringatan hanya di dev -> test."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), split_tag="dev").json()["id"]
     setujui(client, case_id)
     jadi(Role.ADMIN, ADMIN)
@@ -166,7 +172,7 @@ def test_edge_bolak_balik_setiap_perubahan_tercatat_dan_pernah_dev_tetap(
 def test_edge_konfirmasi_ditolak_tidak_meninggalkan_jejak(as_role, setujui, jadi, db_session):
     """Sisi server dari "Admin membatalkan dialog": tanpa confirm tidak ada yang berubah."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), split_tag="dev").json()["id"]
     setujui(client, case_id)
     jadi(Role.ADMIN, ADMIN)
@@ -186,7 +192,7 @@ def test_edge_tag_diubah_saat_v2_direview_lalu_v2_disetujui(as_role, setujui, ja
     """Usulan Roben di #57: perubahan tag ikut ke versi terbuka (#53) supaya menyetujui
     v2 tidak membawa kembali tag lama. Di sini v2 benar-benar disetujui setelahnya."""
     # Arrange: v1 dev disetujui, v2 diajukan
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), split_tag="dev").json()["id"]
     setujui(client, case_id)
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
@@ -196,7 +202,7 @@ def test_edge_tag_diubah_saat_v2_direview_lalu_v2_disetujui(as_role, setujui, ja
     # Act: tag berubah di tengah review, lalu kedua reviewer menyetujui v2
     assert _ubah_tag(client, case_id, "test", confirm=True).status_code == 200
     for reviewer in (REVIEWER_1, REVIEWER_2):
-        jadi(Role.REVIEWER, reviewer)
+        jadi(Role.CONTRIBUTOR, reviewer)
         [tugas] = [
             t for t in client.get("/reviews/assigned").json() if t["case"]["case_id"] == case_id
         ]
@@ -206,7 +212,7 @@ def test_edge_tag_diubah_saat_v2_direview_lalu_v2_disetujui(as_role, setujui, ja
             f"/reviews/{tugas['assignment_id']}/verdict", json={"decision": "approve"}
         )
         assert nilai.status_code == 201
-    jadi(Role.AUTHOR, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
 
     # Assert
     kasus = client.get(f"/cases/{case_id}").json()
@@ -223,7 +229,7 @@ def test_edge_tag_diubah_saat_v2_direview_lalu_v2_disetujui(as_role, setujui, ja
 
 def test_ac3_negatif_author_tidak_bisa_memakai_jalur_admin(as_role, setujui):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     setujui(client, case_id)
 
@@ -240,7 +246,7 @@ def test_ac3_negatif_author_tidak_bisa_mengubah_tag_di_draf_versi_berikutnya(as_
     review client #30: biasanya tag baru saja diubah Admin, dan 403 membuat client
     pindah ke /forbidden sehingga suntingan hilang."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     setujui(client, case_id)
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
@@ -261,9 +267,9 @@ def test_ac2_negatif_reviewer_tidak_bisa_mengubah_tag_lewat_put(as_role, jadi):
     """Jalur PUT ditolak oleh guard peran (require_roles AUTHOR, ADMIN), bukan oleh
     aturan tag. Tetap dipertahankan supaya AC2 "tidak lewat jalur mana pun" tercakup."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
-    jadi(Role.REVIEWER, REVIEWER_1)
+    jadi(Role.CONTRIBUTOR, REVIEWER_1)
 
     # Act
     response = client.put(f"/cases/{case_id}", json=_badan(split_tag="test"))
@@ -271,7 +277,7 @@ def test_ac2_negatif_reviewer_tidak_bisa_mengubah_tag_lewat_put(as_role, jadi):
     # Assert
     assert response.status_code == 403
     assert response.json()["code"] == "FORBIDDEN"
-    jadi(Role.AUTHOR, USER_ID_QA)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
     assert client.get(f"/cases/{case_id}").json()["split_tag"] == "dev"
 
 
@@ -283,7 +289,7 @@ def test_ac4_positif_kasus_yang_dipindah_ke_test_ikut_skor_resmi(
 ):
     """Keputusan klien (review #53): kasus dev yang dipindah ke test tetap dihitung."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     dipindah = _buat(client, suite_id, case_code="QA-166-PINDAH", split_tag="dev").json()["id"]
     tetap_dev = _buat(client, suite_id, case_code="QA-166-DEV", split_tag="dev").json()["id"]

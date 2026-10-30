@@ -13,7 +13,7 @@ from sqlalchemy import update
 from app.modules.legal_refs.models import RegulationType
 from app.shared.security import Role
 
-SEMUA_PERAN = [Role.AUTHOR, Role.REVIEWER, Role.ADMIN, Role.VIEWER]
+SEMUA_PERAN = [Role.CONTRIBUTOR, Role.CONTRIBUTOR, Role.ADMIN, Role.VIEWER]
 
 
 def _nonaktifkan(db_session, *codes: str) -> None:
@@ -44,7 +44,7 @@ def test_tanpa_login_401(client):
 
 def test_bentuk_item_dan_urutan_mengikuti_seed(as_role):
     # Act
-    daftar = as_role(Role.AUTHOR).get("/regulation-types").json()
+    daftar = as_role(Role.CONTRIBUTOR).get("/regulation-types").json()
 
     # Assert
     assert daftar[:3] == [
@@ -62,7 +62,7 @@ def test_bentuk_item_dan_urutan_mengikuti_seed(as_role):
 
 def test_jenis_nonaktif_tidak_muncul_secara_bawaan(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _nonaktifkan(db_session, "permen", "kepmen")
 
     # Act
@@ -77,7 +77,7 @@ def test_jenis_nonaktif_tidak_muncul_secara_bawaan(as_role, db_session):
 def test_include_inactive_menampilkan_semua_dengan_penanda(as_role, db_session):
     """Rujukan lama yang menunjuk jenis nonaktif tetap punya label di editor."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _nonaktifkan(db_session, "permen")
 
     # Act
@@ -96,7 +96,7 @@ def test_include_inactive_menampilkan_semua_dengan_penanda(as_role, db_session):
 
 def test_include_inactive_false_eksplisit_sama_dengan_bawaan(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     _nonaktifkan(db_session, "permen")
 
     # Act
@@ -109,7 +109,7 @@ def test_include_inactive_false_eksplisit_sama_dengan_bawaan(as_role, db_session
 
 def test_semua_nonaktif_mengembalikan_daftar_kosong(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     db_session.execute(update(RegulationType).values(is_active=False))
     # Act
     db_session.commit()
@@ -120,7 +120,9 @@ def test_semua_nonaktif_mengembalikan_daftar_kosong(as_role, db_session):
 
 def test_include_inactive_bukan_boolean_ditolak(as_role):
     # Act
-    respons = as_role(Role.AUTHOR).get("/regulation-types", params={"include_inactive": "kadang"})
+    respons = as_role(Role.CONTRIBUTOR).get(
+        "/regulation-types", params={"include_inactive": "kadang"}
+    )
 
     # Assert
     assert respons.status_code == 422

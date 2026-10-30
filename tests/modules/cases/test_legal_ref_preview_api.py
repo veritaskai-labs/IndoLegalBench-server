@@ -67,7 +67,7 @@ def _tanpa(rujukan: dict[str, Any], nama: str, link: int = 0) -> dict[str, Any]:
 
 def test_author_melihat_teks_tiap_rujukan(as_role):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     # Act
     items = _items(_pratinjau(client, rujukan_ktk_001(), rujukan_ac10()))
@@ -88,7 +88,7 @@ def test_admin_boleh_memakai_pratinjau(as_role):
 
 
 def test_daftar_kosong(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     assert _items(_pratinjau(client)) == []
 
@@ -96,7 +96,7 @@ def test_daftar_kosong(as_role):
 def test_rujukan_salah_tetap_200_dengan_error_per_item(as_role):
     """Error pratinjau adalah data, bukan 422: rujukan lain tetap mendapat teksnya."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     # Act
     items = _items(_pratinjau(client, _ubah(rujukan_ktk_001(), number=""), rujukan_ac10()))
@@ -122,7 +122,7 @@ def test_rujukan_salah_tetap_200_dengan_error_per_item(as_role):
 @pytest.mark.parametrize("posisi", [0, 1])
 def test_links_hilang_memakai_pesan_netral_di_simpan_dan_pratinjau(as_role, kind, posisi):
     """Tanpa konteks kind, pesan schema tidak boleh menyebut bentuk terstruktur."""
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     rujukan = [rujukan_ktk_001()] * posisi + [{"kind": kind, "free_text": "Format teks bebas"}]
 
     simpan = _buat(client, _suite(client), legal_refs=rujukan)
@@ -159,7 +159,7 @@ def test_links_hilang_memakai_pesan_netral_di_simpan_dan_pratinjau(as_role, kind
 )
 def test_error_pratinjau_sama_dengan_error_simpan(as_role, rusak):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     # Act
@@ -174,7 +174,7 @@ def test_error_pratinjau_sama_dengan_error_simpan(as_role, rusak):
 @pytest.mark.parametrize("rujukan", [rujukan_ktk_001, rujukan_ac10], ids=["ktk-001", "ac10"])
 def test_teks_pratinjau_sama_dengan_display_text_simpan(as_role, rujukan):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     # Act
     simpan = _buat(client, _suite(client), legal_refs=[rujukan()])
@@ -192,7 +192,7 @@ def test_teks_pratinjau_sama_dengan_display_text_simpan(as_role, rujukan):
 
 def test_rujukan_lama_dengan_jenis_nonaktif_diterima_simpan_dan_pratinjau(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), legal_refs=[rujukan_ktk_001()]).json()["id"]
     _nonaktifkan(db_session, "uu")
 
@@ -207,7 +207,7 @@ def test_rujukan_lama_dengan_jenis_nonaktif_diterima_simpan_dan_pratinjau(as_rol
 
 def test_jenis_nonaktif_tanpa_case_id_ditolak_simpan_dan_pratinjau(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     _nonaktifkan(db_session, "uu")
 
@@ -224,7 +224,7 @@ def test_jenis_nonaktif_tanpa_case_id_ditolak_simpan_dan_pratinjau(as_role, db_s
 def test_jenis_nonaktif_lain_tetap_ditolak_dengan_case_id(as_role, db_session):
     """case_id hanya membebaskan kode yang sudah tersimpan, bukan semua jenis nonaktif."""
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), legal_refs=[rujukan_ktk_001()]).json()["id"]
     _nonaktifkan(db_session, "permen")
     lain = _ubah(rujukan_ktk_001(), regulation_type="permen")
@@ -239,7 +239,7 @@ def test_jenis_nonaktif_lain_tetap_ditolak_dengan_case_id(as_role, db_session):
 
 def test_pratinjau_tidak_menulis_apa_pun(as_role, db_session):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client), legal_refs=[rujukan_ktk_001()]).json()["id"]
     sebelum = _jejak(db_session, case_id)
 
@@ -261,7 +261,7 @@ def _jejak(db_session, case_id: str) -> tuple[Any, ...]:
 
 
 def test_case_id_tidak_ada(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     respons = _pratinjau(client, rujukan_ktk_001(), case_id=str(uuid.uuid4()))
 
@@ -272,9 +272,9 @@ def test_case_id_tidak_ada(as_role):
 
 def test_case_id_milik_author_lain_ditolak(as_role, buat_pengguna):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
-    _ganti(client, buat_pengguna(Role.AUTHOR, user_id=AUTHOR_LAIN))
+    _ganti(client, buat_pengguna(Role.CONTRIBUTOR, user_id=AUTHOR_LAIN))
 
     # Act
     respons = _pratinjau(client, rujukan_ktk_001(), case_id=case_id)
@@ -286,7 +286,7 @@ def test_case_id_milik_author_lain_ditolak(as_role, buat_pengguna):
 
 def test_admin_boleh_memakai_case_id_kasus_orang_lain(as_role, buat_pengguna):
     # Arrange
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
     _ganti(client, buat_pengguna(Role.ADMIN, user_id=ADMIN_LAIN))
 
@@ -304,8 +304,8 @@ def test_belum_login_401(client):
     assert _pratinjau(client, rujukan_ktk_001()).status_code == 401
 
 
-@pytest.mark.parametrize("role", [Role.REVIEWER, Role.VIEWER])
-def test_reviewer_dan_viewer_403(as_role, role):
+@pytest.mark.parametrize("role", [Role.VIEWER, Role.DEVELOPER_AI])
+def test_yang_tidak_menulis_kasus_403(as_role, role):
     client = as_role(role)
 
     assert _pratinjau(client, rujukan_ktk_001()).status_code == 403
@@ -334,7 +334,7 @@ def test_reviewer_dan_viewer_403(as_role, role):
     ],
 )
 def test_body_rusak_422(as_role, body, code, field):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     respons = client.post(PATH, json=body)
 
@@ -344,7 +344,7 @@ def test_body_rusak_422(as_role, body, code, field):
 
 
 def test_seratus_rujukan_masih_diterima(as_role):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
 
     items = _items(_pratinjau(client, *([rujukan_ktk_001()] * 100)))
 

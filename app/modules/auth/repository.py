@@ -13,7 +13,7 @@ from sqlalchemy import func, or_
 from sqlalchemy.orm import Session as DbSession
 
 from app.modules.auth.models import User, UserSession
-from app.shared.security import Role
+from app.shared.security import REVIEWER_ROLES, Role
 
 
 def get_user_by_sub(db: DbSession, zitadel_sub: str) -> User | None:
@@ -28,6 +28,15 @@ def get_user_by_email(db: DbSession, email: str) -> User | None:
 
 def get_user_by_id(db: DbSession, user_id: uuid.UUID) -> User | None:
     return db.get(User, user_id)
+
+
+def lock_user(db: DbSession, user_id: uuid.UUID) -> None:
+    """Kunci baris anggota (SELECT ... FOR UPDATE) sampai transaksi selesai.
+
+    Dipakai sebelum melepas tugas review anggota itu (SCRUM-197), supaya
+    penugasan yang sedang berjalan selesai dulu dan ikut terlepas.
+    """
+    db.query(User.id).filter(User.id == user_id).with_for_update().one()
 
 
 def get_users(db: DbSession, is_active: bool | None = None) -> list[User]:
@@ -58,9 +67,24 @@ def find_user_ids_matching(db: DbSession, text: str) -> list[uuid.UUID]:
 
 
 def get_active_reviewer_ids(db: DbSession) -> list[uuid.UUID]:
+    """Akun aktif yang boleh mereview (D11: users.role = contributor, is_active)."""
+    # FOR SHARE: Admin yang sedang melepas salah satu reviewer ini (lock_user)
+    # menunggu penugasan selesai, dan penugasan baru menunggu pelepasan selesai
+    # lalu membaca ulang is_active/role (SCRUM-197). SQLite mengabaikannya.
     baris = (
         db.query(User.id)
-        .filter(User.role == Role.REVIEWER, User.is_active.is_(True))
+        .filter(User.role.in_(REVIEWER_ROLES), User.is_active.is_(True))
+        .order_by(User.id)
+        .with_for_update(read=True)
+        .all()
+    )
+    return [user_id for (user_id,) in baris]
+
+
+def get_active_admin_ids(db: DbSession) -> list[uuid.UUID]:
+    baris = (
+        db.query(User.id)
+        .filter(User.role == Role.ADMIN, User.is_active.is_(True))
         .order_by(User.id)
         .all()
     )

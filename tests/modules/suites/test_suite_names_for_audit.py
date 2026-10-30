@@ -13,7 +13,7 @@ def _suite(client, nama: str) -> uuid.UUID:
 
 
 def test_nama_suite_per_id(as_role, db_session):
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     pidana, perdata = _suite(client, "Pidana"), _suite(client, "Perdata")
 
     assert service.suite_names(db_session, {pidana, perdata}) == {
@@ -24,7 +24,7 @@ def test_nama_suite_per_id(as_role, db_session):
 
 def test_suite_yang_sudah_dihapus_tetap_bernama(as_role, db_session):
     """Catatan suite.deleted tetap harus terbaca setelah suitenya dihapus."""
-    client = as_role(Role.AUTHOR)
+    client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client, "Lama")
     assert client.delete(f"/suites/{suite_id}").status_code == 204
 

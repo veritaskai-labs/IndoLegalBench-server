@@ -17,9 +17,11 @@ from app.shared.security import Role
 @pytest.fixture
 def pengguna(db_session) -> dict[str, User]:
     baris = {
-        "rina": User(email="rina.author@veritask.ai", name="Rina Sari", role=Role.AUTHOR),
-        "budi": User(email="budi@veritask.ai", name="Budi Santoso", role=Role.REVIEWER),
-        "lama": User(email="lama@veritask.ai", name="Rina Lama", role=Role.AUTHOR, is_active=False),
+        "rina": User(email="rina.author@veritask.ai", name="Rina Sari", role=Role.CONTRIBUTOR),
+        "budi": User(email="budi@veritask.ai", name="Budi Santoso", role=Role.CONTRIBUTOR),
+        "lama": User(
+            email="lama@veritask.ai", name="Rina Lama", role=Role.CONTRIBUTOR, is_active=False
+        ),
     }
     db_session.add_all(baris.values())
     db_session.commit()
@@ -82,8 +84,10 @@ def test_nama_untuk_himpunan_kosong_tidak_query(db_session):
 @pytest.fixture
 def dua_rina(db_session) -> tuple[User, User]:
     """Dua orang berbeda dengan nama persis sama, hanya email yang membedakan."""
-    pertama = User(email="rina.a@veritask.ai", name="Rina Sari", role=Role.AUTHOR)
-    kedua = User(email="rina.b@veritask.ai", name="Rina Sari", role=Role.REVIEWER, is_active=False)
+    pertama = User(email="rina.a@veritask.ai", name="Rina Sari", role=Role.CONTRIBUTOR)
+    kedua = User(
+        email="rina.b@veritask.ai", name="Rina Sari", role=Role.CONTRIBUTOR, is_active=False
+    )
     db_session.add_all([pertama, kedua])
     db_session.commit()
     return pertama, kedua
@@ -137,11 +141,11 @@ def test_identitas_himpunan_kosong_tidak_query(db_session):
 
 
 def test_reviewer_aktif_untuk_penugasan(db_session, pengguna):
-    """PBI-6 AC2: hanya reviewer aktif yang boleh ditugaskan."""
+    """PBI-6 AC2 / PBI-24: hanya Kontributor aktif yang boleh ditugaskan."""
     # Arrange
-    sari = User(email="sari@veritask.ai", name="Sari Reviewer", role=Role.REVIEWER)
+    sari = User(email="sari@veritask.ai", name="Sari Reviewer", role=Role.CONTRIBUTOR)
     nonaktif = User(
-        email="tono@veritask.ai", name="Tono Reviewer", role=Role.REVIEWER, is_active=False
+        email="tono@veritask.ai", name="Tono Reviewer", role=Role.CONTRIBUTOR, is_active=False
     )
     admin = User(email="admin@veritask.ai", name="Admin", role=Role.ADMIN)
     db_session.add_all([sari, nonaktif, admin])
@@ -151,7 +155,7 @@ def test_reviewer_aktif_untuk_penugasan(db_session, pengguna):
     hasil = service.active_reviewer_ids(db_session)
 
     # Assert
-    assert set(hasil) == {pengguna["budi"].id, sari.id}
+    assert set(hasil) == {pengguna["rina"].id, pengguna["budi"].id, sari.id}
 
 
 def test_tanpa_reviewer_aktif(db_session):

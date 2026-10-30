@@ -16,7 +16,7 @@ import pytest
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
 from app.modules.reviews import service
-from app.modules.reviews.ports import NoopNotifier, ReviewerLoad
+from app.modules.reviews.ports import DeferredNotifier, NoopNotifier, ReviewerLoad
 from app.shared import request_context
 from app.shared.security import Role
 
@@ -91,7 +91,7 @@ def _user_id(nomor: int) -> uuid.UUID:
 
 @pytest.fixture
 def buat_user(db_session):
-    def buat(nomor: int, role: Role = Role.REVIEWER, *, is_active: bool = True) -> uuid.UUID:
+    def buat(nomor: int, role: Role = Role.CONTRIBUTOR, *, is_active: bool = True) -> uuid.UUID:
         user = User(
             id=_user_id(nomor),
             email=f"user{nomor}@veritask.test",
@@ -166,7 +166,7 @@ def test_nonaktif_dan_bukan_reviewer_tidak_terpilih(db_session, buat_user, store
     nonaktif = buat_user(2, is_active=False)
     admin = buat_user(3, Role.ADMIN)
     viewer = buat_user(4, Role.VIEWER)
-    penulis = buat_user(5, Role.AUTHOR)
+    penulis = buat_user(5, Role.CONTRIBUTOR)
     aktif = [buat_user(6), buat_user(7)]
 
     # Act
@@ -179,7 +179,7 @@ def test_nonaktif_dan_bukan_reviewer_tidak_terpilih(db_session, buat_user, store
 
 def test_dua_antrean_terkecil_menang(db_session, buat_user, store, notifier):
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     sibuk, sedang, luang_a, luang_b = (buat_user(n) for n in range(2, 6))
     for _ in range(3):
         store.tambah(sibuk)
@@ -196,7 +196,7 @@ def test_dua_antrean_terkecil_menang(db_session, buat_user, store, notifier):
 
 def test_penugasan_yang_sudah_dinilai_tidak_masuk_antrean(db_session, buat_user, store, notifier):
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     sudah_menilai, menunggu = buat_user(2), buat_user(3)
     store.tambah(sudah_menilai, sudah_dinilai=True)
     store.tambah(sudah_menilai, status="replaced")
@@ -213,7 +213,7 @@ def test_penugasan_yang_sudah_dinilai_tidak_masuk_antrean(db_session, buat_user,
 
 def test_seri_belum_pernah_ditugaskan_lebih_dulu(db_session, buat_user, store, notifier):
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     pernah = buat_user(2)
     store.tambah(pernah, sudah_dinilai=True)
     belum = [buat_user(3), buat_user(4)]
@@ -227,7 +227,7 @@ def test_seri_belum_pernah_ditugaskan_lebih_dulu(db_session, buat_user, store, n
 
 def test_seri_penugasan_terakhir_paling_lama_lebih_dulu(db_session, buat_user, store, notifier):
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     paling_lama, menengah, terbaru = buat_user(2), buat_user(3), buat_user(4)
     store.tambah(paling_lama, sudah_dinilai=True)
     store.tambah(menengah, sudah_dinilai=True)
@@ -242,7 +242,7 @@ def test_seri_penugasan_terakhir_paling_lama_lebih_dulu(db_session, buat_user, s
 
 def test_seri_penuh_memakai_id_terkecil(db_session, buat_user, store, notifier):
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     buat_user(9)
     buat_user(7)
     buat_user(8)
@@ -257,7 +257,7 @@ def test_seri_penuh_memakai_id_terkecil(db_session, buat_user, store, notifier):
 def test_seri_waktu_memakai_total_tersedikit_sebelum_id(db_session, buat_user, store, notifier):
     """Pasangan satu round punya waktu yang sama. Id kecil tidak boleh terus menang."""
     # Arrange: satu kursi tersisa untuk sepasang reviewer dengan waktu yang sama
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     sering, jarang, baru = buat_user(2), buat_user(3), buat_user(4)
     store.tambah(sering, sudah_dinilai=True)
     store.tambah(sering, sudah_dinilai=True)
@@ -278,7 +278,7 @@ def test_pemilihan_merata_di_kelompok_yang_setara(
 ):
     """Penugasan dinilai sebelum pengajuan berikutnya, jadi hanya urutan seri yang bekerja."""
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     reviewer = [buat_user(n) for n in range(2, 2 + jumlah_reviewer)]
 
     # Act
@@ -298,7 +298,7 @@ def test_kurang_dari_dua_masuk_antrean_penugasan(
     db_session, buat_user, store, notifier, jumlah_reviewer
 ):
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     for nomor in range(2, 2 + jumlah_reviewer):
         buat_user(nomor)
     round_id = uuid.uuid4()
@@ -338,10 +338,10 @@ def test_dua_terpilih_disimpan_dan_dinotifikasi_tanpa_audit_manual(
 ):
     """FakeStore tidak menulis baris ORM; audit D6a datang dari tracker saat store nyata."""
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     reviewer = [buat_user(2), buat_user(3)]
     round_id = uuid.uuid4()
-    request_context.bind(db_session, user_id=penulis, role=Role.AUTHOR)
+    request_context.bind(db_session, user_id=penulis, role=Role.CONTRIBUTOR)
 
     # Act
     terpilih = _tugaskan(db_session, store, notifier, author_id=penulis, round_id=round_id)
@@ -375,9 +375,9 @@ def test_store_nyata_membuka_round_dan_mencatat_satu_audit_per_assignment(
     )
 
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     reviewer = [buat_user(2), buat_user(3)]
-    request_context.bind(db_session, user_id=penulis, role=Role.AUTHOR)
+    request_context.bind(db_session, user_id=penulis, role=Role.CONTRIBUTOR)
     ronde = ReviewRound(
         case_id=CASE_ID,
         case_version_id=uuid.uuid4(),
@@ -424,7 +424,7 @@ def test_store_nyata_kurang_dari_dua_tetap_awaiting(db_session, buat_user, notif
     from app.modules.reviews.models import ReviewRound, RoundStatus
 
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     buat_user(2)
     ronde = ReviewRound(
         case_id=CASE_ID,
@@ -456,10 +456,10 @@ def test_tidak_commit_sendiri(db_session, buat_user, notifier):
     from app.modules.reviews.models import ReviewRound, RoundStatus
 
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     buat_user(2)
     buat_user(3)
-    request_context.bind(db_session, user_id=penulis, role=Role.AUTHOR)
+    request_context.bind(db_session, user_id=penulis, role=Role.CONTRIBUTOR)
     ronde = ReviewRound(
         case_id=CASE_ID,
         case_version_id=uuid.uuid4(),
@@ -500,7 +500,7 @@ def test_store_nyata_open_queue_menghitung_beban_dengan_benar(db_session, buat_u
     )
 
     # Arrange
-    penulis = buat_user(1, Role.AUTHOR)
+    penulis = buat_user(1, Role.CONTRIBUTOR)
     ringan = buat_user(2)
     berat = buat_user(3)
     jam = AWAL
@@ -580,3 +580,90 @@ def test_store_nyata_open_queue_menghitung_beban_dengan_benar(db_session, buat_u
 def test_noop_notifier_menerima_panggilan_tanpa_efek():
     # Act + Assert
     assert NoopNotifier().notify([uuid.uuid4()], "review_assigned", {"title": "t"}) is None
+
+
+# --- SCRUM-196 AC5: Admin diberi tahu bila kandidat kurang dari dua ---
+
+
+@pytest.mark.parametrize("jumlah_reviewer", [0, 1])
+def test_kurang_dari_dua_memberitahu_semua_admin_sekali(
+    db_session, buat_user, store, notifier, jumlah_reviewer
+):
+    """AC5: 0 atau 1 kandidat → needs-assignment + semua Admin aktif diberitahu sekali."""
+    # Arrange
+    penulis = buat_user(1, Role.CONTRIBUTOR)
+    for nomor in range(2, 2 + jumlah_reviewer):
+        buat_user(nomor)
+    admin_a = buat_user(10, Role.ADMIN)
+    admin_b = buat_user(11, Role.ADMIN)
+    buat_user(12, Role.ADMIN, is_active=False)
+    round_id = uuid.uuid4()
+
+    # Act
+    terpilih = _tugaskan(db_session, store, notifier, author_id=penulis, round_id=round_id)
+
+    # Assert
+    assert terpilih == []
+    assert store.perlu_penugasan == [round_id]
+    assert len(notifier.panggilan) == 1
+    user_ids, jenis, payload = notifier.panggilan[0]
+    assert sorted(user_ids) == sorted([admin_a, admin_b])
+    assert jenis == "review_needs_assignment"
+    assert set(payload) == {"title", "body", "link"}
+    assert payload["link"] == "/admin/reviews"
+
+
+def test_cukup_kandidat_tidak_memberitahu_admin(db_session, buat_user, store, notifier):
+    # Arrange
+    penulis = buat_user(1, Role.CONTRIBUTOR)
+    buat_user(2)
+    buat_user(3)
+    buat_user(10, Role.ADMIN)
+    round_id = uuid.uuid4()
+
+    # Act
+    terpilih = _tugaskan(db_session, store, notifier, author_id=penulis, round_id=round_id)
+
+    # Assert
+    assert len(terpilih) == 2
+    assert all(jenis == "review_assigned" for _, jenis, _ in notifier.panggilan)
+    assert not any(jenis == "review_needs_assignment" for _, jenis, _ in notifier.panggilan)
+
+
+def test_notifikasi_admin_ditahan_oleh_deferred_notifier(db_session, buat_user, store):
+    """AC5: notifikasi Admin hanya keluar setelah send (setelah commit pemanggil)."""
+    # Arrange
+    penulis = buat_user(1, Role.CONTRIBUTOR)
+    admin = buat_user(10, Role.ADMIN)
+    tertunda = DeferredNotifier()
+    tujuan = FakeNotifier()
+    round_id = uuid.uuid4()
+
+    # Act
+    terpilih = service.assign_on_submit(
+        db_session,
+        round_id=round_id,
+        author_id=penulis,
+        store=store,
+        notifier=tertunda,
+    )
+
+    # Assert: belum terkirim sebelum send
+    assert terpilih == []
+    assert store.perlu_penugasan == [round_id]
+    assert tujuan.panggilan == []
+
+    tertunda.send(tujuan)
+
+    assert len(tujuan.panggilan) == 1
+    user_ids, jenis, _payload = tujuan.panggilan[0]
+    assert user_ids == [admin]
+    assert jenis == "review_needs_assignment"
+
+
+def test_is_case_author_satu_aturan_untuk_tiga_jalur():
+    """SCRUM-196: helper bersama dipakai auto-assign, replace, dan verdict."""
+    penulis = uuid.uuid4()
+    lain = uuid.uuid4()
+    assert service._is_case_author(user_id=penulis, author_id=penulis) is True
+    assert service._is_case_author(user_id=lain, author_id=penulis) is False
