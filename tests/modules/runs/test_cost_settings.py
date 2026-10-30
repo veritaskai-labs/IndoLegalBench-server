@@ -58,6 +58,29 @@ def test_harga_model_dibaca_dari_json_environment(monkeypatch):
     }
 
 
+def test_rata_rata_token_bawaan_tanpa_nilai_dan_dibaca_dari_environment(monkeypatch):
+    # Arrange + Act
+    kosong = _settings(monkeypatch)
+    terisi = _settings(monkeypatch, COST_DEFAULT_AVG_ANSWER_TOKENS="750.5")
+
+    # Assert: aturan saat belum ada riwayat masih TBA, jadi tidak ada angka bawaan
+    assert kosong.cost_default_avg_answer_tokens is None
+    assert terisi.cost_default_avg_answer_tokens == Decimal("750.5")
+
+
+@pytest.mark.parametrize("nilai", ["0", "-10"])
+def test_rata_rata_token_bawaan_nol_atau_negatif_menghentikan_aplikasi(monkeypatch, nilai):
+    # Arrange
+    monkeypatch.setenv("COST_DEFAULT_AVG_ANSWER_TOKENS", nilai)
+
+    # Act
+    with pytest.raises(ValidationError) as galat:
+        Settings(_env_file=None)
+
+    # Assert
+    assert "cost_default_avg_answer_tokens" in str(galat.value).lower()
+
+
 def test_jisdor_bawaan_tanpa_key_dan_alamat_dari_dokumentasi_layanan(monkeypatch):
     # Arrange + Act
     settings = _settings(monkeypatch)
