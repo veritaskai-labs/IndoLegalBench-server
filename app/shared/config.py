@@ -68,6 +68,10 @@ class Settings(BaseSettings):
     # Kunci "provider_type:model_name", nilai USD per 1 juta token output.
     cost_model_prices: dict[str, Annotated[Decimal, Field(ge=0)]] = {}
     cost_usd_idr_fallback_rate: Decimal | None = Field(default=None, gt=0)
+    # Kurs harian JISDOR lewat layanan pihak ketiga. Key tanpa nilai bawaan:
+    # kosong berarti tidak ada panggilan, dan kurs cadangan yang dipakai.
+    jisdor_api_url: str = "https://allratestoday.com/api/v1/central-bank/bi/latest"
+    jisdor_api_key: str = ""
 
     @property
     def frontend_origin(self) -> str:
