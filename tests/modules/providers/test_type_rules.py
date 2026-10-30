@@ -14,7 +14,13 @@ from decimal import Decimal
 import pytest
 
 from app.modules.providers.models import MeasurementType, ProviderType
-from app.modules.providers.rules import FIELD_NOT_ALLOWED, FIELD_REQUIRED, type_field_problem
+from app.modules.providers.rules import (
+    ACCESS_NOTE_SECRET,
+    FIELD_NOT_ALLOWED,
+    FIELD_REQUIRED,
+    access_note_problem,
+    type_field_problem,
+)
 
 
 def _otomatis(**ubah) -> dict:
@@ -170,3 +176,50 @@ def test_pesan_menyebut_isian_dan_jenisnya():
 
     # Assert
     assert masalah.message == "Kredensial wajib diisi untuk produk Otomatis."
+
+
+# --- Catatan akses tanpa kata sandi (AC3, review #81 poin 1) -------------------------------
+# Catatan akses tersalin apa adanya ke audit_logs yang tidak bisa dihapus, jadi pola
+# "kata sandi: ..." ditolak sebelum tersimpan. Penyaring kasar, bukan jaminan.
+
+
+@pytest.mark.parametrize(
+    "catatan",
+    [
+        None,
+        "Login lewat akun tim legal, minta akses ke Admin.",
+        "PIN dikirim lewat SMS ke nomor kantor",
+        "Simulasi pinjaman: pakai paket Pro",
+        "Token harian habis jam 12 malam",
+    ],
+    ids=["kosong", "biasa", "pin-tanpa-nilai", "pinjaman", "token-tanpa-nilai"],
+)
+def test_catatan_akses_tanpa_rahasia_diterima(catatan):
+    """Positif/Edge: kata seperti PIN atau token boleh disebut selama tidak diikuti nilai
+    ("PIN: 1234"), dan kata yang hanya mengandung "pin" (pinjaman) tidak ikut tertolak."""
+    # Act + Assert
+    assert access_note_problem(catatan) is None
+
+
+@pytest.mark.parametrize(
+    "catatan",
+    [
+        "login legal@veritask.example / password: Hunter2!2026",
+        "Kata sandi: rahasia123",
+        "sandi=abc",
+        "PWD : abc",
+        "pin: 1234",
+        "token=sk-abc",
+        "API key: sk-abc",
+        "api_key=sk-abc",
+    ],
+)
+def test_catatan_akses_berisi_rahasia_ditolak(catatan):
+    """Negatif: pola "<kata rahasia>: nilai" ditolak dengan code dan field yang jelas,
+    tanpa peduli huruf besar kecil atau spasi sebelum titik dua."""
+    # Act
+    masalah = access_note_problem(catatan)
+
+    # Assert
+    assert (masalah.code, masalah.field) == (ACCESS_NOTE_SECRET, "access_note")
+    assert "kata sandi" in masalah.message

@@ -5,6 +5,7 @@ isian yang tidak sesuai jenis menjadi 422 dengan field yang jelas. Constraint C1
 di database (D1) tetap ada sebagai pengaman terakhir.
 """
 
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -14,6 +15,15 @@ from app.modules.providers.models import MeasurementType
 # Kode yang sama dengan SCRUM-200 (#79), supaya POST dan PATCH berbicara satu kontrak.
 FIELD_REQUIRED = "FIELD_REQUIRED_FOR_TYPE"
 FIELD_NOT_ALLOWED = "FIELD_NOT_ALLOWED_FOR_TYPE"
+ACCESS_NOTE_SECRET = "ACCESS_NOTE_SECRET"  # pragma: allowlist secret (kode galat, bukan rahasia)
+
+# AC3: catatan akses bukan tempat kata sandi. Catatan ikut tercatat apa adanya di
+# audit_logs yang tidak bisa dihapus, jadi pola "kata sandi: ..." ditolak sebelum
+# tersimpan. Hanya penyaring kasar pendamping teks bantuan di form, bukan jaminan.
+_POLA_RAHASIA = re.compile(
+    r"\b(password|passwd|pwd|kata\s*sandi|sandi|pin|token|api[\s_-]?key)\s*[:=]",
+    re.IGNORECASE,
+)
 
 # Isian khusus tiap jenis (D1 C1). Wajib dulu, opsional sesudahnya.
 _WAJIB = {
@@ -88,3 +98,11 @@ def type_field_problem(
             pesan = f"{_LABEL[field]} wajib diisi untuk produk {_NAMA_JENIS[jenis]}."
             return TypeFieldProblem(FIELD_REQUIRED, field, pesan)
     return None
+
+
+def access_note_problem(catatan: str | None) -> TypeFieldProblem | None:
+    """Masalah bila catatan akses tampak memuat kata sandi atau kunci (AC3), selain itu None."""
+    if catatan is None or not _POLA_RAHASIA.search(catatan):
+        return None
+    pesan = "Catatan akses tidak boleh berisi kata sandi, PIN, token, atau API key."
+    return TypeFieldProblem(ACCESS_NOTE_SECRET, "access_note", pesan)

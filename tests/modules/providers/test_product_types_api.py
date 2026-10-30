@@ -15,13 +15,14 @@ from unittest.mock import MagicMock
 
 import pytest
 from cryptography.fernet import Fernet
+from sqlalchemy.exc import IntegrityError
 
 from app.modules.audit.models import AuditLog
 from app.modules.providers import service
 from app.modules.providers.models import AiProduct, MeasurementType
 from app.modules.providers.schemas import AiProductCreate
 from app.shared.config import get_settings
-from app.shared.exceptions import ValidationError
+from app.shared.exceptions import ConflictError, ValidationError
 from app.shared.security import Role
 
 _SECRET = "provider-token-uji-201"  # pragma: allowlist secret
@@ -167,6 +168,73 @@ def test_catatan_akses_wajib_bila_flag_konfigurasi_menyala(admin, monkeypatch):
         "FIELD_REQUIRED_FOR_TYPE",
         "access_note",
     )
+
+
+# --- Catatan akses dan teks bebas Manual (review #81 poin 1 dan 2) -------------------------
+
+_CATATAN_RAHASIA = (
+    "login legal@veritask.example / password: Hunter2!2026"  # pragma: allowlist secret
+)
+
+
+def test_catatan_akses_berisi_kata_sandi_ditolak_dan_tidak_tercatat(admin, db_session):
+    """Negatif: AC3, kata sandi tidak boleh masuk catatan akses. Ditolak 422 sebelum
+    tersimpan, jadi tidak ada produk dan tidak ada baris audit yang memuatnya."""
+    # Act
+    respons = admin.post("/admin/providers", json=_manual(access_note=_CATATAN_RAHASIA))
+
+    # Assert
+    assert respons.status_code == 422, respons.text
+    assert (respons.json()["code"], respons.json()["field"]) == (
+        "ACCESS_NOTE_SECRET",
+        "access_note",
+    )
+    assert db_session.query(AiProduct).count() == 0
+    assert "Hunter2" not in str([b.after for b in db_session.query(AuditLog).all()])
+
+
+def test_ubah_catatan_akses_berisi_kata_sandi_ditolak(admin, db_session):
+    """Negatif: aturan yang sama berlaku saat PATCH; catatan lama tidak berubah."""
+    # Arrange
+    product_id = _daftar(admin, _manual(access_note="Minta akses ke Admin"))
+
+    # Act
+    respons = admin.patch(f"/admin/providers/{product_id}", json={"access_note": _CATATAN_RAHASIA})
+
+    # Assert
+    assert respons.status_code == 422, respons.text
+    assert respons.json()["code"] == "ACCESS_NOTE_SECRET"
+    db_session.expire_all()
+    assert db_session.get(AiProduct, uuid.UUID(product_id)).access_note == "Minta akses ke Admin"
+
+
+@pytest.mark.parametrize("field", ["access_note", "manual_params"])
+def test_teks_bebas_manual_dibatasi_2000_karakter(admin, db_session, field):
+    """Edge: 2000 karakter masih diterima, 2001 ditolak 422 sebelum menyentuh database.
+    Tanpa batas, teks 1 MB tersimpan dan tersalin utuh ke audit_logs."""
+    # Act
+    pas = admin.post("/admin/providers", json=_manual(name="Pas", **{field: "a" * 2000}))
+    lebih = admin.post("/admin/providers", json=_manual(name="Lebih", **{field: "a" * 2001}))
+
+    # Assert
+    assert pas.status_code == 201, pas.text
+    assert lebih.status_code == 422
+    assert lebih.json()["detail"][0]["loc"] == ["body", field]
+    assert [p.name for p in db_session.query(AiProduct).all()] == ["Pas"]
+
+
+@pytest.mark.parametrize("field", ["access_note", "manual_params"])
+def test_ubah_teks_bebas_manual_juga_dibatasi(admin, field):
+    """Negatif: batas yang sama berlaku saat PATCH."""
+    # Arrange
+    product_id = _daftar(admin, _manual())
+
+    # Act
+    respons = admin.patch(f"/admin/providers/{product_id}", json={field: "a" * 2001})
+
+    # Assert
+    assert respons.status_code == 422
+    assert respons.json()["detail"][0]["loc"] == ["body", field]
 
 
 # --- Mengubah produk -----------------------------------------------------------------------
@@ -334,6 +402,26 @@ def test_audit_tidak_pernah_memuat_kredensial(admin, db_session):
     )
 
 
+def test_pindah_ke_otomatis_bukan_kredensial_diganti(admin, db_session):
+    """Edge: kredensial pertama saat pindah Manual ke Otomatis tidak dicatat sebagai
+    credential_rotated (review #81 poin 3), melainkan "removed" ke "stored" di event
+    updated yang sama, kebalikan dari pindah ke Manual."""
+    # Arrange
+    product_id = _daftar(admin, _manual())
+    body = _otomatis()
+    del body["name"]
+
+    # Act
+    respons = admin.patch(f"/admin/providers/{product_id}", json=body)
+
+    # Assert
+    assert respons.status_code == 200, respons.text
+    assert _audit(db_session, "ai_product.credential_rotated") == []
+    [pindah] = _audit(db_session, "ai_product.updated")
+    assert (pindah.before["credential"], pindah.after["credential"]) == ("removed", "stored")
+    assert _SECRET not in str((pindah.before, pindah.after))
+
+
 # --- Service dengan repository di-mock -----------------------------------------------------
 # Repository diganti MagicMock, supaya yang diuji hanya urutan keputusan service:
 # isian dicek sebelum produk dibuat, dan produk Manual tidak pernah dienkripsi.
@@ -380,3 +468,45 @@ def test_service_produk_manual_tidak_menyimpan_kredensial(monkeypatch):
     produk = repo.create.call_args.args[1]
     assert produk.measurement_type == MeasurementType.MANUAL
     assert (produk.credential_encrypted, produk.provider_type) == (None, None)
+
+
+def _gagal_simpan(pesan: str):
+    """repository.create yang gagal di database dengan pesan driver tertentu."""
+
+    def create(_db, _produk):
+        raise IntegrityError("INSERT INTO ai_products", {}, Exception(pesan))
+
+    return create
+
+
+def test_service_nama_kembar_di_database_tetap_409(monkeypatch):
+    """Negatif: nama yang lolos cek awal tapi bentrok di database (balapan) tetap 409."""
+    # Arrange
+    repo = MagicMock()
+    repo.get_by_name.return_value = None
+    repo.create.side_effect = _gagal_simpan("UNIQUE constraint failed: ai_products.name")
+    monkeypatch.setattr(service, "repository", repo)
+
+    # Act + Assert
+    with pytest.raises(ConflictError) as galat:
+        service.create_product(MagicMock(), AiProductCreate(**_manual()), created_by=uuid.uuid4())
+    assert galat.value.code == service.NAME_TAKEN
+
+
+def test_service_pelanggaran_selain_nama_tidak_disamarkan_jadi_409(monkeypatch):
+    """Negatif (review #81 poin 4): pembuat yang tidak ada (FK) bukan "nama sudah dipakai".
+
+    Sebelumnya setiap IntegrityError saat create menjadi 409 NAME_TAKEN. Sekarang
+    create memakai pemetaan yang sama dengan update, jadi galat lain diteruskan.
+    """
+    # Arrange
+    repo = MagicMock()
+    repo.get_by_name.return_value = None
+    repo.create.side_effect = _gagal_simpan("FOREIGN KEY constraint failed")
+    db = MagicMock()
+    monkeypatch.setattr(service, "repository", repo)
+
+    # Act + Assert
+    with pytest.raises(IntegrityError):
+        service.create_product(db, AiProductCreate(**_manual()), created_by=uuid.uuid4())
+    db.rollback.assert_called_once()

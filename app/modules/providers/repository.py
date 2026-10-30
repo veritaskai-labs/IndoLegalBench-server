@@ -61,6 +61,24 @@ def list_products(
     return query.order_by(AiProduct.name).all()
 
 
+def list_options(db: Session, *, measurement_type: MeasurementType) -> list[sa.Row]:
+    """Produk aktif satu jenis, hanya kolom pilihan (PBI-23 AC7, AC8).
+
+    Sengaja tidak memuat seluruh baris: daftar ini dibaca Kontributor, jadi
+    ciphertext kredensial dan catatan akses tidak ikut terbaca dari database.
+    """
+    return (
+        db.query(AiProduct.id, AiProduct.name, AiProduct.measurement_type)
+        .filter(
+            AiProduct.deleted_at.is_(None),
+            AiProduct.is_active == sa.true(),
+            AiProduct.measurement_type == measurement_type,
+        )
+        .order_by(AiProduct.name)
+        .all()
+    )
+
+
 def create(db: Session, product: AiProduct) -> AiProduct:
     db.add(product)
     db.commit()

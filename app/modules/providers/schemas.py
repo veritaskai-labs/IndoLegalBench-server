@@ -19,6 +19,9 @@ from app.modules.providers.models import (
     ProviderType,
 )
 
+# Batas catatan akses dan parameter produk Manual (teks bebas, PBI-23 AC3).
+_PANJANG_TEKS_MANUAL = 2000
+
 
 def _teks_bersih(value: str) -> str:
     bersih = value.strip()
@@ -74,8 +77,9 @@ class AiProductCreate(BaseModel):
     # Manual
     vendor_name: str | None = Field(default=None, min_length=1, max_length=200)
     site_url: str | None = Field(default=None, min_length=1, max_length=2048)
-    access_note: str | None = None
-    manual_params: str | None = None
+    # Teks bebas ikut tersalin ke audit_logs, jadi panjangnya dibatasi.
+    access_note: str | None = Field(default=None, max_length=_PANJANG_TEKS_MANUAL)
+    manual_params: str | None = Field(default=None, max_length=_PANJANG_TEKS_MANUAL)
 
     @field_validator("name")
     @classmethod
@@ -113,8 +117,8 @@ class AiProductUpdate(BaseModel):
     )
     vendor_name: str | None = Field(default=None, min_length=1, max_length=200)
     site_url: str | None = Field(default=None, min_length=1, max_length=2048)
-    access_note: str | None = None
-    manual_params: str | None = None
+    access_note: str | None = Field(default=None, max_length=_PANJANG_TEKS_MANUAL)
+    manual_params: str | None = Field(default=None, max_length=_PANJANG_TEKS_MANUAL)
 
     @field_validator("name", "model_name", "vendor_name")
     @classmethod

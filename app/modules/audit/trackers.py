@@ -361,13 +361,17 @@ class AiProductTracker(Tracker):
 
     def updated(self, row: Any, changes: dict[str, Change]) -> list[AuditEvent]:
         kredensial = changes.get("credential_encrypted")
-        if kredensial is not None and kredensial.new is None:
-            # Pindah ke Manual menghapus kredensial. Itu bukan "kredensial diganti", jadi
-            # dicatat di event updated yang sama lewat penanda tetap, tanpa nilai.
-            changes = {k: v for k, v in changes.items() if k != "credential_encrypted"}
-            changes["credential"] = Change(
-                CREDENTIAL_STORED["credential"], CREDENTIAL_REMOVED["credential"]
+        if kredensial is not None and (kredensial.old is None or kredensial.new is None):
+            # Pindah jenis menghapus kredensial (ke Manual) atau memberi kredensial pertama
+            # (ke Otomatis). Keduanya bukan "kredensial diganti", jadi dicatat di event
+            # updated yang sama lewat penanda tetap, tanpa nilai.
+            awal, akhir = (
+                (CREDENTIAL_REMOVED, CREDENTIAL_STORED)
+                if kredensial.old is None
+                else (CREDENTIAL_STORED, CREDENTIAL_REMOVED)
             )
+            changes = {k: v for k, v in changes.items() if k != "credential_encrypted"}
+            changes["credential"] = Change(awal["credential"], akhir["credential"])
         return super().updated(row, changes)
 
     def _special_event(self, row: Any, field: str, change: Change) -> AuditEvent:

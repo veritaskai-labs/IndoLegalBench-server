@@ -20,6 +20,7 @@ from decimal import Decimal
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy import event
 
 from app.modules.providers import service
 from app.modules.providers.models import AiProduct, MeasurementType, ProviderType
@@ -203,6 +204,34 @@ def test_kontributor_hanya_menerima_nama_produk_manual(as_role, katalog):
     }
 
 
+def test_daftar_pilihan_tidak_membaca_kredensial_dari_database(as_role, katalog, db_session):
+    """Negatif (pengaman, review #81 poin 5): query daftar pilihan hanya memilih kolom
+    id, nama, dan jenis. Ciphertext kredensial dan catatan akses tidak pernah terbaca
+    untuk permintaan Kontributor, bukan sekadar disaring sebelum respons dikirim."""
+    # Arrange
+    kontributor = as_role(Role.CONTRIBUTOR)
+    perintah: list[str] = []
+
+    def catat(_conn, _cursor, statement, *_args):
+        perintah.append(statement)
+
+    mesin = db_session.get_bind()
+    event.listen(mesin, "before_cursor_execute", catat)
+
+    # Act
+    try:
+        respons = kontributor.get("/ai-products", params={"purpose": "manual_entry"})
+    finally:
+        event.remove(mesin, "before_cursor_execute", catat)
+
+    # Assert
+    assert _nama(respons) == ["Manual A", "Manual B"]
+    query_produk = [sql for sql in perintah if "FROM ai_products" in sql]
+    assert query_produk
+    for sql in query_produk:
+        assert "credential_encrypted" not in sql and "access_note" not in sql
+
+
 @pytest.mark.parametrize(
     ("role", "purpose"),
     [
@@ -246,16 +275,14 @@ def test_service_meminta_produk_aktif_berjenis_sesuai_tujuan(monkeypatch):
     # Arrange
     db = MagicMock()
     repo = MagicMock()
-    repo.list_products.return_value = [_manual("Manual A", id=uuid.uuid4())]
+    repo.list_options.return_value = [_manual("Manual A", id=uuid.uuid4())]
     monkeypatch.setattr(service, "repository", repo)
 
     # Act
     hasil = service.list_options(db, purpose=ProductPurpose.MANUAL_ENTRY, role=Role.CONTRIBUTOR)
 
     # Assert
-    repo.list_products.assert_called_once_with(
-        db, is_active=True, measurement_type=MeasurementType.MANUAL
-    )
+    repo.list_options.assert_called_once_with(db, measurement_type=MeasurementType.MANUAL)
     assert [p.name for p in hasil] == ["Manual A"]
 
 
@@ -272,4 +299,4 @@ def test_service_menolak_sebelum_menyentuh_database(monkeypatch):
         )
 
     # Assert
-    repo.list_products.assert_not_called()
+    repo.list_options.assert_not_called()

@@ -67,6 +67,7 @@ def create_product(
         # D1: kunci parameter yang kosong tidak disimpan, supaya dipakai default penyedia.
         isian["model_params"] = payload.model_params.model_dump(exclude_none=True)
     _pastikan_isian_sesuai_jenis(jenis, isian)
+    _pastikan_catatan_tanpa_rahasia(payload.access_note)
     _pastikan_nama_bebas(db, payload.name)
     # Hanya isian milik jenis ini yang ditulis; kredensial hanya ada di produk Otomatis.
     credential = isian.pop("credential")
@@ -79,12 +80,10 @@ def create_product(
         product.credential_hint = credential_hint(credential)
     try:
         tersimpan = repository.create(db, product)
-    except IntegrityError:
+    except IntegrityError as exc:
         db.rollback()
-        raise ConflictError(
-            f"Nama produk AI '{payload.name}' sudah dipakai",
-            code=NAME_TAKEN,
-        ) from None
+        # Hanya pelanggaran unik nama yang menjadi 409; FK atau constraint lain tidak disamarkan.
+        _handle_integrity_error(exc, payload.name)
     return _tampilkan(tersimpan)
 
 
@@ -110,9 +109,7 @@ def list_options(
     """
     if not visibility.can_list_options(role, purpose):
         raise ForbiddenError("Peran Anda tidak berwenang melihat daftar produk untuk tujuan ini")
-    produk = repository.list_products(
-        db, is_active=True, measurement_type=visibility.measurement_type_for(purpose)
-    )
+    produk = repository.list_options(db, measurement_type=visibility.measurement_type_for(purpose))
     return [
         AiProductOption(id=item.id, name=item.name, measurement_type=item.measurement_type)
         for item in produk
@@ -211,6 +208,7 @@ def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate)
     _pastikan_isian_sesuai_jenis(
         target_type, _isian_setelah_ubah(product, perubahan, credential, berganti=tipe_berubah)
     )
+    _pastikan_catatan_tanpa_rahasia(perubahan.get("access_note"))
 
     if "name" in perubahan:
         _pastikan_nama_bebas(db, perubahan["name"], kecuali=product.id)
@@ -338,6 +336,13 @@ def _pastikan_isian_sesuai_jenis(jenis: MeasurementType, isian: dict) -> None:
     masalah = rules.type_field_problem(
         jenis, isian, access_note_required=get_settings().ai_product_access_note_required
     )
+    if masalah is not None:
+        raise ValidationError(masalah.message, code=masalah.code, field=masalah.field)
+
+
+def _pastikan_catatan_tanpa_rahasia(catatan: str | None) -> None:
+    """422 ACCESS_NOTE_SECRET sebelum catatan tersimpan dan tersalin ke audit (AC3)."""
+    masalah = rules.access_note_problem(catatan)
     if masalah is not None:
         raise ValidationError(masalah.message, code=masalah.code, field=masalah.field)
 

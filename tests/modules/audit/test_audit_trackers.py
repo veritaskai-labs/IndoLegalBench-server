@@ -660,6 +660,29 @@ def test_pindah_ke_manual_mencatat_kredensial_dihapus_tanpa_nilai():
     assert "credential_encrypted" not in event.after
 
 
+def test_pindah_ke_otomatis_mencatat_kredensial_pertama_tanpa_nilai():
+    """Edge: kredensial pertama saat pindah Manual ke Otomatis bukan "kredensial diganti".
+
+    Kebalikan dari pindah ke Manual: credential "removed" → "stored" di event
+    updated yang sama, bukan event credential_rotated (review #81 poin 3).
+    """
+    # Act
+    events = tracker_for("ai_products").updated(
+        _row(),
+        {
+            "measurement_type": Change(MeasurementType.MANUAL, MeasurementType.AUTOMATIC),
+            "credential_encrypted": Change(None, b"rahasia"),
+            "vendor_name": Change("Penyedia", None),
+        },
+    )
+
+    # Assert
+    event = _satu(events)
+    assert event.action == "ai_product.updated"
+    assert (event.before["credential"], event.after["credential"]) == ("removed", "stored")
+    assert "credential_encrypted" not in event.after
+
+
 def test_kredensial_dan_hint_tidak_pernah_dipantau():
     """Negatif (pengaman): listener hanya meneruskan kolom di fields, jadi hint (empat
     karakter terakhir kredensial) tidak boleh ada di sana; ciphertext hanya penanda."""
