@@ -1,8 +1,9 @@
-"""Check that chosen suites exist. SCRUM-76 SCRUM-206.
+"""Check that chosen suites can be measured. SCRUM-76 SCRUM-206.
 
 The measurement summary takes several suite ids. A missing or deleted one
-is a 404 for the whole request. An archived suite is only hidden from the
-list, so it can still be chosen.
+is a 404 for the whole request. An archived suite cannot be chosen for a new
+measurement (suite AC4), so one archived id is a 409 for the whole request,
+even when the other ids are live suites.
 """
 
 import uuid
@@ -12,7 +13,7 @@ import pytest
 
 from app.modules.suites import service
 from app.modules.suites.models import Suite, SuiteStatus
-from app.shared.exceptions import NotFoundError
+from app.shared.exceptions import ConflictError, NotFoundError
 from tests.modules.conftest import USER_ID_QA
 
 
@@ -61,15 +62,44 @@ def test_suite_yang_sudah_dihapus_dijawab_404(db_session):
     assert galat.value.message == "Suite tidak ditemukan"
 
 
-def test_suite_yang_diarsipkan_masih_dianggap_ada(db_session):
+def test_suite_yang_diarsipkan_ditolak_409(db_session):
     # Arrange
     arsip = _suite(db_session, "Suite arsip", status=SuiteStatus.ARCHIVED)
 
     # Act
-    hasil = service.require_existing(db_session, {arsip})
+    with pytest.raises(ConflictError) as galat:
+        service.require_existing(db_session, {arsip})
 
     # Assert
-    assert hasil is None
+    assert galat.value.status_code == 409
+    assert galat.value.code == service.SUITE_ARCHIVED
+    assert galat.value.message == "Suite yang diarsipkan tidak dapat dipilih untuk pengukuran"
+
+
+def test_suite_arsip_yang_dicampur_suite_aktif_tetap_ditolak_409(db_session):
+    # Arrange
+    aktif = _suite(db_session, "Suite aktif")
+    arsip = _suite(db_session, "Suite arsip", status=SuiteStatus.ARCHIVED)
+
+    # Act
+    with pytest.raises(ConflictError) as galat:
+        service.require_existing(db_session, {aktif, arsip})
+
+    # Assert
+    assert galat.value.status_code == 409
+    assert galat.value.code == service.SUITE_ARCHIVED
+
+
+def test_suite_yang_tidak_ada_tetap_404_walau_ada_suite_arsip(db_session):
+    # Arrange
+    arsip = _suite(db_session, "Suite arsip", status=SuiteStatus.ARCHIVED)
+
+    # Act
+    with pytest.raises(NotFoundError) as galat:
+        service.require_existing(db_session, {arsip, uuid.uuid4()})
+
+    # Assert
+    assert galat.value.status_code == 404
 
 
 def test_daftar_kosong_tidak_melempar_apa_pun(db_session):

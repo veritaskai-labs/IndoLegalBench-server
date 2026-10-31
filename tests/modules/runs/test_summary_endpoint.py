@@ -18,6 +18,7 @@ import pytest
 from app.main import app
 from app.modules.providers.models import AiProduct, ProviderType
 from app.modules.runs import dependencies, exchange_rate
+from app.modules.suites.models import Suite, SuiteStatus
 from app.shared.config import Settings, get_settings
 from app.shared.security import Role
 from tests.modules.cases.test_cases import ADMIN_LAIN, _buat, _ganti, _setujui, _suite
@@ -208,6 +209,40 @@ def test_suite_yang_tidak_ada_dijawab_404(siap):
     # Assert
     assert response.status_code == 404
     assert response.json()["message"] == "Suite tidak ditemukan"
+
+
+def _suite_arsip(db) -> str:
+    suite = Suite(name="Suite arsip", status=SuiteStatus.ARCHIVED, created_by=USER_ID_QA)
+    db.add(suite)
+    db.commit()
+    return str(suite.id)
+
+
+def test_suite_arsip_ditolak_409_dan_tidak_dihitung(siap):
+    # Arrange
+    client = siap.sebagai(Role.ADMIN)
+    arsip_id = _suite_arsip(siap.db)
+
+    # Act
+    response = client.post(URL, json=_badan(siap, suite_ids=[arsip_id]))
+
+    # Assert
+    assert response.status_code == 409
+    assert response.json()["code"] == "SUITE_ARCHIVED"
+    assert "estimated_cost_idr" not in response.json()
+
+
+def test_suite_arsip_yang_dicampur_suite_aktif_ditolak_409(siap):
+    # Arrange
+    client = siap.sebagai(Role.ADMIN)
+    arsip_id = _suite_arsip(siap.db)
+
+    # Act
+    response = client.post(URL, json=_badan(siap, suite_ids=[siap.suite_id, arsip_id]))
+
+    # Assert
+    assert response.status_code == 409
+    assert response.json()["code"] == "SUITE_ARCHIVED"
 
 
 def test_produk_yang_tidak_ada_dijawab_404(siap):
