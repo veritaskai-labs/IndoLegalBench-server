@@ -8,11 +8,16 @@ from sqlalchemy.orm import Session
 from app.modules.auth import service as auth_service
 from app.modules.notifications import service as notifications
 from app.modules.reviews import repository
-from app.modules.reviews.models import AssignmentStatus, ReviewCommentReply, RoundStatus
+from app.modules.reviews.models import (
+    AssignmentStatus,
+    ReviewCommentReply,
+    RoundDecision,
+    RoundStatus,
+)
 from app.modules.reviews.schemas import CommentDiscussion, CommentReplyRead, CommentReplyWrite
-from app.modules.reviews.visibility import Viewer, can_see_verdict
+from app.modules.reviews.visibility import Viewer, can_read_discussion
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError
-from app.shared.security import REVIEWER_ROLES, WRITER_ROLES, Role
+from app.shared.security import REVIEWER_ROLES, WRITER_ROLES
 
 
 def _context(db: Session, assignment_id: uuid.UUID, viewer: Viewer):
@@ -26,13 +31,26 @@ def _context(db: Session, assignment_id: uuid.UUID, viewer: Viewer):
     # membedakan keduanya adalah relasi dengan kasus dan assignment ini.
     is_author = viewer.role in WRITER_ROLES and viewer.user_id == author_id
     is_reviewer = viewer.role in REVIEWER_ROLES and viewer.user_id == task.reviewer_id
-    if not (viewer.role == Role.ADMIN or is_author or is_reviewer) or not can_see_verdict(
-        viewer, owner_id=task.reviewer_id, round_status=task.review_round.status
+    round_reviewer_ids = {
+        row.reviewer_id
+        for row in repository.get_active_assignments_for_round(db, task.review_round_id)
+    }
+    if not can_read_discussion(
+        viewer,
+        author_id=author_id,
+        owner_id=task.reviewer_id,
+        round_reviewer_ids=round_reviewer_ids,
+        round_status=task.review_round.status,
     ):
         raise ForbiddenError("Anda tidak berwenang melihat diskusi ini")
     if task.verdict is None or not task.verdict.comment:
         raise NotFoundError("Komentar peninjau belum tersedia", code="REVIEW_COMMENT_NOT_FOUND")
     return task, is_author, is_reviewer
+
+
+def _is_read_only(task) -> bool:
+    """Kasus sudah approved: thread tetap terbaca, balasan ditolak (keputusan klien)."""
+    return task.review_round.decision == RoundDecision.APPROVED
 
 
 def _reply_view(row: ReviewCommentReply, names: dict) -> CommentReplyRead:
@@ -63,7 +81,8 @@ def read(db: Session, assignment_id: uuid.UUID, viewer: Viewer) -> CommentDiscus
         comment=task.verdict.comment,
         can_reply=(is_author or is_reviewer)
         and task.status == AssignmentStatus.ACTIVE
-        and task.review_round.status == RoundStatus.DECIDED,
+        and task.review_round.status == RoundStatus.DECIDED
+        and not _is_read_only(task),
         replies=[_reply_view(row, names) for row in rows],
     )
 
@@ -85,6 +104,10 @@ def reply(
     if task.review_round.status != RoundStatus.DECIDED:
         raise ConflictError(
             "Diskusi dibuka setelah kedua penilaian selesai", code="ROUND_NOT_DECIDED"
+        )
+    if _is_read_only(task):
+        raise ConflictError(
+            "Kasus sudah disetujui, diskusi hanya bisa dibaca", code="THREAD_READ_ONLY"
         )
     row = ReviewCommentReply(
         assignment_id=task.id,
