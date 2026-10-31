@@ -11,6 +11,9 @@ PBI-11 SCRUM-76 (SCRUM-205), D2:
 - Status dasar queued, running, finished, finished_with_failures, failed.
   Dihentikan dan Dibatalkan ditambah PBI-12.
 - Trigger PBI-23 (a1f8c7e3d092) mulai melihat riwayat lewat product_id.
+- Sesi tidak bisa dihapus atau di-TRUNCATE, hanya diarsipkan (AC10). Arsip dan
+  "terima apa adanya" wajib lengkap dengan waktu dan pelakunya (CHECK).
+- Hanya satu sesi otomatis yang berstatus running (partial UNIQUE index).
 """
 
 from collections.abc import Sequence
@@ -76,20 +79,76 @@ def upgrade() -> None:
         sa.Column("started_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("finished_at", sa.DateTime(timezone=True), nullable=True),
         sa.Column("archived_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("archived_by", sa.Uuid(), sa.ForeignKey("users.id"), nullable=True),
+        sa.Column("accepted_as_is_at", sa.DateTime(timezone=True), nullable=True),
+        sa.Column("accepted_as_is_by", sa.Uuid(), sa.ForeignKey("users.id"), nullable=True),
+        sa.Column("accepted_as_is_reason", sa.Text(), nullable=True),
         sa.CheckConstraint(
             "repetitions BETWEEN 1 AND 5", name="ck_measurement_sessions_repetitions"
         ),
         sa.CheckConstraint(
             "length(trim(label)) > 0", name="ck_measurement_sessions_label_not_blank"
         ),
+        sa.CheckConstraint(
+            "(archived_at IS NULL) = (archived_by IS NULL)",
+            name="ck_measurement_sessions_archived_complete",
+        ),
+        sa.CheckConstraint(
+            "(accepted_as_is_at IS NULL AND accepted_as_is_by IS NULL "
+            "AND accepted_as_is_reason IS NULL) OR "
+            "(accepted_as_is_at IS NOT NULL AND accepted_as_is_by IS NOT NULL "
+            # coalesce: tanpanya alasan NULL membuat CHECK bernilai NULL, dan NULL lolos.
+            "AND length(trim(coalesce(accepted_as_is_reason, ''))) > 0)",
+            name="ck_measurement_sessions_accepted_as_is_complete",
+        ),
     )
     op.create_index("ix_measurement_sessions_product_id", "measurement_sessions", ["product_id"])
+    # Satu sesi otomatis berjalan. Sesi otomatis lain menunggu, sesi manual tidak dibatasi.
+    op.create_index(
+        "uq_measurement_sessions_one_running_automatic",
+        "measurement_sessions",
+        ["session_type"],
+        unique=True,
+        postgresql_where=sa.text("status = 'running' AND session_type = 'automatic'"),
+    )
+
+    if is_postgres:
+        # Sesi tidak pernah dihapus, hanya diarsipkan (AC10). TRUNCATE tidak memicu
+        # trigger baris, jadi punya trigger statement sendiri, seperti audit_logs.
+        op.execute(
+            """
+            CREATE FUNCTION measurement_sessions_forbid_delete() RETURNS trigger AS $$
+            BEGIN
+                RAISE EXCEPTION '% cannot be deleted, archive it instead', TG_TABLE_NAME
+                    USING ERRCODE = 'insufficient_privilege';
+            END;
+            $$ LANGUAGE plpgsql
+            """
+        )
+        op.execute(
+            """
+            CREATE TRIGGER measurement_sessions_block_delete
+            BEFORE DELETE ON measurement_sessions
+            FOR EACH ROW EXECUTE FUNCTION measurement_sessions_forbid_delete()
+            """
+        )
+        op.execute(
+            """
+            CREATE TRIGGER measurement_sessions_block_truncate
+            BEFORE TRUNCATE ON measurement_sessions
+            FOR EACH STATEMENT EXECUTE FUNCTION measurement_sessions_forbid_delete()
+            """
+        )
 
 
 def downgrade() -> None:
+    op.drop_index(
+        "uq_measurement_sessions_one_running_automatic", table_name="measurement_sessions"
+    )
     op.drop_index("ix_measurement_sessions_product_id", table_name="measurement_sessions")
     op.drop_table("measurement_sessions")
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
+        op.execute("DROP FUNCTION IF EXISTS measurement_sessions_forbid_delete()")
         for enum in reversed(_ENUMS):
             enum.drop(bind, checkfirst=True)
