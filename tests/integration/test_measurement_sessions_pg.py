@@ -8,6 +8,8 @@ Dilewati kalau TEST_POSTGRES_URL kosong.
 
 import os
 import uuid
+from datetime import UTC, datetime
+from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import create_engine, text
@@ -296,3 +298,31 @@ def test_sesi_yang_boleh_berdampingan_dengan_sesi_otomatis_berjalan(
         text("SELECT status::text FROM measurement_sessions WHERE id = :id"), {"id": kedua}
     ).scalar_one()
     assert status == status_kedua
+
+
+def test_sesi_baru_belum_punya_waktu_antrean(conn, produk_id, admin_id):
+    """D2: queued_at boleh kosong, diisi saat sesi masuk antrean (SCRUM-207)."""
+    sesi_id = _sesi(conn, produk_id, admin_id)
+
+    antre = conn.execute(
+        text("SELECT queued_at FROM measurement_sessions WHERE id = :id"), {"id": sesi_id}
+    ).scalar_one()
+
+    assert antre is None
+
+
+def test_waktu_antrean_menyimpan_zona_waktu(conn, produk_id, admin_id):
+    """Corner: 08.00 WIB dan 01.00 UTC adalah saat yang sama. Tanpa zona waktu,
+    urutan FIFO antara waktu WIB dan UTC bisa tertukar."""
+    sesi_id = _sesi(conn, produk_id, admin_id)
+    wib = datetime(2026, 11, 2, 8, 0, tzinfo=ZoneInfo("Asia/Jakarta"))
+
+    conn.execute(
+        text("UPDATE measurement_sessions SET queued_at = :antre WHERE id = :id"),
+        {"antre": wib, "id": sesi_id},
+    )
+
+    antre = conn.execute(
+        text("SELECT queued_at FROM measurement_sessions WHERE id = :id"), {"id": sesi_id}
+    ).scalar_one()
+    assert antre == datetime(2026, 11, 2, 1, 0, tzinfo=UTC)
