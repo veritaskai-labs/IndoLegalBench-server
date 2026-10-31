@@ -22,7 +22,9 @@ from tests.modules.conftest import USER_ID_QA
 from tests.modules.reviews.test_review_api import (
     REVIEWER_A,
     REVIEWER_B,
+    _ajukan_ulang_setelah_revisi_b,
     _nilai,
+    _tugas_milik,
 )
 from tests.modules.reviews.test_review_api import (
     jadi as jadi,
@@ -66,6 +68,16 @@ def disetujui(kasus, jadi):
     assert _nilai(client, ids[REVIEWER_A], "approve", "Catatan kecil saja.").status_code == 201
     jadi(Role.CONTRIBUTOR, REVIEWER_B)
     assert _nilai(client, ids[REVIEWER_B], "approve").status_code == 201
+    return client, case_id, ids
+
+
+@pytest.fixture
+def disetujui_di_ronde_dua(kasus, jadi):
+    """Round 1: B minta revisi (thread B). Round 2: B setuju, kasus approved."""
+    client, case_id, ids = kasus
+    _ajukan_ulang_setelah_revisi_b(client, jadi, case_id, ids)
+    tugas_b = _tugas_milik(client, jadi, REVIEWER_B)
+    assert _nilai(client, tugas_b["assignment_id"]).json()["round_decision"] == "approved"
     return client, case_id, ids
 
 
@@ -208,6 +220,54 @@ def test_thread_revisi_tetap_bisa_dibalas_penulis(revisi, jadi):
     assert response.status_code == 201
 
 
+# --- Kunci per versi kasus: thread ronde lama ikut terkunci (review PR #86) --------
+
+
+def test_thread_ronde_lama_terkunci_setelah_ronde_berikutnya_approved(disetujui_di_ronde_dua, jadi):
+    # Arrange
+    client, _, ids = disetujui_di_ronde_dua
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
+
+    # Act
+    baca = client.get(url(ids[REVIEWER_B]))
+    balas = post(client, ids[REVIEWER_B])
+
+    # Assert
+    assert baca.status_code == 200
+    assert baca.json()["can_reply"] is False
+    assert balas.status_code == 409
+    assert balas.json()["code"] == "THREAD_READ_ONLY"
+
+
+def test_pemilik_komentar_ronde_lama_juga_ditolak_membalas_setelah_approved(
+    disetujui_di_ronde_dua, jadi
+):
+    # Arrange
+    client, _, ids = disetujui_di_ronde_dua
+    jadi(Role.CONTRIBUTOR, REVIEWER_B)
+
+    # Act
+    response = post(client, ids[REVIEWER_B])
+
+    # Assert
+    assert response.status_code == 409
+    assert response.json()["code"] == "THREAD_READ_ONLY"
+
+
+def test_thread_ronde_revisi_masih_bisa_dibalas_selama_versi_belum_approved(kasus, jadi):
+    """Regresi: ronde 1 revise, ronde 2 belum diputuskan, versi belum approved."""
+    # Arrange
+    client, case_id, ids = kasus
+    _ajukan_ulang_setelah_revisi_b(client, jadi, case_id, ids)
+    jadi(Role.CONTRIBUTOR, USER_ID_QA)
+
+    # Act
+    response = post(client, ids[REVIEWER_B])
+
+    # Assert
+    assert response.status_code == 201
+
+
 # --- Unit: repository dan dependency di-mock -------------------------------------
 
 
@@ -215,6 +275,7 @@ def _tugas_palsu(*, decision, reviewer_id=REVIEWER_A):
     ronde = SimpleNamespace(
         id=uuid.uuid4(),
         case_id=uuid.uuid4(),
+        case_version_id=uuid.uuid4(),
         round_no=1,
         status=RoundStatus.DECIDED,
         decision=decision,
@@ -243,6 +304,7 @@ def test_reply_service_menolak_round_approved_tanpa_menulis(
     case_author.return_value = USER_ID_QA
     repo.get_assignment.return_value = task
     repo.get_active_assignments_for_round.return_value = [task]
+    repo.version_has_approved_round.return_value = True
     db = MagicMock()
 
     # Act
@@ -268,6 +330,7 @@ def test_read_service_memuat_reviewer_lain_dengan_can_reply_false(case_author, r
     repo.get_assignment.return_value = pemilik
     repo.get_active_assignments_for_round.return_value = [pemilik, rekan]
     repo.comment_replies.return_value = []
+    repo.version_has_approved_round.return_value = False
     auth.user_names.return_value = {REVIEWER_A: "Reviewer A"}
 
     # Act
@@ -279,3 +342,52 @@ def test_read_service_memuat_reviewer_lain_dengan_can_reply_false(case_author, r
     assert result.can_reply is False
     [(_db, round_id)] = [c.args for c in repo.get_active_assignments_for_round.call_args_list]
     assert round_id == pemilik.review_round_id
+
+
+@patch("app.modules.reviews.discussion._reply_view")
+@patch("app.modules.reviews.discussion.notifications")
+@patch("app.modules.reviews.discussion.auth_service")
+@patch("app.modules.reviews.discussion.repository")
+@patch("app.modules.cases.service.case_author")
+def test_reply_service_menolak_round_revise_bila_versi_sudah_approved(
+    case_author, repo, _auth, notifications, _reply_view
+):
+    # Arrange
+    task = _tugas_palsu(decision=RoundDecision.REVISE)
+    case_author.return_value = USER_ID_QA
+    repo.get_assignment.return_value = task
+    repo.get_active_assignments_for_round.return_value = [task]
+    repo.version_has_approved_round.return_value = True
+    db = MagicMock()
+
+    # Act
+    with pytest.raises(ConflictError) as info:
+        discussion.reply(
+            db, task.id, Viewer(USER_ID_QA, Role.CONTRIBUTOR), CommentReplyWrite(body="Halo")
+        )
+
+    # Assert
+    assert info.value.code == "THREAD_READ_ONLY"
+    repo.version_has_approved_round.assert_called_once_with(db, task.review_round.case_version_id)
+    db.add.assert_not_called()
+    notifications.enqueue_review_reply.assert_not_called()
+
+
+@patch("app.modules.reviews.discussion.auth_service")
+@patch("app.modules.reviews.discussion.repository")
+@patch("app.modules.cases.service.case_author")
+def test_read_service_can_reply_false_bila_versi_sudah_approved(case_author, repo, auth):
+    # Arrange
+    task = _tugas_palsu(decision=RoundDecision.REVISE)
+    case_author.return_value = USER_ID_QA
+    repo.get_assignment.return_value = task
+    repo.get_active_assignments_for_round.return_value = [task]
+    repo.comment_replies.return_value = []
+    repo.version_has_approved_round.return_value = True
+    auth.user_names.return_value = {}
+
+    # Act
+    result = discussion.read(MagicMock(), task.id, Viewer(USER_ID_QA, Role.CONTRIBUTOR))
+
+    # Assert
+    assert result.can_reply is False
