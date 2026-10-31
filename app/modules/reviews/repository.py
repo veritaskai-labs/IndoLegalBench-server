@@ -8,14 +8,15 @@ milik pemanggil di service.
 import uuid
 from collections.abc import Collection, Sequence
 
-from sqlalchemy import and_, func, or_, select
-from sqlalchemy.orm import Session, joinedload
+from sqlalchemy import and_, exists, func, or_, select
+from sqlalchemy.orm import Session, aliased, joinedload
 
 from app.modules.reviews.models import (
     AssignmentStatus,
     ReviewAssignment,
     ReviewRound,
     ReviewVerdict,
+    RoundDecision,
     RoundStatus,
 )
 
@@ -340,3 +341,58 @@ def comment_replies(db: Session, assignment_id: uuid.UUID):
         .where(ReviewCommentReply.assignment_id == assignment_id)
         .order_by(ReviewCommentReply.created_at, ReviewCommentReply.id)
     ).all()
+
+
+def awaiting_revision_assignments(db: Session, reviewer_id: uuid.UUID) -> list[ReviewAssignment]:
+    """Tugas aktif reviewer ini yang sudah dinilai di round revise dan menunggu Author.
+
+    Round terakhir versi itu sudah decided dengan hasil revise, jadi reviewer
+    yang setuju dan reviewer yang meminta revisi sama-sama muncul. Begitu Author
+    mengajukan ulang, round berikutnya ada dan kasus keluar dari daftar. Kasus
+    yang sudah approved tidak pernah punya round revise terakhir.
+    """
+    later = aliased(ReviewRound)
+    has_later_round = exists().where(
+        later.case_version_id == ReviewRound.case_version_id,
+        later.round_no > ReviewRound.round_no,
+    )
+    return list(
+        db.scalars(
+            select(ReviewAssignment)
+            .join(ReviewAssignment.review_round)
+            .options(
+                joinedload(ReviewAssignment.review_round), joinedload(ReviewAssignment.verdict)
+            )
+            .where(
+                ReviewAssignment.reviewer_id == reviewer_id,
+                ReviewAssignment.status == AssignmentStatus.ACTIVE,
+                ReviewAssignment.verdict.has(),
+                ReviewRound.status == RoundStatus.DECIDED,
+                ReviewRound.decision == RoundDecision.REVISE,
+                ~has_later_round,
+            )
+            .order_by(ReviewRound.decided_at, ReviewAssignment.id)
+        ).all()
+    )
+
+
+def thread_assignment_ids(
+    db: Session, round_ids: Collection[uuid.UUID]
+) -> dict[uuid.UUID, list[uuid.UUID]]:
+    """Per round: assignment aktif yang verdict-nya punya komentar, artinya punya thread."""
+    if not round_ids:
+        return {}
+    rows = db.execute(
+        select(ReviewAssignment.review_round_id, ReviewAssignment.id)
+        .join(ReviewVerdict, ReviewVerdict.assignment_id == ReviewAssignment.id)
+        .where(
+            ReviewAssignment.review_round_id.in_(round_ids),
+            ReviewAssignment.status == AssignmentStatus.ACTIVE,
+            func.length(func.trim(func.coalesce(ReviewVerdict.comment, ""))) > 0,
+        )
+        .order_by(ReviewAssignment.assigned_at, ReviewAssignment.id)
+    ).all()
+    result: dict[uuid.UUID, list[uuid.UUID]] = {}
+    for round_id, assignment_id in rows:
+        result.setdefault(round_id, []).append(assignment_id)
+    return result

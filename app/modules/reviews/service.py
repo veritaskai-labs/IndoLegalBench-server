@@ -41,6 +41,7 @@ from app.modules.reviews.models import (
 from app.modules.reviews.ports import AssignmentStore, Notifier, ReviewerLoad
 from app.modules.reviews.schemas import (
     AssignedReview,
+    AwaitingRevisionReview,
     CaseReview,
     InReviewCase,
     NeedsReassignmentResponse,
@@ -563,6 +564,33 @@ def pending_queue(db: Session, reviewer_id: uuid.UUID) -> list[PendingReview]:
             round_no=tugas.review_round.round_no,
             waiting_since=tugas.review_round.opened_at,
             assigned_at=tugas.assigned_at,
+        )
+        for tugas in tugas_list
+    ]
+
+
+def list_awaiting_revision(db: Session, reviewer_id: uuid.UUID) -> list[AwaitingRevisionReview]:
+    """Antrean "Menunggu revisi penulis" (SCRUM-242): kasus yang sudah dinilai reviewer ini.
+
+    Termasuk reviewer yang setuju sementara rekannya meminta revisi. Kasus
+    keluar dari daftar saat Author mengajukan ulang. Isinya hanya data kasus
+    dan id, tanpa komentar atau verdict reviewer lain.
+    """
+    tugas_list = repository.awaiting_revision_assignments(db, reviewer_id)
+    salinan = _cases().review_copies(
+        db, {tugas.review_round.case_version_id for tugas in tugas_list}
+    )
+    threads = repository.thread_assignment_ids(db, {t.review_round.id for t in tugas_list})
+    return [
+        AwaitingRevisionReview(
+            assignment_id=tugas.id,
+            case_id=tugas.review_round.case_id,
+            case_code=salinan[tugas.review_round.case_version_id].case_code,
+            title=salinan[tugas.review_round.case_version_id].identity.title,
+            round_no=tugas.review_round.round_no,
+            my_decision=tugas.verdict.decision,
+            decided_at=tugas.review_round.decided_at,
+            thread_assignment_ids=threads.get(tugas.review_round.id, []),
         )
         for tugas in tugas_list
     ]
