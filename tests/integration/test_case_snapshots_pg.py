@@ -1,8 +1,9 @@
 """SCRUM-205: snapshot kasus per sesi di PostgreSQL. PBI-11 AC6, D2.
 
-case_snapshots: satu snapshot per sesi. case_snapshot_items: salinan persis setiap
-kasus yang diukur, menunjuk kasus live dan versi approved yang dipakai. Keduanya
-hanya boleh INSERT. Mengubah atau menghapus snapshot akan mengubah arti hasil
+case_snapshots: satu snapshot per sesi. case_snapshot_items memakai bentuk PBI-8
+(suite_snapshot_items): kasus live, versi approved yang disalin, dan body dari
+cases.sections.snapshot_body(), supaya mekanisme salinan PBI-8 dipakai ulang
+(Kak Aileen, 31 Okt). Keduanya hanya boleh INSERT. Mengubah atau menghapus snapshot akan mengubah arti hasil
 yang sudah ada, jadi database menolaknya untuk semua peran.
 
 Bantuan dan alasan pemeriksaan SQLSTATE ada di tests/measurement_pg.py.
@@ -16,11 +17,11 @@ import uuid
 import pytest
 from sqlalchemy import create_engine, text
 
+from app.modules.cases.sections import snapshot_body
 from tests.legal_refs import rujukan_ac10, rujukan_ktk_001
 from tests.measurement_pg import (
     FOREIGN_KEY_VIOLATION,
     INSUFFICIENT_PRIVILEGE,
-    INVALID_TEXT_REPRESENTATION,
     UNIQUE_VIOLATION,
     buat_admin,
     buat_kasus,
@@ -36,11 +37,23 @@ pytestmark = [
     pytest.mark.skipif(not POSTGRES_URL, reason="TEST_POSTGRES_URL tidak diisi"),
 ]
 
-ISI_KASUS = {
-    "identity": {"title": "PHK sepihak", "category": "Ketenagakerjaan"},
-    "question": "Apakah pekerja berhak atas pesangon?",
-    "reference_answer": "Berhak, sesuai Pasal 156 UU 13/2003.",
-}
+PERTANYAAN = "Apakah pekerja berhak atas pesangon?"
+# Body persis seperti yang dibuat mekanisme snapshot PBI-8.
+BODY = snapshot_body(
+    case_code="KTK-001",
+    version_no=1,
+    status="approved",
+    split_tag="dev",
+    content={"title": "PHK sepihak", "question": PERTANYAAN, "category": "Ketenagakerjaan"},
+    legal_refs=[rujukan_ktk_001(), rujukan_ac10()],
+)
+PERTANYAAN_DI_BODY = (
+    "SELECT body -> 'sections' ->> 'identity.question' FROM case_snapshot_items WHERE id = :id"
+)
+TAMBAH_ITEM = (
+    "INSERT INTO case_snapshot_items (id, snapshot_id, case_id, case_version_id, body) "
+    "VALUES (:id, :snapshot, :case_id, :version_id, CAST(:body AS jsonb))"
+)
 
 
 @pytest.fixture
@@ -87,37 +100,19 @@ def _snapshot(conn, sesi_id) -> uuid.UUID:
     ).scalar_one()
 
 
-def _item(conn, snapshot_id, case_id, version_id, **ubah) -> uuid.UUID:
-    isi = {
-        "id": uuid.uuid4(),
-        "snapshot_id": snapshot_id,
-        "case_id": case_id,
-        "case_version_id": version_id,
-        "case_code": "KTK-001",
-        "title": ISI_KASUS["identity"]["title"],
-        "question": ISI_KASUS["question"],
-        "split_tag": "dev",
-        "category": "Ketenagakerjaan",
-        "reference_answer": ISI_KASUS["reference_answer"],
-        "legal_refs": json.dumps([rujukan_ktk_001(), rujukan_ac10()]),
-        "answer_criteria": json.dumps([{"criterion": "Menyebut pesangon"}]),
-        "traps": json.dumps([]),
-        "content": json.dumps(ISI_KASUS),
-    }
-    isi.update(ubah)
-    return conn.execute(
-        text(
-            "INSERT INTO case_snapshot_items "
-            "(id, snapshot_id, case_id, case_version_id, case_code, title, question, split_tag, "
-            "category, reference_answer, legal_refs, answer_criteria, traps, content) "
-            "VALUES (:id, :snapshot_id, :case_id, :case_version_id, :case_code, :title, "
-            ":question, CAST(:split_tag AS case_split_tag_enum), :category, :reference_answer, "
-            "CAST(:legal_refs AS jsonb), CAST(:answer_criteria AS jsonb), CAST(:traps AS jsonb), "
-            "CAST(:content AS jsonb)) "
-            "RETURNING id"
-        ),
-        isi,
-    ).scalar_one()
+def _item(conn, snapshot_id, case_id, version_id) -> uuid.UUID:
+    item_id = uuid.uuid4()
+    conn.execute(
+        text(TAMBAH_ITEM),
+        {
+            "id": item_id,
+            "snapshot": snapshot_id,
+            "case_id": case_id,
+            "version_id": version_id,
+            "body": json.dumps(BODY),
+        },
+    )
+    return item_id
 
 
 # case_snapshots
@@ -160,38 +155,30 @@ def test_snapshot_tidak_bisa_diubah_atau_dihapus(conn, snapshot_id, perintah):
 # case_snapshot_items
 
 
-def test_item_menyimpan_salinan_persis_termasuk_rujukan_terstruktur(conn, item_id):
-    """AC6 + PBI-21: rujukan terstruktur dan rantai jo. ikut tersalin apa adanya."""
+def test_item_menyimpan_body_snapshot_pbi8_apa_adanya(conn, item_id, kasus):
+    """AC6 + PBI-21: body PBI-8 termasuk rujukan terstruktur dan rantai jo. tersalin utuh."""
     baris = conn.execute(
-        text(
-            "SELECT case_code, question, split_tag::text, legal_refs, content "
-            "FROM case_snapshot_items WHERE id = :id"
-        ),
+        text("SELECT case_id, case_version_id, body FROM case_snapshot_items WHERE id = :id"),
         {"id": item_id},
     ).one()
 
-    assert tuple(baris) == (
-        "KTK-001",
-        ISI_KASUS["question"],
-        "dev",
-        [rujukan_ktk_001(), rujukan_ac10()],
-        ISI_KASUS,
-    )
+    assert tuple(baris) == (*kasus, BODY)
 
 
 @pytest.mark.parametrize(
     "perintah",
     [
-        "UPDATE case_snapshot_items SET question = 'Pertanyaan diubah' WHERE id = :id",
-        "UPDATE case_snapshot_items SET legal_refs = '[]'::jsonb WHERE id = :id",
+        "UPDATE case_snapshot_items SET body = jsonb_set(body, '{sections,identity.question}', "
+        "'\"Pertanyaan diubah\"') WHERE id = :id",
+        "UPDATE case_snapshot_items SET body = '{}'::jsonb WHERE id = :id",
         # Corner: UPDATE yang tidak mengubah apa pun tetap ditolak, tanpa celah.
-        "UPDATE case_snapshot_items SET question = question WHERE id = :id",
+        "UPDATE case_snapshot_items SET body = body WHERE id = :id",
         "DELETE FROM case_snapshot_items WHERE id = :id",
         "TRUNCATE case_snapshot_items CASCADE",
     ],
     ids=[
         "ubah-pertanyaan",
-        "kosongkan-rujukan",
+        "kosongkan-body",
         "update-tanpa-perubahan",
         "delete",
         "truncate-cascade",
@@ -201,41 +188,25 @@ def test_item_tidak_bisa_diubah_atau_dihapus(conn, item_id, perintah):
     sqlstate = sqlstate_penolakan(conn, perintah, {"id": item_id})
 
     assert sqlstate == INSUFFICIENT_PRIVILEGE
-    pertanyaan = conn.execute(
-        text("SELECT question FROM case_snapshot_items WHERE id = :id"), {"id": item_id}
-    ).scalar_one()
-    assert pertanyaan == ISI_KASUS["question"]
+    pertanyaan = conn.execute(text(PERTANYAAN_DI_BODY), {"id": item_id}).scalar_one()
+    assert pertanyaan == PERTANYAAN
 
 
-@pytest.mark.parametrize("kolom", ["case_id", "case_version_id"])
+@pytest.mark.parametrize("kolom", ["case_id", "version_id"])
 def test_kasus_atau_versi_yang_tidak_ada_ditolak(conn, snapshot_id, kasus, kolom):
     case_id, version_id = kasus
-    ubah = {"case_id": case_id, "version_id": version_id}
-    ubah["case_id" if kolom == "case_id" else "version_id"] = uuid.uuid4()
+    params = {
+        "id": uuid.uuid4(),
+        "snapshot": snapshot_id,
+        "case_id": case_id,
+        "version_id": version_id,
+        "body": json.dumps(BODY),
+    }
+    params[kolom] = uuid.uuid4()
 
-    sqlstate = sqlstate_penolakan(
-        conn,
-        "INSERT INTO case_snapshot_items "
-        "(id, snapshot_id, case_id, case_version_id, case_code, title, question, split_tag, "
-        "content) VALUES (:id, :snapshot, :case_id, :version_id, 'KTK-001', 'Judul', 'Tanya', "
-        "'dev', '{}'::jsonb)",
-        {"id": uuid.uuid4(), "snapshot": snapshot_id, **ubah},
-    )
+    sqlstate = sqlstate_penolakan(conn, TAMBAH_ITEM, params)
 
     assert sqlstate == FOREIGN_KEY_VIOLATION
-
-
-def test_tag_split_hanya_dev_atau_test(conn, snapshot_id, kasus):
-    sqlstate = sqlstate_penolakan(
-        conn,
-        "INSERT INTO case_snapshot_items "
-        "(id, snapshot_id, case_id, case_version_id, case_code, title, question, split_tag, "
-        "content) VALUES (:id, :snapshot, :kasus, :versi, 'KTK-001', 'Judul', 'Tanya', "
-        "CAST('both' AS case_split_tag_enum), '{}'::jsonb)",
-        {"id": uuid.uuid4(), "snapshot": snapshot_id, "kasus": kasus[0], "versi": kasus[1]},
-    )
-
-    assert sqlstate == INVALID_TEXT_REPRESENTATION
 
 
 def test_kasus_live_yang_ada_di_snapshot_tidak_bisa_dihapus_permanen(conn, kasus, item_id):
@@ -258,7 +229,5 @@ def test_mengubah_kasus_live_tidak_mengubah_snapshot(conn, admin_id, kasus, item
         {"id": uuid.uuid4(), "case_id": case_id, "admin_id": admin_id},
     )
 
-    pertanyaan = conn.execute(
-        text("SELECT question FROM case_snapshot_items WHERE id = :id"), {"id": item_id}
-    ).scalar_one()
-    assert pertanyaan == ISI_KASUS["question"]
+    pertanyaan = conn.execute(text(PERTANYAAN_DI_BODY), {"id": item_id}).scalar_one()
+    assert pertanyaan == PERTANYAAN

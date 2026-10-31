@@ -164,11 +164,8 @@ def buat_item_snapshot(conn: Connection, sesi_id: uuid.UUID, admin_id: uuid.UUID
     case_id, version_id = buat_kasus(conn, admin_id)
     return conn.execute(
         text(
-            "INSERT INTO case_snapshot_items "
-            "(id, snapshot_id, case_id, case_version_id, case_code, title, question, "
-            "split_tag, content) "
-            "VALUES (:id, :snapshot, :kasus, :versi, 'KTK-001', 'PHK sepihak', "
-            "'Apakah pekerja berhak atas pesangon?', 'dev', '{}'::jsonb) RETURNING id"
+            "INSERT INTO case_snapshot_items (id, snapshot_id, case_id, case_version_id, body) "
+            "VALUES (:id, :snapshot, :kasus, :versi, '{}'::jsonb) RETURNING id"
         ),
         {"id": uuid.uuid4(), "snapshot": snapshot_id, "kasus": case_id, "versi": version_id},
     ).scalar_one()
