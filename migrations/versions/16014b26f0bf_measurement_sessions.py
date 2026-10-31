@@ -14,6 +14,8 @@ PBI-11 SCRUM-76 (SCRUM-205), D2:
 - Sesi tidak bisa dihapus atau di-TRUNCATE, hanya diarsipkan (AC10). Arsip dan
   "terima apa adanya" wajib lengkap dengan waktu dan pelakunya (CHECK).
 - Hanya satu sesi otomatis yang berstatus running (partial UNIQUE index).
+- measurement_session_suites: satu sesi bisa banyak suite (AC2).
+- session_product_copies: satu salinan produk per sesi, tanpa kredensial (AC6).
 """
 
 from collections.abc import Sequence
@@ -47,6 +49,16 @@ status_enum = postgresql.ENUM(
 )
 
 _ENUMS = (purpose_enum, session_type_enum, split_filter_enum, status_enum)
+
+# Milik ai_products (PBI-10, PBI-23). Dipakai ulang, tidak dibuat atau dihapus di sini.
+product_measurement_type_enum = postgresql.ENUM(
+    name="ai_product_measurement_type_enum", create_type=False
+)
+product_provider_type_enum = postgresql.ENUM(
+    name="ai_product_provider_type_enum", create_type=False
+)
+
+_JSONB = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
 
 
 def upgrade() -> None:
@@ -140,8 +152,51 @@ def upgrade() -> None:
             """
         )
 
+    # AC2: kasus dipilih per suite. Tanpa CASCADE, suite yang pernah diukur tidak
+    # bisa dihapus permanen (suite memakai arsip, bukan hapus).
+    op.create_table(
+        "measurement_session_suites",
+        sa.Column(
+            "session_id", sa.Uuid(), sa.ForeignKey("measurement_sessions.id"), primary_key=True
+        ),
+        sa.Column("suite_id", sa.Uuid(), sa.ForeignKey("suites.id"), primary_key=True),
+    )
+    op.create_index(
+        "ix_measurement_session_suites_suite_id", "measurement_session_suites", ["suite_id"]
+    )
+
+    # AC6: data produk saat sesi dibuat. Kredensial sengaja tidak disalin.
+    op.create_table(
+        "session_product_copies",
+        sa.Column("id", sa.Uuid(), primary_key=True),
+        sa.Column(
+            "session_id",
+            sa.Uuid(),
+            sa.ForeignKey("measurement_sessions.id"),
+            nullable=False,
+            unique=True,
+        ),
+        sa.Column("product_id", sa.Uuid(), sa.ForeignKey("ai_products.id"), nullable=False),
+        sa.Column("name", sa.String(length=200), nullable=False),
+        sa.Column("measurement_type", _enum(product_measurement_type_enum), nullable=False),
+        sa.Column("provider_type", _enum(product_provider_type_enum), nullable=True),
+        sa.Column("base_url", sa.String(length=2048), nullable=True),
+        sa.Column("model_name", sa.String(length=200), nullable=True),
+        sa.Column("model_params", _JSONB, nullable=True),
+        sa.Column("model_version_at_start", sa.String(length=200), nullable=True),
+        sa.Column("price_input_usd_per_mtok", sa.Numeric(precision=12, scale=4), nullable=True),
+        sa.Column("price_output_usd_per_mtok", sa.Numeric(precision=12, scale=4), nullable=True),
+        sa.Column("monthly_budget_idr", sa.Numeric(precision=18, scale=2), nullable=True),
+        sa.Column(
+            "copied_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+    )
+
 
 def downgrade() -> None:
+    op.drop_table("session_product_copies")
+    op.drop_index("ix_measurement_session_suites_suite_id", table_name="measurement_session_suites")
+    op.drop_table("measurement_session_suites")
     op.drop_index(
         "uq_measurement_sessions_one_running_automatic", table_name="measurement_sessions"
     )
