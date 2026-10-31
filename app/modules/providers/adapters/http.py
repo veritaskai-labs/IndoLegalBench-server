@@ -21,7 +21,11 @@ def clip(text: str, secret: str) -> str:
 
 
 def post_json(
-    url: str, *, headers: dict[str, str], body: dict
+    url: str,
+    *,
+    headers: dict[str, str],
+    body: dict,
+    timeout: httpx.Timeout | None = None,
 ) -> tuple[httpx.Response | None, str | None, int]:
     """Kembalikan (response, pesan gagal, latency_ms).
 
@@ -30,7 +34,7 @@ def post_json(
     """
     started = time.perf_counter()
     try:
-        with httpx.Client(timeout=TIMEOUT) as client:
+        with httpx.Client(timeout=timeout or TIMEOUT) as client:
             response = client.post(url, headers=headers, json=body)
     except httpx.TimeoutException:
         return None, "connection timed out", 0
