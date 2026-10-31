@@ -18,6 +18,9 @@ PBI-11 SCRUM-76 (SCRUM-205), D2:
 - session_product_copies: satu salinan produk per sesi, tanpa kredensial (AC6).
 - case_snapshots dan case_snapshot_items: salinan kasus per sesi yang hanya bisa
   di-INSERT. UPDATE, DELETE, dan TRUNCATE ditolak trigger untuk semua peran (AC6).
+- attempts: satu per item snapshot per nomor pengulangan, nomor tidak melebihi
+  pengulangan sesi, item dari snapshot sesi yang sama, jawaban mentah ditulis sekali
+  dan tidak bisa dihapus (AC3, AC8).
 """
 
 from collections.abc import Sequence
@@ -50,7 +53,26 @@ status_enum = postgresql.ENUM(
     create_type=False,
 )
 
-_ENUMS = (purpose_enum, session_type_enum, split_filter_enum, status_enum)
+attempt_source_enum = postgresql.ENUM(
+    "automatic", "manual", name="attempt_source_enum", create_type=False
+)
+attempt_status_enum = postgresql.ENUM(
+    "pending",
+    "running",
+    "succeeded",
+    "technical_failure",
+    name="attempt_status_enum",
+    create_type=False,
+)
+
+_ENUMS = (
+    purpose_enum,
+    session_type_enum,
+    split_filter_enum,
+    status_enum,
+    attempt_source_enum,
+    attempt_status_enum,
+)
 
 # Milik ai_products (PBI-10, PBI-23). Dipakai ulang, tidak dibuat atau dihapus di sini.
 product_measurement_type_enum = postgresql.ENUM(
@@ -262,8 +284,98 @@ def upgrade() -> None:
                 """
             )
 
+    # AC3, AC8: satu percobaan per item snapshot per nomor pengulangan. Coba ulang
+    # menambah call log (SCRUM-209), bukan baris baru. failure_kind ikut SCRUM-209.
+    op.create_table(
+        "attempts",
+        sa.Column("id", sa.Uuid(), primary_key=True),
+        sa.Column(
+            "session_id", sa.Uuid(), sa.ForeignKey("measurement_sessions.id"), nullable=False
+        ),
+        sa.Column(
+            "snapshot_item_id",
+            sa.Uuid(),
+            sa.ForeignKey("case_snapshot_items.id"),
+            nullable=False,
+        ),
+        sa.Column("repetition_no", sa.SmallInteger(), nullable=False),
+        sa.Column("source", _enum(attempt_source_enum), nullable=False),
+        sa.Column("status", _enum(attempt_status_enum), server_default="pending", nullable=False),
+        sa.Column("answer_text", sa.Text(), nullable=True),
+        sa.Column("model_version", sa.String(length=200), nullable=True),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.Column(
+            "updated_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+        sa.CheckConstraint("repetition_no BETWEEN 1 AND 5", name="ck_attempts_repetition_no"),
+        sa.UniqueConstraint(
+            "session_id", "snapshot_item_id", "repetition_no", name="uq_attempts_repetition"
+        ),
+    )
+
+    if is_postgres:
+        # Aturan lintas tabel yang tidak bisa ditulis sebagai CHECK, dan jawaban
+        # mentah yang permanen. IS DISTINCT FROM supaya mengosongkan ke NULL juga
+        # terhitung perubahan; menulis jawaban yang sama tetap boleh.
+        op.execute(
+            """
+            CREATE FUNCTION attempts_protect_answer() RETURNS trigger AS $$
+            DECLARE
+                max_repetitions smallint;
+                item_session uuid;
+            BEGIN
+                IF TG_OP IN ('DELETE', 'TRUNCATE') THEN
+                    RAISE EXCEPTION 'attempts cannot be deleted'
+                        USING ERRCODE = 'insufficient_privilege';
+                END IF;
+
+                IF TG_OP = 'UPDATE' AND OLD.answer_text IS NOT NULL
+                   AND NEW.answer_text IS DISTINCT FROM OLD.answer_text THEN
+                    RAISE EXCEPTION 'attempt answer is permanent once written'
+                        USING ERRCODE = 'insufficient_privilege';
+                END IF;
+
+                SELECT repetitions INTO max_repetitions
+                FROM measurement_sessions WHERE id = NEW.session_id;
+                IF NEW.repetition_no > max_repetitions THEN
+                    RAISE EXCEPTION 'repetition_no % exceeds the session repetitions %',
+                        NEW.repetition_no, max_repetitions
+                        USING ERRCODE = 'check_violation';
+                END IF;
+
+                SELECT s.session_id INTO item_session
+                FROM case_snapshot_items i JOIN case_snapshots s ON s.id = i.snapshot_id
+                WHERE i.id = NEW.snapshot_item_id;
+                IF item_session IS DISTINCT FROM NEW.session_id THEN
+                    RAISE EXCEPTION 'snapshot item belongs to another session snapshot'
+                        USING ERRCODE = 'check_violation';
+                END IF;
+
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql
+            """
+        )
+        op.execute(
+            """
+            CREATE TRIGGER attempts_protect_answer
+            BEFORE INSERT OR UPDATE OR DELETE ON attempts
+            FOR EACH ROW EXECUTE FUNCTION attempts_protect_answer()
+            """
+        )
+        op.execute(
+            """
+            CREATE TRIGGER attempts_block_truncate
+            BEFORE TRUNCATE ON attempts
+            FOR EACH STATEMENT EXECUTE FUNCTION attempts_protect_answer()
+            """
+        )
+
 
 def downgrade() -> None:
+    op.drop_table("attempts")
     op.drop_table("case_snapshot_items")
     op.drop_table("case_snapshots")
     op.drop_table("session_product_copies")
@@ -276,6 +388,7 @@ def downgrade() -> None:
     op.drop_table("measurement_sessions")
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
+        op.execute("DROP FUNCTION IF EXISTS attempts_protect_answer()")
         op.execute("DROP FUNCTION IF EXISTS case_snapshots_forbid_change()")
         op.execute("DROP FUNCTION IF EXISTS measurement_sessions_forbid_delete()")
         for enum in reversed(_ENUMS):
