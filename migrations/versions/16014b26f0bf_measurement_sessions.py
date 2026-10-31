@@ -18,6 +18,7 @@ PBI-11 SCRUM-76 (SCRUM-205), D2:
 - session_product_copies: satu salinan produk per sesi, tanpa kredensial (AC6).
 - case_snapshots dan case_snapshot_items: salinan kasus per sesi yang hanya bisa
   di-INSERT. UPDATE, DELETE, dan TRUNCATE ditolak trigger untuk semua peran (AC6).
+  Item memakai bentuk PBI-8 (case_id, case_version_id, body), keputusan PO 31 Okt.
 - attempts: satu per item snapshot per nomor pengulangan, nomor tidak melebihi
   pengulangan sesi (D2), jawaban mentah ditulis sekali dan tidak bisa dihapus
   (AC3, AC8).
@@ -81,8 +82,6 @@ product_measurement_type_enum = postgresql.ENUM(
 product_provider_type_enum = postgresql.ENUM(
     name="ai_product_provider_type_enum", create_type=False
 )
-# Milik case_versions (PBI-9). Dipakai ulang.
-case_split_tag_enum = postgresql.ENUM(name="case_split_tag_enum", create_type=False)
 
 _SNAPSHOT_TABLES = ("case_snapshots", "case_snapshot_items")
 
@@ -241,19 +240,11 @@ def upgrade() -> None:
         "case_snapshot_items",
         sa.Column("id", sa.Uuid(), primary_key=True),
         sa.Column("snapshot_id", sa.Uuid(), sa.ForeignKey("case_snapshots.id"), nullable=False),
-        # Referensi ke kasus live dan versi approved yang disalin, bukan isi yang dipakai.
+        # Bentuk PBI-8 (suite_snapshot_items): kasus live, versi approved yang disalin,
+        # dan body dari cases.sections.snapshot_body(), jadi mekanisme salinannya dipakai ulang.
         sa.Column("case_id", sa.Uuid(), sa.ForeignKey("cases.id"), nullable=False),
         sa.Column("case_version_id", sa.Uuid(), sa.ForeignKey("case_versions.id"), nullable=False),
-        sa.Column("case_code", sa.String(length=64), nullable=False),
-        sa.Column("title", sa.Text(), nullable=False),
-        sa.Column("question", sa.Text(), nullable=False),
-        sa.Column("split_tag", _enum(case_split_tag_enum), nullable=False),
-        sa.Column("category", sa.String(length=200), nullable=True),
-        sa.Column("reference_answer", sa.Text(), nullable=True),
-        sa.Column("legal_refs", _JSONB, server_default=sa.text("'[]'"), nullable=False),
-        sa.Column("answer_criteria", _JSONB, nullable=True),
-        sa.Column("traps", _JSONB, nullable=True),
-        sa.Column("content", _JSONB, nullable=False),
+        sa.Column("body", _JSONB, nullable=False),
     )
 
     if is_postgres:
