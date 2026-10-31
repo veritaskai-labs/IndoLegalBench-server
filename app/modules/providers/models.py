@@ -36,7 +36,9 @@ from sqlalchemy.orm import Mapped, mapped_column
 from app.shared.database import Base
 
 # JSONB on PostgreSQL, plain JSON on SQLite so the tests keep running.
-_JSONB = JSON().with_variant(JSONB(), "postgresql")
+# none_as_null: None disimpan sebagai SQL NULL, bukan JSON null. C1 (D1) mensyaratkan
+# model_params IS NULL untuk produk Manual, jadi JSON null membuat pindah jenis gagal.
+_JSONB = JSON(none_as_null=True).with_variant(JSONB(none_as_null=True), "postgresql")
 
 
 class ProviderType(StrEnum):

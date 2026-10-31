@@ -431,7 +431,9 @@ def test_service_create_and_update_integrity_error_raises_conflict(db_session, m
     with (
         patch(
             "app.modules.providers.repository.create",
-            side_effect=IntegrityError("stmt", {}, Exception("dup")),
+            side_effect=IntegrityError(
+                "stmt", {}, Exception("UNIQUE constraint failed: ai_products.name")
+            ),
         ),
         pytest.raises(ConflictError),
     ):

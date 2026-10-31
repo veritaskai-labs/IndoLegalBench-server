@@ -30,6 +30,7 @@ from app.modules.dashboard.router import router as dashboard_router
 from app.modules.health.router import router as health_router
 from app.modules.legal_refs.router import router as legal_refs_router
 from app.modules.notifications.router import router as notifications_router
+from app.modules.providers.router import options_router as product_options_router
 from app.modules.providers.router import router as providers_router
 from app.modules.reports.router import router as reports_router
 from app.modules.reviews.router import router as reviews_router
@@ -157,6 +158,7 @@ app.include_router(suites_router)  # PBI-2
 app.include_router(snapshot_router)  # SCRUM-137 suite snapshots
 app.include_router(cases_router)  # PBI-3
 app.include_router(providers_router)  # PBI-10
+app.include_router(product_options_router)  # PBI-23 SCRUM-201
 app.include_router(reviews_router)  # PBI-6
 app.include_router(notifications_router)  # PBI-19 SCRUM-153
 app.include_router(runs_router)  # Sprint 3

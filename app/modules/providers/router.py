@@ -8,6 +8,10 @@ used to say `/providers`. This router ships `/admin/providers`: the `/admin`
 prefix matches `/admin/users` and the admin-only rule, and `providers` stays
 the resource name of this module.
 
+PBI-23 (SCRUM-201): `/ai-products` is the read-only list of choices for the
+measurement and manual-entry forms. It is not under `/admin` because the
+Contributor and Developer AI read it too; the full registry stays admin-only.
+
 Router hanya menerjemahkan HTTP ke pemanggilan service. Tidak ada
 logika bisnis dan tidak ada query database di file ini.
 """
@@ -19,12 +23,15 @@ from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
 from app.modules.providers import service
+from app.modules.providers.models import MeasurementType
 from app.modules.providers.schemas import (
     AiProductCreate,
+    AiProductOption,
     AiProductRead,
     AiProductUpdate,
     ConnectionTestRead,
 )
+from app.modules.providers.visibility import OPTION_ROLES, ProductPurpose
 from app.shared.database import get_db
 from app.shared.security import CurrentUser, Role, require_roles
 
@@ -71,9 +78,12 @@ def create_product(
 @router.get("", response_model=list[AiProductRead], summary="Daftar produk AI")
 def list_products(
     is_active: bool | None = Query(default=None),
+    measurement_type: MeasurementType | None = Query(
+        default=None, description="Saring per jenis pengukuran (PBI-23 AC6)."
+    ),
     db: Session = Depends(get_db),
 ) -> list[AiProductRead]:
-    return service.list_products(db, is_active=is_active)
+    return service.list_products(db, is_active=is_active, measurement_type=measurement_type)
 
 
 @router.get(
@@ -139,3 +149,25 @@ def delete_product(product_id: uuid.UUID, db: Session = Depends(get_db)) -> None
 )
 def test_connection(product_id: uuid.UUID, db: Session = Depends(get_db)) -> ConnectionTestRead:
     return service.test_connection(db, product_id)
+
+
+options_router = APIRouter(prefix="/ai-products", tags=["providers"])
+
+
+@options_router.get(
+    "",
+    response_model=list[AiProductOption],
+    summary="Daftar pilihan produk AI per tujuan",
+    description=(
+        "Hanya produk aktif yang jenisnya sesuai tujuan: automatic_run untuk pengukuran "
+        "otomatis (Admin, Developer AI), manual_entry untuk pencatatan manual (Admin, "
+        "Kontributor). Produk berjenis lain tidak dikirim sama sekali (PBI-23 AC7, AC8)."
+    ),
+    responses={403: {"model": ErrorBody, "description": "Peran tidak berwenang untuk tujuan ini."}},
+)
+def list_product_options(
+    purpose: ProductPurpose = Query(description="Untuk apa daftar pilihan ini dipakai."),
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_roles(*OPTION_ROLES)),
+) -> list[AiProductOption]:
+    return service.list_options(db, purpose=purpose, role=Role(user.role))

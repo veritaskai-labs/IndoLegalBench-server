@@ -58,6 +58,10 @@ class Settings(BaseSettings):
     # Jangan pernah di-commit. Isi lewat .env atau secret manager.
     credential_encryption_key: str = ""
 
+    # PBI-23 AC3: catatan akses produk Manual wajib atau opsional belum diputuskan
+    # klien (TBA). Opsional sampai ada keputusan; nyalakan lewat env bila wajib.
+    ai_product_access_note_required: bool = False
+
     # PBI-18 AC7: koneksi role ilb_retention, khusus job retensi. Bukan DATABASE_URL:
     # role aplikasi tidak pernah boleh menghapus audit log.
     audit_retention_database_url: str = ""

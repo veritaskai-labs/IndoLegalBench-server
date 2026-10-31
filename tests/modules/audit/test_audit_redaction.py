@@ -5,7 +5,12 @@ PBI-18, PBI-10 AC2. Murni fungsi, tanpa database.
 
 import pytest
 
-from app.modules.audit.redaction import CREDENTIAL_ROTATED, without_secrets
+from app.modules.audit.redaction import (
+    CREDENTIAL_REMOVED,
+    CREDENTIAL_ROTATED,
+    CREDENTIAL_STORED,
+    without_secrets,
+)
 
 # Nilai palsu untuk menguji penyaring, bukan kredensial sungguhan.
 NILAI_PALSU = "sk-nilai-palsu-untuk-tes"  # pragma: allowlist secret
@@ -82,6 +87,14 @@ def test_penanda_rotasi_kredensial_dipertahankan():
 
     # Assert
     assert hasil == {"credential": "rotated"}
+
+
+@pytest.mark.parametrize("penanda", [CREDENTIAL_STORED, CREDENTIAL_REMOVED])
+def test_penanda_kredensial_dihapus_dipertahankan(penanda):
+    """Positif: kredensial yang dihapus saat pindah ke Manual (SCRUM-201) tercatat lewat
+    penanda tetap ini, tanpa nilai kredensial."""
+    # Act + Assert
+    assert without_secrets(penanda) == penanda
 
 
 def test_penanda_tidak_bisa_dipakai_menyelundupkan_nilai_lain():
