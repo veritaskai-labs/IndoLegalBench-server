@@ -16,6 +16,8 @@ PBI-11 SCRUM-76 (SCRUM-205), D2:
 - Hanya satu sesi otomatis yang berstatus running (partial UNIQUE index).
 - measurement_session_suites: satu sesi bisa banyak suite (AC2).
 - session_product_copies: satu salinan produk per sesi, tanpa kredensial (AC6).
+- case_snapshots dan case_snapshot_items: salinan kasus per sesi yang hanya bisa
+  di-INSERT. UPDATE, DELETE, dan TRUNCATE ditolak trigger untuk semua peran (AC6).
 """
 
 from collections.abc import Sequence
@@ -57,6 +59,10 @@ product_measurement_type_enum = postgresql.ENUM(
 product_provider_type_enum = postgresql.ENUM(
     name="ai_product_provider_type_enum", create_type=False
 )
+# Milik case_versions (PBI-9). Dipakai ulang.
+case_split_tag_enum = postgresql.ENUM(name="case_split_tag_enum", create_type=False)
+
+_SNAPSHOT_TABLES = ("case_snapshots", "case_snapshot_items")
 
 _JSONB = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
 
@@ -192,8 +198,74 @@ def upgrade() -> None:
         ),
     )
 
+    # AC6: snapshot kasus per sesi, tabel terpisah dari kasus live, hanya INSERT.
+    op.create_table(
+        "case_snapshots",
+        sa.Column("id", sa.Uuid(), primary_key=True),
+        sa.Column(
+            "session_id",
+            sa.Uuid(),
+            sa.ForeignKey("measurement_sessions.id"),
+            nullable=False,
+            unique=True,
+        ),
+        sa.Column(
+            "created_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
+        ),
+    )
+    op.create_table(
+        "case_snapshot_items",
+        sa.Column("id", sa.Uuid(), primary_key=True),
+        sa.Column("snapshot_id", sa.Uuid(), sa.ForeignKey("case_snapshots.id"), nullable=False),
+        # Referensi ke kasus live dan versi approved yang disalin, bukan isi yang dipakai.
+        sa.Column("case_id", sa.Uuid(), sa.ForeignKey("cases.id"), nullable=False),
+        sa.Column("case_version_id", sa.Uuid(), sa.ForeignKey("case_versions.id"), nullable=False),
+        sa.Column("case_code", sa.String(length=64), nullable=False),
+        sa.Column("title", sa.Text(), nullable=False),
+        sa.Column("question", sa.Text(), nullable=False),
+        sa.Column("split_tag", _enum(case_split_tag_enum), nullable=False),
+        sa.Column("category", sa.String(length=200), nullable=True),
+        sa.Column("reference_answer", sa.Text(), nullable=True),
+        sa.Column("legal_refs", _JSONB, server_default=sa.text("'[]'"), nullable=False),
+        sa.Column("answer_criteria", _JSONB, nullable=True),
+        sa.Column("traps", _JSONB, nullable=True),
+        sa.Column("content", _JSONB, nullable=False),
+        # Kasus ganda akan menghitung jawabannya dua kali.
+        sa.UniqueConstraint("snapshot_id", "case_id", name="uq_case_snapshot_items_case"),
+    )
+
+    if is_postgres:
+        op.execute(
+            """
+            CREATE FUNCTION case_snapshots_forbid_change() RETURNS trigger AS $$
+            BEGIN
+                RAISE EXCEPTION '% is immutable once written', TG_TABLE_NAME
+                    USING ERRCODE = 'insufficient_privilege';
+            END;
+            $$ LANGUAGE plpgsql
+            """
+        )
+        for table in _SNAPSHOT_TABLES:
+            # Termasuk UPDATE yang tidak mengubah apa pun: trigger baris selalu jalan.
+            op.execute(
+                f"""
+                CREATE TRIGGER {table}_block_change
+                BEFORE UPDATE OR DELETE ON {table}
+                FOR EACH ROW EXECUTE FUNCTION case_snapshots_forbid_change()
+                """
+            )
+            op.execute(
+                f"""
+                CREATE TRIGGER {table}_block_truncate
+                BEFORE TRUNCATE ON {table}
+                FOR EACH STATEMENT EXECUTE FUNCTION case_snapshots_forbid_change()
+                """
+            )
+
 
 def downgrade() -> None:
+    op.drop_table("case_snapshot_items")
+    op.drop_table("case_snapshots")
     op.drop_table("session_product_copies")
     op.drop_index("ix_measurement_session_suites_suite_id", table_name="measurement_session_suites")
     op.drop_table("measurement_session_suites")
@@ -204,6 +276,7 @@ def downgrade() -> None:
     op.drop_table("measurement_sessions")
     bind = op.get_bind()
     if bind.dialect.name == "postgresql":
+        op.execute("DROP FUNCTION IF EXISTS case_snapshots_forbid_change()")
         op.execute("DROP FUNCTION IF EXISTS measurement_sessions_forbid_delete()")
         for enum in reversed(_ENUMS):
             enum.drop(bind, checkfirst=True)
