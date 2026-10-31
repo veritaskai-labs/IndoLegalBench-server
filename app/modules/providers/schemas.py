@@ -19,6 +19,9 @@ from app.modules.providers.models import (
     ProviderType,
 )
 
+# Batas catatan akses dan parameter produk Manual (teks bebas, PBI-23 AC3).
+_PANJANG_TEKS_MANUAL = 2000
+
 
 def _teks_bersih(value: str) -> str:
     bersih = value.strip()
@@ -45,25 +48,53 @@ class ModelParams(BaseModel):
 
 
 class AiProductCreate(BaseModel):
+    """Pendaftaran produk AI (PBI-10, PBI-23 AC1-AC3).
+
+    Isian per jenis sengaja opsional di sini: wajib atau terlarangnya diputuskan
+    rules.type_field_problem sesuai measurement_type, supaya kesalahan dilaporkan
+    sebagai FIELD_REQUIRED / FIELD_NOT_ALLOWED dengan nama field-nya. Tanpa
+    measurement_type produk dianggap Otomatis, sama seperti body PBI-10.
+    """
+
     model_config = ConfigDict(str_strip_whitespace=True)
 
     name: str = Field(min_length=1, max_length=200)
-    provider_type: ProviderType
-    base_url: str = Field(min_length=1, max_length=2048)
-    model_name: str = Field(min_length=1, max_length=200)
-    credential: str = Field(min_length=4)
-    rate_limit_per_minute: int = Field(gt=0)
-    monthly_budget_idr: Decimal = Field(gt=0, max_digits=18, decimal_places=2)
+    measurement_type: MeasurementType = MeasurementType.AUTOMATIC
+    # Otomatis
+    provider_type: ProviderType | None = None
+    base_url: str | None = Field(default=None, min_length=1, max_length=2048)
+    model_name: str | None = Field(default=None, min_length=1, max_length=200)
+    credential: str | None = Field(default=None, min_length=4)
+    rate_limit_per_minute: int | None = Field(default=None, gt=0)
+    monthly_budget_idr: Decimal | None = Field(default=None, gt=0, max_digits=18, decimal_places=2)
+    model_params: ModelParams | None = None
+    price_input_usd_per_mtok: Decimal | None = Field(
+        default=None, ge=0, max_digits=12, decimal_places=4
+    )
+    price_output_usd_per_mtok: Decimal | None = Field(
+        default=None, ge=0, max_digits=12, decimal_places=4
+    )
+    # Manual
+    vendor_name: str | None = Field(default=None, min_length=1, max_length=200)
+    site_url: str | None = Field(default=None, min_length=1, max_length=2048)
+    # Teks bebas ikut tersalin ke audit_logs, jadi panjangnya dibatasi.
+    access_note: str | None = Field(default=None, max_length=_PANJANG_TEKS_MANUAL)
+    manual_params: str | None = Field(default=None, max_length=_PANJANG_TEKS_MANUAL)
 
-    @field_validator("name", "model_name")
+    @field_validator("name")
     @classmethod
-    def wajib_ada(cls, value: str) -> str:
+    def nama_wajib_ada(cls, value: str) -> str:
         return _teks_bersih(value)
 
-    @field_validator("base_url")
+    @field_validator("model_name", "vendor_name")
     @classmethod
-    def url_http(cls, value: str) -> str:
-        return _url_http(value)
+    def teks_tidak_kosong(cls, value: str | None) -> str | None:
+        return None if value is None else _teks_bersih(value)
+
+    @field_validator("base_url", "site_url")
+    @classmethod
+    def url_http(cls, value: str | None) -> str | None:
+        return None if value is None else _url_http(value)
 
 
 class AiProductUpdate(BaseModel):
@@ -86,8 +117,8 @@ class AiProductUpdate(BaseModel):
     )
     vendor_name: str | None = Field(default=None, min_length=1, max_length=200)
     site_url: str | None = Field(default=None, min_length=1, max_length=2048)
-    access_note: str | None = None
-    manual_params: str | None = None
+    access_note: str | None = Field(default=None, max_length=_PANJANG_TEKS_MANUAL)
+    manual_params: str | None = Field(default=None, max_length=_PANJANG_TEKS_MANUAL)
 
     @field_validator("name", "model_name", "vendor_name")
     @classmethod
@@ -123,6 +154,13 @@ class AiProductRead(BaseModel):
     price_input_usd_per_mtok: Decimal | None = None
     price_output_usd_per_mtok: Decimal | None = None
     vendor_name: str | None = None
+    vendor_label: str | None = Field(
+        default=None,
+        description=(
+            "Nama penyedia untuk daftar (PBI-23 AC6): vendor_name untuk produk Manual, "
+            "label provider_type untuk produk Otomatis."
+        ),
+    )
     site_url: str | None = None
     access_note: str | None = None
     manual_params: str | None = None
@@ -134,6 +172,18 @@ class AiProductRead(BaseModel):
     created_by: uuid.UUID
     created_at: datetime
     updated_at: datetime
+
+
+class AiProductOption(BaseModel):
+    """Satu pilihan produk di form pengukuran atau pencatatan manual (PBI-23 AC7, AC8).
+
+    Sengaja hanya id, nama, dan jenis: Kontributor hanya boleh melihat nama produk
+    manual aktif. Isian lengkap tetap di /admin/providers untuk Admin.
+    """
+
+    id: uuid.UUID
+    name: str
+    measurement_type: MeasurementType
 
 
 class ConnectionTestRead(BaseModel):

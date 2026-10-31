@@ -1918,6 +1918,24 @@
               ],
               "title": "Is Active"
             }
+          },
+          {
+            "name": "measurement_type",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/MeasurementType"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Saring per jenis pengukuran (PBI-23 AC6).",
+              "title": "Measurement Type"
+            },
+            "description": "Saring per jenis pengukuran (PBI-23 AC6)."
           }
         ],
         "responses": {
@@ -2254,6 +2272,64 @@
           },
           "404": {
             "description": "Produk AI tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/ai-products": {
+      "get": {
+        "tags": [
+          "providers"
+        ],
+        "summary": "Daftar pilihan produk AI per tujuan",
+        "description": "Hanya produk aktif yang jenisnya sesuai tujuan: automatic_run untuk pengukuran otomatis (Admin, Developer AI), manual_entry untuk pencatatan manual (Admin, Kontributor). Produk berjenis lain tidak dikirim sama sekali (PBI-23 AC7, AC8).",
+        "operationId": "list_product_options_ai_products_get",
+        "parameters": [
+          {
+            "name": "purpose",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "$ref": "#/components/schemas/ProductPurpose",
+              "description": "Untuk apa daftar pilihan ini dipakai."
+            },
+            "description": "Untuk apa daftar pilihan ini dipakai."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/AiProductOption"
+                  },
+                  "title": "Response List Product Options Ai Products Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Peran tidak berwenang untuk tujuan ini.",
             "content": {
               "application/json": {
                 "schema": {
@@ -3633,29 +3709,68 @@
             "minLength": 1,
             "title": "Name"
           },
+          "measurement_type": {
+            "$ref": "#/components/schemas/MeasurementType",
+            "default": "automatic"
+          },
           "provider_type": {
-            "$ref": "#/components/schemas/ProviderType"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ProviderType"
+              },
+              {
+                "type": "null"
+              }
+            ]
           },
           "base_url": {
-            "type": "string",
-            "maxLength": 2048,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Base Url"
           },
           "model_name": {
-            "type": "string",
-            "maxLength": 200,
-            "minLength": 1,
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Model Name"
           },
           "credential": {
-            "type": "string",
-            "minLength": 4,
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 4
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Credential"
           },
           "rate_limit_per_minute": {
-            "type": "integer",
-            "exclusiveMinimum": 0.0,
+            "anyOf": [
+              {
+                "type": "integer",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Rate Limit Per Minute"
           },
           "monthly_budget_idr": {
@@ -3667,22 +3782,136 @@
               {
                 "type": "string",
                 "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,16}|(?=[\\d.]{1,19}0*$)\\d{0,16}\\.\\d{0,2}0*$)"
+              },
+              {
+                "type": "null"
               }
             ],
             "title": "Monthly Budget Idr"
+          },
+          "model_params": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ModelParams"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "price_input_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Input Usd Per Mtok"
+          },
+          "price_output_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Output Usd Per Mtok"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
+          },
+          "site_url": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2048,
+                "minLength": 1
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Url"
+          },
+          "access_note": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Access Note"
+          },
+          "manual_params": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 2000
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Params"
           }
         },
         "type": "object",
         "required": [
-          "name",
-          "provider_type",
-          "base_url",
-          "model_name",
-          "credential",
-          "rate_limit_per_minute",
-          "monthly_budget_idr"
+          "name"
         ],
-        "title": "AiProductCreate"
+        "title": "AiProductCreate",
+        "description": "Pendaftaran produk AI (PBI-10, PBI-23 AC1-AC3).\n\nIsian per jenis sengaja opsional di sini: wajib atau terlarangnya diputuskan\nrules.type_field_problem sesuai measurement_type, supaya kesalahan dilaporkan\nsebagai FIELD_REQUIRED / FIELD_NOT_ALLOWED dengan nama field-nya. Tanpa\nmeasurement_type produk dianggap Otomatis, sama seperti body PBI-10."
+      },
+      "AiProductOption": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "measurement_type": {
+            "$ref": "#/components/schemas/MeasurementType"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "measurement_type"
+        ],
+        "title": "AiProductOption",
+        "description": "Satu pilihan produk di form pengukuran atau pencatatan manual (PBI-23 AC7, AC8).\n\nSengaja hanya id, nama, dan jenis: Kontributor hanya boleh melihat nama produk\nmanual aktif. Isian lengkap tetap di /admin/providers untuk Admin."
       },
       "AiProductRead": {
         "properties": {
@@ -3814,6 +4043,18 @@
               }
             ],
             "title": "Vendor Name"
+          },
+          "vendor_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Label",
+            "description": "Nama penyedia untuk daftar (PBI-23 AC6): vendor_name untuk produk Manual, label provider_type untuk produk Otomatis."
           },
           "site_url": {
             "anyOf": [
@@ -4095,7 +4336,8 @@
           "access_note": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 2000
               },
               {
                 "type": "null"
@@ -4106,7 +4348,8 @@
           "manual_params": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "maxLength": 2000
               },
               {
                 "type": "null"
@@ -6065,6 +6308,15 @@
         ],
         "title": "PendingReview",
         "description": "Satu baris antrean dashboard reviewer (PBI-19 AC6, SCRUM-154).\n\nwaiting_since adalah saat round dibuka; antrean diurutkan dari yang\nterlama. assigned_at bisa lebih baru bila reviewer ini pengganti."
+      },
+      "ProductPurpose": {
+        "type": "string",
+        "enum": [
+          "automatic_run",
+          "manual_entry"
+        ],
+        "title": "ProductPurpose",
+        "description": "Untuk apa daftar pilihan produk dipakai."
       },
       "ProviderType": {
         "type": "string",

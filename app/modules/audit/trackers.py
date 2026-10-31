@@ -17,7 +17,7 @@ from enum import Enum
 from typing import Any
 
 from app.modules.audit.models import AuditEntityType
-from app.modules.audit.redaction import CREDENTIAL_ROTATED
+from app.modules.audit.redaction import CREDENTIAL_REMOVED, CREDENTIAL_ROTATED, CREDENTIAL_STORED
 
 
 @dataclass(frozen=True)
@@ -327,18 +327,52 @@ class AiProductTracker(Tracker):
     entity_type = AuditEntityType.AI_PRODUCT
     prefix = "ai_product"
     created_action = "registered"
-    # credential_encrypted sengaja tidak ada di sini (PBI-10 AC2).
+    # credential_encrypted dan credential_hint sengaja tidak ada di sini (PBI-10 AC2):
+    # hint adalah empat karakter terakhir kredensial. Isian jenis pengukuran dari
+    # SCRUM-200 ikut dicatat (PBI-23, SCRUM-201).
     created_fields = (
         "name",
+        "measurement_type",
         "provider_type",
         "base_url",
         "model_name",
         "rate_limit_per_minute",
         "monthly_budget_idr",
+        "model_params",
+        "price_input_usd_per_mtok",
+        "price_output_usd_per_mtok",
+        "vendor_name",
+        "site_url",
+        "access_note",
+        "manual_params",
         "is_active",
     )
     fields = (*created_fields, "credential_encrypted", "deleted_at")
     special = frozenset({"credential_encrypted", "is_active", "deleted_at"})
+
+    def created(self, row: Any) -> list[AuditEvent]:
+        """Isian milik jenis lain selalu kosong (C1), jadi tidak ditulis sebagai null."""
+        after = {
+            field: _json(nilai)
+            for field in self.created_fields
+            if (nilai := getattr(row, field, None)) is not None
+        }
+        return [self._event(row, self.created_action, after=after)]
+
+    def updated(self, row: Any, changes: dict[str, Change]) -> list[AuditEvent]:
+        kredensial = changes.get("credential_encrypted")
+        if kredensial is not None and (kredensial.old is None or kredensial.new is None):
+            # Pindah jenis menghapus kredensial (ke Manual) atau memberi kredensial pertama
+            # (ke Otomatis). Keduanya bukan "kredensial diganti", jadi dicatat di event
+            # updated yang sama lewat penanda tetap, tanpa nilai.
+            awal, akhir = (
+                (CREDENTIAL_REMOVED, CREDENTIAL_STORED)
+                if kredensial.old is None
+                else (CREDENTIAL_STORED, CREDENTIAL_REMOVED)
+            )
+            changes = {k: v for k, v in changes.items() if k != "credential_encrypted"}
+            changes["credential"] = Change(awal["credential"], akhir["credential"])
+        return super().updated(row, changes)
 
     def _special_event(self, row: Any, field: str, change: Change) -> AuditEvent:
         if field == "credential_encrypted":

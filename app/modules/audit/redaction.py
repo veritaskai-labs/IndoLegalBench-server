@@ -11,6 +11,13 @@ from typing import Any
 
 # Cukup penanda ini yang dicatat saat kredensial diganti (D6a).
 CREDENTIAL_ROTATED: dict[str, str] = {"credential": "rotated"}
+# Kredensial dihapus saat produk pindah ke Manual (PBI-23, SCRUM-201): before dan after.
+CREDENTIAL_STORED: dict[str, str] = {"credential": "stored"}
+CREDENTIAL_REMOVED: dict[str, str] = {"credential": "removed"}
+# Hanya nilai tetap ini yang boleh dibawa kunci credential; nilai lain tetap dibuang.
+_PENANDA_KREDENSIAL = frozenset(
+    penanda["credential"] for penanda in (CREDENTIAL_ROTATED, CREDENTIAL_STORED, CREDENTIAL_REMOVED)
+)
 
 _SEGMEN_RAHASIA = frozenset({"credential", "secret", "password", "authorization", "apikey"})
 _PEMISAH_SEGMEN = re.compile(r"[_\-\s]+|(?<=[a-z0-9])(?=[A-Z])")
@@ -31,7 +38,7 @@ def without_secrets(value: Any) -> Any:
 
 def _is_secret(key: str, item: Any) -> bool:
     segmen = [bagian.lower() for bagian in _PEMISAH_SEGMEN.split(key) if bagian]
-    if segmen == ["credential"] and item == CREDENTIAL_ROTATED["credential"]:
+    if segmen == ["credential"] and item in _PENANDA_KREDENSIAL:
         return False
     if _SEGMEN_RAHASIA.intersection(segmen):
         return True
