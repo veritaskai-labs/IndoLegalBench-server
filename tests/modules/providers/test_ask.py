@@ -438,6 +438,71 @@ def test_mock_is_not_a_dispatchable_product():
     assert MockProviderAdapter not in _ADAPTERS.values()
 
 
+def test_openai_without_usage_leaves_token_counts_unset(monkeypatch):
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            200,
+            json={
+                "model": "m",
+                "choices": [{"message": {"content": "jawab"}, "finish_reason": "stop"}],
+            },
+        )
+
+    _transport(monkeypatch, handler)
+    result = _openai().ask("q")
+    assert result.input_tokens is None
+    assert result.output_tokens is None
+
+
+def test_provider_usage_token_counts(monkeypatch):
+    cases = [
+        (
+            _openai,
+            {
+                "model": "m",
+                "choices": [{"message": {"content": "jawab"}, "finish_reason": "stop"}],
+                "usage": {"prompt_tokens": 11, "completion_tokens": 4},
+            },
+            11,
+            4,
+        ),
+        (
+            _anthropic,
+            {
+                "model": "m",
+                "content": [{"type": "text", "text": "jawab"}],
+                "stop_reason": "end_turn",
+                "usage": {"input_tokens": 20, "output_tokens": 6},
+            },
+            20,
+            6,
+        ),
+        (
+            _gemini,
+            {
+                "status": "completed",
+                "steps": [{"type": "model_output", "content": [{"type": "text", "text": "jawab"}]}],
+                "usage": {"total_input_tokens": 8, "total_output_tokens": 2},
+            },
+            8,
+            2,
+        ),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        payload = cases[handler.index][1]
+        handler.index += 1
+        return httpx.Response(200, json=payload)
+
+    handler.index = 0
+    _transport(monkeypatch, handler)
+    for adapter_factory, _payload, prompt_tokens, completion_tokens in cases:
+        result = adapter_factory().ask("q")
+        assert result.input_tokens == prompt_tokens
+        assert result.output_tokens == completion_tokens
+        assert result.text == "jawab"
+
+
 def test_mock_connection_does_not_use_the_network():
     result = MockProviderAdapter("success").test_connection()
     assert result.status == "ok"

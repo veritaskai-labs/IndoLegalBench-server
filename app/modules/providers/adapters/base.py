@@ -73,6 +73,8 @@ class ProviderResponse:
     raw: dict
     error: str | None = None
     failure_kind: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 class ProviderAdapter(ABC):

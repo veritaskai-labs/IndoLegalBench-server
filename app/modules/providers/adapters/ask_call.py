@@ -115,6 +115,19 @@ def _invalid(latency_ms: int, secret: str, raw: dict) -> ProviderResponse:
     )
 
 
+def _count(value: object) -> int | None:
+    if isinstance(value, bool) or not isinstance(value, int):
+        return None
+    return value
+
+
+def _usage_pair(payload: dict, input_key: str, output_key: str) -> tuple[int | None, int | None]:
+    usage = payload.get("usage")
+    if not isinstance(usage, dict):
+        return None, None
+    return _count(usage.get(input_key)), _count(usage.get(output_key))
+
+
 def _done(
     *,
     text: str,
@@ -124,6 +137,8 @@ def _done(
     secret: str,
     kind: FailureKind | None,
     error: str | None,
+    input_tokens: int | None = None,
+    output_tokens: int | None = None,
 ) -> ProviderResponse:
     return ProviderResponse(
         text=scrub(text, secret),
@@ -132,6 +147,8 @@ def _done(
         raw=raw,
         error=None if error is None else clip(error, secret),
         failure_kind=kind,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
 
 
@@ -168,6 +185,7 @@ def interpret_openai(
         kind = FailureKind.EMPTY
         error = _EMPTY
     model = payload.get("model")
+    input_tokens, output_tokens = _usage_pair(payload, "prompt_tokens", "completion_tokens")
     return _done(
         text=text,
         model_version=model if isinstance(model, str) else model_name,
@@ -176,6 +194,8 @@ def interpret_openai(
         secret=secret,
         kind=kind,
         error=error,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
 
 
@@ -283,6 +303,7 @@ def interpret_gemini(
     text = _gemini_text(payload)
     kind, error = _gemini_outcome(payload, text)
     model = payload.get("model")
+    input_tokens, output_tokens = _usage_pair(payload, "total_input_tokens", "total_output_tokens")
     return _done(
         text=text,
         model_version=model if isinstance(model, str) else model_name,
@@ -291,6 +312,8 @@ def interpret_gemini(
         secret=secret,
         kind=kind,
         error=error,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
 
 
@@ -320,6 +343,7 @@ def interpret_anthropic(
         kind = FailureKind.EMPTY
         error = _EMPTY
     model = payload.get("model")
+    input_tokens, output_tokens = _usage_pair(payload, "input_tokens", "output_tokens")
     return _done(
         text=text,
         model_version=model if isinstance(model, str) else model_name,
@@ -328,4 +352,6 @@ def interpret_anthropic(
         secret=secret,
         kind=kind,
         error=error,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
