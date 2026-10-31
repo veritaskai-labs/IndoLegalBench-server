@@ -10,7 +10,9 @@ Dilewati kalau TEST_POSTGRES_URL kosong.
 
 import os
 import uuid
+from collections.abc import Callable
 
+import psycopg
 import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import DBAPIError
@@ -93,13 +95,36 @@ def _sesi(conn, produk_id, admin_id, **ubah) -> uuid.UUID:
     ).scalar_one()
 
 
-def _ditolak(conn, **ubah) -> str:
-    """SQLSTATE penolakan. Savepoint menjaga transaksi tes tetap bisa dipakai."""
+def _galat(conn, aksi: Callable[[], object]) -> psycopg.Error:
+    """Galat database dari aksi yang harus ditolak.
+
+    Savepoint menjaga transaksi tes tetap bisa dipakai setelah penolakan.
+    """
     savepoint = conn.begin_nested()
     with pytest.raises(DBAPIError) as info:
-        _sesi(conn, **ubah)
+        aksi()
     savepoint.rollback()
-    return info.value.orig.sqlstate
+    return info.value.orig
+
+
+def _ditolak(conn, **ubah) -> str:
+    """SQLSTATE penolakan INSERT sesi."""
+    return _galat(conn, lambda: _sesi(conn, **ubah)).sqlstate
+
+
+def _sqlstate(conn, perintah: str, params: dict) -> str:
+    """SQLSTATE penolakan perintah SQL apa pun."""
+    return _galat(conn, lambda: conn.execute(text(perintah), params)).sqlstate
+
+
+def _ubah_status(conn, sesi_id, status: str) -> None:
+    conn.execute(
+        text(
+            "UPDATE measurement_sessions "
+            "SET status = CAST(:status AS measurement_session_status_enum) WHERE id = :id"
+        ),
+        {"id": sesi_id, "status": status},
+    )
 
 
 def test_sesi_baru_menunggu_dan_tercatat_waktunya(conn, produk_id, admin_id):
@@ -178,38 +203,19 @@ def test_jenis_produk_terkunci_setelah_ada_sesi(conn, produk_id, admin_id):
     """
     _sesi(conn, produk_id, admin_id)
 
-    savepoint = conn.begin_nested()
-    with pytest.raises(DBAPIError) as info:
-        conn.execute(
+    galat = _galat(
+        conn,
+        lambda: conn.execute(
             text(
                 "UPDATE ai_products SET measurement_type = 'automatic', "
                 "vendor_name = NULL, site_url = NULL WHERE id = :id"
             ),
             {"id": produk_id},
-        )
-    savepoint.rollback()
-
-    assert info.value.orig.sqlstate == CHECK_VIOLATION
-    assert "MEASUREMENT_TYPE_IMMUTABLE" in str(info.value.orig)
-
-
-def _sqlstate(conn, perintah: str, params: dict) -> str:
-    """SQLSTATE dari perintah yang harus ditolak, di dalam savepoint."""
-    savepoint = conn.begin_nested()
-    with pytest.raises(DBAPIError) as info:
-        conn.execute(text(perintah), params)
-    savepoint.rollback()
-    return info.value.orig.sqlstate
-
-
-def _ubah_status(conn, sesi_id, status: str) -> None:
-    conn.execute(
-        text(
-            "UPDATE measurement_sessions "
-            "SET status = CAST(:status AS measurement_session_status_enum) WHERE id = :id"
         ),
-        {"id": sesi_id, "status": status},
     )
+
+    assert galat.sqlstate == CHECK_VIOLATION
+    assert "MEASUREMENT_TYPE_IMMUTABLE" in str(galat)
 
 
 def test_sesi_tidak_bisa_dihapus(conn, produk_id, admin_id):
