@@ -2,20 +2,30 @@
 
 Aturan kolom ditegakkan oleh database, bukan hanya oleh API, jadi dibuktikan di
 PostgreSQL. Setiap tes berjalan di dalam transaksi yang di-rollback.
-
-Tes negatif memeriksa SQLSTATE, bukan sekadar "ada error": sebelum tabel ada,
-setiap INSERT juga gagal (undefined_table), dan itu tidak boleh terhitung lulus.
+Bantuan dan alasan pemeriksaan SQLSTATE ada di tests/measurement_pg.py.
 Dilewati kalau TEST_POSTGRES_URL kosong.
 """
 
 import os
 import uuid
-from collections.abc import Callable
 
-import psycopg
 import pytest
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import DBAPIError
+
+from tests.measurement_pg import (
+    CHECK_VIOLATION,
+    FOREIGN_KEY_VIOLATION,
+    INSUFFICIENT_PRIVILEGE,
+    INVALID_TEXT_REPRESENTATION,
+    STRING_DATA_RIGHT_TRUNCATION,
+    UNIQUE_VIOLATION,
+    buat_admin,
+    buat_produk,
+    galat,
+    sqlstate_penolakan,
+    ubah_status,
+)
+from tests.measurement_pg import buat_sesi as _sesi
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "")
 
@@ -23,13 +33,6 @@ pytestmark = [
     pytest.mark.postgres,
     pytest.mark.skipif(not POSTGRES_URL, reason="TEST_POSTGRES_URL tidak diisi"),
 ]
-
-CHECK_VIOLATION = "23514"
-FOREIGN_KEY_VIOLATION = "23503"
-INVALID_TEXT_REPRESENTATION = "22P02"
-STRING_DATA_RIGHT_TRUNCATION = "22001"
-UNIQUE_VIOLATION = "23505"
-INSUFFICIENT_PRIVILEGE = "42501"
 
 
 @pytest.fixture
@@ -46,85 +49,17 @@ def conn():
 
 @pytest.fixture
 def admin_id(conn) -> uuid.UUID:
-    user_id = uuid.uuid4()
-    conn.execute(
-        text(
-            "INSERT INTO users (id, email, name, role) VALUES (:id, :email, 'Admin 205', 'admin')"
-        ),
-        {"id": user_id, "email": f"admin-205-{user_id.hex}@veritask.test"},
-    )
-    return user_id
+    return buat_admin(conn)
 
 
 @pytest.fixture
 def produk_id(conn, admin_id) -> uuid.UUID:
-    """Produk manual: kolom wajibnya paling sedikit, cukup untuk FK sesi."""
-    product_id = uuid.uuid4()
-    conn.execute(
-        text(
-            "INSERT INTO ai_products (id, name, created_by, measurement_type, vendor_name, site_url) "
-            "VALUES (:id, :name, :admin_id, 'manual', 'Penyedia Uji', 'https://contoh.test')"
-        ),
-        {"id": product_id, "name": f"Produk 205 {product_id.hex[:8]}", "admin_id": admin_id},
-    )
-    return product_id
-
-
-def _sesi(conn, produk_id, admin_id, **ubah) -> uuid.UUID:
-    isi = {
-        "id": uuid.uuid4(),
-        "label": "Uji coba DeepSeek Oktober",
-        "purpose": "official",
-        "session_type": "manual",
-        "product_id": produk_id,
-        "repetitions": 1,
-        "split_filter": "dev",
-        "created_by": admin_id,
-    }
-    isi.update(ubah)
-    return conn.execute(
-        text(
-            "INSERT INTO measurement_sessions "
-            "(id, label, purpose, session_type, product_id, repetitions, split_filter, created_by) "
-            "VALUES (:id, :label, CAST(:purpose AS measurement_purpose_enum), "
-            "CAST(:session_type AS measurement_session_type_enum), :product_id, :repetitions, "
-            "CAST(:split_filter AS measurement_split_filter_enum), :created_by) "
-            "RETURNING id"
-        ),
-        isi,
-    ).scalar_one()
-
-
-def _galat(conn, aksi: Callable[[], object]) -> psycopg.Error:
-    """Galat database dari aksi yang harus ditolak.
-
-    Savepoint menjaga transaksi tes tetap bisa dipakai setelah penolakan.
-    """
-    savepoint = conn.begin_nested()
-    with pytest.raises(DBAPIError) as info:
-        aksi()
-    savepoint.rollback()
-    return info.value.orig
+    return buat_produk(conn, admin_id)
 
 
 def _ditolak(conn, **ubah) -> str:
     """SQLSTATE penolakan INSERT sesi."""
-    return _galat(conn, lambda: _sesi(conn, **ubah)).sqlstate
-
-
-def _sqlstate(conn, perintah: str, params: dict) -> str:
-    """SQLSTATE penolakan perintah SQL apa pun."""
-    return _galat(conn, lambda: conn.execute(text(perintah), params)).sqlstate
-
-
-def _ubah_status(conn, sesi_id, status: str) -> None:
-    conn.execute(
-        text(
-            "UPDATE measurement_sessions "
-            "SET status = CAST(:status AS measurement_session_status_enum) WHERE id = :id"
-        ),
-        {"id": sesi_id, "status": status},
-    )
+    return galat(conn, lambda: _sesi(conn, **ubah)).sqlstate
 
 
 def test_sesi_baru_menunggu_dan_tercatat_waktunya(conn, produk_id, admin_id):
@@ -203,7 +138,7 @@ def test_jenis_produk_terkunci_setelah_ada_sesi(conn, produk_id, admin_id):
     """
     _sesi(conn, produk_id, admin_id)
 
-    galat = _galat(
+    penolakan = galat(
         conn,
         lambda: conn.execute(
             text(
@@ -214,15 +149,17 @@ def test_jenis_produk_terkunci_setelah_ada_sesi(conn, produk_id, admin_id):
         ),
     )
 
-    assert galat.sqlstate == CHECK_VIOLATION
-    assert "MEASUREMENT_TYPE_IMMUTABLE" in str(galat)
+    assert penolakan.sqlstate == CHECK_VIOLATION
+    assert "MEASUREMENT_TYPE_IMMUTABLE" in str(penolakan)
 
 
 def test_sesi_tidak_bisa_dihapus(conn, produk_id, admin_id):
     """AC10: sesi tidak dihapus, hanya diarsipkan. Berlaku juga untuk pemilik tabel."""
     sesi_id = _sesi(conn, produk_id, admin_id)
 
-    sqlstate = _sqlstate(conn, "DELETE FROM measurement_sessions WHERE id = :id", {"id": sesi_id})
+    sqlstate = sqlstate_penolakan(
+        conn, "DELETE FROM measurement_sessions WHERE id = :id", {"id": sesi_id}
+    )
 
     assert sqlstate == INSUFFICIENT_PRIVILEGE
     jumlah = conn.execute(
@@ -235,7 +172,7 @@ def test_tabel_sesi_tidak_bisa_dikosongkan(conn, produk_id, admin_id):
     """Corner: TRUNCATE tidak memicu trigger baris, jadi perlu trigger sendiri."""
     _sesi(conn, produk_id, admin_id)
 
-    sqlstate = _sqlstate(conn, "TRUNCATE measurement_sessions", {})
+    sqlstate = sqlstate_penolakan(conn, "TRUNCATE measurement_sessions", {})
 
     assert sqlstate == INSUFFICIENT_PRIVILEGE
 
@@ -265,7 +202,7 @@ def test_sesi_diarsipkan_dengan_pengarsipnya(conn, produk_id, admin_id):
 def test_arsip_wajib_lengkap_waktu_dan_pelakunya(conn, produk_id, admin_id, isian):
     sesi_id = _sesi(conn, produk_id, admin_id)
 
-    sqlstate = _sqlstate(
+    sqlstate = sqlstate_penolakan(
         conn,
         f"UPDATE measurement_sessions SET {isian} WHERE id = :id",
         {"id": sesi_id, "admin_id": admin_id},
@@ -306,7 +243,7 @@ def test_terima_apa_adanya_lengkap_diterima(conn, produk_id, admin_id):
 def test_terima_apa_adanya_wajib_lengkap(conn, produk_id, admin_id, isian):
     sesi_id = _sesi(conn, produk_id, admin_id)
 
-    sqlstate = _sqlstate(
+    sqlstate = sqlstate_penolakan(
         conn,
         f"UPDATE measurement_sessions SET {isian} WHERE id = :id",
         {"id": sesi_id, "admin_id": admin_id},
@@ -319,9 +256,9 @@ def test_hanya_satu_sesi_otomatis_yang_berjalan(conn, produk_id, admin_id):
     """D2: partial UNIQUE index. Sesi otomatis lain menunggu di antrean."""
     pertama = _sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
     kedua = _sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
-    _ubah_status(conn, pertama, "running")
+    ubah_status(conn, pertama, "running")
 
-    sqlstate = _sqlstate(
+    sqlstate = sqlstate_penolakan(
         conn,
         "UPDATE measurement_sessions SET status = 'running' WHERE id = :id",
         {"id": kedua},
@@ -345,10 +282,10 @@ def test_sesi_yang_boleh_berdampingan_dengan_sesi_otomatis_berjalan(
     """Indeks harus parsial: tidak boleh menahan sesi yang bukan otomatis berjalan."""
     pertama = _sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
     kedua = _sesi(conn, produk_id, admin_id, session_type=jenis_kedua)
-    _ubah_status(conn, pertama, "running")
-    _ubah_status(conn, pertama, status_pertama_akhir)
+    ubah_status(conn, pertama, "running")
+    ubah_status(conn, pertama, status_pertama_akhir)
 
-    _ubah_status(conn, kedua, status_kedua)
+    ubah_status(conn, kedua, status_kedua)
 
     status = conn.execute(
         text("SELECT status::text FROM measurement_sessions WHERE id = :id"), {"id": kedua}
