@@ -13,6 +13,7 @@ from app.modules.auth.schemas import ErrorBody
 from app.modules.reviews import service
 from app.modules.reviews.schemas import (
     AssignedReview,
+    AwaitingRevisionReview,
     CaseReview,
     CommentDiscussion,
     CommentReplyRead,
@@ -53,6 +54,28 @@ def list_assigned(
 ) -> list[AssignedReview]:
     """Active assignments in open rounds, with the case body and only your own verdict."""
     return service.list_assigned(db, _user_id(user))
+
+
+@router.get(
+    "/reviews/awaiting-revision",
+    response_model=list[AwaitingRevisionReview],
+    summary="Kasus yang menunggu revisi penulis untuk reviewer yang login (SCRUM-242)",
+    responses={
+        401: {"model": ErrorBody, "description": "Tidak ada sesi aktif."},
+        403: {"model": ErrorBody, "description": "Hanya akun dengan wewenang review."},
+    },
+)
+def list_awaiting_revision(
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(_reviewer),
+) -> list[AwaitingRevisionReview]:
+    """Kasus yang sudah Anda nilai dan belum approved: round terakhirnya meminta revisi.
+
+    Reviewer yang setuju sementara rekannya meminta revisi juga muncul. Kasus
+    keluar saat Author mengajukan ulang. Gunakan thread_assignment_ids untuk
+    membuka thread komentar lewat GET /reviews/{id}/discussion.
+    """
+    return service.list_awaiting_revision(db, _user_id(user))
 
 
 @router.get(

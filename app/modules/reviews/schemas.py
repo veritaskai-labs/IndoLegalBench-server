@@ -81,6 +81,24 @@ class PendingReview(BaseModel):
     assigned_at: datetime
 
 
+class AwaitingRevisionReview(BaseModel):
+    """Satu baris antrean "Menunggu revisi penulis" untuk reviewer (SCRUM-242).
+
+    assignment_id adalah penugasan reviewer ini sendiri. thread_assignment_ids
+    berisi penugasan di round itu yang punya komentar, supaya reviewer yang
+    setuju bisa membuka thread rekannya lewat GET /reviews/{id}/discussion.
+    """
+
+    assignment_id: uuid.UUID
+    case_id: uuid.UUID
+    case_code: str
+    title: str
+    round_no: int
+    my_decision: VerdictDecision
+    decided_at: datetime | None
+    thread_assignment_ids: list[uuid.UUID]
+
+
 class ReviewerRead(BaseModel):
     id: uuid.UUID
     name: str

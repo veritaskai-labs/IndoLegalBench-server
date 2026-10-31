@@ -80,7 +80,7 @@ def test_author_reply_persists_and_notifies_only_comment_owner(thread, jadi, db_
 
 @pytest.mark.parametrize(
     "role, identity",
-    [(Role.CONTRIBUTOR, uuid.uuid4()), (Role.CONTRIBUTOR, REVIEWER_B), (Role.VIEWER, uuid.uuid4())],
+    [(Role.CONTRIBUTOR, uuid.uuid4()), (Role.VIEWER, uuid.uuid4())],
 )
 def test_unrelated_users_cannot_read_or_reply(thread, jadi, role, identity):
     client, _, ids = thread

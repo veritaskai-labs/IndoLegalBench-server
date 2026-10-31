@@ -2377,6 +2377,52 @@
         }
       }
     },
+    "/reviews/awaiting-revision": {
+      "get": {
+        "tags": [
+          "reviews"
+        ],
+        "summary": "Kasus yang menunggu revisi penulis untuk reviewer yang login (SCRUM-242)",
+        "description": "Kasus yang sudah Anda nilai dan belum approved: round terakhirnya meminta revisi.\n\nReviewer yang setuju sementara rekannya meminta revisi juga muncul. Kasus\nkeluar saat Author mengajukan ulang. Gunakan thread_assignment_ids untuk\nmembuka thread komentar lewat GET /reviews/{id}/discussion.",
+        "operationId": "list_awaiting_revision_reviews_awaiting_revision_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/AwaitingRevisionReview"
+                  },
+                  "type": "array",
+                  "title": "Response List Awaiting Revision Reviews Awaiting Revision Get"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Tidak ada sesi aktif.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya akun dengan wewenang review.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/reviews/needs-reassignment": {
       "get": {
         "tags": [
@@ -4712,6 +4758,68 @@
         ],
         "title": "AuditLogRead",
         "description": "Satu catatan audit, lengkap untuk dibuka kembali sebagai bukti (AC4)."
+      },
+      "AwaitingRevisionReview": {
+        "properties": {
+          "assignment_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Assignment Id"
+          },
+          "case_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Case Id"
+          },
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "round_no": {
+            "type": "integer",
+            "title": "Round No"
+          },
+          "my_decision": {
+            "$ref": "#/components/schemas/VerdictDecision"
+          },
+          "decided_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Decided At"
+          },
+          "thread_assignment_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Thread Assignment Ids"
+          }
+        },
+        "type": "object",
+        "required": [
+          "assignment_id",
+          "case_id",
+          "case_code",
+          "title",
+          "round_no",
+          "my_decision",
+          "decided_at",
+          "thread_assignment_ids"
+        ],
+        "title": "AwaitingRevisionReview",
+        "description": "Satu baris antrean \"Menunggu revisi penulis\" untuk reviewer (SCRUM-242).\n\nassignment_id adalah penugasan reviewer ini sendiri. thread_assignment_ids\nberisi penugasan di round itu yang punya komentar, supaya reviewer yang\nsetuju bisa membuka thread rekannya lewat GET /reviews/{id}/discussion."
       },
       "CaseCompleteness": {
         "properties": {
