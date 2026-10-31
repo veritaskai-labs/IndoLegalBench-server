@@ -262,6 +262,74 @@ def test_short_sleep_cannot_start_the_next_call_early():
     assert adapter.starts[1] >= 2.0
 
 
+def test_worker_stores_token_counts_from_the_response_including_zero_and_none():
+    class Scripted:
+        def __init__(self) -> None:
+            self.left = [
+                ProviderResponse(
+                    text="ok",
+                    model_version="m",
+                    latency_ms=1,
+                    raw={"usage": {"total_input_tokens": 5, "total_output_tokens": 0}},
+                    input_tokens=5,
+                    output_tokens=0,
+                ),
+                ProviderResponse(
+                    text="",
+                    model_version="m",
+                    latency_ms=1,
+                    raw={},
+                    error="empty response",
+                    failure_kind=FailureKind.EMPTY,
+                    input_tokens=2,
+                    output_tokens=None,
+                ),
+                ProviderResponse(
+                    text="lain",
+                    model_version="m",
+                    latency_ms=1,
+                    raw={},
+                ),
+            ]
+
+        def ask(self, prompt: str, *, parameters=None, timeout: float = 240.0):
+            del prompt, parameters, timeout
+            return self.left.pop(0)
+
+    store = FakeSessionStore(["a", "b", "c"])
+    run_session(uuid.uuid4(), store, Scripted(), repeats=1)
+    assert [(item.input_tokens, item.output_tokens) for item in store.attempts] == [
+        (5, 0),
+        (2, None),
+        (None, None),
+    ]
+    assert store.attempts[1].failure_kind == FailureKind.EMPTY
+
+
+def test_rate_limit_sleep_returning_immediately_still_blocks_the_next_start():
+    clock = ManualClock()
+    starts: list[float] = []
+
+    class Mark:
+        def ask(self, prompt: str, *, parameters=None, timeout: float = 240.0):
+            del prompt, parameters, timeout
+            starts.append(clock.clock())
+            return ProviderResponse(text="ok", model_version="m", latency_ms=1, raw={})
+
+    run_session(
+        uuid.uuid4(),
+        FakeSessionStore(["a", "b"]),
+        Mark(),
+        repeats=1,
+        rate_limit_per_minute=30,
+        sleep=clock.sleep,
+        clock=clock.clock,
+    )
+    assert starts[0] == 0.0
+    assert starts[1] >= 2.0
+    assert clock.waits == [2.0]
+
+
 def test_non_positive_rate_limit_is_rejected():
     with pytest.raises(ValidationError):
         run_session(

@@ -40,12 +40,17 @@ def _max_tokens(value: int) -> dict:
     return {"max_tokens": value}
 
 
+def _gemini_temperature(value: float) -> dict:
+    return {"generation_config": {"temperature": value}}
+
+
 def _gemini_max_tokens(value: int) -> dict:
     return {"generation_config": {"max_output_tokens": value}}
 
 
 # thinking dan web_search tidak ada di tabel: ketiga API ini tidak punya
 # field yang setara dan aman untuk bool generik, jadi keduanya dijatuhkan.
+# Gemini temperature masuk generation_config. Probe live 200 untuk 0.3.
 _RENDERERS: dict[str, dict[str, Callable]] = {
     "openai_compatible": {
         "temperature": _temperature,
@@ -53,6 +58,7 @@ _RENDERERS: dict[str, dict[str, Callable]] = {
         "max_tokens": _max_tokens,
     },
     "gemini_interactions": {
+        "temperature": _gemini_temperature,
         "max_tokens": _gemini_max_tokens,
     },
     "anthropic_messages": {
@@ -76,7 +82,12 @@ def build_request_extras(provider_type: str, params: ModelParameters | None) -> 
         rendered = render(value)
         if rendered is None:
             continue
-        extras.update(rendered)
+        for key, piece in rendered.items():
+            current = extras.get(key)
+            if isinstance(current, dict) and isinstance(piece, dict):
+                current.update(piece)
+            else:
+                extras[key] = piece
     if provider_type == "anthropic_messages" and "max_tokens" not in extras:
         extras["max_tokens"] = ANTHROPIC_DEFAULT_MAX_TOKENS
     return extras

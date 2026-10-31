@@ -17,15 +17,14 @@ def test_none_parameters_send_nothing_except_anthropic_required_max_tokens():
     }
 
 
-def test_empty_fields_are_omitted_and_gemini_drops_temperature():
+def test_empty_fields_are_omitted_and_gemini_sends_temperature():
     params = ModelParameters(temperature=0.3, effort=None, thinking=None, web_search=None)
     openai = build_request_extras("openai_compatible", params)
     gemini = build_request_extras("gemini_interactions", params)
     anthropic = build_request_extras("anthropic_messages", params)
 
     assert openai == {"temperature": 0.3}
-    assert "temperature" not in gemini
-    assert gemini == {}
+    assert gemini == {"generation_config": {"temperature": 0.3}}
     assert anthropic["temperature"] == 0.3
     assert "effort" not in openai
 
@@ -57,6 +56,10 @@ def test_explicit_max_tokens_is_sent_and_anthropic_none_uses_the_constant():
     assert build_request_extras("openai_compatible", params) == {"max_tokens": 128}
     assert build_request_extras("gemini_interactions", params) == {
         "generation_config": {"max_output_tokens": 128}
+    }
+    both = ModelParameters(temperature=0.3, max_tokens=128)
+    assert build_request_extras("gemini_interactions", both) == {
+        "generation_config": {"temperature": 0.3, "max_output_tokens": 128}
     }
     assert build_request_extras("anthropic_messages", params)["max_tokens"] == 128
     assert (

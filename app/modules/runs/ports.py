@@ -24,6 +24,8 @@ class AttemptRecord:
     raw: dict
     error: str | None
     failure_kind: str | None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
 
 
 class SessionStore(Protocol):

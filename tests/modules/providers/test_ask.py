@@ -226,7 +226,7 @@ def test_non_positive_timeout_is_rejected():
         _openai().ask("q", timeout=0)
 
 
-def test_gemini_success_drops_temperature_and_reads_outputs(monkeypatch):
+def test_gemini_sends_temperature_and_reads_outputs(monkeypatch):
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -241,9 +241,8 @@ def test_gemini_success_drops_temperature_and_reads_outputs(monkeypatch):
     result = _gemini().ask("tanya", parameters=ModelParameters(temperature=0.3))
     assert result.text == "jawab"
     assert result.failure_kind is None
-    assert "temperature" not in seen["body"]
+    assert seen["body"]["generation_config"]["temperature"] == 0.3
     assert seen["body"]["input"] == "tanya"
-    assert "generation_config" not in seen["body"]
     assert seen["key"] == _KEY
 
 
@@ -506,6 +505,70 @@ def test_provider_usage_token_counts(monkeypatch):
 def test_mock_connection_does_not_use_the_network():
     result = MockProviderAdapter("success").test_connection()
     assert result.status == "ok"
+
+
+def test_gemini_usage_edges_keep_zero_and_partial_and_failure(monkeypatch):
+    payloads = [
+        (
+            {"status": "completed", "outputs": [{"text": "jawab"}]},
+            None,
+            None,
+            None,
+        ),
+        (
+            {
+                "status": "completed",
+                "outputs": [{"text": "jawab"}],
+                "usage": {"total_input_tokens": 4},
+            },
+            None,
+            4,
+            None,
+        ),
+        (
+            {
+                "status": "completed",
+                "outputs": [{"text": "jawab"}],
+                "usage": {"total_input_tokens": 0, "total_output_tokens": 0},
+            },
+            None,
+            0,
+            0,
+        ),
+        (
+            {
+                "status": "completed",
+                "steps": [],
+                "usage": {"total_input_tokens": 3, "total_output_tokens": 0},
+            },
+            FailureKind.EMPTY,
+            3,
+            0,
+        ),
+    ]
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        if handler.index == len(payloads):
+            return httpx.Response(
+                429,
+                json={"usage": {"total_input_tokens": 1, "total_output_tokens": 0}},
+            )
+        payload = payloads[handler.index][0]
+        handler.index += 1
+        return httpx.Response(200, json=payload)
+
+    handler.index = 0
+    _transport(monkeypatch, handler)
+    adapter = _gemini()
+    for _payload, kind, prompt_tokens, completion_tokens in payloads:
+        result = adapter.ask("q")
+        assert result.failure_kind == kind
+        assert result.input_tokens == prompt_tokens
+        assert result.output_tokens == completion_tokens
+    denied = adapter.ask("q")
+    assert denied.failure_kind == FailureKind.PROVIDER_ERROR
+    assert denied.input_tokens == 1
+    assert denied.output_tokens == 0
 
 
 def test_clip_drops_secret_and_bounds_length():

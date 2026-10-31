@@ -94,13 +94,17 @@ def transport_failure(
         kind = FailureKind.MODEL_NOT_FOUND
     else:
         kind = FailureKind.PROVIDER_ERROR
+    raw = _raw_from_response(response, secret)
+    input_tokens, output_tokens = _tokens_from_body(raw)
     return ProviderResponse(
         text="",
         model_version="",
         latency_ms=latency_ms,
-        raw=_raw_from_response(response, secret),
+        raw=raw,
         error=http_failure(response, secret),
         failure_kind=kind,
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
     )
 
 
@@ -126,6 +130,19 @@ def _usage_pair(payload: dict, input_key: str, output_key: str) -> tuple[int | N
     if not isinstance(usage, dict):
         return None, None
     return _count(usage.get(input_key)), _count(usage.get(output_key))
+
+
+def _tokens_from_body(payload: dict) -> tuple[int | None, int | None]:
+    """Ambil usage dari body sukses atau gagal. 0 tetap 0. Field hilang tetap None."""
+    for input_key, output_key in (
+        ("total_input_tokens", "total_output_tokens"),
+        ("prompt_tokens", "completion_tokens"),
+        ("input_tokens", "output_tokens"),
+    ):
+        found = _usage_pair(payload, input_key, output_key)
+        if found != (None, None):
+            return found
+    return None, None
 
 
 def _done(

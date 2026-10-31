@@ -152,6 +152,8 @@ def _save(
             raw=response.raw,
             error=response.error,
             failure_kind=None if kind is None else str(kind),
+            input_tokens=response.input_tokens,
+            output_tokens=response.output_tokens,
         )
     )
     store.update_progress(session_id, completed=completed, failed=failed)
