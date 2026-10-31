@@ -27,6 +27,10 @@ _RESPONS_RINGKASAN = {
         "model": ErrorBody,
         "description": "Suite atau produk AI tidak ditemukan (`AI_PRODUCT_NOT_FOUND`).",
     },
+    409: {
+        "model": ErrorBody,
+        "description": "Salah satu suite diarsipkan dan tidak bisa dipilih (`SUITE_ARCHIVED`).",
+    },
     422: {
         "model": ErrorBody,
         "description": (

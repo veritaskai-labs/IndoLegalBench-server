@@ -3018,6 +3018,16 @@
               }
             }
           },
+          "409": {
+            "description": "Salah satu suite diarsipkan dan tidak bisa dipilih (`SUITE_ARCHIVED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
           "422": {
             "description": "Isian tidak valid, produk manual atau nonaktif (`PRODUCT_NOT_AUTOMATIC`, `PRODUCT_INACTIVE`), tidak ada kasus layak (`NO_ELIGIBLE_CASES`), atau perkiraan biaya melebihi sisa anggaran (`BUDGET_EXCEEDED`, berisi `product_name` dan `remaining_budget_idr`).",
             "content": {
