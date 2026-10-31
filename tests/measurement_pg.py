@@ -146,3 +146,29 @@ def buat_kasus(
         },
     )
     return case_id, version_id
+
+
+def buat_item_snapshot(conn: Connection, sesi_id: uuid.UUID, admin_id: uuid.UUID) -> uuid.UUID:
+    """Snapshot sesi (dibuat kalau belum ada) dengan satu item kasus baru."""
+    snapshot_id = conn.execute(
+        text(
+            "INSERT INTO case_snapshots (id, session_id) VALUES (:id, :sesi) "
+            "ON CONFLICT (session_id) DO NOTHING RETURNING id"
+        ),
+        {"id": uuid.uuid4(), "sesi": sesi_id},
+    ).scalar_one_or_none()
+    if snapshot_id is None:
+        snapshot_id = conn.execute(
+            text("SELECT id FROM case_snapshots WHERE session_id = :sesi"), {"sesi": sesi_id}
+        ).scalar_one()
+    case_id, version_id = buat_kasus(conn, admin_id)
+    return conn.execute(
+        text(
+            "INSERT INTO case_snapshot_items "
+            "(id, snapshot_id, case_id, case_version_id, case_code, title, question, "
+            "split_tag, content) "
+            "VALUES (:id, :snapshot, :kasus, :versi, 'KTK-001', 'PHK sepihak', "
+            "'Apakah pekerja berhak atas pesangon?', 'dev', '{}'::jsonb) RETURNING id"
+        ),
+        {"id": uuid.uuid4(), "snapshot": snapshot_id, "kasus": case_id, "versi": version_id},
+    ).scalar_one()

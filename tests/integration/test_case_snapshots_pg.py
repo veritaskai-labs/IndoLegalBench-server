@@ -187,9 +187,15 @@ def test_item_menyimpan_salinan_persis_termasuk_rujukan_terstruktur(conn, item_i
         # Corner: UPDATE yang tidak mengubah apa pun tetap ditolak, tanpa celah.
         "UPDATE case_snapshot_items SET question = question WHERE id = :id",
         "DELETE FROM case_snapshot_items WHERE id = :id",
-        "TRUNCATE case_snapshot_items",
+        "TRUNCATE case_snapshot_items CASCADE",
     ],
-    ids=["ubah-pertanyaan", "kosongkan-rujukan", "update-tanpa-perubahan", "delete", "truncate"],
+    ids=[
+        "ubah-pertanyaan",
+        "kosongkan-rujukan",
+        "update-tanpa-perubahan",
+        "delete",
+        "truncate-cascade",
+    ],
 )
 def test_item_tidak_bisa_diubah_atau_dihapus(conn, item_id, perintah):
     sqlstate = sqlstate_penolakan(conn, perintah, {"id": item_id})
