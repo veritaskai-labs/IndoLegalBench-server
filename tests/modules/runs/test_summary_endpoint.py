@@ -199,6 +199,24 @@ def test_isian_tidak_valid_ditolak_422_sebelum_menyentuh_data(siap, ubah):
     assert response.status_code == 422
 
 
+@pytest.mark.parametrize("angka", ["1e309", "NaN", "-Infinity"])
+def test_pengulangan_tak_hingga_atau_nan_ditolak_422_bukan_500(siap, angka):
+    # Arrange: JSON mentah, karena json.dumps tidak membuat 1e309
+    client = siap.sebagai(Role.ADMIN)
+    badan = (
+        f'{{"suite_ids": ["{siap.suite_id}"], "product_id": "{siap.produk.id}", '
+        f'"repeat_count": {angka}, "case_filter": "both"}}'
+    )
+
+    # Act
+    response = client.post(URL, content=badan, headers={"Content-Type": "application/json"})
+
+    # Assert
+    assert response.status_code == 422
+    kesalahan = response.json()["detail"]
+    assert kesalahan[0]["loc"] == ["body", "repeat_count"]
+
+
 def test_suite_yang_tidak_ada_dijawab_404(siap):
     # Arrange
     client = siap.sebagai(Role.ADMIN)
