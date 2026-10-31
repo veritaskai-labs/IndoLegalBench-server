@@ -15,7 +15,6 @@ import uuid
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI, Request
-from fastapi.exception_handlers import request_validation_exception_handler
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
@@ -42,6 +41,7 @@ from app.modules.suites.router import snapshot_router
 from app.shared.config import get_settings
 from app.shared.dev_db import bootstrap_local_sqlite
 from app.shared.exceptions import DomainError, SessionExpiredError
+from app.shared.validation_errors import detail_aman
 
 settings = get_settings()
 
@@ -137,13 +137,13 @@ def _penilaian(request: Request) -> bool:
 async def case_validation_handler(request: Request, exc: RequestValidationError):
     """Map case and verdict body failures to the team's error shape.
 
-    Other routes keep FastAPI's detail.
+    Other routes keep FastAPI's detail, with non-finite numbers written as text.
     """
     if _tulisan_kasus(request):
         return JSONResponse(status_code=422, content=response_from_pydantic(exc.errors()))
     if _penilaian(request):
         return JSONResponse(status_code=422, content=verdict_error_from_pydantic(exc.errors()))
-    return await request_validation_exception_handler(request, exc)
+    return JSONResponse(status_code=422, content={"detail": detail_aman(exc.errors())})
 
 
 # Urutan pendaftaran mengikuti urutan PBI di Sprint 1

@@ -3056,6 +3056,77 @@
         }
       }
     },
+    "/measurements/summary": {
+      "post": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Ringkasan dan perkiraan biaya sebelum pengukuran dimulai",
+        "operationId": "summarize_measurements_summary_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SummaryRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SummaryResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Suite atau produk AI tidak ditemukan (`AI_PRODUCT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Salah satu suite diarsipkan dan tidak bisa dipilih (`SUITE_ARCHIVED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Isian tidak valid, produk manual atau nonaktif (`PRODUCT_NOT_AUTOMATIC`, `PRODUCT_INACTIVE`), tidak ada kasus layak (`NO_ELIGIBLE_CASES`), atau perkiraan biaya melebihi sisa anggaran (`BUDGET_EXCEEDED`, berisi `product_name` dan `remaining_budget_idr`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Konfigurasi server belum lengkap (`PRICE_NOT_CONFIGURED`, `EXCHANGE_RATE_NOT_CONFIGURED`, `AVG_ANSWER_TOKENS_NOT_CONFIGURED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit-logs": {
       "get": {
         "tags": [
@@ -4714,6 +4785,16 @@
         ],
         "title": "CaseCounts",
         "description": "Jumlah kasus per status versi yang berlaku, sama seperti daftar kasus."
+      },
+      "CaseFilter": {
+        "type": "string",
+        "enum": [
+          "dev",
+          "test",
+          "both"
+        ],
+        "title": "CaseFilter",
+        "description": "Pilihan kasus yang ikut diukur (PBI-11 AC2). both berarti dev dan test."
       },
       "CaseIdentity": {
         "properties": {
@@ -6974,6 +7055,90 @@
         },
         "type": "object",
         "title": "SuiteUpdate"
+      },
+      "SummaryRequest": {
+        "properties": {
+          "suite_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Suite Ids",
+            "description": "Suite yang dipilih, minimal satu. Id ganda digabung."
+          },
+          "case_filter": {
+            "$ref": "#/components/schemas/CaseFilter",
+            "description": "Kasus yang ikut: dev, test, atau both",
+            "default": "both"
+          },
+          "repeat_count": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Repeat Count",
+            "description": "Pengulangan per kasus, 1 sampai 5, sama untuk seluruh pengukuran",
+            "default": 3
+          },
+          "product_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Product Id",
+            "description": "Satu produk AI otomatis yang diukur"
+          }
+        },
+        "type": "object",
+        "required": [
+          "suite_ids",
+          "product_id"
+        ],
+        "title": "SummaryRequest",
+        "description": "Body POST /measurements/summary (PBI-11 AC2, AC3, AC5)."
+      },
+      "SummaryResponse": {
+        "properties": {
+          "case_count": {
+            "type": "integer",
+            "title": "Case Count",
+            "description": "Kasus approved yang ikut, sesuai filter"
+          },
+          "total_calls": {
+            "type": "integer",
+            "title": "Total Calls",
+            "description": "Kasus kali pengulangan"
+          },
+          "case_filter": {
+            "$ref": "#/components/schemas/CaseFilter"
+          },
+          "repeat_count": {
+            "type": "integer",
+            "title": "Repeat Count"
+          },
+          "estimated_cost_idr": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Estimated Cost Idr",
+            "description": "Perkiraan biaya dalam rupiah, sudah termasuk margin pengaman"
+          },
+          "remaining_budget_idr": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Remaining Budget Idr",
+            "description": "Sisa anggaran bulan ini untuk produk"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_count",
+          "total_calls",
+          "case_filter",
+          "repeat_count",
+          "estimated_cost_idr",
+          "remaining_budget_idr"
+        ],
+        "title": "SummaryResponse",
+        "description": "Ringkasan sebelum menekan Mulai (PBI-11 AC5). Uang dikirim sebagai string."
       },
       "TagConfirmationBody": {
         "properties": {

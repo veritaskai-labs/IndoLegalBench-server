@@ -4,8 +4,11 @@ Semua setelan aplikasi masuk ke sini. Jangan membaca os.environ langsung
 dari dalam modul, selalu lewat get_settings() supaya sumbernya satu.
 """
 
+from decimal import Decimal
 from functools import lru_cache
+from typing import Annotated
 
+from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -62,6 +65,20 @@ class Settings(BaseSettings):
     # PBI-18 AC7: koneksi role ilb_retention, khusus job retensi. Bukan DATABASE_URL:
     # role aplikasi tidak pernah boleh menghapus audit log.
     audit_retention_database_url: str = ""
+
+    # PBI-11 AC5: perkiraan biaya pengukuran. Harga dan kurs sengaja tanpa nilai
+    # bawaan supaya tidak ada angka tebakan; kosong berarti 500 saat dipakai.
+    cost_safety_margin_percent: Decimal = Field(default=Decimal("20"), ge=0)
+    # Kunci "provider_type:model_name", nilai USD per 1 juta token output.
+    cost_model_prices: dict[str, Annotated[Decimal, Field(ge=0)]] = {}
+    cost_usd_idr_fallback_rate: Decimal | None = Field(default=None, gt=0)
+    # Aturan perkiraan biaya saat belum ada riwayat pengukuran masih TBA (PBI-11 AC5).
+    # Tanpa nilai bawaan: kosong berarti 500 untuk produk yang belum punya riwayat.
+    cost_default_avg_answer_tokens: Decimal | None = Field(default=None, gt=0)
+    # Kurs harian JISDOR lewat layanan pihak ketiga. Key tanpa nilai bawaan:
+    # kosong berarti tidak ada panggilan, dan kurs cadangan yang dipakai.
+    jisdor_api_url: str = "https://allratestoday.com/api/v1/central-bank/bi/latest"
+    jisdor_api_key: str = ""
 
     @property
     def frontend_origin(self) -> str:

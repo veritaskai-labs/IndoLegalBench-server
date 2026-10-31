@@ -87,6 +87,22 @@ def count_approved_for_suite(db: Session, suite_id: uuid.UUID) -> int:
     )
 
 
+def count_approved_by_split(db: Session, suite_ids: set[uuid.UUID]) -> dict[SplitTag, int]:
+    """Count cases with an approved version per split tag, across the suites.
+
+    The tag is read from latest_approved_version, not from an open draft.
+    A split tag with no case is absent from the result.
+    """
+    rows = (
+        db.query(CaseVersion.split_tag, func.count(Case.id))
+        .join(Case, CaseVersion.id == Case.latest_approved_version_id)
+        .filter(Case.suite_id.in_(suite_ids))
+        .group_by(CaseVersion.split_tag)
+        .all()
+    )
+    return dict(rows)
+
+
 def has_approved(db: Session, suite_id: uuid.UUID) -> bool:
     """True when any case in the suite has an approved version."""
     return (
