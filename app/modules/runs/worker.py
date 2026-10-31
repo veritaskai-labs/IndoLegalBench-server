@@ -53,37 +53,108 @@ def run_session(
     interval = _call_interval(rate_limit_per_minute)
     prompts = list(store.list_cases(session_id))
     store.mark_status(session_id, "running")
+    _run_prompts(
+        session_id,
+        store,
+        adapter,
+        params,
+        prompts,
+        repeats,
+        interval,
+        sleep,
+        clock,
+    )
+    store.mark_status(session_id, "finished")
+
+
+def _run_prompts(
+    session_id: uuid.UUID,
+    store: SessionStore,
+    adapter: _Asker,
+    params: ModelParameters | None,
+    prompts: list[str],
+    repeats: int,
+    interval: float | None,
+    sleep: Callable[[float], None],
+    clock: Callable[[], float],
+) -> None:
     completed = 0
     failed = 0
     next_start: float | None = None
     for case_index, prompt in enumerate(prompts):
-        for repeat_index in range(repeats):
-            _wait_until(next_start, clock, sleep)
-            started = clock()
-            response = _ask(adapter, prompt, params)
-            if interval is not None:
-                next_start = started + interval
-            kind = response.failure_kind
-            if kind is not None or response.error is not None:
-                failed += 1
-            else:
-                completed += 1
-            store.save_attempt(
-                AttemptRecord(
-                    session_id=session_id,
-                    case_index=case_index,
-                    repeat_index=repeat_index,
-                    prompt=prompt,
-                    text=response.text,
-                    model_version=response.model_version,
-                    latency_ms=response.latency_ms,
-                    raw=response.raw,
-                    error=response.error,
-                    failure_kind=None if kind is None else str(kind),
-                )
-            )
-            store.update_progress(session_id, completed=completed, failed=failed)
-    store.mark_status(session_id, "finished")
+        completed, failed, next_start = _run_repeats(
+            session_id,
+            store,
+            adapter,
+            params,
+            case_index,
+            prompt,
+            repeats,
+            interval,
+            sleep,
+            clock,
+            completed,
+            failed,
+            next_start,
+        )
+
+
+def _run_repeats(
+    session_id: uuid.UUID,
+    store: SessionStore,
+    adapter: _Asker,
+    params: ModelParameters | None,
+    case_index: int,
+    prompt: str,
+    repeats: int,
+    interval: float | None,
+    sleep: Callable[[float], None],
+    clock: Callable[[], float],
+    completed: int,
+    failed: int,
+    next_start: float | None,
+) -> tuple[int, int, float | None]:
+    for repeat_index in range(repeats):
+        _wait_until(next_start, clock, sleep)
+        started = clock()
+        response = _ask(adapter, prompt, params)
+        if interval is not None:
+            next_start = started + interval
+        failed_call = response.failure_kind is not None or response.error is not None
+        if failed_call:
+            failed += 1
+        else:
+            completed += 1
+        _save(session_id, store, case_index, repeat_index, prompt, response, completed, failed)
+    return completed, failed, next_start
+
+
+def _save(
+    session_id: uuid.UUID,
+    store: SessionStore,
+    case_index: int,
+    repeat_index: int,
+    prompt: str,
+    response: ProviderResponse,
+    completed: int,
+    failed: int,
+) -> None:
+    kind = response.failure_kind
+    store.save_attempt(
+        AttemptRecord(
+            session_id=session_id,
+            case_index=case_index,
+            repeat_index=repeat_index,
+            prompt=prompt,
+            text=response.text,
+            model_version=response.model_version,
+            latency_ms=response.latency_ms,
+            raw=response.raw,
+            error=response.error,
+            failure_kind=None if kind is None else str(kind),
+        )
+    )
+    store.update_progress(session_id, completed=completed, failed=failed)
 
 
 def run_next(

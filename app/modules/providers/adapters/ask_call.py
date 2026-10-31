@@ -193,15 +193,18 @@ def _text_blocks(content: object) -> list[str]:
     return parts
 
 
-def _gemini_text(payload: dict) -> str:
+def _steps_text(payload: dict) -> str:
     steps = payload.get("steps")
-    if isinstance(steps, list):
-        parts: list[str] = []
-        for step in steps:
-            if isinstance(step, dict) and step.get("type") == "model_output":
-                parts.extend(_text_blocks(step.get("content")))
-        if parts:
-            return "".join(parts)
+    if not isinstance(steps, list):
+        return ""
+    parts: list[str] = []
+    for step in steps:
+        if isinstance(step, dict) and step.get("type") == "model_output":
+            parts.extend(_text_blocks(step.get("content")))
+    return "".join(parts)
+
+
+def _legacy_gemini_text(payload: dict) -> str:
     output_text = payload.get("output_text")
     if isinstance(output_text, str):
         return output_text
@@ -211,11 +214,61 @@ def _gemini_text(payload: dict) -> str:
     outputs = payload.get("outputs")
     if not isinstance(outputs, list):
         return ""
-    parts = []
-    for item in outputs:
-        if isinstance(item, dict) and isinstance(item.get("text"), str):
-            parts.append(item["text"])
+    parts = [
+        item["text"]
+        for item in outputs
+        if isinstance(item, dict) and isinstance(item.get("text"), str)
+    ]
     return "".join(parts)
+
+
+def _gemini_text(payload: dict) -> str:
+    from_steps = _steps_text(payload)
+    if from_steps:
+        return from_steps
+    return _legacy_gemini_text(payload)
+
+
+_GEMINI_STATUSES = frozenset({"completed", "incomplete", "failed"})
+_BLOCKED_REASONS = frozenset({"SAFETY", "BLOCKED", "PROHIBITED_CONTENT"})
+_REFUSAL_REASONS = frozenset({"refusal", "refused"})
+_LENGTH_REASONS = frozenset({"MAX_TOKENS", "LENGTH"})
+
+
+def _blocked() -> tuple[FailureKind, str]:
+    return FailureKind.BLOCKED, "blocked by safety filter"
+
+
+def _from_status(status: str, text: str) -> tuple[FailureKind | None, str | None]:
+    if status == "failed":
+        return FailureKind.PROVIDER_ERROR, "provider failed"
+    if status == "incomplete":
+        return FailureKind.TRUNCATED, _TRUNCATED
+    if not text.strip():
+        return FailureKind.EMPTY, _EMPTY
+    return None, None
+
+
+def _from_reason(reason: str, text: str) -> tuple[FailureKind | None, str | None]:
+    if reason.upper() in _BLOCKED_REASONS:
+        return _blocked()
+    if reason.lower() in _REFUSAL_REASONS:
+        return FailureKind.REFUSED, "model refused to answer"
+    if reason.upper() in _LENGTH_REASONS:
+        return FailureKind.TRUNCATED, _TRUNCATED
+    if not text.strip():
+        return FailureKind.EMPTY, _EMPTY
+    return None, None
+
+
+def _gemini_outcome(payload: dict, text: str) -> tuple[FailureKind | None, str | None]:
+    if payload.get("block_reason"):
+        return _blocked()
+    status = payload.get("status")
+    if isinstance(status, str) and status in _GEMINI_STATUSES:
+        return _from_status(status, text)
+    reason = str(payload.get("finish_reason") or payload.get("stop_reason") or "")
+    return _from_reason(reason, text)
 
 
 def interpret_gemini(
@@ -228,35 +281,7 @@ def interpret_gemini(
     if not isinstance(payload, dict):
         return _invalid(latency_ms, secret, raw)
     text = _gemini_text(payload)
-    status = payload.get("status")
-    if isinstance(status, str):
-        reason = status
-        status_known = status in {"completed", "incomplete", "failed"}
-    else:
-        reason = str(payload.get("finish_reason") or payload.get("stop_reason") or "")
-        status_known = False
-    kind = None
-    error = None
-    if payload.get("block_reason") or (
-        not status_known and reason.upper() in {"SAFETY", "BLOCKED", "PROHIBITED_CONTENT"}
-    ):
-        kind = FailureKind.BLOCKED
-        error = "blocked by safety filter"
-    elif status_known and reason == "failed":
-        kind = FailureKind.PROVIDER_ERROR
-        error = "provider failed"
-    elif status_known and reason == "incomplete":
-        kind = FailureKind.TRUNCATED
-        error = _TRUNCATED
-    elif not status_known and reason.lower() in {"refusal", "refused"}:
-        kind = FailureKind.REFUSED
-        error = "model refused to answer"
-    elif not status_known and reason.upper() in {"MAX_TOKENS", "LENGTH"}:
-        kind = FailureKind.TRUNCATED
-        error = _TRUNCATED
-    elif not text.strip():
-        kind = FailureKind.EMPTY
-        error = _EMPTY
+    kind, error = _gemini_outcome(payload, text)
     model = payload.get("model")
     return _done(
         text=text,
@@ -281,15 +306,7 @@ def interpret_anthropic(
     content = payload.get("content")
     if not isinstance(content, list):
         return _invalid(latency_ms, secret, raw)
-    parts: list[str] = []
-    for block in content:
-        if (
-            isinstance(block, dict)
-            and block.get("type") == "text"
-            and isinstance(block.get("text"), str)
-        ):
-            parts.append(block["text"])
-    text = "".join(parts)
+    text = "".join(_text_blocks(content))
     stop = str(payload.get("stop_reason") or "")
     kind = None
     error = None
