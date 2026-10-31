@@ -26,7 +26,6 @@ CHECK_VIOLATION = "23514"
 FOREIGN_KEY_VIOLATION = "23503"
 INVALID_TEXT_REPRESENTATION = "22P02"
 STRING_DATA_RIGHT_TRUNCATION = "22001"
-RAISE_EXCEPTION = "P0001"
 
 
 @pytest.fixture
@@ -170,7 +169,11 @@ def test_produk_yang_tidak_ada_ditolak(conn, produk_id, admin_id):
 
 
 def test_jenis_produk_terkunci_setelah_ada_sesi(conn, produk_id, admin_id):
-    """Kontrak dengan trigger PBI-23 (a1f8c7e3d092): riwayat dibaca dari tabel ini."""
+    """Kontrak dengan trigger PBI-23 (a1f8c7e3d092): riwayat dibaca dari tabel ini.
+
+    Trigger itu memakai ERRCODE check_violation, sama dengan CHECK C1 produk, jadi
+    yang membedakan keduanya adalah pesannya.
+    """
     _sesi(conn, produk_id, admin_id)
 
     savepoint = conn.begin_nested()
@@ -184,5 +187,5 @@ def test_jenis_produk_terkunci_setelah_ada_sesi(conn, produk_id, admin_id):
         )
     savepoint.rollback()
 
-    assert info.value.orig.sqlstate == RAISE_EXCEPTION
+    assert info.value.orig.sqlstate == CHECK_VIOLATION
     assert "MEASUREMENT_TYPE_IMMUTABLE" in str(info.value.orig)
