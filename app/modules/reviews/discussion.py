@@ -11,7 +11,6 @@ from app.modules.reviews import repository
 from app.modules.reviews.models import (
     AssignmentStatus,
     ReviewCommentReply,
-    RoundDecision,
     RoundStatus,
 )
 from app.modules.reviews.schemas import CommentDiscussion, CommentReplyRead, CommentReplyWrite
@@ -48,9 +47,13 @@ def _context(db: Session, assignment_id: uuid.UUID, viewer: Viewer):
     return task, is_author, is_reviewer
 
 
-def _is_read_only(task) -> bool:
-    """Kasus sudah approved: thread tetap terbaca, balasan ditolak (keputusan klien)."""
-    return task.review_round.decision == RoundDecision.APPROVED
+def _is_read_only(db: Session, task) -> bool:
+    """Versi kasus sudah approved: thread semua round tetap terbaca, balasan ditolak.
+
+    Dicek per versi kasus, bukan per round, supaya thread round lama yang
+    berakhir revise ikut terkunci saat round berikutnya menyetujui kasus.
+    """
+    return repository.version_has_approved_round(db, task.review_round.case_version_id)
 
 
 def _reply_view(row: ReviewCommentReply, names: dict) -> CommentReplyRead:
@@ -82,7 +85,7 @@ def read(db: Session, assignment_id: uuid.UUID, viewer: Viewer) -> CommentDiscus
         can_reply=(is_author or is_reviewer)
         and task.status == AssignmentStatus.ACTIVE
         and task.review_round.status == RoundStatus.DECIDED
-        and not _is_read_only(task),
+        and not _is_read_only(db, task),
         replies=[_reply_view(row, names) for row in rows],
     )
 
@@ -105,7 +108,7 @@ def reply(
         raise ConflictError(
             "Diskusi dibuka setelah kedua penilaian selesai", code="ROUND_NOT_DECIDED"
         )
-    if _is_read_only(task):
+    if _is_read_only(db, task):
         raise ConflictError(
             "Kasus sudah disetujui, diskusi hanya bisa dibaca", code="THREAD_READ_ONLY"
         )

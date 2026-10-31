@@ -343,6 +343,20 @@ def comment_replies(db: Session, assignment_id: uuid.UUID):
     ).all()
 
 
+def version_has_approved_round(db: Session, case_version_id: uuid.UUID) -> bool:
+    """Apakah ada round versi ini yang diputuskan approved (thread semua round terkunci)."""
+    return bool(
+        db.scalar(
+            select(
+                exists().where(
+                    ReviewRound.case_version_id == case_version_id,
+                    ReviewRound.decision == RoundDecision.APPROVED,
+                )
+            )
+        )
+    )
+
+
 def awaiting_revision_assignments(db: Session, reviewer_id: uuid.UUID) -> list[ReviewAssignment]:
     """Tugas aktif reviewer ini yang sudah dinilai di round revise dan menunggu Author.
 
