@@ -68,6 +68,15 @@ _RENDERERS: dict[str, dict[str, Callable]] = {
 }
 
 
+def _merge_rendered(extras: dict, rendered: dict) -> None:
+    for key, piece in rendered.items():
+        current = extras.get(key)
+        if isinstance(current, dict) and isinstance(piece, dict):
+            current.update(piece)
+        else:
+            extras[key] = piece
+
+
 def build_request_extras(provider_type: str, params: ModelParameters | None) -> dict:
     """Kembalikan potongan body. Provider tak dikenal menghasilkan dict kosong."""
     spec = _RENDERERS.get(provider_type)
@@ -82,12 +91,7 @@ def build_request_extras(provider_type: str, params: ModelParameters | None) -> 
         rendered = render(value)
         if rendered is None:
             continue
-        for key, piece in rendered.items():
-            current = extras.get(key)
-            if isinstance(current, dict) and isinstance(piece, dict):
-                current.update(piece)
-            else:
-                extras[key] = piece
+        _merge_rendered(extras, rendered)
     if provider_type == "anthropic_messages" and "max_tokens" not in extras:
         extras["max_tokens"] = ANTHROPIC_DEFAULT_MAX_TOKENS
     return extras

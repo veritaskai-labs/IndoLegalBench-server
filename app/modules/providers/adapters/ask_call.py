@@ -64,6 +64,19 @@ def _raw_from_response(response: httpx.Response, secret: str) -> dict:
     return {"status_code": response.status_code, "body": scrub(response.text or "", secret)}
 
 
+def _http_failure_kind(status_code: int) -> FailureKind:
+    if status_code in (401, 403):
+        return FailureKind.KEY_REJECTED
+    if status_code == 404:
+        return FailureKind.MODEL_NOT_FOUND
+    return FailureKind.PROVIDER_ERROR
+
+
+def _no_response(message: str) -> bool:
+    lower = message.lower()
+    return "timed out" in lower or "could not connect" in lower
+
+
 def transport_failure(
     response: httpx.Response | None,
     error: str | None,
@@ -73,11 +86,7 @@ def transport_failure(
     """Kegagalan transport atau HTTP. None berarti body sukses boleh dibaca."""
     if error is not None or response is None:
         message = error or "connection failed"
-        lower = message.lower()
-        if "timed out" in lower or "could not connect" in lower:
-            kind = FailureKind.NO_RESPONSE
-        else:
-            kind = FailureKind.PROVIDER_ERROR
+        kind = FailureKind.NO_RESPONSE if _no_response(message) else FailureKind.PROVIDER_ERROR
         return ProviderResponse(
             text="",
             model_version="",
@@ -88,12 +97,6 @@ def transport_failure(
         )
     if 200 <= response.status_code < 300:
         return None
-    if response.status_code in (401, 403):
-        kind = FailureKind.KEY_REJECTED
-    elif response.status_code == 404:
-        kind = FailureKind.MODEL_NOT_FOUND
-    else:
-        kind = FailureKind.PROVIDER_ERROR
     raw = _raw_from_response(response, secret)
     input_tokens, output_tokens = _tokens_from_body(raw)
     return ProviderResponse(
@@ -102,7 +105,7 @@ def transport_failure(
         latency_ms=latency_ms,
         raw=raw,
         error=http_failure(response, secret),
-        failure_kind=kind,
+        failure_kind=_http_failure_kind(response.status_code),
         input_tokens=input_tokens,
         output_tokens=output_tokens,
     )
