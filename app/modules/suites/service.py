@@ -31,6 +31,7 @@ from app.shared.pagination import Page
 NAME_TAKEN = "SUITE_NAME_TAKEN"
 HAS_APPROVED_CASES = "SUITE_HAS_APPROVED_CASES"
 NOTHING_TO_SNAPSHOT = "NOTHING_TO_SNAPSHOT"
+SUITE_ARCHIVED = "SUITE_ARCHIVED"
 
 
 def create_suite(db: Session, payload: SuiteCreate, *, created_by: uuid.UUID) -> SuiteRead:
@@ -202,6 +203,22 @@ def is_exportable(db: Session, suite_id: uuid.UUID) -> bool:
     mengecek tabel suites sendiri.
     """
     return get_suite(db, suite_id).exportable
+
+
+def require_existing(db: Session, suite_ids: set[uuid.UUID]) -> None:
+    """Every id must be a suite that can be measured (SCRUM-206).
+
+    Called by the runs module for the measurement summary. A missing or
+    deleted suite is a 404. An archived suite is a 409 (SUITE_ARCHIVED), also
+    when it is mixed with live suites, because archive_suite says it cannot
+    be chosen for a new measurement.
+    """
+    suites = [_wajib_ada(db, suite_id) for suite_id in suite_ids]
+    if any(suite.status == SuiteStatus.ARCHIVED for suite in suites):
+        raise ConflictError(
+            "Suite yang diarsipkan tidak dapat dipilih untuk pengukuran",
+            code=SUITE_ARCHIVED,
+        )
 
 
 def suite_names(db: Session, suite_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
