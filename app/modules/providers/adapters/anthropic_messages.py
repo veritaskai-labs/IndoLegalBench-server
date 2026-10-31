@@ -1,5 +1,6 @@
 """Adapter Anthropic Messages API. POST base_url apa adanya."""
 
+from app.modules.providers.adapters.ask_call import interpret_anthropic, perform_ask
 from app.modules.providers.adapters.base import (
     ConnectionTestResult,
     ProviderAdapter,
@@ -11,6 +12,11 @@ from app.modules.providers.adapters.http import (
     invalid_body,
     json_object,
     post_json,
+)
+from app.modules.providers.adapters.params import (
+    ASK_TIMEOUT_SECONDS,
+    ModelParameters,
+    build_request_extras,
 )
 
 
@@ -62,5 +68,28 @@ class AnthropicMessagesAdapter(ProviderAdapter):
             )
         return ConnectionTestResult(status="ok", latency_ms=latency_ms)
 
-    def ask(self, prompt: str) -> ProviderResponse:
-        raise NotImplementedError
+    def ask(
+        self,
+        prompt: str,
+        *,
+        parameters: ModelParameters | None = None,
+        timeout: float = ASK_TIMEOUT_SECONDS,
+    ) -> ProviderResponse:
+        body: dict = {
+            "model": self.model_name,
+            "messages": [{"role": "user", "content": prompt}],
+        }
+        body.update(build_request_extras(self.name, parameters))
+        return perform_ask(
+            url=self.base_url,
+            headers={
+                "x-api-key": self._api_key,
+                "anthropic-version": "2023-06-01",
+                "content-type": "application/json",
+            },
+            body=body,
+            secret=self._api_key,
+            timeout=timeout,
+            model_name=self.model_name,
+            interpret=interpret_anthropic,
+        )
