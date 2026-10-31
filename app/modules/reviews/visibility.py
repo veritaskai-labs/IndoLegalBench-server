@@ -8,6 +8,7 @@ dan AC3, menggantikan asumsi #6 di D2 yang memberlakukan blind juga ke Admin.
 """
 
 import uuid
+from collections.abc import Collection
 from dataclasses import dataclass
 
 from app.modules.reviews.models import RoundStatus
@@ -39,3 +40,27 @@ def can_open_case_review(viewer: Viewer, *, author_id: uuid.UUID, assigned: bool
     penulisnya = viewer.role in WRITER_ROLES and viewer.user_id == author_id
     ditugaskan = viewer.role in REVIEWER_ROLES and assigned
     return penulisnya or ditugaskan
+
+
+def can_read_discussion(
+    viewer: Viewer,
+    *,
+    author_id: uuid.UUID,
+    owner_id: uuid.UUID,
+    round_reviewer_ids: Collection[uuid.UUID],
+    round_status: RoundStatus,
+) -> bool:
+    """Thread komentar milik reviewer `owner_id` boleh dibaca viewer ini (SCRUM-242).
+
+    Admin dan pemilik komentar membaca kapan pun. Penulis kasus dan reviewer
+    lain di round yang sama membaca setelah round decided; sebelum itu blind
+    rule menutup thread. `round_reviewer_ids` hanya berisi reviewer aktif.
+    """
+    if viewer.role == Role.ADMIN:
+        return True
+    is_owner = viewer.role in REVIEWER_ROLES and viewer.user_id == owner_id
+    if round_status != RoundStatus.DECIDED:
+        return is_owner
+    is_author = viewer.role in WRITER_ROLES and viewer.user_id == author_id
+    is_round_reviewer = viewer.role in REVIEWER_ROLES and viewer.user_id in round_reviewer_ids
+    return is_owner or is_author or is_round_reviewer
