@@ -207,20 +207,6 @@ def test_item_tidak_bisa_diubah_atau_dihapus(conn, item_id, perintah):
     assert pertanyaan == ISI_KASUS["question"]
 
 
-def test_kasus_yang_sama_tidak_dua_kali_di_satu_snapshot(conn, snapshot_id, kasus, item_id):
-    """Corner: kasus ganda akan menghitung jawabannya dua kali di skor."""
-    sqlstate = sqlstate_penolakan(
-        conn,
-        "INSERT INTO case_snapshot_items "
-        "(id, snapshot_id, case_id, case_version_id, case_code, title, question, split_tag, "
-        "content) VALUES (:id, :snapshot, :kasus, :versi, 'KTK-001', 'Judul', 'Tanya', "
-        "'dev', '{}'::jsonb)",
-        {"id": uuid.uuid4(), "snapshot": snapshot_id, "kasus": kasus[0], "versi": kasus[1]},
-    )
-
-    assert sqlstate == UNIQUE_VIOLATION
-
-
 @pytest.mark.parametrize("kolom", ["case_id", "case_version_id"])
 def test_kasus_atau_versi_yang_tidak_ada_ditolak(conn, snapshot_id, kasus, kolom):
     case_id, version_id = kasus

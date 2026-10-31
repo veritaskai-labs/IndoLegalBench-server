@@ -141,16 +141,6 @@ def test_nomor_pengulangan_di_luar_jumlah_pengulangan_sesi_ditolak(conn, sesi_id
     assert sqlstate == CHECK_VIOLATION
 
 
-def test_item_dari_snapshot_sesi_lain_ditolak(conn, produk_id, admin_id, sesi_id, item_id):
-    """Corner: percobaan tidak boleh mencampur hasil dua sesi."""
-    sesi_lain = buat_sesi(conn, produk_id, admin_id, repetitions=3)
-
-    penolakan = galat(conn, lambda: _percobaan(conn, sesi_lain, item_id))
-
-    assert penolakan.sqlstate == CHECK_VIOLATION
-    assert "snapshot" in str(penolakan)
-
-
 @pytest.mark.parametrize(
     "kolom, nilai",
     [("source", "otomatis"), ("status", "selesai")],

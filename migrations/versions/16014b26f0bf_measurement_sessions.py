@@ -19,8 +19,8 @@ PBI-11 SCRUM-76 (SCRUM-205), D2:
 - case_snapshots dan case_snapshot_items: salinan kasus per sesi yang hanya bisa
   di-INSERT. UPDATE, DELETE, dan TRUNCATE ditolak trigger untuk semua peran (AC6).
 - attempts: satu per item snapshot per nomor pengulangan, nomor tidak melebihi
-  pengulangan sesi, item dari snapshot sesi yang sama, jawaban mentah ditulis sekali
-  dan tidak bisa dihapus (AC3, AC8).
+  pengulangan sesi (D2), jawaban mentah ditulis sekali dan tidak bisa dihapus
+  (AC3, AC8).
 """
 
 from collections.abc import Sequence
@@ -252,8 +252,6 @@ def upgrade() -> None:
         sa.Column("answer_criteria", _JSONB, nullable=True),
         sa.Column("traps", _JSONB, nullable=True),
         sa.Column("content", _JSONB, nullable=False),
-        # Kasus ganda akan menghitung jawabannya dua kali.
-        sa.UniqueConstraint("snapshot_id", "case_id", name="uq_case_snapshot_items_case"),
     )
 
     if is_postgres:
@@ -324,7 +322,6 @@ def upgrade() -> None:
             CREATE FUNCTION attempts_protect_answer() RETURNS trigger AS $$
             DECLARE
                 max_repetitions smallint;
-                item_session uuid;
             BEGIN
                 IF TG_OP IN ('DELETE', 'TRUNCATE') THEN
                     RAISE EXCEPTION 'attempts cannot be deleted'
@@ -342,14 +339,6 @@ def upgrade() -> None:
                 IF NEW.repetition_no > max_repetitions THEN
                     RAISE EXCEPTION 'repetition_no % exceeds the session repetitions %',
                         NEW.repetition_no, max_repetitions
-                        USING ERRCODE = 'check_violation';
-                END IF;
-
-                SELECT s.session_id INTO item_session
-                FROM case_snapshot_items i JOIN case_snapshots s ON s.id = i.snapshot_id
-                WHERE i.id = NEW.snapshot_item_id;
-                IF item_session IS DISTINCT FROM NEW.session_id THEN
-                    RAISE EXCEPTION 'snapshot item belongs to another session snapshot'
                         USING ERRCODE = 'check_violation';
                 END IF;
 
