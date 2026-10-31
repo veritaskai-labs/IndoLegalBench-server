@@ -26,6 +26,8 @@ CHECK_VIOLATION = "23514"
 FOREIGN_KEY_VIOLATION = "23503"
 INVALID_TEXT_REPRESENTATION = "22P02"
 STRING_DATA_RIGHT_TRUNCATION = "22001"
+UNIQUE_VIOLATION = "23505"
+INSUFFICIENT_PRIVILEGE = "42501"
 
 
 @pytest.fixture
@@ -189,3 +191,160 @@ def test_jenis_produk_terkunci_setelah_ada_sesi(conn, produk_id, admin_id):
 
     assert info.value.orig.sqlstate == CHECK_VIOLATION
     assert "MEASUREMENT_TYPE_IMMUTABLE" in str(info.value.orig)
+
+
+def _sqlstate(conn, perintah: str, params: dict) -> str:
+    """SQLSTATE dari perintah yang harus ditolak, di dalam savepoint."""
+    savepoint = conn.begin_nested()
+    with pytest.raises(DBAPIError) as info:
+        conn.execute(text(perintah), params)
+    savepoint.rollback()
+    return info.value.orig.sqlstate
+
+
+def _ubah_status(conn, sesi_id, status: str) -> None:
+    conn.execute(
+        text(
+            "UPDATE measurement_sessions "
+            "SET status = CAST(:status AS measurement_session_status_enum) WHERE id = :id"
+        ),
+        {"id": sesi_id, "status": status},
+    )
+
+
+def test_sesi_tidak_bisa_dihapus(conn, produk_id, admin_id):
+    """AC10: sesi tidak dihapus, hanya diarsipkan. Berlaku juga untuk pemilik tabel."""
+    sesi_id = _sesi(conn, produk_id, admin_id)
+
+    sqlstate = _sqlstate(conn, "DELETE FROM measurement_sessions WHERE id = :id", {"id": sesi_id})
+
+    assert sqlstate == INSUFFICIENT_PRIVILEGE
+    jumlah = conn.execute(
+        text("SELECT count(*) FROM measurement_sessions WHERE id = :id"), {"id": sesi_id}
+    ).scalar_one()
+    assert jumlah == 1
+
+
+def test_tabel_sesi_tidak_bisa_dikosongkan(conn, produk_id, admin_id):
+    """Corner: TRUNCATE tidak memicu trigger baris, jadi perlu trigger sendiri."""
+    _sesi(conn, produk_id, admin_id)
+
+    sqlstate = _sqlstate(conn, "TRUNCATE measurement_sessions", {})
+
+    assert sqlstate == INSUFFICIENT_PRIVILEGE
+
+
+def test_sesi_diarsipkan_dengan_pengarsipnya(conn, produk_id, admin_id):
+    sesi_id = _sesi(conn, produk_id, admin_id)
+
+    conn.execute(
+        text(
+            "UPDATE measurement_sessions SET archived_at = now(), archived_by = :admin_id "
+            "WHERE id = :id"
+        ),
+        {"id": sesi_id, "admin_id": admin_id},
+    )
+
+    diarsipkan = conn.execute(
+        text("SELECT archived_by FROM measurement_sessions WHERE id = :id"), {"id": sesi_id}
+    ).scalar_one()
+    assert diarsipkan == admin_id
+
+
+@pytest.mark.parametrize(
+    "isian",
+    ["archived_at = now()", "archived_by = :admin_id"],
+    ids=["waktu-tanpa-pelaku", "pelaku-tanpa-waktu"],
+)
+def test_arsip_wajib_lengkap_waktu_dan_pelakunya(conn, produk_id, admin_id, isian):
+    sesi_id = _sesi(conn, produk_id, admin_id)
+
+    sqlstate = _sqlstate(
+        conn,
+        f"UPDATE measurement_sessions SET {isian} WHERE id = :id",
+        {"id": sesi_id, "admin_id": admin_id},
+    )
+
+    assert sqlstate == CHECK_VIOLATION
+
+
+def test_terima_apa_adanya_lengkap_diterima(conn, produk_id, admin_id):
+    """D2: flag 'terima apa adanya' dengan waktu, pelaku, dan alasan, bukan status."""
+    sesi_id = _sesi(conn, produk_id, admin_id)
+
+    conn.execute(
+        text(
+            "UPDATE measurement_sessions SET accepted_as_is_at = now(), "
+            "accepted_as_is_by = :admin_id, accepted_as_is_reason = 'Kegagalan dari penyedia' "
+            "WHERE id = :id"
+        ),
+        {"id": sesi_id, "admin_id": admin_id},
+    )
+
+    status = conn.execute(
+        text("SELECT status::text FROM measurement_sessions WHERE id = :id"), {"id": sesi_id}
+    ).scalar_one()
+    assert status == "queued"
+
+
+@pytest.mark.parametrize(
+    "isian",
+    [
+        "accepted_as_is_at = now(), accepted_as_is_by = :admin_id",
+        "accepted_as_is_at = now(), accepted_as_is_reason = 'Alasan'",
+        "accepted_as_is_by = :admin_id, accepted_as_is_reason = 'Alasan'",
+        "accepted_as_is_at = now(), accepted_as_is_by = :admin_id, accepted_as_is_reason = '   '",
+    ],
+    ids=["tanpa-alasan", "tanpa-pelaku", "tanpa-waktu", "alasan-hanya-spasi"],
+)
+def test_terima_apa_adanya_wajib_lengkap(conn, produk_id, admin_id, isian):
+    sesi_id = _sesi(conn, produk_id, admin_id)
+
+    sqlstate = _sqlstate(
+        conn,
+        f"UPDATE measurement_sessions SET {isian} WHERE id = :id",
+        {"id": sesi_id, "admin_id": admin_id},
+    )
+
+    assert sqlstate == CHECK_VIOLATION
+
+
+def test_hanya_satu_sesi_otomatis_yang_berjalan(conn, produk_id, admin_id):
+    """D2: partial UNIQUE index. Sesi otomatis lain menunggu di antrean."""
+    pertama = _sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
+    kedua = _sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
+    _ubah_status(conn, pertama, "running")
+
+    sqlstate = _sqlstate(
+        conn,
+        "UPDATE measurement_sessions SET status = 'running' WHERE id = :id",
+        {"id": kedua},
+    )
+
+    assert sqlstate == UNIQUE_VIOLATION
+
+
+@pytest.mark.parametrize(
+    "jenis_kedua, status_kedua, status_pertama_akhir",
+    [
+        ("manual", "running", "running"),
+        ("automatic", "queued", "running"),
+        ("automatic", "running", "finished"),
+    ],
+    ids=["manual-tidak-dibatasi", "otomatis-lain-menunggu", "setelah-yang-pertama-selesai"],
+)
+def test_sesi_yang_boleh_berdampingan_dengan_sesi_otomatis_berjalan(
+    conn, produk_id, admin_id, jenis_kedua, status_kedua, status_pertama_akhir
+):
+    """Indeks harus parsial: tidak boleh menahan sesi yang bukan otomatis berjalan."""
+    pertama = _sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
+    kedua = _sesi(conn, produk_id, admin_id, session_type=jenis_kedua)
+    _ubah_status(conn, pertama, "running")
+    _ubah_status(conn, pertama, status_pertama_akhir)
+
+    _ubah_status(conn, kedua, status_kedua)
+
+    status = conn.execute(
+        text("SELECT status::text FROM measurement_sessions WHERE id = :id"), {"id": kedua}
+    ).scalar_one()
+    assert status == status_kedua
