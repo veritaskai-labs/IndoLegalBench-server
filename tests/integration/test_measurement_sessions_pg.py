@@ -169,10 +169,15 @@ def test_sesi_tidak_bisa_dihapus(conn, produk_id, admin_id):
 
 
 def test_tabel_sesi_tidak_bisa_dikosongkan(conn, produk_id, admin_id):
-    """Corner: TRUNCATE tidak memicu trigger baris, jadi perlu trigger sendiri."""
+    """Corner: TRUNCATE tidak memicu trigger baris, jadi perlu trigger sendiri.
+
+    CASCADE: setelah tabel lain menunjuk sesi, TRUNCATE biasa sudah ditolak
+    PostgreSQL karena FK (0A000). CASCADE melewati FK itu dan akan ikut
+    mengosongkan suite dan salinan produk, jadi itu yang harus ditahan trigger.
+    """
     _sesi(conn, produk_id, admin_id)
 
-    sqlstate = sqlstate_penolakan(conn, "TRUNCATE measurement_sessions", {})
+    sqlstate = sqlstate_penolakan(conn, "TRUNCATE measurement_sessions CASCADE", {})
 
     assert sqlstate == INSUFFICIENT_PRIVILEGE
 
