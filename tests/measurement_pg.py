@@ -97,3 +97,52 @@ def galat(conn: Connection, aksi: Callable[[], object]) -> psycopg.Error:
 def sqlstate_penolakan(conn: Connection, perintah: str, params: dict) -> str:
     """SQLSTATE penolakan perintah SQL apa pun."""
     return galat(conn, lambda: conn.execute(text(perintah), params)).sqlstate
+
+
+def buat_kasus(
+    conn: Connection, admin_id: uuid.UUID, split_tag: str = "dev"
+) -> tuple[uuid.UUID, uuid.UUID]:
+    """Satu kasus dengan satu versi approved. Mengembalikan (case_id, case_version_id).
+
+    cases dan case_versions saling menunjuk, jadi versinya dibuat dulu (pola tes PBI-8).
+    """
+    suite_id, case_id, version_id = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    kode = f"UJI-{case_id.hex[:8]}"
+    conn.execute(
+        text(
+            "INSERT INTO suites (id, name, status, created_by) "
+            "VALUES (:id, :name, 'active', :admin_id)"
+        ),
+        {"id": suite_id, "name": f"Suite kasus {suite_id.hex[:8]}", "admin_id": admin_id},
+    )
+    conn.execute(
+        text(
+            "INSERT INTO case_versions "
+            "(id, case_id, version_no, status, split_tag, content, created_by, case_code) "
+            "VALUES (:id, :case_id, 1, 'approved', CAST(:split_tag AS case_split_tag_enum), "
+            "CAST(:isi AS jsonb), :admin_id, :kode)"
+        ),
+        {
+            "id": version_id,
+            "case_id": case_id,
+            "split_tag": split_tag,
+            "isi": '{"identity": {"title": "PHK sepihak"}}',
+            "admin_id": admin_id,
+            "kode": kode,
+        },
+    )
+    conn.execute(
+        text(
+            "INSERT INTO cases (id, case_code, suite_id, created_by, updated_by, "
+            "current_version_id, latest_approved_version_id) "
+            "VALUES (:id, :kode, :suite_id, :admin_id, :admin_id, :versi, :versi)"
+        ),
+        {
+            "id": case_id,
+            "kode": kode,
+            "suite_id": suite_id,
+            "admin_id": admin_id,
+            "versi": version_id,
+        },
+    )
+    return case_id, version_id
