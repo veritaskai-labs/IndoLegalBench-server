@@ -7,6 +7,7 @@ lalu loop lanjut. Tidak ada retry otomatis.
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Protocol
 
@@ -63,13 +64,18 @@ def run_session(
         params,
         prompts,
         repeats,
-        interval,
-        sleep,
-        clock,
-        call_log,
-        product_id,
+        _Pace(interval, sleep, clock, call_log, product_id),
     )
     store.mark_status(session_id, "finished")
+
+
+@dataclass
+class _Pace:
+    interval: float | None
+    sleep: Callable[[float], None]
+    clock: Callable[[], float]
+    call_log: object
+    product_id: uuid.UUID | None
 
 
 def _run_prompts(
@@ -79,11 +85,7 @@ def _run_prompts(
     params: ModelParameters | None,
     prompts: list[str],
     repeats: int,
-    interval: float | None,
-    sleep: Callable[[float], None],
-    clock: Callable[[], float],
-    call_log,
-    product_id: uuid.UUID | None,
+    pace: _Pace,
 ) -> None:
     completed = 0
     failed = 0
@@ -97,14 +99,10 @@ def _run_prompts(
             case_index,
             prompt,
             repeats,
-            interval,
-            sleep,
-            clock,
+            pace,
             completed,
             failed,
             next_start,
-            call_log,
-            product_id,
         )
 
 
@@ -116,25 +114,21 @@ def _run_repeats(
     case_index: int,
     prompt: str,
     repeats: int,
-    interval: float | None,
-    sleep: Callable[[float], None],
-    clock: Callable[[], float],
+    pace: _Pace,
     completed: int,
     failed: int,
     next_start: float | None,
-    call_log,
-    product_id: uuid.UUID | None,
 ) -> tuple[int, int, float | None]:
     for repeat_index in range(repeats):
-        if _over_budget(call_log, product_id):
+        if _over_budget(pace.call_log, pace.product_id):
             break
-        _wait_until(next_start, clock, sleep)
-        started = clock()
+        _wait_until(next_start, pace.clock, pace.sleep)
+        started = pace.clock()
         started_at = datetime.now(UTC)
         response = _ask(adapter, prompt, params)
         ended_at = datetime.now(UTC)
-        if interval is not None:
-            next_start = started + interval
+        if pace.interval is not None:
+            next_start = started + pace.interval
         failed_call = response.failure_kind is not None or response.error is not None
         if failed_call:
             failed += 1
@@ -143,8 +137,8 @@ def _run_repeats(
         saved = _save(
             session_id, store, case_index, repeat_index, prompt, response, completed, failed
         )
-        if call_log is not None and product_id is not None:
-            call_log.record(product_id, saved, started_at, ended_at)
+        if pace.call_log is not None and pace.product_id is not None:
+            pace.call_log.record(pace.product_id, saved, started_at, ended_at)
     return completed, failed, next_start
 
 
