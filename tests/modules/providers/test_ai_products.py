@@ -35,6 +35,12 @@ from app.modules.providers.service import (
 from app.modules.providers.service import (
     test_connection as service_test_connection,
 )
+from app.modules.runs.models import (
+    MeasurementSession,
+    SessionPurpose,
+    SessionType,
+    SplitFilter,
+)
 from app.shared.exceptions import ConflictError, InternalError, ValidationError
 from app.shared.security import Role
 
@@ -253,13 +259,6 @@ def test_measurement_type_cannot_be_changed_with_history(db_session):
     db_session.commit()
 
     # Riwayat = satu sesi pengukuran nyata (SCRUM-205), bukan tabel tiruan.
-    from app.modules.runs.models import (
-        MeasurementSession,
-        SessionPurpose,
-        SessionType,
-        SplitFilter,
-    )
-
     db_session.add(
         MeasurementSession(
             label="Uji coba",
