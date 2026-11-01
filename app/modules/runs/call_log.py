@@ -34,7 +34,7 @@ class CallLogService:
         ended: datetime,
     ) -> CallLog:
         rate = self._rates.usd_idr()
-        kind = record.failure_kind
+        label, kind = technical_result(record)
         product = self._products.get(product_id)
         row = CallLog(
             attempt_id=uuid.uuid4(),
@@ -53,12 +53,20 @@ class CallLogService:
             ),
             usd_idr_rate=rate,
             model_version=record.model_version,
-            result=kind or "ok",
+            result=label,
             failure_kind=kind,
             raw=record.raw,
         )
         self._repository.add(row)
         return row
+
+
+def technical_result(record: AttemptRecord) -> tuple[str, str | None]:
+    """Jenis kegagalan teknis saja. Teks jawaban salah bukan kegagalan teknis."""
+    kind = record.failure_kind
+    if kind:
+        return kind, kind
+    return "ok", None
 
 
 def _side_price(product, field_name: str) -> Decimal:
