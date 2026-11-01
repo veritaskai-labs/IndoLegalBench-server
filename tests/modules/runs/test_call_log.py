@@ -119,3 +119,19 @@ def test_missing_token_side_is_not_billed_as_zero(db_session):
     )
     assert row.output_tokens is None
     assert row.cost_idr == Decimal("16000.00")
+
+
+def test_technical_failure_is_stored_and_a_wrong_answer_is_not(db_session):
+    from app.modules.runs.call_log import technical_result
+
+    failed = _service(db_session).record(
+        PRODUCT_ID,
+        _record(text="", failure_kind="provider_error", raw={"status": 429, "usage": {"n": 1}}),
+        NOW,
+        NOW,
+    )
+    assert failed.failure_kind == "provider_error"
+    assert failed.result == "provider_error"
+    assert failed.raw == {"status": 429, "usage": {"n": 1}}
+    wrong = _record(text="jawaban salah", failure_kind=None)
+    assert technical_result(wrong) == ("ok", None)
