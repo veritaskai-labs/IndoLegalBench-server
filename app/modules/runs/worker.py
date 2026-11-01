@@ -7,6 +7,7 @@ lalu loop lanjut. Tidak ada retry otomatis.
 import time
 import uuid
 from collections.abc import Callable
+from datetime import UTC, datetime
 from typing import Protocol
 
 from app.modules.providers.adapters.base import FailureKind, ProviderResponse
@@ -38,6 +39,8 @@ def run_session(
     rate_limit_per_minute: int | None = None,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    call_log=None,
+    product_id: uuid.UUID | None = None,
 ) -> None:
     """Jalankan setiap kasus × repeats. repeats di luar 1–5 ditolak.
 
@@ -63,6 +66,8 @@ def run_session(
         interval,
         sleep,
         clock,
+        call_log,
+        product_id,
     )
     store.mark_status(session_id, "finished")
 
@@ -77,6 +82,8 @@ def _run_prompts(
     interval: float | None,
     sleep: Callable[[float], None],
     clock: Callable[[], float],
+    call_log,
+    product_id: uuid.UUID | None,
 ) -> None:
     completed = 0
     failed = 0
@@ -96,6 +103,8 @@ def _run_prompts(
             completed,
             failed,
             next_start,
+            call_log,
+            product_id,
         )
 
 
@@ -113,11 +122,17 @@ def _run_repeats(
     completed: int,
     failed: int,
     next_start: float | None,
+    call_log,
+    product_id: uuid.UUID | None,
 ) -> tuple[int, int, float | None]:
     for repeat_index in range(repeats):
+        if _over_budget(call_log, product_id):
+            break
         _wait_until(next_start, clock, sleep)
         started = clock()
+        started_at = datetime.now(UTC)
         response = _ask(adapter, prompt, params)
+        ended_at = datetime.now(UTC)
         if interval is not None:
             next_start = started + interval
         failed_call = response.failure_kind is not None or response.error is not None
@@ -125,8 +140,18 @@ def _run_repeats(
             failed += 1
         else:
             completed += 1
-        _save(session_id, store, case_index, repeat_index, prompt, response, completed, failed)
+        saved = _save(
+            session_id, store, case_index, repeat_index, prompt, response, completed, failed
+        )
+        if call_log is not None and product_id is not None:
+            call_log.record(product_id, saved, started_at, ended_at)
     return completed, failed, next_start
+
+
+def _over_budget(call_log, product_id: uuid.UUID | None) -> bool:
+    if call_log is None or product_id is None:
+        return False
+    return not call_log.allows(product_id)
 
 
 def _save(
@@ -138,25 +163,25 @@ def _save(
     response: ProviderResponse,
     completed: int,
     failed: int,
-) -> None:
+) -> AttemptRecord:
     kind = response.failure_kind
-    store.save_attempt(
-        AttemptRecord(
-            session_id=session_id,
-            case_index=case_index,
-            repeat_index=repeat_index,
-            prompt=prompt,
-            text=response.text,
-            model_version=response.model_version,
-            latency_ms=response.latency_ms,
-            raw=response.raw,
-            error=response.error,
-            failure_kind=None if kind is None else str(kind),
-            input_tokens=response.input_tokens,
-            output_tokens=response.output_tokens,
-        )
+    record = AttemptRecord(
+        session_id=session_id,
+        case_index=case_index,
+        repeat_index=repeat_index,
+        prompt=prompt,
+        text=response.text,
+        model_version=response.model_version,
+        latency_ms=response.latency_ms,
+        raw=response.raw,
+        error=response.error,
+        failure_kind=None if kind is None else str(kind),
+        input_tokens=response.input_tokens,
+        output_tokens=response.output_tokens,
     )
+    store.save_attempt(record)
     store.update_progress(session_id, completed=completed, failed=failed)
+    return record
 
 
 def run_next(

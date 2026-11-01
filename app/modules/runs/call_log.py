@@ -3,13 +3,34 @@
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from app.modules.runs.call_cost import actual_cost_idr
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.models import CallLog
 from app.modules.runs.ports import AttemptRecord
 from app.modules.runs.repository import CallLogRepository
-from app.modules.runs.summary_ports import ProductPort
+from app.modules.runs.summary_ports import ProductInfo, ProductPort
+
+_JAKARTA = ZoneInfo("Asia/Jakarta")
+DEFAULT_MONTHLY_BUDGET_IDR = Decimal("500000.00")
+
+
+def month_start(now: datetime) -> datetime:
+    """Awal bulan WIB. Reset tanggal 1 pukul 00.00 belum dikonfirmasi klien."""
+    local = now.astimezone(_JAKARTA)
+    return local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+
+
+def monthly_limit(product: ProductInfo) -> Decimal:
+    if product.monthly_budget_idr is not None:
+        return product.monthly_budget_idr
+    if product.provider_type == "gemini_interactions":
+        return DEFAULT_MONTHLY_BUDGET_IDR
+    name = (product.model_name or "").lower()
+    if name.startswith("deepseek"):
+        return DEFAULT_MONTHLY_BUDGET_IDR
+    return Decimal("0.00")
 
 
 class CallLogService:
@@ -25,6 +46,13 @@ class CallLogService:
         self._repository = repository
         self._rates = rates
         self._clock = clock
+
+    def allows(self, product_id: uuid.UUID) -> bool:
+        product = self._products.get(product_id)
+        if product is None:
+            return False
+        spent = self._repository.sum_cost_since(product_id, month_start(self._clock()))
+        return spent < monthly_limit(product)
 
     def record(
         self,
