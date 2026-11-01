@@ -39,6 +39,7 @@ def _product() -> ProductInfo:
         model_name="gemini-2.5-flash",
         monthly_budget_idr=Decimal("500000.00"),
         price_output_usd_per_mtok=Decimal("1"),
+        price_input_usd_per_mtok=Decimal("1"),
     )
 
 

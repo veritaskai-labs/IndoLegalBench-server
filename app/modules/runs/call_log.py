@@ -2,7 +2,9 @@
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 
+from app.modules.runs.call_cost import actual_cost_idr
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.models import CallLog
 from app.modules.runs.ports import AttemptRecord
@@ -31,7 +33,9 @@ class CallLogService:
         started: datetime,
         ended: datetime,
     ) -> CallLog:
+        rate = self._rates.usd_idr()
         kind = record.failure_kind
+        product = self._products.get(product_id)
         row = CallLog(
             attempt_id=uuid.uuid4(),
             product_id=product_id,
@@ -40,8 +44,14 @@ class CallLogService:
             duration_ms=max(int((ended - started).total_seconds() * 1000), 0),
             input_tokens=record.input_tokens,
             output_tokens=record.output_tokens,
-            cost_idr=None,
-            usd_idr_rate=self._rates.usd_idr(),
+            cost_idr=actual_cost_idr(
+                input_tokens=record.input_tokens,
+                output_tokens=record.output_tokens,
+                usd_per_million_input_tokens=_side_price(product, "price_input_usd_per_mtok"),
+                usd_per_million_output_tokens=_side_price(product, "price_output_usd_per_mtok"),
+                usd_idr_rate=rate,
+            ),
+            usd_idr_rate=rate,
             model_version=record.model_version,
             result=kind or "ok",
             failure_kind=kind,
@@ -49,3 +59,12 @@ class CallLogService:
         )
         self._repository.add(row)
         return row
+
+
+def _side_price(product, field_name: str) -> Decimal:
+    if product is None:
+        return Decimal(0)
+    value = getattr(product, field_name)
+    if value is None:
+        return Decimal(0)
+    return value

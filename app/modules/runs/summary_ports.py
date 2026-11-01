@@ -26,6 +26,7 @@ class ProductInfo:
     model_name: str | None
     monthly_budget_idr: Decimal | None
     price_output_usd_per_mtok: Decimal | None
+    price_input_usd_per_mtok: Decimal | None = None
 
 
 class ProductPort(Protocol):

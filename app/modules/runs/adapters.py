@@ -54,6 +54,7 @@ class ProductAdapter:
             model_name=product.model_name,
             monthly_budget_idr=product.monthly_budget_idr,
             price_output_usd_per_mtok=product.price_output_usd_per_mtok,
+            price_input_usd_per_mtok=product.price_input_usd_per_mtok,
         )
 
 
