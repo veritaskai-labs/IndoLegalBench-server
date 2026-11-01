@@ -39,6 +39,8 @@ from app.shared.database import Base
 
 # JSONB on PostgreSQL, plain JSON on SQLite so the tests keep running.
 _JSONB = JSON().with_variant(JSONB(), "postgresql")
+_USER_FK = "users.id"
+_SESSION_FK = "measurement_sessions.id"
 
 
 def _enum_values(members) -> list[str]:
@@ -145,7 +147,7 @@ class MeasurementSession(Base):
         server_default=SessionStatus.QUEUED.value,
     )
     created_by: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey(_USER_FK), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -159,13 +161,13 @@ class MeasurementSession(Base):
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_by: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("users.id"), nullable=True
+        Uuid(as_uuid=True), ForeignKey(_USER_FK), nullable=True
     )
     accepted_as_is_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
     accepted_as_is_by: Mapped[uuid.UUID | None] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("users.id"), nullable=True
+        Uuid(as_uuid=True), ForeignKey(_USER_FK), nullable=True
     )
     accepted_as_is_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
 
@@ -177,7 +179,7 @@ class MeasurementSessionSuite(Base):
     __table_args__ = (Index("ix_measurement_session_suites_suite_id", "suite_id"),)
 
     session_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("measurement_sessions.id"), primary_key=True
+        Uuid(as_uuid=True), ForeignKey(_SESSION_FK), primary_key=True
     )
     suite_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("suites.id"), primary_key=True
@@ -191,7 +193,7 @@ class SessionProductCopy(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("measurement_sessions.id"), nullable=False, unique=True
+        Uuid(as_uuid=True), ForeignKey(_SESSION_FK), nullable=False, unique=True
     )
     product_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("ai_products.id"), nullable=False
@@ -230,7 +232,7 @@ class CaseSnapshot(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("measurement_sessions.id"), nullable=False, unique=True
+        Uuid(as_uuid=True), ForeignKey(_SESSION_FK), nullable=False, unique=True
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -268,7 +270,7 @@ class Attempt(Base):
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     session_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("measurement_sessions.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey(_SESSION_FK), nullable=False
     )
     snapshot_item_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("case_snapshot_items.id"), nullable=False
