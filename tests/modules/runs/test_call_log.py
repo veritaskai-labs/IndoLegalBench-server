@@ -230,10 +230,9 @@ def test_spent_budget_returns_422(db_session):
         safety_margin_percent=Decimal("0"),
         default_avg_answer_tokens=Decimal("500"),
     )
+    request = SummaryRequest(suite_ids=[uuid.uuid4()], product_id=PRODUCT_ID, repeat_count=1)
     with pytest.raises(ValidationError) as galat:
-        summary.summarize(
-            SummaryRequest(suite_ids=[uuid.uuid4()], product_id=PRODUCT_ID, repeat_count=1)
-        )
+        summary.summarize(request)
     assert galat.value.status_code == 422
     assert galat.value.code == "BUDGET_EXCEEDED"
     assert CallLogAnswerHistory(db_session).average_answer_tokens(PRODUCT_ID) == Decimal("32000000")
@@ -251,13 +250,15 @@ def test_break_missing_partial_and_429_usage(db_session):
         NOW,
         NOW,
     )
-    assert (
-        missing.input_tokens is None and missing.output_tokens is None and missing.cost_idr is None
-    )
-    assert partial.input_tokens == 4 and partial.output_tokens is None
+    assert missing.input_tokens is None
+    assert missing.output_tokens is None
+    assert missing.cost_idr is None
+    assert partial.input_tokens == 4
+    assert partial.output_tokens is None
     assert partial.cost_idr is not None
     assert rejected.failure_kind == "provider_error"
-    assert rejected.input_tokens == 1 and rejected.output_tokens == 0
+    assert rejected.input_tokens == 1
+    assert rejected.output_tokens == 0
 
 
 def test_break_month_boundary_is_midnight_wib(db_session):
