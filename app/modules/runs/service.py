@@ -14,6 +14,9 @@ import uuid
 from collections.abc import Mapping
 from decimal import Decimal
 
+from sqlalchemy.orm import Session
+
+from app.modules.runs import repository
 from app.modules.runs.cost_estimator import estimate_cost_idr
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.pricing import PriceCatalog
@@ -154,3 +157,8 @@ class SummaryService:
         spent = self._spend.spent_this_month_idr(product.id)
         remaining = max(product.monthly_budget_idr - spent, Decimal("0"))
         return remaining.quantize(_CENT)
+
+
+def product_has_sessions(db: Session, product_id: uuid.UUID) -> bool:
+    """Riwayat pengukuran produk, untuk aturan jenis pengukuran PBI-23 di modul providers."""
+    return repository.product_has_sessions(db, product_id)
