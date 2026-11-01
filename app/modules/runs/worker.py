@@ -69,7 +69,7 @@ def run_session(
     store.mark_status(session_id, "finished")
 
 
-@dataclass
+@dataclass(frozen=True)
 class _Pace:
     interval: float | None
     sleep: Callable[[float], None]
