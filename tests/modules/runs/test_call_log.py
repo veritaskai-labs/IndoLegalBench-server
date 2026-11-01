@@ -1,8 +1,7 @@
 """SCRUM-76 SCRUM-209: one call_logs row per attempt."""
 
 import uuid
-from datetime import datetime, timedelta
-from datetime import UTC
+from datetime import UTC, datetime, timedelta
 
 from app.modules.runs.call_log import CallLogService
 from app.modules.runs.ports import AttemptRecord
