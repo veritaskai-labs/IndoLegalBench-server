@@ -6,16 +6,18 @@ Router hanya menerjemahkan HTTP ke pemanggilan service. Tidak ada
 logika bisnis dan tidak ada query database di file ini.
 
 Prefix /measurements mengikuti tiket SCRUM-206 (POST /measurements/summary).
-TODO(PBI-11, PBI-12, PBI-13): endpoint mulai sesi dan daftar sesi menyusul.
+TODO(PBI-11, PBI-12, PBI-13): daftar dan detail sesi menyusul.
 """
 
-from fastapi import APIRouter, Depends
+import uuid
+
+from fastapi import APIRouter, Depends, status
 
 from app.modules.auth.schemas import ErrorBody
-from app.modules.runs.dependencies import get_summary_service
-from app.modules.runs.schemas import SummaryRequest, SummaryResponse
-from app.modules.runs.service import SummaryService
-from app.shared.security import Role, require_roles
+from app.modules.runs.dependencies import get_start_service, get_summary_service
+from app.modules.runs.schemas import StartRequest, StartResponse, SummaryRequest, SummaryResponse
+from app.modules.runs.service import StartSessionService, SummaryService
+from app.shared.security import CurrentUser, Role, require_roles
 
 # Admin dan Developer AI boleh membuat pengukuran (PBI-11 user story).
 _summary_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
@@ -62,3 +64,19 @@ def summarize(
     service: SummaryService = Depends(get_summary_service),
 ) -> SummaryResponse:
     return service.summarize(payload)
+
+
+# Tanpa endpoint duplikasi sesi (PBI-11 AC1): setiap sesi dibuat lewat Mulai.
+@router.post(
+    "",
+    response_model=StartResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Mulai pengukuran: validasi ulang lalu sesi masuk antrean",
+    responses=_RESPONS_RINGKASAN,
+)
+def start(
+    payload: StartRequest,
+    user: CurrentUser = Depends(_summary_roles),
+    service: StartSessionService = Depends(get_start_service),
+) -> StartResponse:
+    return service.start(payload, created_by=uuid.UUID(str(user.user_id)))

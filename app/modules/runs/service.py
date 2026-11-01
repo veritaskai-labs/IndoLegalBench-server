@@ -17,7 +17,14 @@ from decimal import Decimal
 from app.modules.runs.cost_estimator import estimate_cost_idr
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.pricing import PriceCatalog
-from app.modules.runs.schemas import CaseFilter, SummaryRequest, SummaryResponse
+from app.modules.runs.schemas import (
+    CaseFilter,
+    StartRequest,
+    StartResponse,
+    SummaryRequest,
+    SummaryResponse,
+)
+from app.modules.runs.session_ports import NewSession, SessionQueueStore
 from app.modules.runs.summary_ports import (
     AnswerLengthPort,
     CaseCountPort,
@@ -154,3 +161,33 @@ class SummaryService:
         spent = self._spend.spent_this_month_idr(product.id)
         remaining = max(product.monthly_budget_idr - spent, Decimal("0"))
         return remaining.quantize(_CENT)
+
+
+class StartSessionService:
+    """Tombol Mulai: validasi ulang, lalu sesi masuk antrean (PBI-11 AC1, AC3, AC5).
+
+    Validasinya SummaryService yang sama dengan Lihat ringkasan, karena produk,
+    kasus, atau anggaran bisa berubah di antara keduanya (D3 langkah 20). Sesi
+    tidak langsung berjalan: worker yang menjalankan saat gilirannya.
+    """
+
+    def __init__(self, *, summary: SummaryService, sessions: SessionQueueStore) -> None:
+        self._summary = summary
+        self._sessions = sessions
+
+    def start(self, request: StartRequest, *, created_by: uuid.UUID) -> StartResponse:
+        self._summary.summarize(request)
+        queued = self._sessions.create_queued(
+            NewSession(
+                label=request.label,
+                purpose=request.purpose,
+                product_id=request.product_id,
+                suite_ids=tuple(request.suite_ids),
+                case_filter=request.case_filter,
+                repetitions=request.repeat_count,
+                created_by=created_by,
+            )
+        )
+        return StartResponse(
+            session_id=queued.id, status=queued.status, queue_order=queued.queue_order
+        )

@@ -4,14 +4,20 @@ Modul runs hanya menjangkau cases, suites, dan providers lewat fungsi service
 mereka, tidak lewat tabel atau repository.
 """
 
+import itertools
+import threading
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from sqlalchemy.orm import Session
 
 from app.modules.cases import service as cases_service
 from app.modules.providers import service as providers_service
+from app.modules.runs.schemas import SessionStatus
+from app.modules.runs.session_ports import NewSession, QueuedSession
 from app.modules.runs.summary_ports import ProductInfo
 from app.modules.suites import service as suites_service
 from app.shared.exceptions import NotFoundError
@@ -69,3 +75,50 @@ class PendingAnswerHistory:
 
     def average_answer_tokens(self, _product_id: uuid.UUID) -> Decimal | None:
         return None
+
+
+def _sekarang() -> datetime:
+    return datetime.now(UTC)
+
+
+@dataclass(frozen=True)
+class StoredSession:
+    id: uuid.UUID
+    new: NewSession
+    status: SessionStatus
+    queue_order: int
+    queued_at: datetime
+
+
+class InMemorySessionQueue:
+    """Sesi di memori proses. SEMENTARA, diganti adapter tabel SCRUM-205.
+
+    Hanya supaya POST /measurements bisa dicoba sebelum measurement_sessions
+    ada: isinya hilang saat server restart dan tidak terbagi antar worker.
+    Lock menjaga queue_order tetap unik saat dua permintaan datang bersamaan.
+    """
+
+    def __init__(self, clock: Callable[[], datetime] = _sekarang) -> None:
+        self._clock = clock
+        self._lock = threading.Lock()
+        self._urutan = itertools.count(1)
+        self._sesi: dict[uuid.UUID, StoredSession] = {}
+
+    def create_queued(self, new: NewSession) -> QueuedSession:
+        with self._lock:
+            sesi = StoredSession(
+                id=uuid.uuid4(),
+                new=new,
+                status=SessionStatus.QUEUED,
+                queue_order=next(self._urutan),
+                queued_at=self._clock(),
+            )
+            self._sesi[sesi.id] = sesi
+        return QueuedSession(id=sesi.id, status=sesi.status, queue_order=sesi.queue_order)
+
+    def get(self, session_id: uuid.UUID) -> StoredSession | None:
+        return self._sesi.get(session_id)
+
+    def get_all(self) -> list[StoredSession]:
+        """Urut queue_order, yang paling lama menunggu lebih dulu."""
+        return sorted(self._sesi.values(), key=lambda sesi: sesi.queue_order)

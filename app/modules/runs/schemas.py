@@ -70,3 +70,48 @@ class SummaryResponse(BaseModel):
         description="Perkiraan biaya dalam rupiah, sudah termasuk margin pengaman"
     )
     remaining_budget_idr: Decimal = Field(description="Sisa anggaran bulan ini untuk produk")
+
+
+# D2 measurement_sessions.label varchar(200).
+_PANJANG_LABEL = 200
+
+
+class MeasurementPurpose(StrEnum):
+    """Pengukuran Resmi atau Uji Coba (PBI-11 AC1, D2 measurement_sessions.purpose)."""
+
+    OFFICIAL = "official"
+    TRIAL = "trial"
+
+
+class SessionStatus(StrEnum):
+    """Status sesi otomatis (D4). Status jeda, batal, dan selesai menyusul di PBI-12."""
+
+    QUEUED = "queued"
+    RUNNING = "running"
+
+
+class StartRequest(SummaryRequest):
+    """Body POST /measurements (PBI-11 AC1, SCRUM-207).
+
+    Isian ringkasan diwarisi supaya Mulai divalidasi dengan aturan yang sama
+    seperti Lihat ringkasan, ditambah label dan tujuan yang wajib.
+    """
+
+    label: str = Field(
+        min_length=1, max_length=_PANJANG_LABEL, description="Nama sesi, wajib, maksimal 200"
+    )
+    purpose: MeasurementPurpose = Field(description="official = Pengukuran Resmi, trial = Uji Coba")
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def buang_spasi_tepi(cls, value):
+        # Label berisi spasi saja menjadi kosong, lalu ditolak min_length.
+        return value.strip() if isinstance(value, str) else value
+
+
+class StartResponse(BaseModel):
+    """Jawaban 201 tombol Mulai (D3 langkah 23)."""
+
+    session_id: uuid.UUID
+    status: SessionStatus = Field(description="Selalu queued: worker yang menjalankan saat giliran")
+    queue_order: int = Field(description="Urutan masuk antrean, naik terus. Bukan posisi saat ini")

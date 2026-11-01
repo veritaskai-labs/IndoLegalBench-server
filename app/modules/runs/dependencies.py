@@ -1,4 +1,4 @@
-"""Perakitan dependency FastAPI untuk modul runs (PBI-11, SCRUM-206)."""
+"""Perakitan dependency FastAPI untuk modul runs (PBI-11, SCRUM-206, SCRUM-207)."""
 
 from functools import lru_cache
 
@@ -7,6 +7,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.runs.adapters import (
     CaseCountAdapter,
+    InMemorySessionQueue,
     PendingAnswerHistory,
     PendingSpend,
     ProductAdapter,
@@ -17,7 +18,8 @@ from app.modules.runs.exchange_rate import (
     JisdorExchangeRate,
 )
 from app.modules.runs.pricing import ConfigPriceCatalog
-from app.modules.runs.service import SummaryService
+from app.modules.runs.service import StartSessionService, SummaryService
+from app.modules.runs.session_ports import SessionQueueStore
 from app.shared.config import Settings, get_settings
 from app.shared.database import get_db
 
@@ -48,3 +50,16 @@ def get_summary_service(
         safety_margin_percent=settings.cost_safety_margin_percent,
         default_avg_answer_tokens=settings.cost_default_avg_answer_tokens,
     )
+
+
+@lru_cache
+def get_session_store() -> SessionQueueStore:
+    """Satu antrean untuk seluruh proses. Diganti adapter tabel saat SCRUM-205 masuk."""
+    return InMemorySessionQueue()
+
+
+def get_start_service(
+    summary: SummaryService = Depends(get_summary_service),
+    sessions: SessionQueueStore = Depends(get_session_store),
+) -> StartSessionService:
+    return StartSessionService(summary=summary, sessions=sessions)
