@@ -135,3 +135,69 @@ def test_technical_failure_is_stored_and_a_wrong_answer_is_not(db_session):
     assert failed.raw == {"status": 429, "usage": {"n": 1}}
     wrong = _record(text="jawaban salah", failure_kind=None)
     assert technical_result(wrong) == ("ok", None)
+
+
+def test_budget_stop_keeps_finished_rows_and_does_not_notify(db_session):
+    from decimal import Decimal
+
+    from app.modules.providers.adapters.base import ProviderResponse
+    from app.modules.runs.worker import run_session
+
+    product = _product()
+    product_small = ProductInfo(
+        id=product.id,
+        name=product.name,
+        measurement_type=product.measurement_type,
+        is_active=product.is_active,
+        provider_type=product.provider_type,
+        model_name=product.model_name,
+        monthly_budget_idr=Decimal("1.00"),
+        price_output_usd_per_mtok=Decimal("1"),
+        price_input_usd_per_mtok=Decimal("1"),
+    )
+    logs = CallLogService(
+        products=_Products(product_small),
+        repository=CallLogRepository(db_session),
+        rates=_Rate(),
+        clock=lambda: NOW,
+    )
+    notes = []
+
+    class Ask:
+        def __init__(self) -> None:
+            self.calls = 0
+
+        def ask(self, prompt, *, parameters=None, timeout=240.0):
+            self.calls += 1
+            return ProviderResponse(
+                text="jawab",
+                model_version="m",
+                latency_ms=1,
+                raw={},
+                output_tokens=1_000_000,
+                input_tokens=0,
+            )
+
+    class Store:
+        def __init__(self) -> None:
+            self.attempts = []
+
+        def list_cases(self, session_id):
+            return ["satu", "dua"]
+
+        def save_attempt(self, record):
+            self.attempts.append(record)
+
+        def update_progress(self, session_id, *, completed, failed):
+            return None
+
+        def mark_status(self, session_id, status):
+            return None
+
+    ask = Ask()
+    store = Store()
+    run_session(uuid.uuid4(), store, ask, repeats=1, call_log=logs, product_id=PRODUCT_ID)
+    assert ask.calls == 1
+    assert len(store.attempts) == 1
+    assert logs.allows(PRODUCT_ID) is False
+    assert notes == []
