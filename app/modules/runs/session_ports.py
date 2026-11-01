@@ -6,8 +6,11 @@ cukup memenuhi kontrak yang sama, tanpa mengubah service atau router.
 """
 
 import uuid
+from collections.abc import Sequence
 from dataclasses import dataclass
-from typing import Protocol
+from datetime import datetime
+from decimal import Decimal
+from typing import Any, Protocol
 
 from app.modules.runs.schemas import CaseFilter, MeasurementPurpose, SessionStatus
 
@@ -32,7 +35,84 @@ class QueuedSession:
     queue_order: int
 
 
+@dataclass(frozen=True)
+class WaitingSession:
+    id: uuid.UUID
+    new: NewSession
+
+
+@dataclass(frozen=True)
+class SnapshotItem:
+    """Satu kasus yang dibekukan (D2 case_snapshot_items).
+
+    case_id adalah reference id kasus live, bukan id baris snapshot (AC6).
+    content adalah salinan persis versi disetujui terbaru.
+    """
+
+    case_id: uuid.UUID
+    case_version_id: uuid.UUID
+    split_tag: str
+    content: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ProductCopy:
+    """Salinan produk saat sesi berjalan (D2 session_product_copies), tanpa kredensial.
+
+    rate_limit_per_minute ikut disalin karena worker SCRUM-208 memakainya
+    untuk jeda antar panggilan. model_version_at_start belum diketahui
+    sebelum panggilan pertama, jadi diisi worker, bukan di sini.
+    """
+
+    product_id: uuid.UUID
+    name: str
+    measurement_type: str
+    provider_type: str | None
+    base_url: str | None
+    model_name: str | None
+    model_params: dict[str, Any] | None
+    rate_limit_per_minute: int | None
+    price_input_usd_per_mtok: Decimal | None
+    price_output_usd_per_mtok: Decimal | None
+    monthly_budget_idr: Decimal | None
+
+
 class SessionQueueStore(Protocol):
     def create_queued(self, new: NewSession) -> QueuedSession:
         """Simpan sesi berstatus queued dengan queue_order berikutnya (AC3, D3 langkah 21)."""
+        raise NotImplementedError
+
+    def running_exists(self) -> bool:
+        """Ada sesi otomatis yang sedang running."""
+        raise NotImplementedError
+
+    def oldest_queued(self) -> WaitingSession | None:
+        """Sesi queued dengan queue_order terkecil, atau None bila antrean kosong."""
+        raise NotImplementedError
+
+    def start(
+        self,
+        session_id: uuid.UUID,
+        *,
+        items: Sequence[SnapshotItem],
+        product: ProductCopy,
+        started_at: datetime,
+    ) -> bool:
+        """Status running + snapshot + salinan produk sekaligus (D3 langkah 25-27).
+
+        Adapter tabel melakukannya dalam satu transaksi. False bila sesi tidak
+        lagi queued atau sesi lain sudah running (partial unique index D2).
+        """
+        raise NotImplementedError
+
+
+class SnapshotSource(Protocol):
+    def approved_items(self, suite_ids: Sequence[uuid.UUID]) -> list[SnapshotItem]:
+        """Versi disetujui terbaru setiap kasus di suite itu, urut suite lalu kode kasus."""
+        raise NotImplementedError
+
+
+class ProductCopySource(Protocol):
+    def copy(self, product_id: uuid.UUID) -> ProductCopy:
+        """Data produk saat ini, tanpa kredensial."""
         raise NotImplementedError

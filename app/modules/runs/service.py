@@ -11,7 +11,8 @@ TODO(PBI-11, PBI-12, PBI-13): sisanya dikerjakan di tiket lain.
 
 import logging
 import uuid
-from collections.abc import Mapping
+from collections.abc import Callable, Mapping
+from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.modules.runs.cost_estimator import estimate_cost_idr
@@ -24,7 +25,13 @@ from app.modules.runs.schemas import (
     SummaryRequest,
     SummaryResponse,
 )
-from app.modules.runs.session_ports import NewSession, SessionQueueStore
+from app.modules.runs.session_ports import (
+    NewSession,
+    ProductCopySource,
+    SessionQueueStore,
+    SnapshotItem,
+    SnapshotSource,
+)
 from app.modules.runs.summary_ports import (
     AnswerLengthPort,
     CaseCountPort,
@@ -191,3 +198,52 @@ class StartSessionService:
         return StartResponse(
             session_id=queued.id, status=queued.status, queue_order=queued.queue_order
         )
+
+
+def _sekarang() -> datetime:
+    return datetime.now(UTC)
+
+
+def items_for_filter(items: list[SnapshotItem], case_filter: CaseFilter) -> list[SnapshotItem]:
+    """Kasus yang ikut dibekukan untuk pilihan dev, test, atau both, urutan tetap (AC2)."""
+    splits = _SPLITS_FOR_FILTER[case_filter]
+    return [item for item in items if item.split_tag in splits]
+
+
+class SessionQueue:
+    """Giliran antrean: sesi Menunggu tertua mulai berjalan (PBI-11 AC2, AC3, AC6).
+
+    Memenuhi QueuePort worker SCRUM-208 (take_next). Snapshot kasus dan salinan
+    produk baru diambil saat giliran tiba, bukan saat Mulai ditekan, sesuai
+    D3 langkah 24-27 dan AC "snapshot dibuat saat pengukuran dijalankan".
+    """
+
+    def __init__(
+        self,
+        *,
+        sessions: SessionQueueStore,
+        snapshots: SnapshotSource,
+        products: ProductCopySource,
+        clock: Callable[[], datetime] = _sekarang,
+    ) -> None:
+        self._sessions = sessions
+        self._snapshots = snapshots
+        self._products = products
+        self._clock = clock
+
+    def take_next(self) -> uuid.UUID | None:
+        """Id sesi yang baru berjalan, atau None bila ada sesi berjalan atau antrean kosong."""
+        if self._sessions.running_exists():
+            return None
+        waiting = self._sessions.oldest_queued()
+        if waiting is None:
+            return None
+        items = items_for_filter(
+            self._snapshots.approved_items(waiting.new.suite_ids), waiting.new.case_filter
+        )
+        product = self._products.copy(waiting.new.product_id)
+        # False berarti worker lain lebih dulu; sesi ini tetap Menunggu giliran berikutnya.
+        started = self._sessions.start(
+            waiting.id, items=items, product=product, started_at=self._clock()
+        )
+        return waiting.id if started else None
