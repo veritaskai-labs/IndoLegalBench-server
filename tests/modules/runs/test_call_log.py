@@ -73,13 +73,49 @@ def _service(db_session) -> CallLogService:
     )
 
 
+def _produk_tersimpan(db_session, **ubah):
+    from decimal import Decimal
+
+    from app.modules.auth.models import User
+    from app.modules.providers.models import AiProduct, ProviderType
+    from app.shared.security import Role
+
+    user = User(email="qa-call-log@veritask.test", name="QA", role=Role.ADMIN)
+    db_session.add(user)
+    db_session.flush()
+    nilai = {
+        "name": "Gemini uji",
+        "provider_type": ProviderType.GEMINI_INTERACTIONS,
+        "base_url": "https://generativelanguage.googleapis.com/v1beta/interactions",
+        "model_name": "gemini-2.5-flash",
+        "credential_encrypted": b"terenkripsi",
+        "credential_hint": "9xQ2",
+        "rate_limit_per_minute": 30,
+        "monthly_budget_idr": Decimal("500000.00"),
+        "price_input_usd_per_mtok": Decimal("1"),
+        "price_output_usd_per_mtok": Decimal("1"),
+        "created_by": user.id,
+    }
+    nilai.update(ubah)
+    produk = AiProduct(**nilai)
+    db_session.add(produk)
+    db_session.commit()
+    return produk
+
+
 def test_null_tokens_stay_null(db_session):
-    row = _service(db_session).record(
+    # Arrange
+    service = _service(db_session)
+
+    # Act
+    row = service.record(
         PRODUCT_ID,
         _record(input_tokens=None, output_tokens=None),
         NOW,
         NOW + timedelta(milliseconds=12),
     )
+
+    # Assert
     assert row.input_tokens is None
     assert row.output_tokens is None
     assert row.attempt_id is not None
@@ -87,51 +123,75 @@ def test_null_tokens_stay_null(db_session):
 
 
 def test_zero_tokens_stay_zero(db_session):
-    row = _service(db_session).record(
+    # Arrange
+    service = _service(db_session)
+
+    # Act
+    row = service.record(
         PRODUCT_ID,
         _record(input_tokens=0, output_tokens=0),
         NOW,
         NOW,
     )
+
+    # Assert
     assert row.input_tokens == 0
     assert row.output_tokens == 0
 
 
 def test_cost_is_tokens_times_price_times_rate(db_session):
+    # Arrange
     from decimal import Decimal
 
-    row = _service(db_session).record(
+    service = _service(db_session)
+
+    # Act
+    row = service.record(
         PRODUCT_ID,
         _record(input_tokens=1_000_000, output_tokens=2_000_000),
         NOW,
         NOW,
     )
+
+    # Assert
     assert row.cost_idr == Decimal("48000.00")
     assert row.usd_idr_rate == Decimal("16000")
 
 
 def test_missing_token_side_is_not_billed_as_zero(db_session):
+    # Arrange
     from decimal import Decimal
 
-    row = _service(db_session).record(
+    service = _service(db_session)
+
+    # Act
+    row = service.record(
         PRODUCT_ID,
         _record(input_tokens=1_000_000, output_tokens=None),
         NOW,
         NOW,
     )
+
+    # Assert
     assert row.output_tokens is None
     assert row.cost_idr == Decimal("16000.00")
 
 
 def test_technical_failure_is_stored_and_a_wrong_answer_is_not(db_session):
+    # Arrange
     from app.modules.runs.call_log import technical_result
 
-    failed = _service(db_session).record(
+    service = _service(db_session)
+
+    # Act
+    failed = service.record(
         PRODUCT_ID,
         _record(text="", failure_kind="provider_error", raw={"status": 429, "usage": {"n": 1}}),
         NOW,
         NOW,
     )
+
+    # Assert
     assert failed.failure_kind == "provider_error"
     assert failed.result == "provider_error"
     assert failed.raw == {"status": 429, "usage": {"n": 1}}
@@ -140,6 +200,7 @@ def test_technical_failure_is_stored_and_a_wrong_answer_is_not(db_session):
 
 
 def test_budget_stop_keeps_finished_rows_and_does_not_notify(db_session):
+    # Arrange
     from decimal import Decimal
 
     from app.modules.providers.adapters.base import ProviderResponse
@@ -163,7 +224,6 @@ def test_budget_stop_keeps_finished_rows_and_does_not_notify(db_session):
         rates=_Rate(),
         clock=lambda: NOW,
     )
-    notes = []
 
     class Ask:
         def __init__(self) -> None:
@@ -198,48 +258,102 @@ def test_budget_stop_keeps_finished_rows_and_does_not_notify(db_session):
 
     ask = Ask()
     store = Store()
+
+    # Act
     run_session(uuid.uuid4(), store, ask, repeats=1, call_log=logs, product_id=PRODUCT_ID)
+
+    # Assert
     assert ask.calls == 1
     assert len(store.attempts) == 1
     assert logs.allows(PRODUCT_ID) is False
-    assert notes == []
 
 
-def test_spent_budget_returns_422(db_session):
+def test_answer_history_reads_recorded_output_tokens(db_session):
+    # Arrange
     from decimal import Decimal
 
-    from app.modules.runs import service as summary_service
-    from app.modules.runs.adapters import CallLogAnswerHistory, CallLogSpend
-    from app.modules.runs.schemas import SummaryRequest
-    from app.shared.exceptions import ValidationError
+    from app.modules.runs.adapters import CallLogAnswerHistory
 
     logs = _service(db_session)
+
+    # Act
     logs.record(
         PRODUCT_ID,
         _record(input_tokens=None, output_tokens=32_000_000),
-        datetime.now(UTC),
-        datetime.now(UTC),
+        NOW,
+        NOW,
     )
-    summary = summary_service.SummaryService(
-        products=_Products(_product()),
-        cases=type("K", (), {"approved_counts": lambda self, ids: {"dev": 1}})(),
-        spend=CallLogSpend(db_session),
-        history=CallLogAnswerHistory(db_session),
-        prices=type("P", (), {"usd_per_million_output_tokens": lambda self, a, b: Decimal("1")})(),
-        rates=_Rate(),
-        safety_margin_percent=Decimal("0"),
-        default_avg_answer_tokens=Decimal("500"),
-    )
-    request = SummaryRequest(suite_ids=[uuid.uuid4()], product_id=PRODUCT_ID, repeat_count=1)
-    with pytest.raises(ValidationError) as galat:
-        summary.summarize(request)
-    assert galat.value.status_code == 422
-    assert galat.value.code == "BUDGET_EXCEEDED"
+
+    # Assert
     assert CallLogAnswerHistory(db_session).average_answer_tokens(PRODUCT_ID) == Decimal("32000000")
 
 
+def test_spent_budget_returns_422(db_session, as_role):
+    # Arrange
+    from decimal import Decimal
+
+    from app.modules.runs.dependencies import get_summary_service
+    from app.modules.runs.exchange_rate import ConfiguredExchangeRate
+    from app.modules.runs.models import CallLog
+    from app.modules.runs.schemas import SummaryRequest
+    from app.shared.config import Settings
+    from app.shared.exceptions import ValidationError
+    from app.shared.security import Role
+    from tests.modules.cases.test_cases import _buat, _setujui, _suite
+
+    client = as_role(Role.CONTRIBUTOR)
+    suite_id = _suite(client)
+    case_id = _buat(client, suite_id, case_code="PHK-209", split_tag="dev").json()["id"]
+    _setujui(db_session, case_id)
+    produk = _produk_tersimpan(db_session)
+    sekarang = datetime.now(UTC)
+    db_session.add(
+        CallLog(
+            attempt_id=uuid.uuid4(),
+            product_id=produk.id,
+            started_at=sekarang,
+            ended_at=sekarang,
+            duration_ms=1,
+            input_tokens=0,
+            output_tokens=1,
+            cost_idr=produk.monthly_budget_idr,
+            usd_idr_rate=Decimal("16000"),
+            model_version="gemini-2.5-flash",
+            result="ok",
+            failure_kind=None,
+            raw={},
+        )
+    )
+    db_session.commit()
+    summary = get_summary_service(
+        db_session,
+        ConfiguredExchangeRate(Decimal("16000")),
+        Settings(
+            _env_file=None,
+            cost_default_avg_answer_tokens=Decimal("500"),
+            cost_safety_margin_percent=Decimal("0"),
+        ),
+    )
+    request = SummaryRequest(
+        suite_ids=[uuid.UUID(suite_id)],
+        product_id=produk.id,
+        repeat_count=1,
+    )
+
+    # Act
+    with pytest.raises(ValidationError) as galat:
+        summary.summarize(request)
+
+    # Assert
+    assert galat.value.status_code == 422
+    assert galat.value.code == "BUDGET_EXCEEDED"
+
+
 def test_break_missing_partial_and_429_usage(db_session):
+    # Arrange
     logs = _service(db_session)
+
+    # Act
     missing = logs.record(PRODUCT_ID, _record(input_tokens=None, output_tokens=None), NOW, NOW)
     partial = logs.record(PRODUCT_ID, _record(input_tokens=4, output_tokens=None), NOW, NOW)
     rejected = logs.record(
@@ -250,6 +364,8 @@ def test_break_missing_partial_and_429_usage(db_session):
         NOW,
         NOW,
     )
+
+    # Assert
     assert missing.input_tokens is None
     assert missing.output_tokens is None
     assert missing.cost_idr is None
@@ -262,6 +378,7 @@ def test_break_missing_partial_and_429_usage(db_session):
 
 
 def test_break_month_boundary_is_midnight_wib(db_session):
+    # Arrange
     from decimal import Decimal
 
     from app.modules.runs.adapters import CallLogSpend
@@ -270,23 +387,37 @@ def test_break_month_boundary_is_midnight_wib(db_session):
     logs = _service(db_session)
     start = month_start(datetime.now(UTC))
     before = start - timedelta(seconds=1)
+
+    # Act
     logs.record(PRODUCT_ID, _record(output_tokens=1_000_000, input_tokens=0), before, before)
+
+    # Assert
     assert CallLogSpend(db_session).spent_this_month_idr(PRODUCT_ID) == Decimal("0.00")
+
+    # Act
     logs.record(PRODUCT_ID, _record(output_tokens=1_000_000, input_tokens=0), start, start)
+
+    # Assert
     assert CallLogSpend(db_session).spent_this_month_idr(PRODUCT_ID) == Decimal("16000.00")
 
 
 def test_break_retries_count_in_the_failure_rate(db_session):
+    # Arrange
     from decimal import Decimal
 
     logs = _service(db_session)
+
+    # Act
     logs.record(PRODUCT_ID, _record(), NOW, NOW)
     logs.record(PRODUCT_ID, _record(failure_kind="empty"), NOW, NOW)
     logs.record(PRODUCT_ID, _record(failure_kind="provider_error"), NOW, NOW)
+
+    # Assert
     assert logs.failure_rate(PRODUCT_ID) == Decimal("2") / Decimal("3")
 
 
 def test_gemini_and_deepseek_without_a_stored_budget_use_500000():
+    # Arrange
     from decimal import Decimal
 
     from app.modules.runs.call_log import monthly_limit
@@ -313,15 +444,24 @@ def test_gemini_and_deepseek_without_a_stored_budget_use_500000():
         monthly_budget_idr=None,
         price_output_usd_per_mtok=Decimal("1"),
     )
-    assert monthly_limit(gemini) == Decimal("500000.00")
-    assert monthly_limit(deepseek) == Decimal("500000.00")
+
+    # Act
+    gemini_limit = monthly_limit(gemini)
+    deepseek_limit = monthly_limit(deepseek)
+
+    # Assert
+    assert gemini_limit == Decimal("500000.00")
+    assert deepseek_limit == Decimal("500000.00")
 
 
 def test_run_next_writes_a_call_log(db_session):
+    # Arrange
+    from decimal import Decimal
+
     from app.modules.providers.adapters.base import ProviderResponse
     from app.modules.runs.dependencies import run_queued_measurement
+    from app.modules.runs.exchange_rate import ConfiguredExchangeRate
     from app.modules.runs.models import CallLog
-    from app.modules.runs.worker import run_next
 
     class Ask:
         def ask(self, prompt, *, parameters=None, timeout=240.0):
@@ -360,26 +500,30 @@ def test_run_next_writes_a_call_log(db_session):
             self.session_id = None
             return found
 
-    logs = _service(db_session)
+    produk = _produk_tersimpan(db_session)
     session_id = uuid.uuid4()
     store = Store()
-    assert (
-        run_next(
-            Queue(session_id),
-            store,
-            Ask(),
-            repeats=1,
-            call_log=logs,
-            product_id=PRODUCT_ID,
-        )
-        is True
+
+    # Act
+    ran = run_queued_measurement(
+        db_session,
+        Queue(session_id),
+        store,
+        Ask(),
+        produk.id,
+        rates=ConfiguredExchangeRate(Decimal("16000")),
+        repeats=1,
     )
+
+    # Assert
+    assert ran is True
     assert len(store.attempts) == 1
     assert db_session.query(CallLog).count() == 1
-    assert run_queued_measurement is not None
+    assert db_session.query(CallLog).one().product_id == produk.id
 
 
 def test_budget_stop_marks_a_distinct_status(db_session):
+    # Arrange
     from decimal import Decimal
 
     from app.modules.providers.adapters.base import ProviderResponse
@@ -432,12 +576,17 @@ def test_budget_stop_marks_a_distinct_status(db_session):
 
     ask = Ask()
     store = Store()
+
+    # Act
     run_session(uuid.uuid4(), store, ask, repeats=1, call_log=logs, product_id=PRODUCT_ID)
+
+    # Assert
     assert ask.calls == 1
     assert store.statuses == ["running", "budget_stopped"]
 
 
 def test_missing_price_is_not_free(db_session):
+    # Arrange
     from decimal import Decimal
 
     from app.modules.runs.models import CallLog
@@ -459,14 +608,19 @@ def test_missing_price_is_not_free(db_session):
         rates=_Rate(),
         clock=lambda: NOW,
     )
+
+    # Act
     with pytest.raises(InternalError) as galat:
         logs.record(PRODUCT_ID, _record(output_tokens=10, input_tokens=None), NOW, NOW)
+
+    # Assert
     assert galat.value.status_code == 500
     assert galat.value.code == "PRICE_NOT_CONFIGURED"
     assert db_session.query(CallLog).count() == 0
 
 
 def test_summary_null_budget_uses_shared_monthly_limit():
+    # Arrange
     from decimal import Decimal
 
     from app.modules.runs.service import SummaryService
@@ -491,10 +645,16 @@ def test_summary_null_budget_uses_shared_monthly_limit():
         safety_margin_percent=Decimal("0"),
         default_avg_answer_tokens=Decimal("1"),
     )
-    assert summary._remaining_budget(product) == Decimal("500000.00")
+
+    # Act
+    remaining = summary._remaining_budget(product)
+
+    # Assert
+    assert remaining == Decimal("500000.00")
 
 
 def test_rate_failure_does_not_save_an_attempt(db_session):
+    # Arrange
     from app.modules.providers.adapters.base import ProviderResponse
     from app.modules.runs.models import CallLog
     from app.modules.runs.worker import run_session
@@ -537,7 +697,11 @@ def test_rate_failure_does_not_save_an_attempt(db_session):
             return None
 
     store = Store()
+
+    # Act
     with pytest.raises(InternalError):
         run_session(uuid.uuid4(), store, Ask(), repeats=1, call_log=logs, product_id=PRODUCT_ID)
+
+    # Assert
     assert store.attempts == []
     assert db_session.query(CallLog).count() == 0
