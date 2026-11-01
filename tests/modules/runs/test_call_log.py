@@ -92,3 +92,29 @@ def test_zero_tokens_stay_zero(db_session):
     )
     assert row.input_tokens == 0
     assert row.output_tokens == 0
+
+
+def test_cost_is_tokens_times_price_times_rate(db_session):
+    from decimal import Decimal
+
+    row = _service(db_session).record(
+        PRODUCT_ID,
+        _record(input_tokens=1_000_000, output_tokens=2_000_000),
+        NOW,
+        NOW,
+    )
+    assert row.cost_idr == Decimal("48000.00")
+    assert row.usd_idr_rate == Decimal("16000")
+
+
+def test_missing_token_side_is_not_billed_as_zero(db_session):
+    from decimal import Decimal
+
+    row = _service(db_session).record(
+        PRODUCT_ID,
+        _record(input_tokens=1_000_000, output_tokens=None),
+        NOW,
+        NOW,
+    )
+    assert row.output_tokens is None
+    assert row.cost_idr == Decimal("16000.00")
