@@ -315,3 +315,229 @@ def test_gemini_and_deepseek_without_a_stored_budget_use_500000():
     )
     assert monthly_limit(gemini) == Decimal("500000.00")
     assert monthly_limit(deepseek) == Decimal("500000.00")
+
+
+def test_run_next_writes_a_call_log(db_session):
+    from app.modules.providers.adapters.base import ProviderResponse
+    from app.modules.runs.dependencies import run_queued_measurement
+    from app.modules.runs.models import CallLog
+    from app.modules.runs.worker import run_next
+
+    class Ask:
+        def ask(self, prompt, *, parameters=None, timeout=240.0):
+            return ProviderResponse(
+                text="jawab",
+                model_version="m",
+                latency_ms=1,
+                raw={},
+                input_tokens=1,
+                output_tokens=1,
+            )
+
+    class Store:
+        def __init__(self):
+            self.attempts = []
+            self.statuses = []
+
+        def list_cases(self, session_id):
+            return ["satu"]
+
+        def save_attempt(self, record):
+            self.attempts.append(record)
+
+        def update_progress(self, session_id, *, completed, failed):
+            return None
+
+        def mark_status(self, session_id, status):
+            self.statuses.append(status)
+
+    class Queue:
+        def __init__(self, session_id):
+            self.session_id = session_id
+
+        def take_next(self):
+            found = self.session_id
+            self.session_id = None
+            return found
+
+    logs = _service(db_session)
+    session_id = uuid.uuid4()
+    store = Store()
+    assert (
+        run_next(
+            Queue(session_id),
+            store,
+            Ask(),
+            repeats=1,
+            call_log=logs,
+            product_id=PRODUCT_ID,
+        )
+        is True
+    )
+    assert len(store.attempts) == 1
+    assert db_session.query(CallLog).count() == 1
+    assert run_queued_measurement is not None
+
+
+def test_budget_stop_marks_a_distinct_status(db_session):
+    from decimal import Decimal
+
+    from app.modules.providers.adapters.base import ProviderResponse
+    from app.modules.runs.worker import run_session
+
+    product = ProductInfo(
+        id=PRODUCT_ID,
+        name="Gemini",
+        measurement_type="automatic",
+        is_active=True,
+        provider_type="gemini_interactions",
+        model_name="gemini-2.5-flash",
+        monthly_budget_idr=Decimal("1.00"),
+        price_output_usd_per_mtok=Decimal("1"),
+        price_input_usd_per_mtok=Decimal("1"),
+    )
+    logs = CallLogService(
+        products=_Products(product),
+        repository=CallLogRepository(db_session),
+        rates=_Rate(),
+        clock=lambda: NOW,
+    )
+
+    class Ask:
+        def __init__(self):
+            self.calls = 0
+
+        def ask(self, prompt, *, parameters=None, timeout=240.0):
+            self.calls += 1
+            return ProviderResponse(
+                text="jawab", model_version="m", latency_ms=1, raw={}, output_tokens=1_000_000
+            )
+
+    class Store:
+        def __init__(self):
+            self.attempts = []
+            self.statuses = []
+
+        def list_cases(self, session_id):
+            return ["satu", "dua"]
+
+        def save_attempt(self, record):
+            self.attempts.append(record)
+
+        def update_progress(self, session_id, *, completed, failed):
+            return None
+
+        def mark_status(self, session_id, status):
+            self.statuses.append(status)
+
+    ask = Ask()
+    store = Store()
+    run_session(uuid.uuid4(), store, ask, repeats=1, call_log=logs, product_id=PRODUCT_ID)
+    assert ask.calls == 1
+    assert store.statuses == ["running", "budget_stopped"]
+
+
+def test_missing_price_is_not_free(db_session):
+    from decimal import Decimal
+
+    from app.modules.runs.models import CallLog
+    from app.shared.exceptions import InternalError
+
+    product = ProductInfo(
+        id=PRODUCT_ID,
+        name="Gemini",
+        measurement_type="automatic",
+        is_active=True,
+        provider_type="gemini_interactions",
+        model_name="gemini-2.5-flash",
+        monthly_budget_idr=Decimal("500000.00"),
+        price_output_usd_per_mtok=None,
+    )
+    logs = CallLogService(
+        products=_Products(product),
+        repository=CallLogRepository(db_session),
+        rates=_Rate(),
+        clock=lambda: NOW,
+    )
+    with pytest.raises(InternalError) as galat:
+        logs.record(PRODUCT_ID, _record(output_tokens=10, input_tokens=None), NOW, NOW)
+    assert galat.value.status_code == 500
+    assert galat.value.code == "PRICE_NOT_CONFIGURED"
+    assert db_session.query(CallLog).count() == 0
+
+
+def test_summary_null_budget_uses_shared_monthly_limit():
+    from decimal import Decimal
+
+    from app.modules.runs.service import SummaryService
+
+    product = ProductInfo(
+        id=PRODUCT_ID,
+        name="Gemini",
+        measurement_type="automatic",
+        is_active=True,
+        provider_type="gemini_interactions",
+        model_name="gemini-2.5-flash",
+        monthly_budget_idr=None,
+        price_output_usd_per_mtok=Decimal("1"),
+    )
+    summary = SummaryService(
+        products=_Products(product),
+        cases=type("K", (), {"approved_counts": lambda self, ids: {"dev": 1}})(),
+        spend=type("S", (), {"spent_this_month_idr": lambda self, pid: Decimal("0")})(),
+        history=type("H", (), {"average_answer_tokens": lambda self, pid: Decimal("1")})(),
+        prices=type("P", (), {"usd_per_million_output_tokens": lambda self, a, b: Decimal("1")})(),
+        rates=_Rate(),
+        safety_margin_percent=Decimal("0"),
+        default_avg_answer_tokens=Decimal("1"),
+    )
+    assert summary._remaining_budget(product) == Decimal("500000.00")
+
+
+def test_rate_failure_does_not_save_an_attempt(db_session):
+    from app.modules.providers.adapters.base import ProviderResponse
+    from app.modules.runs.models import CallLog
+    from app.modules.runs.worker import run_session
+    from app.shared.exceptions import InternalError
+
+    class Boom:
+        def usd_idr(self):
+            raise InternalError(
+                "The USD to IDR exchange rate is not configured.",
+                code="EXCHANGE_RATE_NOT_CONFIGURED",
+            )
+
+    logs = CallLogService(
+        products=_Products(_product()),
+        repository=CallLogRepository(db_session),
+        rates=Boom(),
+        clock=lambda: NOW,
+    )
+
+    class Ask:
+        def ask(self, prompt, *, parameters=None, timeout=240.0):
+            return ProviderResponse(
+                text="jawab", model_version="m", latency_ms=1, raw={}, output_tokens=1
+            )
+
+    class Store:
+        def __init__(self):
+            self.attempts = []
+
+        def list_cases(self, session_id):
+            return ["satu"]
+
+        def save_attempt(self, record):
+            self.attempts.append(record)
+
+        def update_progress(self, session_id, *, completed, failed):
+            return None
+
+        def mark_status(self, session_id, status):
+            return None
+
+    store = Store()
+    with pytest.raises(InternalError):
+        run_session(uuid.uuid4(), store, Ask(), repeats=1, call_log=logs, product_id=PRODUCT_ID)
+    assert store.attempts == []
+    assert db_session.query(CallLog).count() == 0
