@@ -3,6 +3,8 @@
 import uuid
 from datetime import UTC, datetime, timedelta
 
+import pytest
+
 from app.modules.runs.call_log import CallLogService
 from app.modules.runs.ports import AttemptRecord
 from app.modules.runs.repository import CallLogRepository
@@ -201,3 +203,37 @@ def test_budget_stop_keeps_finished_rows_and_does_not_notify(db_session):
     assert len(store.attempts) == 1
     assert logs.allows(PRODUCT_ID) is False
     assert notes == []
+
+
+def test_spent_budget_returns_422(db_session):
+    from decimal import Decimal
+
+    from app.modules.runs import service as summary_service
+    from app.modules.runs.adapters import CallLogAnswerHistory, CallLogSpend
+    from app.modules.runs.schemas import SummaryRequest
+    from app.shared.exceptions import ValidationError
+
+    logs = _service(db_session)
+    logs.record(
+        PRODUCT_ID,
+        _record(input_tokens=None, output_tokens=32_000_000),
+        datetime.now(UTC),
+        datetime.now(UTC),
+    )
+    summary = summary_service.SummaryService(
+        products=_Products(_product()),
+        cases=type("K", (), {"approved_counts": lambda self, ids: {"dev": 1}})(),
+        spend=CallLogSpend(db_session),
+        history=CallLogAnswerHistory(db_session),
+        prices=type("P", (), {"usd_per_million_output_tokens": lambda self, a, b: Decimal("1")})(),
+        rates=_Rate(),
+        safety_margin_percent=Decimal("0"),
+        default_avg_answer_tokens=Decimal("500"),
+    )
+    with pytest.raises(ValidationError) as galat:
+        summary.summarize(
+            SummaryRequest(suite_ids=[uuid.uuid4()], product_id=PRODUCT_ID, repeat_count=1)
+        )
+    assert galat.value.status_code == 422
+    assert galat.value.code == "BUDGET_EXCEEDED"
+    assert CallLogAnswerHistory(db_session).average_answer_tokens(PRODUCT_ID) == Decimal("32000000")
