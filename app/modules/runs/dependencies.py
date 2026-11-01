@@ -6,9 +6,9 @@ from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.modules.runs.adapters import (
+    CallLogAnswerHistory,
+    CallLogSpend,
     CaseCountAdapter,
-    PendingAnswerHistory,
-    PendingSpend,
     ProductAdapter,
 )
 from app.modules.runs.exchange_rate import (
@@ -41,8 +41,8 @@ def get_summary_service(
     return SummaryService(
         products=ProductAdapter(db),
         cases=CaseCountAdapter(db),
-        spend=PendingSpend(),
-        history=PendingAnswerHistory(),
+        spend=CallLogSpend(db),
+        history=CallLogAnswerHistory(db),
         prices=ConfigPriceCatalog(settings.cost_model_prices),
         rates=rates,
         safety_margin_percent=settings.cost_safety_margin_percent,

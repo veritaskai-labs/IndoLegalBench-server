@@ -6,12 +6,16 @@ mereka, tidak lewat tabel atau repository.
 
 import uuid
 from collections.abc import Mapping
+from datetime import datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
 from app.modules.cases import service as cases_service
 from app.modules.providers import service as providers_service
+from app.modules.runs.call_log import month_start
+from app.modules.runs.repository import CallLogRepository
 from app.modules.runs.summary_ports import ProductInfo
 from app.modules.suites import service as suites_service
 from app.shared.exceptions import NotFoundError
@@ -58,15 +62,22 @@ class ProductAdapter:
         )
 
 
-class PendingSpend:
-    """Pengeluaran bulan ini. Log panggilan belum ada (SCRUM-209), jadi selalu nol."""
+class CallLogSpend:
+    """Pengeluaran bulan ini dari call_logs."""
 
-    def spent_this_month_idr(self, _product_id: uuid.UUID) -> Decimal:
-        return Decimal("0.00")
+    def __init__(self, db: Session) -> None:
+        self._rows = CallLogRepository(db)
+
+    def spent_this_month_idr(self, product_id: uuid.UUID) -> Decimal:
+        now = datetime.now(ZoneInfo("Asia/Jakarta"))
+        return self._rows.sum_cost_since(product_id, month_start(now))
 
 
-class PendingAnswerHistory:
-    """Panjang jawaban sebelumnya. Log panggilan belum ada (SCRUM-209), jadi kosong."""
+class CallLogAnswerHistory:
+    """Rata-rata token jawaban dari call_logs."""
 
-    def average_answer_tokens(self, _product_id: uuid.UUID) -> Decimal | None:
-        return None
+    def __init__(self, db: Session) -> None:
+        self._rows = CallLogRepository(db)
+
+    def average_answer_tokens(self, product_id: uuid.UUID) -> Decimal | None:
+        return self._rows.output_token_average(product_id)
