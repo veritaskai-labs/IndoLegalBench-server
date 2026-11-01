@@ -187,7 +187,10 @@ def _handle_integrity_error(exc: IntegrityError, product_name: str) -> NoReturn:
 
 
 def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate) -> AiProductRead:
-    product = _wajib_ada(db, product_id)
+    # Kunci baris produk sebelum cek riwayat (Jira SCRUM-200). Sesi yang sedang dibuat
+    # memegang kunci FK pada baris ini, jadi ganti jenis menunggu sesi itu commit dan
+    # cek riwayat di bawah melihatnya. Tanpa kunci, keduanya lolos dan jenisnya campur.
+    product = _wajib_ada(db, product_id, kunci=True)
     perubahan = payload.model_dump(exclude_unset=True)
     credential = perubahan.pop("credential", None)
     _filter_unchanged_nulls(perubahan)
@@ -314,8 +317,8 @@ def _enkripsi(plaintext: str) -> bytes:
         raise ValidationError(str(exc), field="credential") from None
 
 
-def _wajib_ada(db: Session, product_id: uuid.UUID) -> AiProduct:
-    product = repository.get_by_id(db, product_id)
+def _wajib_ada(db: Session, product_id: uuid.UUID, *, kunci: bool = False) -> AiProduct:
+    product = repository.get_by_id(db, product_id, for_update=kunci)
     if product is None:
         raise NotFoundError("Produk AI tidak ditemukan")
     return product
