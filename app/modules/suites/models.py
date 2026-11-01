@@ -61,7 +61,12 @@ class Suite(Base):
 
 
 class SuiteSnapshot(Base):
-    """One frozen point of a suite. Identified by created_at, not by a name."""
+    """One frozen point of a suite. Identified by created_at, not by a name.
+
+    Retired by PBI-11 AC7 (SCRUM-207, D2): no route writes or reads it any more,
+    and migration e4b7c2d9a615 moves the old manual rows to retired_* tables.
+    Snapshots are now taken automatically per measurement session.
+    """
 
     __tablename__ = "suite_snapshots"
     __table_args__ = (Index("ix_suite_snapshots_suite_id", "suite_id"),)
