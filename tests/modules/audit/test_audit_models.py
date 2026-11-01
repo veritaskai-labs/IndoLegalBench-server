@@ -167,4 +167,5 @@ def test_jenis_objek_sesuai_katalog():
         "suite",
         "ai_product",
         "user",
+        "call_log",
     }
