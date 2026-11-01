@@ -54,14 +54,29 @@ class CallLogService:
         spent = self._repository.sum_cost_since(product_id, month_start(self._clock()))
         return spent < monthly_limit(product)
 
+    def ensure_billable(self, product_id: uuid.UUID, record: AttemptRecord) -> Decimal:
+        """Kurs dan harga dicek sebelum attempt disimpan, supaya tidak ada baris yatim."""
+        rate = self._rates.usd_idr()
+        product = self._products.get(product_id)
+        actual_cost_idr(
+            input_tokens=record.input_tokens,
+            output_tokens=record.output_tokens,
+            usd_per_million_input_tokens=_side_price(product, "price_input_usd_per_mtok"),
+            usd_per_million_output_tokens=_side_price(product, "price_output_usd_per_mtok"),
+            usd_idr_rate=rate,
+        )
+        return rate
+
     def record(
         self,
         product_id: uuid.UUID,
         record: AttemptRecord,
         started: datetime,
         ended: datetime,
+        *,
+        usd_idr_rate: Decimal | None = None,
     ) -> CallLog:
-        rate = self._rates.usd_idr()
+        rate = self._rates.usd_idr() if usd_idr_rate is None else usd_idr_rate
         label, kind = technical_result(record)
         product = self._products.get(product_id)
         row = CallLog(
@@ -103,10 +118,10 @@ def technical_result(record: AttemptRecord) -> tuple[str, str | None]:
     return "ok", None
 
 
-def _side_price(product, field_name: str) -> Decimal:
+def _side_price(product, field_name: str) -> Decimal | None:
     if product is None:
-        return Decimal(0)
+        return None
     value = getattr(product, field_name)
     if value is None:
-        return Decimal(0)
+        return None
     return value
