@@ -237,3 +237,80 @@ def test_spent_budget_returns_422(db_session):
     assert galat.value.status_code == 422
     assert galat.value.code == "BUDGET_EXCEEDED"
     assert CallLogAnswerHistory(db_session).average_answer_tokens(PRODUCT_ID) == Decimal("32000000")
+
+
+def test_break_missing_partial_and_429_usage(db_session):
+    logs = _service(db_session)
+    missing = logs.record(PRODUCT_ID, _record(input_tokens=None, output_tokens=None), NOW, NOW)
+    partial = logs.record(PRODUCT_ID, _record(input_tokens=4, output_tokens=None), NOW, NOW)
+    rejected = logs.record(
+        PRODUCT_ID,
+        _record(
+            failure_kind="provider_error", input_tokens=1, output_tokens=0, raw={"status": 429}
+        ),
+        NOW,
+        NOW,
+    )
+    assert (
+        missing.input_tokens is None and missing.output_tokens is None and missing.cost_idr is None
+    )
+    assert partial.input_tokens == 4 and partial.output_tokens is None
+    assert partial.cost_idr is not None
+    assert rejected.failure_kind == "provider_error"
+    assert rejected.input_tokens == 1 and rejected.output_tokens == 0
+
+
+def test_break_month_boundary_is_midnight_wib(db_session):
+    from decimal import Decimal
+
+    from app.modules.runs.adapters import CallLogSpend
+    from app.modules.runs.call_log import month_start
+
+    logs = _service(db_session)
+    start = month_start(datetime.now(UTC))
+    before = start - timedelta(seconds=1)
+    logs.record(PRODUCT_ID, _record(output_tokens=1_000_000, input_tokens=0), before, before)
+    assert CallLogSpend(db_session).spent_this_month_idr(PRODUCT_ID) == Decimal("0.00")
+    logs.record(PRODUCT_ID, _record(output_tokens=1_000_000, input_tokens=0), start, start)
+    assert CallLogSpend(db_session).spent_this_month_idr(PRODUCT_ID) == Decimal("16000.00")
+
+
+def test_break_retries_count_in_the_failure_rate(db_session):
+    from decimal import Decimal
+
+    logs = _service(db_session)
+    logs.record(PRODUCT_ID, _record(), NOW, NOW)
+    logs.record(PRODUCT_ID, _record(failure_kind="empty"), NOW, NOW)
+    logs.record(PRODUCT_ID, _record(failure_kind="provider_error"), NOW, NOW)
+    assert logs.failure_rate(PRODUCT_ID) == Decimal("2") / Decimal("3")
+
+
+def test_gemini_and_deepseek_without_a_stored_budget_use_500000():
+    from decimal import Decimal
+
+    from app.modules.runs.call_log import monthly_limit
+
+    gemini = _product()
+    gemini = ProductInfo(
+        id=gemini.id,
+        name=gemini.name,
+        measurement_type=gemini.measurement_type,
+        is_active=True,
+        provider_type="gemini_interactions",
+        model_name="gemini-2.5-flash",
+        monthly_budget_idr=None,
+        price_output_usd_per_mtok=Decimal("1"),
+        price_input_usd_per_mtok=Decimal("1"),
+    )
+    deepseek = ProductInfo(
+        id=gemini.id,
+        name="DeepSeek",
+        measurement_type="automatic",
+        is_active=True,
+        provider_type="openai_compatible",
+        model_name="deepseek-chat",
+        monthly_budget_idr=None,
+        price_output_usd_per_mtok=Decimal("1"),
+    )
+    assert monthly_limit(gemini) == Decimal("500000.00")
+    assert monthly_limit(deepseek) == Decimal("500000.00")
