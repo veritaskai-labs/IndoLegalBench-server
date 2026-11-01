@@ -88,6 +88,12 @@ class CallLogService:
         self._repository.add(row)
         return row
 
+    def failure_rate(self, product_id: uuid.UUID) -> Decimal:
+        total, failed = self._repository.attempt_counts(product_id)
+        if total == 0:
+            return Decimal(0)
+        return Decimal(failed) / Decimal(total)
+
 
 def technical_result(record: AttemptRecord) -> tuple[str, str | None]:
     """Jenis kegagalan teknis saja. Teks jawaban salah bukan kegagalan teknis."""
