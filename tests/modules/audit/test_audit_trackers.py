@@ -734,3 +734,32 @@ def test_perubahan_profil_saat_login_tidak_dicatat():
     # Act + Assert
     assert "name" not in tracker.fields
     assert "zitadel_sub" not in tracker.fields
+
+
+def test_call_log_dicatat_sebagai_bukti():
+    product_id = uuid.uuid4()
+    attempt_id = uuid.uuid4()
+    tracker = tracker_for("call_logs")
+    assert tracker is not None
+    assert tracker.entity_type is AuditEntityType.CALL_LOG
+    event = _satu(
+        tracker.created(
+            _row(
+                product_id=product_id,
+                attempt_id=attempt_id,
+                result="provider_error",
+                failure_kind="provider_error",
+                cost_idr=Decimal("1.50"),
+                input_tokens=1,
+                output_tokens=0,
+                model_version="gemini-2.5-flash",
+                raw={"secret": "no"},
+            )
+        )
+    )
+    assert event.action == "call_log.created"
+    assert event.entity_id == ROW_ID
+    assert event.after["product_id"] == str(product_id)
+    assert event.after["attempt_id"] == str(attempt_id)
+    assert event.after["failure_kind"] == "provider_error"
+    assert "raw" not in event.after
