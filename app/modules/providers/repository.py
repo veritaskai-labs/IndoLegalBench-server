@@ -37,21 +37,6 @@ def get_by_name(db: Session, name: str) -> AiProduct | None:
     return db.query(AiProduct).filter(AiProduct.name == name).first()
 
 
-def has_measurement_sessions(db: Session, product_id: uuid.UUID) -> bool:
-    """Mengecek apakah produk sudah memiliki sesi pengukuran (riwayat).
-
-    Tabel measurement_sessions dibuat pada PBI-11. Fungsi ini memeriksa
-    keberadaan tabel terlebih dahulu secara aman agar tidak gagal bila tabel
-    belum dibuat.
-    """
-    bind = db.get_bind()
-    insp = sa.inspect(bind)
-    if "measurement_sessions" not in insp.get_table_names():
-        return False
-    query = sa.text("SELECT 1 FROM measurement_sessions WHERE product_id = :product_id LIMIT 1")
-    return db.execute(query, {"product_id": str(product_id)}).scalar() is not None
-
-
 def list_products(
     db: Session, *, is_active: bool | None, measurement_type: MeasurementType | None = None
 ) -> list[AiProduct]:

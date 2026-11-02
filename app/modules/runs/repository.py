@@ -1,13 +1,26 @@
-"""Query call_logs. Tanpa aturan bisnis."""
+"""Akses database modul runs.
+
+ATURAN: hanya runs/service.py yang boleh memanggil file ini. Modul lain
+tidak boleh mengimpor repository milik modul lain.
+
+Isi file ini murni query, tanpa logika bisnis.
+
+TODO(PBI-11, PBI-12, PBI-13): query lain menyusul sesuai kebutuhan service.
+"""
 
 import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import func, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.orm import Session
 
-from app.modules.runs.models import CallLog
+from app.modules.runs.models import CallLog, MeasurementSession
+
+
+def product_has_sessions(db: Session, product_id: uuid.UUID) -> bool:
+    """Sesi yang diarsipkan tetap terhitung: datanya tidak pernah dihapus (AC10)."""
+    return bool(db.scalar(select(exists().where(MeasurementSession.product_id == product_id))))
 
 
 class CallLogRepository:
