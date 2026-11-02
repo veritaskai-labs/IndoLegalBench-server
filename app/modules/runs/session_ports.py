@@ -32,7 +32,7 @@ class NewSession:
 class QueuedSession:
     id: uuid.UUID
     status: SessionStatus
-    queue_order: int
+    queued_at: datetime
 
 
 @dataclass(frozen=True)
@@ -79,7 +79,7 @@ class ProductCopy:
 
 class SessionQueueStore(Protocol):
     def create_queued(self, new: NewSession) -> QueuedSession:
-        """Simpan sesi berstatus queued dengan queue_order berikutnya (AC3, D3 langkah 21)."""
+        """Simpan sesi berstatus queued dengan queued_at sekarang (AC3, D3 langkah 21)."""
         raise NotImplementedError
 
     def running_exists(self) -> bool:
@@ -87,7 +87,7 @@ class SessionQueueStore(Protocol):
         raise NotImplementedError
 
     def oldest_queued(self) -> WaitingSession | None:
-        """Sesi queued dengan queue_order terkecil, atau None bila antrean kosong."""
+        """Sesi queued dengan queued_at paling awal, atau None bila antrean kosong."""
         raise NotImplementedError
 
     def start(

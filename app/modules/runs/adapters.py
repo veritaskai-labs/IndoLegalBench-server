@@ -153,8 +153,9 @@ class StoredSession:
     id: uuid.UUID
     new: NewSession
     status: SessionStatus
-    queue_order: int
     queued_at: datetime
+    # Urutan kedatangan, hanya pemecah seri saat queued_at sama.
+    arrival: int
     started_at: datetime | None = None
     snapshot: tuple[SnapshotItem, ...] = ()
     product_copy: ProductCopy | None = None
@@ -165,7 +166,7 @@ class InMemorySessionQueue:
 
     Hanya supaya POST /measurements bisa dicoba sebelum measurement_sessions
     ada: isinya hilang saat server restart dan tidak terbagi antar worker.
-    Lock menjaga queue_order tetap unik saat dua permintaan datang bersamaan.
+    Lock menjaga urutan kedatangan tetap unik saat dua permintaan datang bersamaan.
     """
 
     def __init__(self, clock: Callable[[], datetime] = _sekarang) -> None:
@@ -180,11 +181,11 @@ class InMemorySessionQueue:
                 id=uuid.uuid4(),
                 new=new,
                 status=SessionStatus.QUEUED,
-                queue_order=next(self._urutan),
                 queued_at=self._clock(),
+                arrival=next(self._urutan),
             )
             self._sesi[sesi.id] = sesi
-        return QueuedSession(id=sesi.id, status=sesi.status, queue_order=sesi.queue_order)
+        return QueuedSession(id=sesi.id, status=sesi.status, queued_at=sesi.queued_at)
 
     def running_exists(self) -> bool:
         return any(sesi.status == SessionStatus.RUNNING for sesi in self._sesi.values())
@@ -221,5 +222,5 @@ class InMemorySessionQueue:
         return self._sesi.get(session_id)
 
     def get_all(self) -> list[StoredSession]:
-        """Urut queue_order, yang paling lama menunggu lebih dulu."""
-        return sorted(self._sesi.values(), key=lambda sesi: sesi.queue_order)
+        """Urut queued_at, yang paling lama menunggu lebih dulu (D2)."""
+        return sorted(self._sesi.values(), key=lambda sesi: (sesi.queued_at, sesi.arrival))

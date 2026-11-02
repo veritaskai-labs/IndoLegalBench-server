@@ -7,6 +7,7 @@ TODO(PBI-11, PBI-12, PBI-13): definisikan schema sesuai kontrak.
 """
 
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
@@ -114,4 +115,5 @@ class StartResponse(BaseModel):
 
     session_id: uuid.UUID
     status: SessionStatus = Field(description="Selalu queued: worker yang menjalankan saat giliran")
-    queue_order: int = Field(description="Urutan masuk antrean, naik terus. Bukan posisi saat ini")
+    # Nama D2 (keputusan PO di #89): antrean FIFO diurutkan dengan queued_at.
+    queued_at: datetime = Field(description="Waktu masuk antrean; yang lebih awal jalan lebih dulu")

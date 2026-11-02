@@ -6873,17 +6873,18 @@
             "$ref": "#/components/schemas/SessionStatus",
             "description": "Selalu queued: worker yang menjalankan saat giliran"
           },
-          "queue_order": {
-            "type": "integer",
-            "title": "Queue Order",
-            "description": "Urutan masuk antrean, naik terus. Bukan posisi saat ini"
+          "queued_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Queued At",
+            "description": "Waktu masuk antrean; yang lebih awal jalan lebih dulu"
           }
         },
         "type": "object",
         "required": [
           "session_id",
           "status",
-          "queue_order"
+          "queued_at"
         ],
         "title": "StartResponse",
         "description": "Jawaban 201 tombol Mulai (D3 langkah 23)."

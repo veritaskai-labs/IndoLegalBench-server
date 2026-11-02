@@ -196,9 +196,7 @@ class StartSessionService:
                 created_by=created_by,
             )
         )
-        return StartResponse(
-            session_id=queued.id, status=queued.status, queue_order=queued.queue_order
-        )
+        return StartResponse(session_id=queued.id, status=queued.status, queued_at=queued.queued_at)
 
 
 def _sekarang() -> datetime:
