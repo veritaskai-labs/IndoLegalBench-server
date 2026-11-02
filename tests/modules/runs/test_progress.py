@@ -24,7 +24,8 @@ def _hitung(**ubah) -> progress.ProgressNumbers:
         "failed_calls": 12,
         "started_at": _MULAI,
         "now": _MULAI + timedelta(minutes=40),
-        "cost_so_far_idr": Decimal("120000.00"),
+        "running_cost_idr": Decimal("120000.00"),
+        "spent_this_month_idr": Decimal("120000.00"),
         "monthly_budget_idr": Decimal("500000.00"),
     }
     nilai.update(ubah)
