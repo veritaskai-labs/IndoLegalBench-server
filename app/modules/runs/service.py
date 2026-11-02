@@ -11,6 +11,7 @@ TODO(PBI-11, PBI-12, PBI-13): sisanya dikerjakan di tiket lain.
 
 import logging
 import uuid
+from dataclasses import asdict
 from collections.abc import Mapping
 from decimal import Decimal
 
@@ -18,7 +19,7 @@ from app.modules.runs.call_log import monthly_limit
 from app.modules.runs.cost_estimator import estimate_cost_idr
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.pricing import PriceCatalog
-from app.modules.runs.schemas import CaseFilter, SummaryRequest, SummaryResponse
+from app.modules.runs.schemas import CaseFilter, SummaryRequest, SummaryResponse, ProgressResponse
 from app.modules.runs.summary_ports import (
     AnswerLengthPort,
     CaseCountPort,
@@ -26,7 +27,12 @@ from app.modules.runs.summary_ports import (
     ProductPort,
     SpendPort,
 )
+
+from app.modules.runs.progress import compute_progress
+from app.modules.runs.progress_ports import SessionProgressPort
+
 from app.shared.exceptions import InternalError, NotFoundError, ValidationError
+
 
 logger = logging.getLogger(__name__)
 
@@ -155,3 +161,57 @@ class SummaryService:
         spent = self._spend.spent_this_month_idr(product.id)
         remaining = max(monthly_limit(product) - spent, Decimal("0"))
         return remaining.quantize(_CENT)
+
+class ProgressService:
+    """Angka layar progres satu pengukuran (PBI-12 AC5, AC6).
+
+    Semua yang berubah-ubah masuk lewat port, jadi service ini tidak
+    mengenal tabel maupun HTTP. Dirancang untuk di-poll tiap beberapa
+    detik: satu agregasi sesi, satu produk, satu angka pemakaian bulan ini.
+    """
+
+    def __init__(
+        self,
+        *,
+        sessions: SessionProgressPort,
+        products: ProductPort,
+        spend: SpendPort,
+    ) -> None:
+        self._sessions = sessions
+        self._products = products
+        self._spend = spend
+
+    def read(self, measurement_id: uuid.UUID) -> ProgressResponse:
+        """Hitungan sesi menjadi angka yang dibaca layar progres."""
+        hitungan = self._sessions.progress(measurement_id)
+        if hitungan is None:
+            raise NotFoundError(
+                "Pengukuran tidak ditemukan.",
+                code="MEASUREMENT_NOT_FOUND",
+            )
+        produk = self._products.get(hitungan.product_id)
+        if produk is None:
+            raise NotFoundError(
+                "Produk AI tidak ditemukan.",
+                code="AI_PRODUCT_NOT_FOUND",
+            )
+        if produk.monthly_budget_idr is None:
+            raise InternalError(
+                "Monthly budget is not configured for this product.",
+                code="BUDGET_NOT_CONFIGURED",
+            )
+        angka = compute_progress(
+            total_calls=hitungan.total_calls,
+            completed_calls=hitungan.completed_calls,
+            failed_calls=hitungan.failed_calls,
+            started_at=hitungan.started_at,
+            now=hitungan.updated_at,
+            running_cost_idr=hitungan.running_cost_idr,
+            monthly_budget_idr=produk.monthly_budget_idr,
+            spent_this_month_idr=self._spend.spent_this_month_idr(produk.id),
+        )
+        return ProgressResponse(
+            **asdict(angka),
+            started_at=hitungan.started_at,
+            updated_at=hitungan.updated_at,
+        )

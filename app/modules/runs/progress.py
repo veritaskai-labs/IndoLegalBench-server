@@ -38,17 +38,19 @@ def compute_progress(
     failed_calls: int,
     started_at: datetime,
     now: datetime,
-    cost_so_far_idr: Decimal,
+    running_cost_idr: Decimal,
     monthly_budget_idr: Decimal,
+    spent_this_month_idr: Decimal,
 ) -> ProgressNumbers:
     """Angka yang dibaca layar progres.
 
     Persen gagal dihitung dari panggilan yang sudah selesai, bukan dari
     total, supaya angkanya berarti sejak awal pengukuran. Perkiraan sisa
     waktu memakai kecepatan rata-rata sejauh ini dan dibulatkan ke atas
-    supaya tidak menjanjikan lebih cepat dari kenyataan. Angka yang tidak
-    masuk akal hanya bisa datang dari agregasi yang rusak, jadi hasilnya
-    500, bukan 422.
+    supaya tidak menjanjikan lebih cepat dari kenyataan. Sisa anggaran
+    memakai pemakaian sebulan, bukan biaya sesi ini saja, karena satu
+    bulan bisa berisi beberapa sesi. Angka yang tidak masuk akal hanya
+    bisa datang dari agregasi yang rusak, jadi hasilnya 500, bukan 422.
     """
     _require_valid_inputs(
         total_calls=total_calls,
@@ -56,8 +58,9 @@ def compute_progress(
         failed_calls=failed_calls,
         started_at=started_at,
         now=now,
-        cost_so_far_idr=cost_so_far_idr,
+        running_cost_idr=running_cost_idr,
         monthly_budget_idr=monthly_budget_idr,
+        spent_this_month_idr=spent_this_month_idr,
     )
     return ProgressNumbers(
         completed_calls=completed_calls,
@@ -71,13 +74,13 @@ def compute_progress(
             started_at=started_at,
             now=now,
         ),
-        running_cost_idr=cost_so_far_idr.quantize(_CENT),
-        remaining_budget_idr=(monthly_budget_idr - cost_so_far_idr).quantize(_CENT),
+        running_cost_idr=running_cost_idr.quantize(_CENT),
+        remaining_budget_idr=(monthly_budget_idr - spent_this_month_idr).quantize(_CENT),
     )
 
 
 def _percent(bagian: int, keseluruhan: int) -> Decimal:
-    """Nol pembagi berarti belum ada apa-apa untuk dipersentasekan."""
+    """Nol pembagi berarti belum ada apa pun untuk dipersentasekan."""
     if keseluruhan == 0:
         return Decimal("0.0")
     hasil = Decimal(bagian) / Decimal(keseluruhan) * _ONE_HUNDRED
@@ -109,8 +112,9 @@ def _require_valid_inputs(
     failed_calls: int,
     started_at: datetime,
     now: datetime,
-    cost_so_far_idr: Decimal,
+    running_cost_idr: Decimal,
     monthly_budget_idr: Decimal,
+    spent_this_month_idr: Decimal,
 ) -> None:
     """Jumlah tidak boleh negatif, dan tidak boleh melebihi induknya."""
     salah = (
@@ -119,8 +123,9 @@ def _require_valid_inputs(
         or failed_calls < 0
         or completed_calls > total_calls
         or failed_calls > completed_calls
-        or cost_so_far_idr < 0
+        or running_cost_idr < 0
         or monthly_budget_idr < 0
+        or spent_this_month_idr < 0
         or now < started_at
     )
     if salah:
