@@ -25,13 +25,13 @@ from pathlib import Path
 import pytest
 from alembic import command
 from alembic.config import Config
+from alembic.script import ScriptDirectory
 from sqlalchemy import create_engine, text
 
 from app.shared.config import get_settings
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "")
 SEBELUM = "b19c5e7d2a41"  # pragma: allowlist secret (revision id)
-HEAD = "d3c8a1e54b20"  # pragma: allowlist secret (revision id)
 IZIN_HAPUS_MANUAL = "ALLOW_MANUAL_PRODUCT_LOSS"
 ROOT = Path(__file__).resolve().parents[2]
 # Kolom ai_products sebelum PBI-23, yang semuanya harus utuh setelah migrasi (AC5).
@@ -268,8 +268,10 @@ def test_rollback_ditolak_selama_masih_ada_produk_manual(alembic_cfg, engine, mo
     # Assert
     pesan = str(galat.value)
     assert "produk Manual" in pesan and IZIN_HAPUS_MANUAL in pesan
+    # Head dibaca dari skrip migrasi, supaya tes tidak rusak saat migrasi baru ditambahkan.
+    head = ScriptDirectory.from_config(alembic_cfg).get_current_head()
     with engine.connect() as conn:
-        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == HEAD
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == head
         assert _nama(conn, manual) is not None
 
 
