@@ -6,6 +6,13 @@ measurement_session_suites. Antrean FIFO menurut queued_at; sesi yang berjalan,
 selesai, diarsipkan, atau manual tidak ikut antre. SessionQueueRepository
 memenuhi port SessionQueueStore, jadi service dan router tidak berubah.
 
+Saat giliran tiba (AC2, AC6, D3 langkah 25-28), start() dalam satu transaksi:
+status running, snapshot kasus, salinan produk tanpa kredensial, dan attempts
+pending untuk setiap kasus x pengulangan. Bila sesi lain sudah running, partial
+index menolak, semuanya dibatalkan, dan start() menjawab False. Galat lain tidak
+disembunyikan. Perilaku trigger PostgreSQL diuji di
+tests/integration/test_session_queue_repository_pg.py.
+
 Database uji SQLite: FK tidak ditegakkan, jadi produk dan suite cukup id acak.
 Partial unique index "satu sesi otomatis running" milik #89 tetap aktif.
 
@@ -15,14 +22,22 @@ Edge = batas perilaku.
 
 import uuid
 from datetime import UTC, datetime, timedelta
+from decimal import Decimal
 
 import pytest
-from sqlalchemy import select
+from sqlalchemy import func, select, text
+from sqlalchemy.exc import IntegrityError
 
 from app.modules.runs import repository, schemas, session_ports
 from app.modules.runs.models import (
+    Attempt,
+    AttemptSource,
+    AttemptStatus,
+    CaseSnapshot,
+    CaseSnapshotItem,
     MeasurementSession,
     MeasurementSessionSuite,
+    SessionProductCopy,
     SessionStatus,
     SessionType,
 )
@@ -189,3 +204,206 @@ def test_tanpa_jam_suntikan_queued_at_memakai_utc_sekarang(db_session):
     # Assert
     assert hasil.queued_at.tzinfo is UTC
     assert hasil.queued_at >= sebelum
+
+
+MULAI = JAM + timedelta(hours=1)
+
+
+def _item(kode: str, tag: str = "dev") -> session_ports.SnapshotItem:
+    return session_ports.SnapshotItem(
+        case_id=uuid.uuid5(uuid.NAMESPACE_URL, kode),
+        case_version_id=uuid.uuid5(uuid.NAMESPACE_DNS, kode),
+        split_tag=tag,
+        content={"version_no": 1, "sections": {"case_code": kode, "split_tag": tag}},
+    )
+
+
+ITEMS = [_item("PHK-001"), _item("PHK-002")]
+
+
+def _salinan(**ubah) -> session_ports.ProductCopy:
+    nilai = {
+        "product_id": PRODUCT_ID,
+        "name": "AiYU",
+        "measurement_type": "automatic",
+        "provider_type": "openai_compatible",
+        "base_url": "https://api.example.test/v1/chat/completions",
+        "model_name": "deepseek-flash",
+        "model_params": {"temperature": 0.3},
+        "rate_limit_per_minute": 30,
+        "price_input_usd_per_mtok": Decimal("1.0000"),
+        "price_output_usd_per_mtok": Decimal("10.0000"),
+        "monthly_budget_idr": Decimal("500000.00"),
+    }
+    nilai.update(ubah)
+    return session_ports.ProductCopy(**nilai)
+
+
+def _jumlah(db_session, model, session_id) -> int:
+    return db_session.scalar(
+        select(func.count()).select_from(model).where(model.session_id == session_id)
+    )
+
+
+def test_start_menjalankan_sesi_dengan_snapshot_salinan_dan_percobaan(antrean, db_session):
+    """Positif: AC2, AC6, D3 langkah 25-28, semuanya tercatat untuk sesi ini."""
+    # Arrange
+    sesi = antrean.create_queued(_baru(repetitions=3))
+
+    # Act
+    berhasil = antrean.start(sesi.id, items=ITEMS, product=_salinan(), started_at=MULAI)
+
+    # Assert
+    assert berhasil is True
+    baris = db_session.get(MeasurementSession, sesi.id)
+    assert baris.status == SessionStatus.RUNNING
+    assert baris.started_at.replace(tzinfo=UTC) == MULAI
+    snapshot = db_session.scalars(
+        select(CaseSnapshot).where(CaseSnapshot.session_id == sesi.id)
+    ).one()
+    items = db_session.scalars(
+        select(CaseSnapshotItem).where(CaseSnapshotItem.snapshot_id == snapshot.id)
+    ).all()
+    assert {(i.case_id, i.case_version_id) for i in items} == {
+        (item.case_id, item.case_version_id) for item in ITEMS
+    }
+    assert {i.body["sections"]["case_code"] for i in items} == {"PHK-001", "PHK-002"}
+
+
+def test_salinan_produk_tersimpan_tanpa_kredensial(antrean, db_session):
+    """Positif: AC6, data produk saat sesi berjalan disalin, kredensial tidak ada kolomnya."""
+    # Arrange
+    sesi = antrean.create_queued(_baru())
+
+    # Act
+    antrean.start(sesi.id, items=ITEMS, product=_salinan(), started_at=MULAI)
+
+    # Assert
+    salinan = db_session.scalars(
+        select(SessionProductCopy).where(SessionProductCopy.session_id == sesi.id)
+    ).one()
+    assert (salinan.product_id, salinan.name, salinan.model_name) == (
+        PRODUCT_ID,
+        "AiYU",
+        "deepseek-flash",
+    )
+    assert (salinan.measurement_type, salinan.provider_type) == ("automatic", "openai_compatible")
+    assert salinan.base_url == "https://api.example.test/v1/chat/completions"
+    assert salinan.model_params == {"temperature": 0.3}
+    assert salinan.price_output_usd_per_mtok == Decimal("10.0000")
+    assert salinan.monthly_budget_idr == Decimal("500000.00")
+    assert salinan.model_version_at_start is None
+
+
+def test_parameter_model_kosong_tersimpan_sebagai_null_bukan_json_null(antrean, db_session):
+    """Edge: produk tanpa model_params memakai bawaan penyedia; kolomnya NULL, bukan 'null'."""
+    # Arrange
+    sesi = antrean.create_queued(_baru())
+
+    # Act
+    antrean.start(sesi.id, items=ITEMS, product=_salinan(model_params=None), started_at=MULAI)
+
+    # Assert
+    kosong = db_session.execute(
+        text("SELECT model_params IS NULL FROM session_product_copies WHERE session_id = :id"),
+        {"id": sesi.id.hex},
+    ).scalar_one()
+    assert kosong == 1
+
+
+def test_percobaan_pending_untuk_setiap_kasus_dan_pengulangan(antrean, db_session):
+    """Positif: D3 langkah 28, satu attempt per kasus x repetition_no 1..n, otomatis dan pending."""
+    # Arrange
+    sesi = antrean.create_queued(_baru(repetitions=3))
+
+    # Act
+    antrean.start(sesi.id, items=ITEMS, product=_salinan(), started_at=MULAI)
+
+    # Assert
+    percobaan = db_session.scalars(select(Attempt).where(Attempt.session_id == sesi.id)).all()
+    assert len(percobaan) == 6
+    per_item: dict[uuid.UUID, list[int]] = {}
+    for satu in percobaan:
+        per_item.setdefault(satu.snapshot_item_id, []).append(satu.repetition_no)
+        assert satu.status == AttemptStatus.PENDING
+        assert satu.source == AttemptSource.AUTOMATIC
+        assert satu.answer_text is None
+    assert sorted(sorted(nomor) for nomor in per_item.values()) == [[1, 2, 3], [1, 2, 3]]
+
+
+def test_start_ditolak_saat_sesi_otomatis_lain_running_dan_tidak_meninggalkan_apa_pun(
+    db_session,
+):
+    """Negatif: AC3, partial index menolak; sesi kedua tetap Menunggu tanpa snapshot sisa."""
+    # Arrange
+    antrean = repository.SessionQueueRepository(
+        db_session, clock=_jam(JAM, JAM + timedelta(minutes=1))
+    )
+    pertama = antrean.create_queued(_baru("Pertama"))
+    kedua = antrean.create_queued(_baru("Kedua"))
+    antrean.start(pertama.id, items=ITEMS, product=_salinan(), started_at=MULAI)
+
+    # Act
+    berhasil = antrean.start(kedua.id, items=ITEMS, product=_salinan(), started_at=MULAI)
+
+    # Assert
+    assert berhasil is False
+    assert db_session.get(MeasurementSession, kedua.id).status == SessionStatus.QUEUED
+    for model in (CaseSnapshot, SessionProductCopy, Attempt):
+        assert _jumlah(db_session, model, kedua.id) == 0
+
+
+@pytest.mark.parametrize("keadaan", ["running", "arsip", "tidak_ada"])
+def test_start_hanya_untuk_sesi_otomatis_yang_masih_menunggu(antrean, db_session, keadaan):
+    """Edge: sesi yang sudah jalan, diarsipkan, atau tidak ada tidak dimulai lagi."""
+    # Arrange
+    sesi = antrean.create_queued(_baru())
+    sesi_id = sesi.id
+    if keadaan == "running":
+        antrean.start(sesi_id, items=ITEMS, product=_salinan(), started_at=MULAI)
+    elif keadaan == "arsip":
+        baris = db_session.get(MeasurementSession, sesi_id)
+        baris.archived_at, baris.archived_by = JAM, ADMIN_ID
+        db_session.commit()
+    else:
+        sesi_id = uuid.uuid4()
+    sebelum = _jumlah(db_session, Attempt, sesi_id)
+
+    # Act
+    berhasil = antrean.start(sesi_id, items=ITEMS, product=_salinan(), started_at=MULAI)
+
+    # Assert
+    assert berhasil is False
+    assert _jumlah(db_session, Attempt, sesi_id) == sebelum
+
+
+def test_snapshot_kosong_tetap_mulai_tanpa_percobaan(antrean, db_session):
+    """Edge: tidak ada kasus layak saat giliran tiba; sesi jalan dengan snapshot kosong.
+
+    Mengakhirinya sebagai failed adalah status D4 milik PBI-12.
+    """
+    # Arrange
+    sesi = antrean.create_queued(_baru())
+
+    # Act
+    berhasil = antrean.start(sesi.id, items=[], product=_salinan(), started_at=MULAI)
+
+    # Assert
+    assert berhasil is True
+    assert _jumlah(db_session, CaseSnapshot, sesi.id) == 1
+    assert _jumlah(db_session, Attempt, sesi.id) == 0
+
+
+def test_galat_data_lain_tidak_disembunyikan_dan_sesi_tetap_menunggu(antrean, db_session):
+    """Negatif: kasus ganda di snapshot bukan soal antrean; galatnya naik, semuanya dibatalkan."""
+    # Arrange
+    sesi = antrean.create_queued(_baru())
+    ganda = [ITEMS[0], ITEMS[0]]
+
+    # Act
+    with pytest.raises(IntegrityError):
+        antrean.start(sesi.id, items=ganda, product=_salinan(), started_at=MULAI)
+
+    # Assert
+    assert db_session.get(MeasurementSession, sesi.id).status == SessionStatus.QUEUED
+    assert _jumlah(db_session, CaseSnapshot, sesi.id) == 0
