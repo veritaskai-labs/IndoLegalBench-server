@@ -97,6 +97,8 @@ class SummaryService:
             usd_per_million_output_tokens=self._output_price(product),
             usd_idr_rate=self._rates.usd_idr(),
             safety_margin_percent=self._margin,
+            total_input_tokens=0,
+            usd_per_million_input_tokens=Decimal(0),
         )
         remaining = self._remaining_budget(product)
         if cost > remaining:
