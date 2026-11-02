@@ -15,6 +15,7 @@ PBI-23 SCRUM-177 (SCRUM-200):
 - Index ix_ai_products_type_active (C4)
 """
 
+import logging
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -34,6 +35,26 @@ measurement_type_enum = postgresql.ENUM(
 )
 
 _JSONB = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
+
+log = logging.getLogger("alembic.runtime.migration")
+
+# Produk terhapus yang namanya juga dipakai produk lain (Sprint 2 mengizinkan nama dipakai ulang)
+# mendapat akhiran id. Nama awal dipotong ke 181 karakter supaya muat di VARCHAR(200).
+# Laporan dan UPDATE memakai ekspresi dan syarat yang sama; ditulis utuh, tanpa format string.
+_SQL_NAMA_DIGANTI = """
+    SELECT id, name,
+           substr(name, 1, 181) || ' (dihapus ' || substr(cast(id as text), 1, 8) || ')'
+    FROM ai_products
+    WHERE deleted_at IS NOT NULL
+      AND name IN (SELECT name FROM ai_products GROUP BY name HAVING count(*) > 1)
+    ORDER BY name, id
+"""
+_SQL_GANTI_NAMA = """
+    UPDATE ai_products
+    SET name = substr(name, 1, 181) || ' (dihapus ' || substr(cast(id as text), 1, 8) || ')'
+    WHERE deleted_at IS NOT NULL
+      AND name IN (SELECT name FROM ai_products GROUP BY name HAVING count(*) > 1)
+"""
 
 C1_CHECK_SQL = """(
     measurement_type = 'automatic'
@@ -75,19 +96,9 @@ def upgrade() -> None:
 
     # 1. Bersihkan duplikat nama dari produk soft-deleted (Sprint 2 mengizinkan reuse nama setelah delete)
     # Ubah nama produk yang sudah dihapus agar constraint unik global (C3) dapat dipasang dengan aman.
-    # Batasi panjang nama awal ke 181 karakter agar total panjang dengan akhiran tidak melebihi VARCHAR(200).
-    bind.execute(
-        sa.text(
-            """
-            UPDATE ai_products
-            SET name = substr(name, 1, 181) || ' (dihapus ' || substr(cast(id as text), 1, 8) || ')'
-            WHERE deleted_at IS NOT NULL
-              AND name IN (
-                  SELECT name FROM ai_products GROUP BY name HAVING count(*) > 1
-              )
-            """
-        )
-    )
+    # SCRUM-245: setiap penggantian dilaporkan sebelum constraint dipasang.
+    _laporkan_nama_diganti(bind)
+    bind.execute(sa.text(_SQL_GANTI_NAMA))
 
     # Cek apakah masih ada nama ganda di antara produk yang sama-sama aktif
     duplicates = bind.execute(
@@ -285,3 +296,10 @@ def downgrade() -> None:
         postgresql_where=sa.text("deleted_at IS NULL"),
     )
 
+
+def _laporkan_nama_diganti(bind) -> None:
+    """WARN per produk terhapus yang namanya diganti, lalu jumlahnya (SCRUM-245)."""
+    baris = bind.execute(sa.text(_SQL_NAMA_DIGANTI)).fetchall()
+    for product_id, lama, baru in baris:
+        log.warning("Nama produk terhapus diganti: '%s' -> '%s' (id %s)", lama, baru, product_id)
+    log.warning("%d nama produk terhapus diganti sebelum uq_ai_products_name dipasang", len(baris))
