@@ -115,6 +115,11 @@ class MeasurementSession(Base):
             "AND length(trim(coalesce(accepted_as_is_reason, ''))) > 0)",
             name="ck_measurement_sessions_accepted_as_is_complete",
         ),
+        # Baris arsip disembunyikan SCRUM-210, jadi tidak boleh memegang slot runner.
+        CheckConstraint(
+            "NOT (status = 'running' AND archived_at IS NOT NULL)",
+            name="ck_measurement_sessions_running_not_archived",
+        ),
         Index("ix_measurement_sessions_product_id", "product_id"),
         # Satu sesi otomatis berjalan (AC3). Parsial di kedua dialek: tanpa
         # sqlite_where, SQLite membuatnya UNIQUE penuh pada session_type.

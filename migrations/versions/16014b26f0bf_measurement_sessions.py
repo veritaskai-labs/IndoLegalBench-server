@@ -142,6 +142,11 @@ def upgrade() -> None:
             "AND length(trim(coalesce(accepted_as_is_reason, ''))) > 0)",
             name="ck_measurement_sessions_accepted_as_is_complete",
         ),
+        # Baris arsip disembunyikan SCRUM-210, jadi tidak boleh memegang slot runner.
+        sa.CheckConstraint(
+            "NOT (status = 'running' AND archived_at IS NOT NULL)",
+            name="ck_measurement_sessions_running_not_archived",
+        ),
     )
     op.create_index("ix_measurement_sessions_product_id", "measurement_sessions", ["product_id"])
     # Satu sesi otomatis berjalan. Sesi otomatis lain menunggu, sesi manual tidak dibatasi.
@@ -178,6 +183,30 @@ def upgrade() -> None:
             CREATE TRIGGER measurement_sessions_block_truncate
             BEFORE TRUNCATE ON measurement_sessions
             FOR EACH STATEMENT EXECUTE FUNCTION measurement_sessions_forbid_delete()
+            """
+        )
+        # Setelah keluar dari queued, sesi sudah mengukur. Jenisnya tidak boleh
+        # berubah: sesi otomatis berjalan yang diubah jadi manual keluar dari
+        # indeks satu-runner dan membiarkan sesi otomatis kedua berjalan.
+        op.execute(
+            """
+            CREATE FUNCTION measurement_sessions_guard_update() RETURNS trigger AS $$
+            BEGIN
+                IF OLD.status <> 'queued'
+                   AND NEW.session_type IS DISTINCT FROM OLD.session_type THEN
+                    RAISE EXCEPTION 'session_type of a started session cannot change'
+                        USING ERRCODE = 'insufficient_privilege';
+                END IF;
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql
+            """
+        )
+        op.execute(
+            """
+            CREATE TRIGGER measurement_sessions_guard_update
+            BEFORE UPDATE ON measurement_sessions
+            FOR EACH ROW EXECUTE FUNCTION measurement_sessions_guard_update()
             """
         )
 
@@ -373,5 +402,6 @@ def downgrade() -> None:
         op.execute("DROP FUNCTION IF EXISTS attempts_protect_answer()")
         op.execute("DROP FUNCTION IF EXISTS case_snapshots_forbid_change()")
         op.execute("DROP FUNCTION IF EXISTS measurement_sessions_forbid_delete()")
+        op.execute("DROP FUNCTION IF EXISTS measurement_sessions_guard_update()")
         for enum in reversed(_ENUMS):
             enum.drop(bind, checkfirst=True)

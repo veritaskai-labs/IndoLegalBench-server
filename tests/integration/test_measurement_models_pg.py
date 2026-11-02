@@ -33,6 +33,7 @@ TABEL_205 = {
 }
 FUNGSI_205 = {
     "measurement_sessions_forbid_delete",
+    "measurement_sessions_guard_update",
     "case_snapshots_forbid_change",
     "attempts_protect_answer",
 }
