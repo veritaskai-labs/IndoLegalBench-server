@@ -16,6 +16,7 @@ from sqlalchemy import create_engine, text
 
 from tests.measurement_pg import (
     CHECK_VIOLATION,
+    FOREIGN_KEY_VIOLATION,
     INSUFFICIENT_PRIVILEGE,
     INVALID_TEXT_REPRESENTATION,
     UNIQUE_VIOLATION,
@@ -220,4 +221,88 @@ def test_percobaan_tidak_bisa_dihapus(conn, sesi_id, item_id, perintah):
     sqlstate = sqlstate_penolakan(conn, perintah, {"id": percobaan_id})
 
     assert sqlstate == INSUFFICIENT_PRIVILEGE
+    assert _baris(conn, percobaan_id) == ("succeeded", JAWABAN)
+
+
+# Percobaan terikat pada sesi dan item snapshotnya
+
+
+def test_item_snapshot_sesi_lain_ditolak(conn, produk_id, admin_id, sesi_id):
+    """Review #89 blocker 5: jawaban di sesi A untuk kasus dari snapshot sesi B tidak
+    tertelusur ke apa yang diukur sesi A."""
+    sesi_lain = buat_sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
+    item_sesi_lain = buat_item_snapshot(conn, sesi_lain, admin_id)
+
+    sqlstate = _ditolak(conn, sesi_id=sesi_id, item_id=item_sesi_lain)
+
+    assert sqlstate == FOREIGN_KEY_VIOLATION
+
+
+@pytest.mark.parametrize(
+    "isian",
+    [
+        "session_id = :sesi_lain",
+        "snapshot_item_id = :item_lain",
+        "model_version = 'model-lain-2026-11'",
+    ],
+    ids=["sesi", "item-snapshot", "versi-model"],
+)
+def test_baris_jawaban_yang_sudah_ada_tidak_bisa_dipindah(
+    conn, produk_id, admin_id, sesi_id, item_id, isian
+):
+    """Review #89 blocker 5: jawaban permanen tidak berarti kalau barisnya bisa
+    dipindah ke sesi, kasus, atau versi model lain."""
+    percobaan_id = _percobaan(conn, sesi_id, item_id)
+    conn.execute(
+        text(
+            "UPDATE attempts SET answer_text = :jawaban, model_version = 'model-uji-2026-10', "
+            "status = 'succeeded' WHERE id = :id"
+        ),
+        {"jawaban": JAWABAN, "id": percobaan_id},
+    )
+    sesi_lain = buat_sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
+
+    sqlstate = sqlstate_penolakan(
+        conn,
+        f"UPDATE attempts SET {isian} WHERE id = :id",
+        {
+            "id": percobaan_id,
+            "sesi_lain": sesi_lain,
+            "item_lain": buat_item_snapshot(conn, sesi_id, admin_id),
+        },
+    )
+
+    assert sqlstate == INSUFFICIENT_PRIVILEGE
+    baris = conn.execute(
+        text("SELECT session_id, snapshot_item_id, model_version FROM attempts WHERE id = :id"),
+        {"id": percobaan_id},
+    ).one()
+    assert tuple(baris) == (sesi_id, item_id, "model-uji-2026-10")
+
+
+def test_versi_model_ditulis_bersama_jawaban(conn, sesi_id, item_id):
+    """Guard: sebelum jawaban ada, worker masih mengisi versi model."""
+    percobaan_id = _percobaan(conn, sesi_id, item_id)
+
+    conn.execute(
+        text("UPDATE attempts SET model_version = 'model-uji-2026-10' WHERE id = :id"),
+        {"id": percobaan_id},
+    )
+    _jawab(conn, percobaan_id)
+
+    versi = conn.execute(
+        text("SELECT model_version FROM attempts WHERE id = :id"), {"id": percobaan_id}
+    ).scalar_one()
+    assert versi == "model-uji-2026-10"
+
+
+@pytest.mark.parametrize("kosong", ["", "   "], ids=["string-kosong", "hanya-spasi"])
+def test_jawaban_kosong_belum_dihitung_tertulis(conn, sesi_id, item_id, kosong):
+    """Review #89 blocker 5: jawaban kosong mengunci percobaan tanpa isi, lalu jawaban
+    asli ditolak 42501. Kosong dianggap belum ditulis."""
+    percobaan_id = _percobaan(conn, sesi_id, item_id)
+    conn.execute(text(UBAH_JAWABAN), {"jawaban": kosong, "id": percobaan_id})
+
+    _jawab(conn, percobaan_id)
+
     assert _baris(conn, percobaan_id) == ("succeeded", JAWABAN)
