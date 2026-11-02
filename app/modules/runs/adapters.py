@@ -1,11 +1,11 @@
-"""Port nyata untuk ringkasan sesi pengukuran (PBI-11, SCRUM-206).
+"""Port nyata untuk ringkasan sesi pengukuran (PBI-11, SCRUM-206, SCRUM-244).
 
 Modul runs hanya menjangkau cases, suites, dan providers lewat fungsi service
 mereka, tidak lewat tabel atau repository.
 """
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from datetime import datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
@@ -31,6 +31,21 @@ class CaseCountAdapter:
         suites_service.require_existing(self._db, suite_ids)
         counts = cases_service.count_approved_by_split(self._db, suite_ids)
         return {split.value: total for split, total in counts.items()}
+
+
+class CaseTextAdapter:
+    """Teks pertanyaan approved per split tag, setelah memastikan semua suite ada.
+
+    Modul runs tidak membaca tabel cases. Pertanyaan diambil dari service cases.
+    """
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def approved_texts(self, suite_ids: set[uuid.UUID]) -> Mapping[str, Sequence[str]]:
+        suites_service.require_existing(self._db, suite_ids)
+        texts = cases_service.approved_questions_by_split(self._db, suite_ids)
+        return {split.value: questions for split, questions in texts.items()}
 
 
 class ProductAdapter:
