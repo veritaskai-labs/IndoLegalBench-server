@@ -27,8 +27,8 @@ class ProgressNumbers:
     failed_calls: int
     percent_failed: Decimal
     remaining_seconds: int | None
-    cost_so_far_idr: Decimal
-    budget_remaining_idr: Decimal
+    running_cost_idr: Decimal
+    remaining_budget_idr: Decimal
 
 
 def compute_progress(
@@ -71,8 +71,8 @@ def compute_progress(
             started_at=started_at,
             now=now,
         ),
-        cost_so_far_idr=cost_so_far_idr.quantize(_CENT),
-        budget_remaining_idr=(monthly_budget_idr - cost_so_far_idr).quantize(_CENT),
+        running_cost_idr=cost_so_far_idr.quantize(_CENT),
+        remaining_budget_idr=(monthly_budget_idr - cost_so_far_idr).quantize(_CENT),
     )
 
 
