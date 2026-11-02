@@ -511,16 +511,15 @@ def test_schemas_site_url_and_prices_and_model_params():
     valid_price = AiProductUpdate(price_input_usd_per_mtok=Decimal("15.5000"))
     assert valid_price.price_input_usd_per_mtok == Decimal("15.5000")
 
-    # model_params rejects extra fields and invalid values
+    # SCRUM-247: model_params is a free JSON object; anything else is rejected
     with pytest.raises(PydanticValidationError):
-        ModelParams.model_validate({"rm_rf": True})
+        ModelParams.model_validate(["temperature", 0.3])
 
     with pytest.raises(PydanticValidationError):
-        ModelParams(temperature=3.5)
+        ModelParams.model_validate("temperature=0.3")
 
-    valid_params = ModelParams(temperature=0.7, effort="medium", thinking=True, web_search=False)
-    assert valid_params.temperature == 0.7
-    assert valid_params.effort == "medium"
+    valid_params = ModelParams.model_validate({"temperature": 0.7, "rm_rf": True})
+    assert valid_params.root == {"temperature": 0.7, "rm_rf": True}
 
 
 def test_update_product_same_measurement_type_branch(db_session):

@@ -384,6 +384,13 @@ run the downgrade again with `ALLOW_MANUAL_PRODUCT_LOSS=1`. Going up through the
 same migration logs every soft-deleted product it renames to free a duplicate
 name (`WARN [alembic.runtime.migration] Nama produk terhapus diganti: ...`).
 
+Migration `b7e2c9d41a58` (SCRUM-247, free-form model parameters) rewrites each
+product's `model_params` into the JSON its provider received before, so
+measurements keep sending the same request. Keys that were never sent
+(`thinking`, `web_search`, `effort` outside OpenAI-compatible) are dropped, one
+`WARN ... SCRUM-247 upgrade: produk <id>, kunci parameter dibuang: ...` line per
+product. A downgrade does the reverse and logs the keys the old schema cannot hold.
+
 The first release also sets prod up, since there is no prod stack before it:
 section 1 for `auth.veritask.ai` (application, URIs, accounts), section 3 for
 prod with new values (new `POSTGRES_PASSWORD` and `CREDENTIAL_ENCRYPTION_KEY`,

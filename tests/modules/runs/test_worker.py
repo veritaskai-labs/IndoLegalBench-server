@@ -6,7 +6,6 @@ import pytest
 
 from app.modules.providers.adapters.base import FailureKind, ProviderResponse
 from app.modules.providers.adapters.mock_provider import MockProviderAdapter
-from app.modules.providers.adapters.params import ModelParameters
 from app.modules.runs.ports import AttemptRecord, QueuePort, SessionStore
 from app.modules.runs.worker import run_next, run_session
 from app.shared.exceptions import ValidationError
@@ -71,7 +70,7 @@ def test_run_session_repeats_each_case_and_sends_the_raw_prompt():
         session_id,
         store,
         MockProviderAdapter("success"),
-        ModelParameters(temperature=0.3),
+        {"temperature": 0.3},
         repeats=3,
     )
     assert len(store.attempts) == 6

@@ -5749,6 +5749,7 @@
         "title": "InReviewCase",
         "description": "GET /reviews/in-review: satu kasus yang round terakhirnya belum diputuskan (AC3).\n\nTermasuk versi baru dari kasus yang sudah disetujui; status kasusnya tetap\napproved selama versi itu direview (temuan Pra-UAT F-02). version_no di atas 1\nberarti ada versi lama yang disetujui dan masih berlaku."
       },
+      "JsonValue": {},
       "LastTestStatus": {
         "type": "string",
         "enum": [
@@ -6201,62 +6202,12 @@
         "description": "MeasurementType:\n- automatic: dijalankan otomatis oleh sistem via API\n- manual: dijalankan manual dan dicatat oleh tim legal via situs"
       },
       "ModelParams": {
-        "properties": {
-          "temperature": {
-            "anyOf": [
-              {
-                "type": "number",
-                "maximum": 2.0,
-                "minimum": 0.0
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Temperature"
-          },
-          "effort": {
-            "anyOf": [
-              {
-                "type": "string",
-                "enum": [
-                  "low",
-                  "medium",
-                  "high"
-                ]
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Effort"
-          },
-          "thinking": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Thinking"
-          },
-          "web_search": {
-            "anyOf": [
-              {
-                "type": "boolean"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Web Search"
-          }
+        "additionalProperties": {
+          "$ref": "#/components/schemas/JsonValue"
         },
-        "additionalProperties": false,
         "type": "object",
-        "title": "ModelParams"
+        "title": "ModelParams",
+        "description": "Parameter model sebagai JSON object bebas (SCRUM-247, revisi UAT PBI-23 AC2).\n\nDikirim apa adanya ke API penyedia. Kunci milik sistem, kunci rahasia, dan\nukurannya diperiksa rules.model_params_problem supaya galatnya punya code."
       },
       "NeedsReassignmentResponse": {
         "properties": {
