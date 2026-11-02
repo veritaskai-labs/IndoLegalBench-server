@@ -185,17 +185,31 @@ def upgrade() -> None:
             FOR EACH STATEMENT EXECUTE FUNCTION measurement_sessions_forbid_delete()
             """
         )
-        # Setelah keluar dari queued, sesi sudah mengukur. Jenisnya tidak boleh
-        # berubah: sesi otomatis berjalan yang diubah jadi manual keluar dari
-        # indeks satu-runner dan membiarkan sesi otomatis kedua berjalan.
+        # Setelah keluar dari queued, sesi sudah mengukur, jadi identitasnya beku.
+        # session_type: sesi otomatis berjalan yang diubah jadi manual keluar dari
+        # indeks satu-runner. product_id: memindah produk melepas kunci PBI-23 produk
+        # asal dan meninggalkan salinannya. label boleh berubah, hanya nama tampilan.
+        # Batas attempts hanya diperiksa saat percobaan ditulis, jadi pengulangan
+        # tidak boleh turun di bawah percobaan yang sudah ada, juga selagi queued.
         op.execute(
             """
             CREATE FUNCTION measurement_sessions_guard_update() RETURNS trigger AS $$
             BEGIN
                 IF OLD.status <> 'queued'
-                   AND NEW.session_type IS DISTINCT FROM OLD.session_type THEN
-                    RAISE EXCEPTION 'session_type of a started session cannot change'
+                   AND (NEW.session_type, NEW.product_id, NEW.purpose, NEW.split_filter,
+                        NEW.repetitions)
+                       IS DISTINCT FROM (OLD.session_type, OLD.product_id, OLD.purpose,
+                                         OLD.split_filter, OLD.repetitions) THEN
+                    RAISE EXCEPTION 'what a started session measures cannot change'
                         USING ERRCODE = 'insufficient_privilege';
+                END IF;
+                IF NEW.repetitions < OLD.repetitions AND EXISTS (
+                    SELECT 1 FROM attempts
+                    WHERE session_id = NEW.id AND repetition_no > NEW.repetitions
+                ) THEN
+                    RAISE EXCEPTION 'repetitions % is below an existing repetition_no',
+                        NEW.repetitions
+                        USING ERRCODE = 'check_violation';
                 END IF;
                 RETURN NEW;
             END;
