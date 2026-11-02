@@ -18,6 +18,7 @@ from sqlalchemy import create_engine, text
 
 from tests.measurement_pg import (
     FOREIGN_KEY_VIOLATION,
+    INSUFFICIENT_PRIVILEGE,
     INVALID_TEXT_REPRESENTATION,
     UNIQUE_VIOLATION,
     buat_admin,
@@ -151,6 +152,31 @@ def test_suite_yang_dipakai_sesi_tidak_bisa_dihapus_permanen(conn, admin_id, ses
     assert sqlstate == FOREIGN_KEY_VIOLATION
 
 
+@pytest.mark.parametrize(
+    "perintah",
+    [
+        "UPDATE measurement_session_suites SET suite_id = :lain WHERE session_id = :sesi",
+        "DELETE FROM measurement_session_suites WHERE session_id = :sesi",
+        "TRUNCATE measurement_session_suites",
+    ],
+    ids=["update", "delete", "truncate"],
+)
+def test_pilihan_suite_tidak_bisa_diubah_atau_dihapus(conn, admin_id, sesi_id, perintah):
+    """Review #89 blocker 3: pilihan suite adalah bagian dari apa yang diukur (AC2),
+    jadi hanya bisa ditambah, sama seperti snapshot kasus."""
+    suite_id = _suite(conn, admin_id)
+    conn.execute(text(TAMBAH_SUITE), {"sesi": sesi_id, "suite": suite_id})
+
+    sqlstate = sqlstate_penolakan(conn, perintah, {"sesi": sesi_id, "lain": _suite(conn, admin_id)})
+
+    assert sqlstate == INSUFFICIENT_PRIVILEGE
+    tersimpan = conn.execute(
+        text("SELECT suite_id FROM measurement_session_suites WHERE session_id = :sesi"),
+        {"sesi": sesi_id},
+    ).scalar_one()
+    assert tersimpan == suite_id
+
+
 # session_product_copies
 
 
@@ -250,3 +276,32 @@ def test_mengubah_produk_tidak_mengubah_salinannya(conn, sesi_id, produk_id):
         text("SELECT name FROM session_product_copies WHERE id = :id"), {"id": salinan_id}
     ).scalar_one()
     assert nama == "Nama saat sesi dibuat"
+
+
+@pytest.mark.parametrize(
+    "perintah",
+    [
+        "UPDATE session_product_copies SET name = 'Nama lain' WHERE id = :id",
+        "UPDATE session_product_copies SET model_name = 'model-lain' WHERE id = :id",
+        "UPDATE session_product_copies "
+        "SET model_params = '{\"temperature\": 1.0}'::jsonb WHERE id = :id",
+        # Corner: UPDATE yang tidak mengubah apa pun tetap ditolak, tanpa celah.
+        "UPDATE session_product_copies SET name = name WHERE id = :id",
+        "DELETE FROM session_product_copies WHERE id = :id",
+        "TRUNCATE session_product_copies",
+    ],
+    ids=["nama", "model", "parameter-model", "update-tanpa-perubahan", "delete", "truncate"],
+)
+def test_salinan_produk_tidak_bisa_diubah_atau_dihapus(conn, sesi_id, produk_id, perintah):
+    """Review #89 blocker 3: salinan AC6 adalah bukti produk saat diukur, jadi hanya
+    bisa ditulis sekali, sama seperti snapshot kasus."""
+    salinan_id = _salin(conn, sesi_id, produk_id)
+
+    sqlstate = sqlstate_penolakan(conn, perintah, {"id": salinan_id})
+
+    assert sqlstate == INSUFFICIENT_PRIVILEGE
+    baris = conn.execute(
+        text("SELECT name, model_name, model_params FROM session_product_copies WHERE id = :id"),
+        {"id": salinan_id},
+    ).one()
+    assert tuple(baris) == ("DeepSeek Chat", "model-uji", {"temperature": 0.3})
