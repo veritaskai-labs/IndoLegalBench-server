@@ -7,15 +7,14 @@ SCRUM-200 (#79) belum punya tes migrasi. Yang dibuktikan di sini:
   dipakai ulang) diselesaikan sebelum constraint uq_ai_products_name dipasang;
 - rollback (DoD Sprint 3 "migrasi bisa di-rollback").
 
-Dua hal dipotret apa adanya karena berbeda dengan teks Jira SCRUM-200/204, dan dicatat
-sebagai deviasi di PR (SCRUM-204):
-- nama ganda tidak "dilaporkan": baris terhapus diganti namanya diam-diam menjadi
-  "<nama> (dihapus <8 karakter id>)", tanpa log; nama lama tidak kembali saat downgrade;
-- downgrade menghapus permanen produk Manual, karena skema lama tidak mengenalnya.
+SCRUM-245: setiap nama ganda yang diganti dilaporkan (WARN di log Alembic) sebelum
+constraint dipasang. SCRUM-246: downgrade menolak berjalan selama masih ada produk Manual,
+kecuali ALLOW_MANUAL_PRODUCT_LOSS=1 menyetujui penghapusannya.
 
 Database diturunkan ke revisi sebelum a1f8c7e3d092 lalu dinaikkan lagi, dan selalu
-dikembalikan ke head di akhir. Downgrade menghapus produk Manual milik tes lain, jadi
-jalankan hanya di database tes sementara. Dilewati kalau TEST_POSTGRES_URL kosong.
+dikembalikan ke head di akhir. Tes PostgreSQL lain meninggalkan produk Manual di database
+yang sama, jadi fixture menyetujui penghapusan itu; hanya tes penolakan yang mencabutnya.
+Jalankan hanya di database tes sementara. Dilewati kalau TEST_POSTGRES_URL kosong.
 """
 
 import os
@@ -32,6 +31,8 @@ from app.shared.config import get_settings
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "")
 SEBELUM = "b19c5e7d2a41"  # pragma: allowlist secret (revision id)
+HEAD = "d3c8a1e54b20"  # pragma: allowlist secret (revision id)
+IZIN_HAPUS_MANUAL = "ALLOW_MANUAL_PRODUCT_LOSS"
 ROOT = Path(__file__).resolve().parents[2]
 # Kolom ai_products sebelum PBI-23, yang semuanya harus utuh setelah migrasi (AC5).
 KOLOM_LAMA = (
@@ -59,6 +60,7 @@ def alembic_cfg(monkeypatch):
     if os.environ.get("PYTEST_XDIST_WORKER"):
         pytest.skip("migrasi men-downgrade database bersama; jalankan tanpa xdist")
     monkeypatch.setenv("DATABASE_URL", POSTGRES_URL)
+    monkeypatch.setenv(IZIN_HAPUS_MANUAL, "1")
     get_settings.cache_clear()
     cfg = Config(str(ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(ROOT / "migrations"))
@@ -235,10 +237,46 @@ def test_nama_panjang_tetap_muat_setelah_diganti(alembic_cfg, engine):
     assert len(baru) == 200
 
 
-def test_rollback_menghapus_produk_manual_dan_tidak_mengembalikan_nama(alembic_cfg, engine):
-    """Edge (DoD rollback): downgrade berjalan dan skema lama kembali, tetapi produk Manual
-    dihapus permanen (skema lama mewajibkan kredensial) dan nama produk terhapus yang
-    sudah diganti tidak dikembalikan. Dipotret apa adanya sebagai deviasi."""
+def _tambah_manual(engine, admin, nama: str) -> uuid.UUID:
+    manual = uuid.uuid4()
+    with engine.begin() as conn:
+        conn.execute(
+            text(
+                "INSERT INTO ai_products (id, name, measurement_type, vendor_name, site_url, "
+                "is_active, created_by, created_at, updated_at) VALUES (:id, :nama, 'manual', "
+                "'Penyedia', 'https://contoh.test', true, :admin, now(), now())"
+            ),
+            {"id": manual, "nama": nama, "admin": admin},
+        )
+    return manual
+
+
+def test_rollback_ditolak_selama_masih_ada_produk_manual(alembic_cfg, engine, monkeypatch):
+    """Negatif (SCRUM-246): tanpa izin eksplisit, downgrade berhenti dengan pesan yang
+    menyebut jumlah produk Manual dan cara melanjutkan. Seluruh downgrade berjalan dalam
+    satu transaksi, jadi database tetap di head dan produk Manual tetap ada."""
+    # Arrange
+    monkeypatch.delenv(IZIN_HAPUS_MANUAL)
+    with engine.begin() as conn:
+        admin = _admin(conn)
+    manual = _tambah_manual(engine, admin, f"QA246 Manual {uuid.uuid4().hex[:8]}")
+
+    # Act
+    with pytest.raises(RuntimeError) as galat:
+        command.downgrade(alembic_cfg, SEBELUM)
+
+    # Assert
+    pesan = str(galat.value)
+    assert "produk Manual" in pesan and IZIN_HAPUS_MANUAL in pesan
+    with engine.connect() as conn:
+        assert conn.scalar(text("SELECT version_num FROM alembic_version")) == HEAD
+        assert _nama(conn, manual) is not None
+
+
+def test_rollback_dengan_izin_menghapus_produk_manual_dan_mencatatnya(alembic_cfg, engine, capfd):
+    """Edge (DoD rollback): dengan ALLOW_MANUAL_PRODUCT_LOSS=1 downgrade berjalan dan skema
+    lama kembali; produk Manual dihapus (skema lama mewajibkan kredensial) dan jumlahnya
+    dicatat. Nama produk terhapus yang sudah diganti tidak dikembalikan."""
     # Arrange
     command.downgrade(alembic_cfg, SEBELUM)
     akhiran = uuid.uuid4().hex[:8]
@@ -248,16 +286,8 @@ def test_rollback_menghapus_produk_manual_dan_tidak_mengembalikan_nama(alembic_c
         terhapus = _produk_lama(conn, admin, ganda, terhapus=True)
         otomatis = _produk_lama(conn, admin, ganda)
     command.upgrade(alembic_cfg, "head")
-    manual = uuid.uuid4()
-    with engine.begin() as conn:
-        conn.execute(
-            text(
-                "INSERT INTO ai_products (id, name, measurement_type, vendor_name, site_url, "
-                "is_active, created_by, created_at, updated_at) VALUES (:id, :nama, 'manual', "
-                "'Penyedia', 'https://contoh.test', true, :admin, now(), now())"
-            ),
-            {"id": manual, "nama": f"QA204 Manual {akhiran}", "admin": admin},
-        )
+    manual = _tambah_manual(engine, admin, f"QA204 Manual {akhiran}")
+    capfd.readouterr()
 
     # Act
     command.downgrade(alembic_cfg, SEBELUM)
@@ -274,3 +304,4 @@ def test_rollback_menghapus_produk_manual_dan_tidak_mengembalikan_nama(alembic_c
             )
         )
     assert kolom == 0
+    assert "produk Manual dihapus permanen" in capfd.readouterr().err
