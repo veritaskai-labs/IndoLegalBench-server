@@ -19,7 +19,7 @@ from app.modules.runs.repository import CallLogRepository
 from app.modules.runs.summary_ports import ProductInfo
 from app.modules.suites import service as suites_service
 from app.shared.exceptions import NotFoundError
-
+from app.modules.runs.progress_ports import SessionProgress
 
 class CaseCountAdapter:
     """Kasus approved per split tag, setelah memastikan semua suite ada."""
@@ -81,3 +81,17 @@ class CallLogAnswerHistory:
 
     def average_answer_tokens(self, product_id: uuid.UUID) -> Decimal | None:
         return self._rows.output_token_average(product_id)
+
+class SessionProgressAdapter:
+    """Hitungan progres satu sesi dari tabel sesi dan upaya.
+
+    TODO(SCRUM-205): tabel sesi dan upaya belum ada di staging, jadi untuk
+    sementara tidak ada sesi yang bisa dilaporkan dan endpoint menjawab 404.
+    Setelah tabelnya ada, ganti isinya dengan satu query agregat.
+    """
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def progress(self, measurement_id: uuid.UUID) -> SessionProgress | None:
+        return None

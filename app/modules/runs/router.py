@@ -9,16 +9,19 @@ Prefix /measurements mengikuti tiket SCRUM-206 (POST /measurements/summary).
 TODO(PBI-11, PBI-12, PBI-13): endpoint mulai sesi dan daftar sesi menyusul.
 """
 
+import uuid
 from fastapi import APIRouter, Depends
 
 from app.modules.auth.schemas import ErrorBody
-from app.modules.runs.dependencies import get_summary_service
-from app.modules.runs.schemas import SummaryRequest, SummaryResponse
-from app.modules.runs.service import SummaryService
+from app.modules.runs.dependencies import get_summary_service, get_progress_service
+from app.modules.runs.schemas import SummaryRequest, SummaryResponse, ProgressResponse
+from app.modules.runs.service import SummaryService, ProgressService
 from app.shared.security import Role, require_roles
 
 # Admin dan Developer AI boleh membuat pengukuran (PBI-11 user story).
 _summary_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
+# AC6: Admin dan Developer AI boleh memantau progres pengukuran.
+_progress_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
 
 router = APIRouter(prefix="/measurements", tags=["measurements"])
 
@@ -62,3 +65,31 @@ def summarize(
     service: SummaryService = Depends(get_summary_service),
 ) -> SummaryResponse:
     return service.summarize(payload)
+
+_RESPONS_PROGRES = {
+    404: {
+        "model": ErrorBody,
+        "description": (
+            "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`) atau produknya "
+            "sudah dihapus (`AI_PRODUCT_NOT_FOUND`)."
+        ),
+    },
+    500: {
+        "model": ErrorBody,
+        "description": "Anggaran bulanan produk belum disetel (`BUDGET_NOT_CONFIGURED`).",
+    },
+}
+
+
+@router.get(
+    "/{measurement_id}/progress",
+    response_model=ProgressResponse,
+    summary="Angka progres pengukuran untuk layar pemantauan",
+    dependencies=[Depends(_progress_roles)],
+    responses=_RESPONS_PROGRES,
+)
+def read_progress(
+    measurement_id: uuid.UUID,
+    service: ProgressService = Depends(get_progress_service),
+) -> ProgressResponse:
+    return service.read(measurement_id)

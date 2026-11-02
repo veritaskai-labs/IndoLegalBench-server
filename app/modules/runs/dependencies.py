@@ -11,6 +11,7 @@ from app.modules.runs.adapters import (
     CallLogSpend,
     CaseCountAdapter,
     ProductAdapter,
+    SessionProgressAdapter,
 )
 from app.modules.runs.call_log import CallLogService
 from app.modules.runs.exchange_rate import (
@@ -20,7 +21,7 @@ from app.modules.runs.exchange_rate import (
 )
 from app.modules.runs.pricing import ConfigPriceCatalog
 from app.modules.runs.repository import CallLogRepository
-from app.modules.runs.service import SummaryService
+from app.modules.runs.service import ProgressService, SummaryService
 from app.modules.runs.worker import run_next
 from app.shared.config import Settings, get_settings
 from app.shared.database import get_db
@@ -53,6 +54,13 @@ def get_summary_service(
         default_avg_answer_tokens=settings.cost_default_avg_answer_tokens,
     )
 
+def get_progress_service(db: Session = Depends(get_db)) -> ProgressService:
+    """Satu agregasi sesi, satu produk, satu angka pemakaian bulan ini."""
+    return ProgressService(
+        sessions=SessionProgressAdapter(db),
+        products=ProductAdapter(db),
+        spend=CallLogSpend(db),
+    )
 
 def get_call_log_service(
     db: Session,
