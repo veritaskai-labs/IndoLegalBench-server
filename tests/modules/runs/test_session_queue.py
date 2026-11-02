@@ -16,9 +16,8 @@ Edge = batas perilaku.
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock
 
-from app.modules.runs import dependencies, schemas, service, session_ports, worker
+from app.modules.runs import schemas, service, session_ports, worker
 
 SUITE_A = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 PRODUCT_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c3")
@@ -223,22 +222,6 @@ def test_run_next_worker_memakai_antrean_ini_tanpa_adaptor_tambahan():
 
     # Assert
     assert hasil is False
-
-
-def test_antrean_runner_memakai_penyimpanan_yang_sama_dengan_tombol_mulai():
-    """Positif: sesi dari POST /measurements terlihat oleh runner, karena penyimpanannya satu."""
-    # Arrange
-    dependencies.get_session_store.cache_clear()
-    penyimpanan = dependencies.get_session_store()
-    penyimpanan.create_queued(_menunggu().new)
-
-    # Act
-    antrean = dependencies.build_session_queue(MagicMock(name="db"))
-
-    # Assert
-    assert antrean._sessions is penyimpanan
-    assert antrean._sessions.oldest_queued() is not None
-    dependencies.get_session_store.cache_clear()
 
 
 def test_tanpa_jam_suntikan_waktu_mulai_memakai_utc_sekarang():

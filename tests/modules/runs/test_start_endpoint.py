@@ -5,9 +5,10 @@ PBI-11 AC1 (Admin dan Developer AI, label dan Resmi/Uji Coba wajib), AC3
 HTTP, dengan suite, kasus, dan produk sungguhan di database uji. Alurnya D3
 langkah 18-23. Tidak ada endpoint duplikasi sesi (AC1).
 
-Tabel sesi (SCRUM-205) belum ada, jadi penyimpanan sesi diganti antrean
-memori yang baru per test. Kurs dan settings di-override seperti test
-ringkasan SCRUM-206, supaya tidak ada test yang menyentuh jaringan.
+Sesi tersimpan di measurement_sessions (SCRUM-205, #89) lewat
+SessionQueueRepository, dan runner membaca tabel yang sama. Kurs dan settings
+di-override seperti test ringkasan SCRUM-206, supaya tidak ada test yang
+menyentuh jaringan.
 
 Label: Positif = sesi dibuat, Negatif = sesi ditolak, Edge = batas perilaku.
 """
@@ -18,9 +19,17 @@ from decimal import Decimal
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import func, select
 
 from app.main import app
-from app.modules.runs import adapters, dependencies, exchange_rate
+from app.modules.runs import dependencies, exchange_rate, repository
+from app.modules.runs.models import (
+    Attempt,
+    CaseSnapshot,
+    MeasurementSession,
+    SessionProductCopy,
+    SessionStatus,
+)
 from app.shared.config import get_settings
 from app.shared.security import Role
 from tests.modules.cases.test_cases import ADMIN_LAIN, _buat, _ganti, _setujui, _suite
@@ -38,12 +47,10 @@ def siap(as_role, buat_pengguna, db_session):
         case_id = _buat(client, suite_id, case_code=kode, split_tag=tag).json()["id"]
         _setujui(db_session, case_id)
     produk = _tambah_produk(db_session)
-    antrean = adapters.InMemorySessionQueue()
     app.dependency_overrides[get_settings] = lambda: _settings()
     app.dependency_overrides[dependencies.get_exchange_rate] = lambda: (
         exchange_rate.ConfiguredExchangeRate(Decimal("16000"))
     )
-    app.dependency_overrides[dependencies.get_session_store] = lambda: antrean
 
     def sebagai(role: Role):
         _ganti(client, buat_pengguna(role, user_id=ADMIN_LAIN, name="Pengguna QA"))
@@ -54,9 +61,12 @@ def siap(as_role, buat_pengguna, db_session):
         sebagai=sebagai,
         suite_id=suite_id,
         produk=produk,
-        antrean=antrean,
         db=db_session,
     )
+
+
+def _jumlah_sesi(db) -> int:
+    return db.scalar(select(func.count()).select_from(MeasurementSession))
 
 
 def _badan(siap, **ubah) -> dict:
@@ -85,9 +95,10 @@ def test_admin_memulai_sesi_dan_sesi_menunggu_di_antrean(siap):
     body = response.json()
     assert body["status"] == "queued"
     assert datetime.fromisoformat(body["queued_at"]).tzinfo is not None
-    tersimpan = siap.antrean.get(uuid.UUID(body["session_id"]))
-    assert tersimpan.new.label == "Run Oktober AiYU"
-    assert tersimpan.new.created_by == ADMIN_LAIN
+    tersimpan = siap.db.get(MeasurementSession, uuid.UUID(body["session_id"]))
+    assert tersimpan.label == "Run Oktober AiYU"
+    assert tersimpan.created_by == ADMIN_LAIN
+    assert tersimpan.status == SessionStatus.QUEUED
 
 
 def test_developer_ai_boleh_memulai_sesi(siap):
@@ -100,8 +111,8 @@ def test_developer_ai_boleh_memulai_sesi(siap):
 
     # Assert
     assert response.status_code == 201
-    tersimpan = siap.antrean.get(uuid.UUID(response.json()["session_id"]))
-    assert tersimpan.new.purpose.value == "trial"
+    tersimpan = siap.db.get(MeasurementSession, uuid.UUID(response.json()["session_id"]))
+    assert tersimpan.purpose.value == "trial"
 
 
 def test_sesi_kedua_mengantre_di_belakang_sesi_pertama(siap):
@@ -116,7 +127,8 @@ def test_sesi_kedua_mengantre_di_belakang_sesi_pertama(siap):
     # Assert
     assert pertama["queued_at"] <= kedua["queued_at"]
     assert kedua["status"] == "queued"
-    assert str(siap.antrean.oldest_queued().id) == pertama["session_id"]
+    tertua = repository.SessionQueueRepository(siap.db).oldest_queued()
+    assert str(tertua.id) == pertama["session_id"]
 
 
 @pytest.mark.parametrize("role", [Role.CONTRIBUTOR, Role.VIEWER])
@@ -131,7 +143,7 @@ def test_peran_selain_admin_dan_developer_ai_ditolak_403(siap, role):
     # Assert
     assert response.status_code == 403
     assert response.json()["code"] == "FORBIDDEN"
-    assert siap.antrean.get_all() == []
+    assert _jumlah_sesi(siap.db) == 0
 
 
 def test_tanpa_login_ditolak_401(client):
@@ -166,7 +178,7 @@ def test_label_atau_tujuan_tidak_valid_ditolak_422(siap, ubah):
 
     # Assert
     assert response.status_code == 422
-    assert siap.antrean.get_all() == []
+    assert _jumlah_sesi(siap.db) == 0
 
 
 def test_anggaran_tidak_cukup_saat_mulai_ditolak_dan_tidak_mengantre(siap):
@@ -183,7 +195,7 @@ def test_anggaran_tidak_cukup_saat_mulai_ditolak_dan_tidak_mengantre(siap):
     assert response.status_code == 422
     assert response.json()["code"] == "BUDGET_EXCEEDED"
     assert response.json()["product_name"] == "AiYU"
-    assert siap.antrean.get_all() == []
+    assert _jumlah_sesi(siap.db) == 0
 
 
 def test_produk_dinonaktifkan_sebelum_mulai_ditolak_422(siap):
@@ -199,7 +211,7 @@ def test_produk_dinonaktifkan_sebelum_mulai_ditolak_422(siap):
     # Assert
     assert response.status_code == 422
     assert response.json()["code"] == "PRODUCT_INACTIVE"
-    assert siap.antrean.get_all() == []
+    assert _jumlah_sesi(siap.db) == 0
 
 
 def test_produk_yang_tidak_ada_dijawab_404(siap):
@@ -245,16 +257,43 @@ def test_kontrak_openapi_memuat_mulai_sesi_tanpa_duplikasi(client):
     assert not any("duplicate" in path or "duplikat" in path for path in spec["paths"])
 
 
-def test_antrean_dibuat_sekali_lalu_dipakai_bersama_antar_permintaan():
-    """Edge: antrean memori harus satu untuk seluruh proses, kalau tidak urutan antrean reset tiap request."""
-    # Arrange
-    dependencies.get_session_store.cache_clear()
+def test_sesi_dari_tombol_mulai_dijalankan_runner_dengan_kasus_yang_dibekukan(siap):
+    """Positif: AC2, AC3, AC6 ujung ke ujung; runner membaca tabel yang sama dengan tombol Mulai."""
+    # Arrange: 3 kasus approved (2 dev, 1 test) x 3 pengulangan
+    client = siap.sebagai(Role.ADMIN)
+    sesi_id = uuid.UUID(client.post(URL, json=_badan(siap)).json()["session_id"])
 
     # Act
-    pertama = dependencies.get_session_store()
-    kedua = dependencies.get_session_store()
+    dijalankan = dependencies.build_session_queue(siap.db).take_next()
 
     # Assert
-    assert pertama is kedua
-    assert isinstance(pertama, adapters.InMemorySessionQueue)
-    dependencies.get_session_store.cache_clear()
+    assert dijalankan == sesi_id
+    siap.db.expire_all()
+    assert siap.db.get(MeasurementSession, sesi_id).status == SessionStatus.RUNNING
+    for model, jumlah in ((CaseSnapshot, 1), (SessionProductCopy, 1), (Attempt, 9)):
+        hitung = select(func.count()).select_from(model).where(model.session_id == sesi_id)
+        assert siap.db.scalar(hitung) == jumlah
+
+
+def test_filter_dev_hanya_membekukan_kasus_dev_saat_runner_mulai(siap):
+    """Positif: AC2, filter yang dipilih saat Mulai dipakai saat snapshot diambil."""
+    # Arrange: 2 kasus dev x 2 pengulangan
+    client = siap.sebagai(Role.ADMIN)
+    badan = _badan(siap, case_filter="dev", repeat_count=2)
+    sesi_id = uuid.UUID(client.post(URL, json=badan).json()["session_id"])
+
+    # Act
+    dependencies.build_session_queue(siap.db).take_next()
+
+    # Assert
+    hitung = select(func.count()).select_from(Attempt).where(Attempt.session_id == sesi_id)
+    assert siap.db.scalar(hitung) == 4
+
+
+def test_penyimpanan_sesi_memakai_tabel_untuk_request_itu(db_session):
+    """Edge: penyimpanan dibuat per request dari session database, bukan satu objek bersama."""
+    # Act
+    penyimpanan = dependencies.get_session_store(db_session)
+
+    # Assert
+    assert isinstance(penyimpanan, repository.SessionQueueRepository)
