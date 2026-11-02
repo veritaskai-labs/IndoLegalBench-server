@@ -80,7 +80,8 @@ class GeminiInteractionsAdapter(ProviderAdapter):
         timeout: float = ASK_TIMEOUT_SECONDS,
     ) -> ProviderResponse:
         body: dict = {"model": self.model_name, "input": prompt}
-        body.update(build_request_extras(self.name, parameters))
+        # Kunci adaptor ditulis terakhir, jadi parameter tidak bisa mengganti model atau prompt.
+        body = {**build_request_extras(self.name, parameters), **body}
         return perform_ask(
             url=self.base_url,
             headers={"x-goog-api-key": self._api_key},

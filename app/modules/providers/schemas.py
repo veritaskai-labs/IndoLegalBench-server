@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Literal
 from urllib.parse import urlparse
 
-from pydantic import BaseModel, ConfigDict, Field, field_validator
+from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, field_validator
 
 from app.modules.providers.models import (
     ConnectionTestErrorCategory,
@@ -38,13 +38,12 @@ def _url_http(value: str) -> str:
     return bersih
 
 
-class ModelParams(BaseModel):
-    model_config = ConfigDict(extra="forbid")
+class ModelParams(RootModel[dict[str, JsonValue]]):
+    """Parameter model sebagai JSON object bebas (SCRUM-247, revisi UAT PBI-23 AC2).
 
-    temperature: float | None = Field(default=None, ge=0.0, le=2.0)
-    effort: Literal["low", "medium", "high"] | None = None
-    thinking: bool | None = None
-    web_search: bool | None = None
+    Dikirim apa adanya ke API penyedia. Kunci milik sistem, kunci rahasia, dan
+    ukurannya diperiksa rules.model_params_problem supaya galatnya punya code.
+    """
 
 
 class AiProductCreate(BaseModel):
