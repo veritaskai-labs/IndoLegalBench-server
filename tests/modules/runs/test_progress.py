@@ -10,8 +10,9 @@ from decimal import Decimal
 
 import pytest
 
-from app.modules.runs import progress
+from app.modules.runs import progress, schemas
 from app.shared.exceptions import InternalError
+from dataclasses import asdict
 
 _MULAI = datetime(2026, 11, 2, 10, 0, tzinfo=UTC)
 
@@ -85,8 +86,8 @@ def test_sisa_anggaran_dari_biaya_berjalan():
     angka = _hitung()
 
     # Assert
-    assert angka.cost_so_far_idr == Decimal("120000.00")
-    assert angka.budget_remaining_idr == Decimal("380000.00")
+    assert angka.running_cost_idr == Decimal("120000.00")
+    assert angka.remaining_budget_idr == Decimal("380000.00")
 
 
 def test_total_nol_tidak_membagi_nol():
@@ -115,3 +116,19 @@ def test_gagal_lebih_banyak_dari_selesai_ditolak():
         _hitung(failed_calls=241)
 
     assert exc.value.code == "PROGRESS_INVALID_INPUT"
+
+def test_hasil_hitungan_langsung_jadi_response():
+    # Arrange
+    angka = _hitung()
+
+    # Act
+    respons = schemas.ProgressResponse(
+        **asdict(angka),
+        started_at=_MULAI,
+        updated_at=_MULAI + timedelta(minutes=40),
+    )
+
+    # Assert
+    assert respons.percent_complete == Decimal("80.0")
+    assert respons.remaining_seconds == 600
+    assert respons.remaining_budget_idr == Decimal("380000.00")
