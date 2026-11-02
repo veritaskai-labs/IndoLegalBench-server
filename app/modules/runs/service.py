@@ -11,15 +11,17 @@ TODO(PBI-11, PBI-12, PBI-13): sisanya dikerjakan di tiket lain.
 
 import logging
 import uuid
-from dataclasses import asdict
 from collections.abc import Mapping
+from dataclasses import asdict
 from decimal import Decimal
 
 from app.modules.runs.call_log import monthly_limit
 from app.modules.runs.cost_estimator import estimate_cost_idr
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.pricing import PriceCatalog
-from app.modules.runs.schemas import CaseFilter, SummaryRequest, SummaryResponse, ProgressResponse
+from app.modules.runs.progress import compute_progress
+from app.modules.runs.progress_ports import SessionProgressPort
+from app.modules.runs.schemas import CaseFilter, ProgressResponse, SummaryRequest, SummaryResponse
 from app.modules.runs.summary_ports import (
     AnswerLengthPort,
     CaseCountPort,
@@ -27,12 +29,7 @@ from app.modules.runs.summary_ports import (
     ProductPort,
     SpendPort,
 )
-
-from app.modules.runs.progress import compute_progress
-from app.modules.runs.progress_ports import SessionProgressPort
-
 from app.shared.exceptions import InternalError, NotFoundError, ValidationError
-
 
 logger = logging.getLogger(__name__)
 

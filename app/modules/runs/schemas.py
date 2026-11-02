@@ -7,12 +7,11 @@ TODO(PBI-11, PBI-12, PBI-13): definisikan schema sesuai kontrak.
 """
 
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
-
-from datetime import datetime
 
 # PBI-11 AC3: satu angka pengulangan untuk seluruh pengukuran.
 MIN_REPEATS = 1

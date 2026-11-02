@@ -5,6 +5,7 @@ the estimated time left, and the running cost against the remaining
 budget. The numbers never use float.
 """
 
+from dataclasses import asdict
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 
@@ -12,7 +13,6 @@ import pytest
 
 from app.modules.runs import progress, schemas
 from app.shared.exceptions import InternalError
-from dataclasses import asdict
 
 _MULAI = datetime(2026, 11, 2, 10, 0, tzinfo=UTC)
 
