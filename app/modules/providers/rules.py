@@ -31,6 +31,7 @@ _KUNCI_RAHASIA = re.compile(
     re.IGNORECASE,
 )
 MODEL_PARAMS_MAX_BYTES = 4096
+_FIELD_PARAMETER = "model_params"
 MODEL_PARAMS_MAX_DEPTH = 5
 
 # AC3: catatan akses bukan tempat kata sandi. Catatan ikut tercatat apa adanya di
@@ -55,7 +56,7 @@ _WAJIB = {
 }
 _OPSIONAL = {
     MeasurementType.AUTOMATIC: (
-        "model_params",
+        _FIELD_PARAMETER,
         "price_input_usd_per_mtok",
         "price_output_usd_per_mtok",
     ),
@@ -71,7 +72,7 @@ _LABEL = {
     "credential": "Kredensial",
     "rate_limit_per_minute": "Batas panggilan per menit",
     "monthly_budget_idr": "Batas biaya bulanan",
-    "model_params": "Parameter model",
+    _FIELD_PARAMETER: "Parameter model",
     "price_input_usd_per_mtok": "Harga input",
     "price_output_usd_per_mtok": "Harga output",
     "vendor_name": "Nama penyedia",
@@ -135,17 +136,17 @@ def model_params_problem(params: Mapping[str, Any] | None) -> TypeFieldProblem |
     for kunci in params:
         if kunci.lower() in _KUNCI_SISTEM:
             pesan = f"Parameter model tidak boleh mengatur '{kunci}', karena diatur sistem."
-            return TypeFieldProblem(MODEL_PARAMS_RESERVED_KEY, "model_params", pesan)
+            return TypeFieldProblem(MODEL_PARAMS_RESERVED_KEY, _FIELD_PARAMETER, pesan)
     if any(_KUNCI_RAHASIA.fullmatch(kunci) for kunci in _semua_kunci(params)):
         pesan = "Parameter model tidak boleh berisi API key, token, atau kata sandi."
-        return TypeFieldProblem(MODEL_PARAMS_SECRET, "model_params", pesan)
+        return TypeFieldProblem(MODEL_PARAMS_SECRET, _FIELD_PARAMETER, pesan)
     ukuran = len(json.dumps(params, separators=(",", ":"), ensure_ascii=False).encode())
     if ukuran > MODEL_PARAMS_MAX_BYTES or _kedalaman(params) > MODEL_PARAMS_MAX_DEPTH:
         pesan = (
             f"Parameter model maksimal {MODEL_PARAMS_MAX_BYTES} byte "
             f"dan {MODEL_PARAMS_MAX_DEPTH} tingkat bersarang."
         )
-        return TypeFieldProblem(MODEL_PARAMS_TOO_LARGE, "model_params", pesan)
+        return TypeFieldProblem(MODEL_PARAMS_TOO_LARGE, _FIELD_PARAMETER, pesan)
     return None
 
 

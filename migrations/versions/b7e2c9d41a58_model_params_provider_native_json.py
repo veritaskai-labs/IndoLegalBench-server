@@ -31,6 +31,11 @@ log = logging.getLogger("alembic.runtime.migration")
 
 _JSONB = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
 _EFFORTS = ("low", "medium", "high")
+_OPENAI = "openai_compatible"
+_GEMINI = "gemini_interactions"
+_ANTHROPIC = "anthropic_messages"
+_SUHU = "temperature"
+_CONFIG_GEMINI = "generation_config"
 
 # Hasil pemetaan: (JSON baru atau None bila kosong, kunci yang dibuang, terurut).
 Hasil = tuple[dict | None, list[str]]
@@ -48,11 +53,11 @@ def ke_json_penyedia(penyedia: str | None, lama: Mapping[str, Any] | None) -> Ha
     for kunci, nilai in (lama or {}).items():
         if nilai is None:
             continue
-        if kunci == "temperature" and penyedia == "gemini_interactions":
-            baru["generation_config"] = {"temperature": nilai}
-        elif kunci == "temperature" and penyedia in ("openai_compatible", "anthropic_messages"):
-            baru["temperature"] = nilai
-        elif kunci == "effort" and penyedia == "openai_compatible" and nilai in _EFFORTS:
+        if kunci == _SUHU and penyedia == _GEMINI:
+            baru[_CONFIG_GEMINI] = {_SUHU: nilai}
+        elif kunci == _SUHU and penyedia in (_OPENAI, _ANTHROPIC):
+            baru[_SUHU] = nilai
+        elif kunci == "effort" and penyedia == _OPENAI and nilai in _EFFORTS:
             baru["reasoning_effort"] = nilai
         else:
             dibuang.append(kunci)
@@ -64,22 +69,22 @@ def ke_bentuk_lama(penyedia: str | None, baru: Mapping[str, Any] | None) -> Hasi
     lama: dict = {}
     dibuang: list[str] = []
     for kunci, nilai in (baru or {}).items():
-        if kunci == "generation_config" and penyedia == "gemini_interactions":
+        if kunci == _CONFIG_GEMINI and penyedia == _GEMINI:
             isi = nilai if isinstance(nilai, Mapping) else {}
             for anak, suhu in isi.items():
-                if anak == "temperature" and _suhu_lama(suhu):
-                    lama["temperature"] = suhu
+                if anak == _SUHU and _suhu_lama(suhu):
+                    lama[_SUHU] = suhu
                 else:
-                    dibuang.append(f"generation_config.{anak}")
+                    dibuang.append(f"{_CONFIG_GEMINI}.{anak}")
             if not isinstance(nilai, Mapping):
                 dibuang.append(kunci)
         elif (
-            kunci == "temperature"
-            and penyedia in ("openai_compatible", "anthropic_messages")
+            kunci == _SUHU
+            and penyedia in (_OPENAI, _ANTHROPIC)
             and _suhu_lama(nilai)
         ):
-            lama["temperature"] = nilai
-        elif kunci == "reasoning_effort" and penyedia == "openai_compatible" and nilai in _EFFORTS:
+            lama[_SUHU] = nilai
+        elif kunci == "reasoning_effort" and penyedia == _OPENAI and nilai in _EFFORTS:
             lama["effort"] = nilai
         else:
             dibuang.append(kunci)
