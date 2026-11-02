@@ -35,6 +35,7 @@ FUNGSI_205 = {
     "measurement_sessions_forbid_delete",
     "measurement_sessions_guard_update",
     "case_snapshots_forbid_change",
+    "case_snapshot_items_check_insert",
     "attempts_protect_answer",
 }
 ENUM_205 = {

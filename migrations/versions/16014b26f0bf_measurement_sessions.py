@@ -20,6 +20,8 @@ PBI-11 SCRUM-76 (SCRUM-205), D2:
 - case_snapshots dan case_snapshot_items: salinan kasus per sesi yang hanya bisa
   di-INSERT. UPDATE, DELETE, dan TRUNCATE ditolak trigger untuk semua peran (AC6).
   Item memakai bentuk PBI-8 (case_id, case_version_id, body), keputusan PO 31 Okt.
+  Satu kasus per snapshot, versi harus milik kasusnya, dan snapshot tertutup
+  setelah sesi selesai.
 - attempts: satu per item snapshot per nomor pengulangan, nomor tidak melebihi
   pengulangan sesi (D2), jawaban mentah ditulis sekali dan tidak bisa dihapus
   (AC3, AC8).
@@ -295,9 +297,46 @@ def upgrade() -> None:
         sa.Column("case_id", sa.Uuid(), sa.ForeignKey("cases.id"), nullable=False),
         sa.Column("case_version_id", sa.Uuid(), sa.ForeignKey("case_versions.id"), nullable=False),
         sa.Column("body", _JSONB, nullable=False),
+        # Satu kasus satu baris per snapshot, kalau tidak hasilnya terhitung dua kali.
+        sa.UniqueConstraint("snapshot_id", "case_id", name="uq_case_snapshot_items_case"),
     )
 
     if is_postgres:
+        # Item harus cocok dengan kasusnya dan snapshot tertutup setelah sesi selesai.
+        # Selagi running masih terbuka: SCRUM-207 boleh mengisinya saat sesi mulai.
+        op.execute(
+            """
+            CREATE FUNCTION case_snapshot_items_check_insert() RETURNS trigger AS $$
+            BEGIN
+                IF NOT EXISTS (
+                    SELECT 1 FROM case_versions
+                    WHERE id = NEW.case_version_id AND case_id = NEW.case_id
+                ) THEN
+                    RAISE EXCEPTION 'case_version % does not belong to case %',
+                        NEW.case_version_id, NEW.case_id
+                        USING ERRCODE = 'foreign_key_violation';
+                END IF;
+                IF EXISTS (
+                    SELECT 1 FROM case_snapshots s
+                    JOIN measurement_sessions m ON m.id = s.session_id
+                    WHERE s.id = NEW.snapshot_id
+                      AND m.status IN ('finished', 'finished_with_failures', 'failed')
+                ) THEN
+                    RAISE EXCEPTION 'the snapshot of a finished session is closed'
+                        USING ERRCODE = 'insufficient_privilege';
+                END IF;
+                RETURN NEW;
+            END;
+            $$ LANGUAGE plpgsql
+            """
+        )
+        op.execute(
+            """
+            CREATE TRIGGER case_snapshot_items_check_insert
+            BEFORE INSERT ON case_snapshot_items
+            FOR EACH ROW EXECUTE FUNCTION case_snapshot_items_check_insert()
+            """
+        )
         op.execute(
             """
             CREATE FUNCTION case_snapshots_forbid_change() RETURNS trigger AS $$
@@ -422,6 +461,7 @@ def downgrade() -> None:
     if bind.dialect.name == "postgresql":
         op.execute("DROP FUNCTION IF EXISTS attempts_protect_answer()")
         op.execute("DROP FUNCTION IF EXISTS case_snapshots_forbid_change()")
+        op.execute("DROP FUNCTION IF EXISTS case_snapshot_items_check_insert()")
         op.execute("DROP FUNCTION IF EXISTS measurement_sessions_forbid_delete()")
         op.execute("DROP FUNCTION IF EXISTS measurement_sessions_guard_update()")
         for enum in reversed(_ENUMS):

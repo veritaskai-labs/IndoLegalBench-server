@@ -252,6 +252,9 @@ class CaseSnapshotItem(Base):
     """Salinan satu kasus, bentuk PBI-8: case_id ke kasus live, body dari snapshot_body()."""
 
     __tablename__ = "case_snapshot_items"
+    __table_args__ = (
+        UniqueConstraint("snapshot_id", "case_id", name="uq_case_snapshot_items_case"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     snapshot_id: Mapped[uuid.UUID] = mapped_column(
