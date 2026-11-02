@@ -217,6 +217,41 @@ def test_kembali_ke_otomatis_wajib_uji_koneksi_ulang(admin, db_session, uji_kone
     assert admin.get(f"{_PRODUK}/{product_id}").json()["last_test_status"] == "ok"
 
 
+@pytest.mark.parametrize(
+    ("body", "terkunci"),
+    [
+        pytest.param({"name": "Nama Baru"}, False, id="hanya-nama"),
+        pytest.param({"rate_limit_per_minute": 45}, False, id="hanya-batas"),
+        pytest.param({"measurement_type": "automatic"}, True, id="jenis-sama"),
+        pytest.param(
+            {"measurement_type": "manual", "vendor_name": "Penyedia", "site_url": "https://x.test"},
+            True,
+            id="ganti-jenis",
+        ),
+    ],
+)
+def test_baris_produk_dikunci_hanya_bila_jenis_ikut_dikirim(admin, monkeypatch, body, terkunci):
+    """Edge (review #90): FOR UPDATE hanya dibutuhkan bila jenis bisa berubah. PATCH tanpa
+    measurement_type (nama, batas) tidak perlu menahan baris produk, jadi tidak mengunci."""
+    # Arrange
+    product_id = _daftar(admin, _otomatis("Kunci Seperlunya"))
+    asli = service.repository.get_by_id
+    panggilan: list[bool] = []
+
+    def catat(db, pid, *, for_update=False):
+        panggilan.append(for_update)
+        return asli(db, pid, for_update=for_update)
+
+    monkeypatch.setattr(service.repository, "get_by_id", catat)
+
+    # Act
+    respons = admin.patch(f"{_PRODUK}/{product_id}", json=body)
+
+    # Assert
+    assert respons.status_code == 200, respons.text
+    assert panggilan == [terkunci]
+
+
 # --- AC4: nama unik selamanya --------------------------------------------------------------
 
 
