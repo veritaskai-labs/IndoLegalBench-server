@@ -14,14 +14,14 @@ audit_logs still refer to them. Raw SQL does not pass the ORM audit
 listener, so this cleanup leaves no audit rows of its own.
 
 Revision ID: e4b7c2d9a615
-Revises: a1f8c7e3d092
+Revises: d3c8a1e54b20
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 revision = "e4b7c2d9a615"  # pragma: allowlist secret
-down_revision = "a1f8c7e3d092"  # pragma: allowlist secret
+down_revision = "d3c8a1e54b20"  # pragma: allowlist secret
 branch_labels = None
 depends_on = None
 

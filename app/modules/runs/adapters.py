@@ -1,4 +1,4 @@
-"""Port nyata untuk ringkasan sesi pengukuran (PBI-11, SCRUM-206).
+"""Port nyata untuk ringkasan, log panggilan, dan antrean sesi (PBI-11, SCRUM-206/207/209).
 
 Modul runs hanya menjangkau cases, suites, dan providers lewat fungsi service
 mereka, tidak lewat tabel atau repository.
@@ -12,11 +12,14 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import dataclass
 from datetime import UTC, datetime
 from decimal import Decimal
+from zoneinfo import ZoneInfo
 
 from sqlalchemy.orm import Session
 
 from app.modules.cases import service as cases_service
 from app.modules.providers import service as providers_service
+from app.modules.runs.call_log import month_start
+from app.modules.runs.repository import CallLogRepository
 from app.modules.runs.schemas import SessionStatus
 from app.modules.runs.session_ports import (
     NewSession,
@@ -67,6 +70,7 @@ class ProductAdapter:
             model_name=product.model_name,
             monthly_budget_idr=product.monthly_budget_idr,
             price_output_usd_per_mtok=product.price_output_usd_per_mtok,
+            price_input_usd_per_mtok=product.price_input_usd_per_mtok,
         )
 
 
@@ -119,18 +123,25 @@ class ProductCopyAdapter:
         )
 
 
-class PendingSpend:
-    """Pengeluaran bulan ini. Log panggilan belum ada (SCRUM-209), jadi selalu nol."""
+class CallLogSpend:
+    """Pengeluaran bulan ini dari call_logs."""
 
-    def spent_this_month_idr(self, _product_id: uuid.UUID) -> Decimal:
-        return Decimal("0.00")
+    def __init__(self, db: Session) -> None:
+        self._rows = CallLogRepository(db)
+
+    def spent_this_month_idr(self, product_id: uuid.UUID) -> Decimal:
+        now = datetime.now(ZoneInfo("Asia/Jakarta"))
+        return self._rows.sum_cost_since(product_id, month_start(now))
 
 
-class PendingAnswerHistory:
-    """Panjang jawaban sebelumnya. Log panggilan belum ada (SCRUM-209), jadi kosong."""
+class CallLogAnswerHistory:
+    """Rata-rata token jawaban dari call_logs."""
 
-    def average_answer_tokens(self, _product_id: uuid.UUID) -> Decimal | None:
-        return None
+    def __init__(self, db: Session) -> None:
+        self._rows = CallLogRepository(db)
+
+    def average_answer_tokens(self, product_id: uuid.UUID) -> Decimal | None:
+        return self._rows.output_token_average(product_id)
 
 
 def _sekarang() -> datetime:

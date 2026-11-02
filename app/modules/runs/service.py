@@ -15,6 +15,7 @@ from collections.abc import Callable, Mapping
 from datetime import UTC, datetime
 from decimal import Decimal
 
+from app.modules.runs.call_log import monthly_limit
 from app.modules.runs.cost_estimator import estimate_cost_idr
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.pricing import PriceCatalog
@@ -166,7 +167,7 @@ class SummaryService:
     def _remaining_budget(self, product: ProductInfo) -> Decimal:
         """Anggaran bulanan dikurangi yang terpakai, tidak pernah negatif."""
         spent = self._spend.spent_this_month_idr(product.id)
-        remaining = max(product.monthly_budget_idr - spent, Decimal("0"))
+        remaining = max(monthly_limit(product) - spent, Decimal("0"))
         return remaining.quantize(_CENT)
 
 

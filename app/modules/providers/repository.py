@@ -14,13 +14,16 @@ from sqlalchemy.orm import Session
 from app.modules.providers.models import AiProduct, MeasurementType
 
 
-def get_by_id(db: Session, product_id: uuid.UUID) -> AiProduct | None:
-    """Mengembalikan None untuk produk yang sudah dihapus (deleted_at IS NOT NULL)."""
-    return (
-        db.query(AiProduct)
-        .filter(AiProduct.id == product_id, AiProduct.deleted_at.is_(None))
-        .first()
-    )
+def get_by_id(db: Session, product_id: uuid.UUID, *, for_update: bool = False) -> AiProduct | None:
+    """Mengembalikan None untuk produk yang sudah dihapus (deleted_at IS NOT NULL).
+
+    for_update mengunci baris sampai transaksi selesai (SELECT ... FOR UPDATE) dan membaca
+    ulang nilainya, supaya keputusan yang diambil sesudahnya memakai baris terbaru.
+    """
+    query = db.query(AiProduct).filter(AiProduct.id == product_id, AiProduct.deleted_at.is_(None))
+    if for_update:
+        query = query.with_for_update().populate_existing()
+    return query.first()
 
 
 def names_by_ids(db: Session, product_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:

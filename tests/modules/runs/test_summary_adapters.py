@@ -170,23 +170,9 @@ def test_produk_tidak_ada_atau_terhapus_menjadi_none():
     assert info is None
 
 
-def test_pengeluaran_belum_tersedia_dilaporkan_nol():
-    # Arrange
-    port = adapters.PendingSpend()
-
-    # Act
-    terpakai = port.spent_this_month_idr(PRODUCT_ID)
-
-    # Assert
-    assert terpakai == Decimal("0.00")
+def test_pengeluaran_kosong_adalah_nol(db_session):
+    assert adapters.CallLogSpend(db_session).spent_this_month_idr(PRODUCT_ID) == Decimal("0.00")
 
 
-def test_riwayat_panjang_jawaban_belum_tersedia_dilaporkan_none():
-    # Arrange
-    port = adapters.PendingAnswerHistory()
-
-    # Act
-    rata_rata = port.average_answer_tokens(PRODUCT_ID)
-
-    # Assert
-    assert rata_rata is None
+def test_riwayat_kosong_adalah_none(db_session):
+    assert adapters.CallLogAnswerHistory(db_session).average_answer_tokens(PRODUCT_ID) is None

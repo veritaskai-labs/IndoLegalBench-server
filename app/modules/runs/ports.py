@@ -44,7 +44,7 @@ class SessionStore(Protocol):
         raise NotImplementedError
 
     def mark_status(self, session_id: uuid.UUID, status: str) -> None:
-        """Status sesi: running atau finished."""
+        """Status sesi: running, finished, atau budget_stopped."""
         raise NotImplementedError
 
 

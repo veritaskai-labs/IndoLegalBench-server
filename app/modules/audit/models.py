@@ -48,6 +48,7 @@ class AuditEntityType(StrEnum):
     SUITE = "suite"
     AI_PRODUCT = "ai_product"
     USER = "user"
+    CALL_LOG = "call_log"
 
 
 class AuditLog(Base):

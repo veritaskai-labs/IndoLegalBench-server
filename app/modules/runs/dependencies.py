@@ -1,27 +1,31 @@
 """Perakitan dependency FastAPI untuk modul runs (PBI-11, SCRUM-206, SCRUM-207)."""
 
+from datetime import UTC, datetime
 from functools import lru_cache
 
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
 from app.modules.runs.adapters import (
+    CallLogAnswerHistory,
+    CallLogSpend,
     CaseCountAdapter,
     InMemorySessionQueue,
-    PendingAnswerHistory,
-    PendingSpend,
     ProductAdapter,
     ProductCopyAdapter,
     SnapshotSourceAdapter,
 )
+from app.modules.runs.call_log import CallLogService
 from app.modules.runs.exchange_rate import (
     ConfiguredExchangeRate,
     ExchangeRateProvider,
     JisdorExchangeRate,
 )
 from app.modules.runs.pricing import ConfigPriceCatalog
+from app.modules.runs.repository import CallLogRepository
 from app.modules.runs.service import SessionQueue, StartSessionService, SummaryService
 from app.modules.runs.session_ports import SessionQueueStore
+from app.modules.runs.worker import run_next
 from app.shared.config import Settings, get_settings
 from app.shared.database import get_db
 
@@ -45,8 +49,8 @@ def get_summary_service(
     return SummaryService(
         products=ProductAdapter(db),
         cases=CaseCountAdapter(db),
-        spend=PendingSpend(),
-        history=PendingAnswerHistory(),
+        spend=CallLogSpend(db),
+        history=CallLogAnswerHistory(db),
         prices=ConfigPriceCatalog(settings.cost_model_prices),
         rates=rates,
         safety_margin_percent=settings.cost_safety_margin_percent,
@@ -76,4 +80,38 @@ def build_session_queue(db: Session) -> SessionQueue:
         sessions=get_session_store(),
         snapshots=SnapshotSourceAdapter(db),
         products=ProductCopyAdapter(db),
+    )
+
+
+def get_call_log_service(
+    db: Session,
+    rates: ExchangeRateProvider,
+) -> CallLogService:
+    """Satu-satunya tempat produksi yang membuat CallLogService."""
+    return CallLogService(
+        products=ProductAdapter(db),
+        repository=CallLogRepository(db),
+        rates=rates,
+        clock=lambda: datetime.now(UTC),
+    )
+
+
+def run_queued_measurement(
+    db: Session,
+    queue,
+    store,
+    adapter,
+    product_id,
+    *,
+    rates: ExchangeRateProvider | None = None,
+    **kwargs,
+):
+    """Pemanggil run_next. Tanpa ini worker tidak menulis call log."""
+    return run_next(
+        queue,
+        store,
+        adapter,
+        call_log=get_call_log_service(db, rates or get_exchange_rate()),
+        product_id=product_id,
+        **kwargs,
     )

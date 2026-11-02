@@ -418,6 +418,24 @@ def _content_diff(change: Change) -> tuple[dict[str, Any], dict[str, Any]]:
     return before, after
 
 
+class CallLogTracker(Tracker):
+    """Bukti panggilan. Isi mentah penyedia tetap di call_logs, bukan di audit."""
+
+    entity_type = AuditEntityType.CALL_LOG
+    prefix = "call_log"
+    created_fields = (
+        "product_id",
+        "attempt_id",
+        "result",
+        "failure_kind",
+        "cost_idr",
+        "input_tokens",
+        "output_tokens",
+        "model_version",
+    )
+    fields = created_fields
+
+
 TRACKERS: dict[str, Tracker] = {
     "suites": SuiteTracker(),
     "suite_snapshots": SuiteSnapshotTracker(),
@@ -429,6 +447,7 @@ TRACKERS: dict[str, Tracker] = {
     "review_comment_replies": ReviewCommentReplyTracker(),
     "ai_products": AiProductTracker(),
     "users": UserTracker(),
+    "call_logs": CallLogTracker(),
 }
 
 
