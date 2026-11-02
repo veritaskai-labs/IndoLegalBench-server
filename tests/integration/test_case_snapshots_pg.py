@@ -28,6 +28,7 @@ from tests.measurement_pg import (
     buat_produk,
     buat_sesi,
     sqlstate_penolakan,
+    ubah_status,
 )
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "")
@@ -231,3 +232,86 @@ def test_mengubah_kasus_live_tidak_mengubah_snapshot(conn, admin_id, kasus, item
 
     pertanyaan = conn.execute(text(PERTANYAAN_DI_BODY), {"id": item_id}).scalar_one()
     assert pertanyaan == PERTANYAAN
+
+
+def test_kasus_yang_sama_tidak_bisa_dua_kali_di_satu_snapshot(conn, snapshot_id, kasus, item_id):
+    """Review #89 blocker 4: satu kasus satu baris per snapshot, kalau tidak hasil
+    satu kasus terhitung dua kali."""
+    sqlstate = sqlstate_penolakan(
+        conn,
+        TAMBAH_ITEM,
+        {
+            "id": uuid.uuid4(),
+            "snapshot": snapshot_id,
+            "case_id": kasus[0],
+            "version_id": kasus[1],
+            "body": json.dumps(BODY),
+        },
+    )
+
+    assert sqlstate == UNIQUE_VIOLATION
+
+
+def test_kasus_yang_sama_boleh_di_snapshot_sesi_lain(conn, admin_id, kasus, item_id):
+    """Guard: keunikannya per snapshot, bukan global. Kasus diukur ulang di sesi lain."""
+    sesi_lain = buat_sesi(conn, buat_produk(conn, admin_id), admin_id)
+
+    item_lain = _item(conn, _snapshot(conn, sesi_lain), *kasus)
+
+    assert item_lain != item_id
+
+
+def test_versi_milik_kasus_lain_ditolak(conn, admin_id, snapshot_id, kasus):
+    """Review #89 blocker 4: case_id A dengan versi kasus B membuat body dan kasus
+    live yang ditunjuk tidak cocok, jadi hasilnya tertelusur ke kasus yang salah."""
+    _, versi_kasus_lain = buat_kasus(conn, admin_id)
+
+    sqlstate = sqlstate_penolakan(
+        conn,
+        TAMBAH_ITEM,
+        {
+            "id": uuid.uuid4(),
+            "snapshot": snapshot_id,
+            "case_id": kasus[0],
+            "version_id": versi_kasus_lain,
+            "body": json.dumps(BODY),
+        },
+    )
+
+    assert sqlstate == FOREIGN_KEY_VIOLATION
+
+
+@pytest.mark.parametrize("status", ["finished", "finished_with_failures", "failed"])
+def test_snapshot_sesi_selesai_tidak_bisa_ditambah(
+    conn, admin_id, sesi_id, snapshot_id, kasus, status
+):
+    """Review #89 blocker 4: setelah sesi selesai, isi snapshot adalah apa yang sudah
+    diukur. Item tambahan mengubah arti hasilnya."""
+    ubah_status(conn, sesi_id, "running")
+    ubah_status(conn, sesi_id, status)
+
+    sqlstate = sqlstate_penolakan(
+        conn,
+        TAMBAH_ITEM,
+        {
+            "id": uuid.uuid4(),
+            "snapshot": snapshot_id,
+            "case_id": kasus[0],
+            "version_id": kasus[1],
+            "body": json.dumps(BODY),
+        },
+    )
+
+    assert sqlstate == INSUFFICIENT_PRIVILEGE
+
+
+def test_snapshot_sesi_berjalan_masih_bisa_diisi(conn, sesi_id, snapshot_id, kasus):
+    """Guard: SCRUM-207 boleh mengisi snapshot saat sesi mulai berjalan."""
+    ubah_status(conn, sesi_id, "running")
+
+    item_id = _item(conn, snapshot_id, *kasus)
+
+    jumlah = conn.execute(
+        text("SELECT count(*) FROM case_snapshot_items WHERE id = :id"), {"id": item_id}
+    ).scalar_one()
+    assert jumlah == 1
