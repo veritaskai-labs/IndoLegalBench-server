@@ -9,24 +9,37 @@ TODO(PBI-11, PBI-12, PBI-13): query lain menyusul sesuai kebutuhan service.
 """
 
 import uuid
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import exists, func, select
+from sqlalchemy import exists, func, null, select, update
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.runs.models import (
+    Attempt,
+    AttemptSource,
+    AttemptStatus,
     CallLog,
+    CaseSnapshot,
+    CaseSnapshotItem,
     MeasurementSession,
     MeasurementSessionSuite,
+    SessionProductCopy,
     SessionPurpose,
     SessionStatus,
     SessionType,
     SplitFilter,
 )
 from app.modules.runs.schemas import CaseFilter, MeasurementPurpose
-from app.modules.runs.session_ports import NewSession, QueuedSession, WaitingSession
+from app.modules.runs.session_ports import (
+    NewSession,
+    ProductCopy,
+    QueuedSession,
+    SnapshotItem,
+    WaitingSession,
+)
 
 
 def product_has_sessions(db: Session, product_id: uuid.UUID) -> bool:
@@ -77,6 +90,18 @@ class CallLogRepository:
 
 def _sekarang() -> datetime:
     return datetime.now(UTC)
+
+
+# Nama index partial "satu sesi otomatis running" dari migrasi #89. SQLite menyebut
+# kolomnya, PostgreSQL menyebut nama index-nya.
+_SATU_RUNNING = (
+    "uq_measurement_sessions_one_running_automatic",
+    "measurement_sessions.session_type",
+)
+
+
+def _sesi_lain_running(exc: IntegrityError) -> bool:
+    return any(tanda in str(exc.orig) for tanda in _SATU_RUNNING)
 
 
 # Hanya sesi ini yang antre untuk worker otomatis (D2, AC3, AC10 arsip disembunyikan).
@@ -157,3 +182,89 @@ class SessionQueueRepository:
                 created_by=session.created_by,
             ),
         )
+
+    def start(
+        self,
+        session_id: uuid.UUID,
+        *,
+        items: Sequence[SnapshotItem],
+        product: ProductCopy,
+        started_at: datetime,
+    ) -> bool:
+        """D3 langkah 25-28 dalam satu transaksi: running, snapshot, salinan, attempts.
+
+        False bila sesi tidak lagi menunggu atau sesi otomatis lain sudah running;
+        tidak ada yang tersimpan. Galat data lain dibatalkan lalu dinaikkan, supaya
+        sesi yang rusak tidak diam-diam menunggu selamanya.
+        """
+        try:
+            # UPDATE bersyarat: worker kedua yang membaca sesi yang sama mendapat 0 baris.
+            dimulai = self._db.execute(
+                update(MeasurementSession)
+                .where(MeasurementSession.id == session_id, *_ANTREAN_OTOMATIS)
+                .values(status=SessionStatus.RUNNING, started_at=started_at)
+                .execution_options(synchronize_session=False)
+            ).rowcount
+            if dimulai != 1:
+                self._db.rollback()
+                return False
+            self._freeze(session_id, items, product)
+            self._db.commit()
+        except IntegrityError as exc:
+            self._db.rollback()
+            if _sesi_lain_running(exc):
+                return False
+            raise
+        return True
+
+    def _freeze(
+        self, session_id: uuid.UUID, items: Sequence[SnapshotItem], product: ProductCopy
+    ) -> None:
+        snapshot = CaseSnapshot(session_id=session_id)
+        self._db.add(snapshot)
+        self._db.flush()
+        rows = [
+            CaseSnapshotItem(
+                snapshot_id=snapshot.id,
+                case_id=item.case_id,
+                case_version_id=item.case_version_id,
+                body=item.content,
+            )
+            for item in items
+        ]
+        self._db.add_all(rows)
+        self._db.add(_product_copy_row(session_id, product))
+        self._db.flush()
+        repetitions = self._db.scalar(
+            select(MeasurementSession.repetitions).where(MeasurementSession.id == session_id)
+        )
+        self._db.add_all(
+            Attempt(
+                session_id=session_id,
+                snapshot_item_id=row.id,
+                repetition_no=nomor,
+                source=AttemptSource.AUTOMATIC,
+                status=AttemptStatus.PENDING,
+            )
+            for row in rows
+            for nomor in range(1, repetitions + 1)
+        )
+        self._db.flush()
+
+
+def _product_copy_row(session_id: uuid.UUID, product: ProductCopy) -> SessionProductCopy:
+    """D2 session_product_copies. rate_limit_per_minute belum punya kolom di #89."""
+    return SessionProductCopy(
+        session_id=session_id,
+        product_id=product.product_id,
+        name=product.name,
+        measurement_type=product.measurement_type,
+        provider_type=product.provider_type,
+        base_url=product.base_url,
+        model_name=product.model_name,
+        # null() supaya kosong menjadi SQL NULL, bukan JSON 'null' (pelajaran PBI-23).
+        model_params=product.model_params if product.model_params is not None else null(),
+        price_input_usd_per_mtok=product.price_input_usd_per_mtok,
+        price_output_usd_per_mtok=product.price_output_usd_per_mtok,
+        monthly_budget_idr=product.monthly_budget_idr,
+    )
