@@ -190,7 +190,8 @@ def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate)
     # Kunci baris produk sebelum cek riwayat (Jira SCRUM-200). Sesi yang sedang dibuat
     # memegang kunci FK pada baris ini, jadi ganti jenis menunggu sesi itu commit dan
     # cek riwayat di bawah melihatnya. Tanpa kunci, keduanya lolos dan jenisnya campur.
-    product = _wajib_ada(db, product_id, kunci=True)
+    # PATCH tanpa measurement_type tidak bisa mengganti jenis, jadi tidak perlu mengunci.
+    product = _wajib_ada(db, product_id, kunci="measurement_type" in payload.model_fields_set)
     perubahan = payload.model_dump(exclude_unset=True)
     credential = perubahan.pop("credential", None)
     _filter_unchanged_nulls(perubahan)
