@@ -108,7 +108,37 @@ def test_kunci_rahasia_ditolak_juga_yang_bersarang(params):
     assert masalah.code == rules.MODEL_PARAMS_SECRET
 
 
-@pytest.mark.parametrize("kunci", ["max_tokens", "max_output_tokens", "budget_tokens"])
+@pytest.mark.parametrize(
+    "kunci",
+    [
+        "client_secret",
+        "openai_api_key",
+        "secret_key",
+        "private_key",
+        "token",
+        "apiKey",
+        "X-Api-Key",
+        "credentials",
+    ],
+)
+def test_nama_kunci_rahasia_dicocokkan_per_kata(kunci):
+    """Negatif (review #93): kata rahasia di dalam nama kunci tetap tertolak."""
+    masalah = rules.model_params_problem({kunci: "abc"})
+    assert masalah is not None
+    assert masalah.code == rules.MODEL_PARAMS_SECRET
+
+
+@pytest.mark.parametrize("bukan_angka", [float("nan"), float("inf"), float("-inf")])
+def test_angka_tidak_terhingga_ditolak(bukan_angka):
+    """Negatif (review #93): NaN dan Infinity bukan JSON dan ditolak penyedia."""
+    masalah = rules.model_params_problem({"temperature": {"nilai": bukan_angka}})
+    assert masalah is not None
+    assert masalah.code == rules.MODEL_PARAMS_INVALID_NUMBER
+
+
+@pytest.mark.parametrize(
+    "kunci", ["max_tokens", "max_output_tokens", "budget_tokens", "top_k", "tokenizer_mode"]
+)
 def test_kunci_berisi_kata_token_bukan_rahasia(kunci):
     """Edge: batas token adalah parameter biasa, jangan tertolak sebagai rahasia."""
     assert rules.model_params_problem({kunci: 100}) is None
@@ -185,6 +215,18 @@ def test_daftar_dengan_parameter_terlarang_ditolak_tanpa_menyimpan(admin, db_ses
     respons = admin.post("/admin/providers", json=_otomatis(model_params=params))
     assert respons.status_code == 422
     assert respons.json()["code"] == kode
+    assert respons.json()["field"] == "model_params"
+    assert db_session.query(AiProduct).count() == 0
+
+
+def test_nan_di_body_ditolak_422_bukan_500(admin, db_session):
+    """Negatif (review #93): parser JSON Python menerima NaN; server harus menjawab 422."""
+    body = json.dumps(_otomatis(model_params={"temperature": float("nan")}))
+    respons = admin.post(
+        "/admin/providers", content=body, headers={"content-type": "application/json"}
+    )
+    assert respons.status_code == 422
+    assert respons.json()["code"] == "MODEL_PARAMS_INVALID_NUMBER"
     assert respons.json()["field"] == "model_params"
     assert db_session.query(AiProduct).count() == 0
 
