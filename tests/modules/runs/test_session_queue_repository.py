@@ -175,3 +175,17 @@ def test_sesi_manual_berjalan_tidak_menahan_antrean_otomatis(antrean, db_session
 
     # Act + Assert
     assert antrean.running_exists() is False
+
+
+def test_tanpa_jam_suntikan_queued_at_memakai_utc_sekarang(db_session):
+    """Edge: queued_at dari jam bawaan ber-zona UTC, supaya urutan antrean tidak tergeser WIB."""
+    # Arrange
+    antrean = repository.SessionQueueRepository(db_session)
+    sebelum = datetime.now(UTC)
+
+    # Act
+    hasil = antrean.create_queued(_baru())
+
+    # Assert
+    assert hasil.queued_at.tzinfo is UTC
+    assert hasil.queued_at >= sebelum

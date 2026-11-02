@@ -13,6 +13,9 @@ from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
 
+# Satu enum status sesi untuk tabel (#89) dan kontrak API, supaya keduanya tidak menyimpang.
+from app.modules.runs.models import SessionStatus
+
 # PBI-11 AC3: satu angka pengulangan untuk seluruh pengukuran.
 MIN_REPEATS = 1
 MAX_REPEATS = 5
@@ -82,13 +85,6 @@ class MeasurementPurpose(StrEnum):
 
     OFFICIAL = "official"
     TRIAL = "trial"
-
-
-class SessionStatus(StrEnum):
-    """Status sesi otomatis (D4). Status jeda, batal, dan selesai menyusul di PBI-12."""
-
-    QUEUED = "queued"
-    RUNNING = "running"
 
 
 class StartRequest(SummaryRequest):

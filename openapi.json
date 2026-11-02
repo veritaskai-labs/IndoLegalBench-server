@@ -6776,10 +6776,13 @@
         "type": "string",
         "enum": [
           "queued",
-          "running"
+          "running",
+          "finished",
+          "finished_with_failures",
+          "failed"
         ],
         "title": "SessionStatus",
-        "description": "Status sesi otomatis (D4). Status jeda, batal, dan selesai menyusul di PBI-12."
+        "description": "Status dasar. Dihentikan dan Dibatalkan menyusul di PBI-12."
       },
       "SplitTag": {
         "type": "string",
