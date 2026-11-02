@@ -3173,6 +3173,69 @@
         }
       }
     },
+    "/measurements/{measurement_id}/progress": {
+      "get": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Angka progres pengukuran untuk layar pemantauan",
+        "operationId": "read_progress_measurements__measurement_id__progress_get",
+        "parameters": [
+          {
+            "name": "measurement_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Measurement Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ProgressResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`) atau produknya sudah dihapus (`AI_PRODUCT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "500": {
+            "description": "Anggaran bulanan produk belum disetel (`BUDGET_NOT_CONFIGURED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit-logs": {
       "get": {
         "tags": [
@@ -6507,6 +6570,88 @@
         ],
         "title": "ProductPurpose",
         "description": "Untuk apa daftar pilihan produk dipakai."
+      },
+      "ProgressResponse": {
+        "properties": {
+          "completed_calls": {
+            "type": "integer",
+            "title": "Completed Calls",
+            "description": "Panggilan selesai, termasuk yang gagal"
+          },
+          "total_calls": {
+            "type": "integer",
+            "title": "Total Calls",
+            "description": "Kasus kali pengulangan"
+          },
+          "percent_complete": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Percent Complete",
+            "description": "Persen selesai, satu desimal"
+          },
+          "failed_calls": {
+            "type": "integer",
+            "title": "Failed Calls",
+            "description": "Panggilan selesai yang gagal"
+          },
+          "percent_failed": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Percent Failed",
+            "description": "Persen gagal dari panggilan yang sudah selesai, satu desimal"
+          },
+          "remaining_seconds": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Remaining Seconds",
+            "description": "Perkiraan sisa waktu dalam detik, null sebelum ada panggilan selesai"
+          },
+          "running_cost_idr": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Running Cost Idr",
+            "description": "Biaya berjalan dalam rupiah"
+          },
+          "remaining_budget_idr": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Remaining Budget Idr",
+            "description": "Sisa anggaran bulan ini untuk produk"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At",
+            "description": "Waktu sesi mulai berjalan"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At",
+            "description": "Waktu angka ini terakhir diperbarui"
+          }
+        },
+        "type": "object",
+        "required": [
+          "completed_calls",
+          "total_calls",
+          "percent_complete",
+          "failed_calls",
+          "percent_failed",
+          "remaining_seconds",
+          "running_cost_idr",
+          "remaining_budget_idr",
+          "started_at",
+          "updated_at"
+        ],
+        "title": "ProgressResponse",
+        "description": "Angka layar progres yang di-poll tiap beberapa detik (PBI-12 AC5, AC6).\n\nTidak memuat jumlah coba ulang yang sedang berjalan dan tidak memuat\npenanda produk bermasalah (AC5). Uang dikirim sebagai string."
       },
       "ProviderType": {
         "type": "string",
