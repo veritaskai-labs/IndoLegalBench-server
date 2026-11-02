@@ -20,16 +20,19 @@ ACCESS_NOTE_SECRET = "ACCESS_NOTE_SECRET"  # pragma: allowlist secret (kode gala
 MODEL_PARAMS_RESERVED_KEY = "MODEL_PARAMS_RESERVED_KEY"
 MODEL_PARAMS_SECRET = "MODEL_PARAMS_SECRET"  # pragma: allowlist secret (kode galat, bukan rahasia)
 MODEL_PARAMS_TOO_LARGE = "MODEL_PARAMS_TOO_LARGE"
+MODEL_PARAMS_INVALID_NUMBER = "MODEL_PARAMS_INVALID_NUMBER"
 
 # SCRUM-247: parameter model adalah JSON bebas yang dikirim apa adanya ke penyedia.
 # Model dan prompt diatur adaptor; stream membuat jawaban tidak bisa dibaca adaptor.
 _KUNCI_SISTEM = frozenset({"model", "messages", "input", "stream"})
-# Kunci yang namanya berarti kredensial. Dicocokkan utuh, supaya max_tokens tetap boleh.
-_KUNCI_RAHASIA = re.compile(
-    r"(x[-_])?(api[-_]?key|goog[-_]api[-_]key)|authorization|password|passwd|secret"
-    r"|credential|(access|refresh|bearer|auth)[-_]?token",
-    re.IGNORECASE,
+# Kunci yang namanya berarti kredensial. Nama dipecah per kata (snake, kebab, camel),
+# jadi client_secret dan openai_api_key tertolak, sedangkan max_tokens (kata "tokens")
+# dan tokenizer_mode tetap boleh (review #93).
+_KATA_RAHASIA = frozenset(
+    {"secret", "password", "passwd", "credential", "credentials", "authorization", "token"}
 )
+_PASANGAN_RAHASIA = frozenset({("api", "key"), ("private", "key"), ("secret", "key")})
+_KATA = re.compile(r"[A-Z]?[a-z0-9]+|[A-Z]+(?![a-z])")
 MODEL_PARAMS_MAX_BYTES = 4096
 _FIELD_PARAMETER = "model_params"
 MODEL_PARAMS_MAX_DEPTH = 5
@@ -137,10 +140,15 @@ def model_params_problem(params: Mapping[str, Any] | None) -> TypeFieldProblem |
         if kunci.lower() in _KUNCI_SISTEM:
             pesan = f"Parameter model tidak boleh mengatur '{kunci}', karena diatur sistem."
             return TypeFieldProblem(MODEL_PARAMS_RESERVED_KEY, _FIELD_PARAMETER, pesan)
-    if any(_KUNCI_RAHASIA.fullmatch(kunci) for kunci in _semua_kunci(params)):
+    if any(_nama_rahasia(kunci) for kunci in _semua_kunci(params)):
         pesan = "Parameter model tidak boleh berisi API key, token, atau kata sandi."
         return TypeFieldProblem(MODEL_PARAMS_SECRET, _FIELD_PARAMETER, pesan)
-    ukuran = len(json.dumps(params, separators=(",", ":"), ensure_ascii=False).encode())
+    try:
+        teks = json.dumps(params, separators=(",", ":"), ensure_ascii=False, allow_nan=False)
+    except ValueError:
+        pesan = "Parameter model tidak boleh berisi NaN atau Infinity."
+        return TypeFieldProblem(MODEL_PARAMS_INVALID_NUMBER, _FIELD_PARAMETER, pesan)
+    ukuran = len(teks.encode())
     if ukuran > MODEL_PARAMS_MAX_BYTES or _kedalaman(params) > MODEL_PARAMS_MAX_DEPTH:
         pesan = (
             f"Parameter model maksimal {MODEL_PARAMS_MAX_BYTES} byte "
@@ -148,6 +156,13 @@ def model_params_problem(params: Mapping[str, Any] | None) -> TypeFieldProblem |
         )
         return TypeFieldProblem(MODEL_PARAMS_TOO_LARGE, _FIELD_PARAMETER, pesan)
     return None
+
+
+def _nama_rahasia(kunci: str) -> bool:
+    kata = [bagian.lower() for bagian in _KATA.findall(kunci)]
+    if _KATA_RAHASIA.intersection(kata):
+        return True
+    return any(pasangan in _PASANGAN_RAHASIA for pasangan in zip(kata, kata[1:], strict=False))
 
 
 def _semua_kunci(nilai: Any):
