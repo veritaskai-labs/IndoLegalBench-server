@@ -72,6 +72,7 @@ class SummaryResponse(BaseModel):
     )
     remaining_budget_idr: Decimal = Field(description="Sisa anggaran bulan ini untuk produk")
 
+
 class ProgressResponse(BaseModel):
     """Angka layar progres yang di-poll tiap beberapa detik (PBI-12 AC5, AC6).
 

@@ -83,6 +83,7 @@ class CallLogAnswerHistory:
     def average_answer_tokens(self, product_id: uuid.UUID) -> Decimal | None:
         return self._rows.output_token_average(product_id)
 
+
 class SessionProgressAdapter:
     """Hitungan progres satu sesi dari tabel sesi dan upaya.
 

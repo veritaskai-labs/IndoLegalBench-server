@@ -118,6 +118,7 @@ def test_gagal_lebih_banyak_dari_selesai_ditolak():
 
     assert exc.value.code == "PROGRESS_INVALID_INPUT"
 
+
 def test_hasil_hitungan_langsung_jadi_response():
     # Arrange
     angka = _hitung()

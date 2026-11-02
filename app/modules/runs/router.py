@@ -67,6 +67,7 @@ def summarize(
 ) -> SummaryResponse:
     return service.summarize(payload)
 
+
 _RESPONS_PROGRES = {
     404: {
         "model": ErrorBody,

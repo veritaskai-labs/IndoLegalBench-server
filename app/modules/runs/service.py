@@ -159,6 +159,7 @@ class SummaryService:
         remaining = max(monthly_limit(product) - spent, Decimal("0"))
         return remaining.quantize(_CENT)
 
+
 class ProgressService:
     """Angka layar progres satu pengukuran (PBI-12 AC5, AC6).
 

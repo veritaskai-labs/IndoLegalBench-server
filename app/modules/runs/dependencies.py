@@ -54,6 +54,7 @@ def get_summary_service(
         default_avg_answer_tokens=settings.cost_default_avg_answer_tokens,
     )
 
+
 def get_progress_service(db: Session = Depends(get_db)) -> ProgressService:
     """Satu agregasi sesi, satu produk, satu angka pemakaian bulan ini."""
     return ProgressService(
@@ -61,6 +62,7 @@ def get_progress_service(db: Session = Depends(get_db)) -> ProgressService:
         products=ProductAdapter(db),
         spend=CallLogSpend(db),
     )
+
 
 def get_call_log_service(
     db: Session,
