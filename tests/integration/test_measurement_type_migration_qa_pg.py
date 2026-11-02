@@ -164,13 +164,13 @@ def test_produk_lama_menjadi_otomatis_dengan_data_utuh(alembic_cfg, engine):
     assert (jenis, kosong) == (["automatic"] * 3, 0)
 
 
-def test_nama_ganda_lama_diganti_pada_produk_terhapus_saja(alembic_cfg, engine):
+def test_nama_ganda_lama_diganti_pada_produk_terhapus_saja(alembic_cfg, engine, capfd):
     """Edge (AC4): nama yang dipakai ulang setelah produk dihapus. Produk aktif tetap
     bernama sama; setiap produk terhapus yang namanya ganda diganti dengan akhiran id-nya,
     lalu constraint unik selamanya terpasang. Nama terhapus yang tidak ganda tidak diubah.
 
-    Deviasi dari Jira SCRUM-200 ("melaporkan sebelum constraint dipasang"): penggantian ini
-    tidak dilaporkan di mana pun."""
+    SCRUM-245 (Jira SCRUM-200: "melaporkan sebelum constraint dipasang"): setiap
+    penggantian muncul sebagai WARN di log Alembic dengan nama lama, nama baru, dan id."""
     # Arrange
     command.downgrade(alembic_cfg, SEBELUM)
     akhiran = uuid.uuid4().hex[:8]
@@ -181,6 +181,14 @@ def test_nama_ganda_lama_diganti_pada_produk_terhapus_saja(alembic_cfg, engine):
         terhapus_2 = _produk_lama(conn, admin, ganda, terhapus=True)
         aktif = _produk_lama(conn, admin, ganda)
         tunggal = _produk_lama(conn, admin, sendiri, terhapus=True)
+        # Database bersama: hitung semua yang akan diganti run ini, bukan hanya baris tes ini.
+        akan_diganti = conn.scalar(
+            text(
+                "SELECT count(*) FROM ai_products WHERE deleted_at IS NOT NULL AND name IN "
+                "(SELECT name FROM ai_products GROUP BY name HAVING count(*) > 1)"
+            )
+        )
+    capfd.readouterr()
 
     # Act
     command.upgrade(alembic_cfg, "head")
@@ -198,6 +206,12 @@ def test_nama_ganda_lama_diganti_pada_produk_terhapus_saja(alembic_cfg, engine):
             )
         )
     assert constraint == "u"
+    log = capfd.readouterr().err
+    for terhapus in (terhapus_1, terhapus_2):
+        assert f"'{ganda}' -> '{ganda} (dihapus {str(terhapus)[:8]})' (id {terhapus})" in log
+    assert akan_diganti >= 2
+    assert f"{akan_diganti} nama produk terhapus diganti sebelum uq_ai_products_name" in log
+    assert f"'{sendiri}' ->" not in log
 
 
 def test_nama_panjang_tetap_muat_setelah_diganti(alembic_cfg, engine):
