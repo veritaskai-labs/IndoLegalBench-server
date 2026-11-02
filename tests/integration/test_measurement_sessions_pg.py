@@ -22,6 +22,7 @@ from tests.measurement_pg import (
     STRING_DATA_RIGHT_TRUNCATION,
     UNIQUE_VIOLATION,
     buat_admin,
+    buat_item_snapshot,
     buat_produk,
     galat,
     sqlstate_penolakan,
@@ -380,6 +381,91 @@ def test_jenis_sesi_yang_masih_menunggu_bisa_diubah(conn, produk_id, admin_id):
         {"id": sesi_id},
     ).scalar_one()
     assert jenis == "manual"
+
+
+_IDENTITAS_BARU = {
+    "purpose": "CAST('trial' AS measurement_purpose_enum)",
+    "split_filter": "CAST('test' AS measurement_split_filter_enum)",
+    "repetitions": "1",
+    "session_type": "CAST('manual' AS measurement_session_type_enum)",
+    "product_id": ":produk_lain",
+}
+
+
+def _ubah_identitas(conn, sesi_id, kolom, admin_id) -> None:
+    conn.execute(
+        text(f"UPDATE measurement_sessions SET {kolom} = {_IDENTITAS_BARU[kolom]} WHERE id = :id"),
+        {"id": sesi_id, "produk_lain": buat_produk(conn, admin_id)},
+    )
+
+
+@pytest.mark.parametrize("kolom", list(_IDENTITAS_BARU))
+def test_identitas_sesi_selesai_tidak_bisa_diubah(conn, produk_id, admin_id, kolom):
+    """Review #89 blocker 2: hasil harus tetap terikat pada apa yang diukur. Memindah
+    product_id juga melepas kunci PBI-23 produk asal dan meninggalkan salinannya."""
+    sesi_id = _sesi(
+        conn, produk_id, admin_id, session_type="automatic", repetitions=3, split_filter="dev"
+    )
+    ubah_status(conn, sesi_id, "running")
+    ubah_status(conn, sesi_id, "finished")
+
+    sqlstate = galat(conn, lambda: _ubah_identitas(conn, sesi_id, kolom, admin_id)).sqlstate
+
+    assert sqlstate == INSUFFICIENT_PRIVILEGE
+
+
+@pytest.mark.parametrize("kolom", list(_IDENTITAS_BARU))
+def test_identitas_sesi_yang_masih_menunggu_bisa_diubah(conn, produk_id, admin_id, kolom):
+    """Guard: sebelum berjalan, sesi belum mengukur apa pun, jadi masih boleh dikoreksi."""
+    sesi_id = _sesi(
+        conn, produk_id, admin_id, session_type="automatic", repetitions=3, split_filter="dev"
+    )
+
+    _ubah_identitas(conn, sesi_id, kolom, admin_id)
+
+    status = conn.execute(
+        text("SELECT status::text FROM measurement_sessions WHERE id = :id"), {"id": sesi_id}
+    ).scalar_one()
+    assert status == "queued"
+
+
+def _percobaan_ketiga(conn, sesi_id, admin_id) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO attempts (id, session_id, snapshot_item_id, repetition_no, source) "
+            "VALUES (:id, :sesi, :item, 3, 'automatic')"
+        ),
+        {"id": uuid.uuid4(), "sesi": sesi_id, "item": buat_item_snapshot(conn, sesi_id, admin_id)},
+    )
+
+
+def test_pengulangan_tidak_bisa_diturunkan_di_bawah_percobaan_yang_ada(conn, produk_id, admin_id):
+    """Review #89 blocker 2, corner: batas attempts hanya diperiksa saat percobaan
+    ditulis. Menurunkan pengulangan sesudahnya meninggalkan percobaan nomor 3 pada
+    sesi 1 pengulangan, bahkan selagi sesi masih queued."""
+    sesi_id = _sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
+    _percobaan_ketiga(conn, sesi_id, admin_id)
+
+    sqlstate = sqlstate_penolakan(
+        conn, "UPDATE measurement_sessions SET repetitions = 2 WHERE id = :id", {"id": sesi_id}
+    )
+
+    assert sqlstate == CHECK_VIOLATION
+
+
+def test_pengulangan_boleh_turun_sampai_nomor_percobaan_tertinggi(conn, produk_id, admin_id):
+    """Guard batas: turun tepat ke nomor percobaan tertinggi masih sah."""
+    sesi_id = _sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=5)
+    _percobaan_ketiga(conn, sesi_id, admin_id)
+
+    conn.execute(
+        text("UPDATE measurement_sessions SET repetitions = 3 WHERE id = :id"), {"id": sesi_id}
+    )
+
+    pengulangan = conn.execute(
+        text("SELECT repetitions FROM measurement_sessions WHERE id = :id"), {"id": sesi_id}
+    ).scalar_one()
+    assert pengulangan == 3
 
 
 def test_sesi_baru_belum_punya_waktu_antrean(conn, produk_id, admin_id):
