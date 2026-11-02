@@ -24,7 +24,8 @@ PBI-11 SCRUM-76 (SCRUM-205), D2:
   setelah sesi selesai.
 - attempts: satu per item snapshot per nomor pengulangan, nomor tidak melebihi
   pengulangan sesi (D2), jawaban mentah ditulis sekali dan tidak bisa dihapus
-  (AC3, AC8).
+  (AC3, AC8). Item harus dari snapshot sesi itu, dan setelah dijawab baris
+  tidak bisa pindah sesi, item, atau versi model. Jawaban kosong belum dihitung.
 """
 
 from collections.abc import Sequence
@@ -410,10 +411,29 @@ def upgrade() -> None:
                         USING ERRCODE = 'insufficient_privilege';
                 END IF;
 
-                IF TG_OP = 'UPDATE' AND OLD.answer_text IS NOT NULL
-                   AND NEW.answer_text IS DISTINCT FROM OLD.answer_text THEN
-                    RAISE EXCEPTION 'attempt answer is permanent once written'
-                        USING ERRCODE = 'insufficient_privilege';
+                -- Jawaban kosong atau hanya whitespace belum dihitung tertulis.
+                IF TG_OP = 'UPDATE' AND OLD.answer_text ~ '[^[:space:]]' THEN
+                    IF NEW.answer_text IS DISTINCT FROM OLD.answer_text THEN
+                        RAISE EXCEPTION 'attempt answer is permanent once written'
+                            USING ERRCODE = 'insufficient_privilege';
+                    END IF;
+                    -- Jawaban permanen tidak berarti kalau barisnya bisa pindah.
+                    IF (NEW.session_id, NEW.snapshot_item_id, NEW.model_version)
+                       IS DISTINCT FROM
+                       (OLD.session_id, OLD.snapshot_item_id, OLD.model_version) THEN
+                        RAISE EXCEPTION 'an answered attempt cannot move'
+                            USING ERRCODE = 'insufficient_privilege';
+                    END IF;
+                END IF;
+
+                IF NOT EXISTS (
+                    SELECT 1 FROM case_snapshot_items i
+                    JOIN case_snapshots s ON s.id = i.snapshot_id
+                    WHERE i.id = NEW.snapshot_item_id AND s.session_id = NEW.session_id
+                ) THEN
+                    RAISE EXCEPTION 'snapshot item % is not in the snapshot of session %',
+                        NEW.snapshot_item_id, NEW.session_id
+                        USING ERRCODE = 'foreign_key_violation';
                 END IF;
 
                 SELECT repetitions INTO max_repetitions
