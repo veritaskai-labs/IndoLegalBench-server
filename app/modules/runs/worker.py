@@ -7,6 +7,8 @@ lalu loop lanjut. Tidak ada retry otomatis.
 import time
 import uuid
 from collections.abc import Callable
+from dataclasses import dataclass
+from datetime import UTC, datetime
 from typing import Protocol
 
 from app.modules.providers.adapters.base import FailureKind, ProviderResponse
@@ -38,6 +40,8 @@ def run_session(
     rate_limit_per_minute: int | None = None,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    call_log=None,
+    product_id: uuid.UUID | None = None,
 ) -> None:
     """Jalankan setiap kasus × repeats. repeats di luar 1–5 ditolak.
 
@@ -53,18 +57,25 @@ def run_session(
     interval = _call_interval(rate_limit_per_minute)
     prompts = list(store.list_cases(session_id))
     store.mark_status(session_id, "running")
-    _run_prompts(
+    stopped = _run_prompts(
         session_id,
         store,
         adapter,
         params,
         prompts,
         repeats,
-        interval,
-        sleep,
-        clock,
+        _Pace(interval, sleep, clock, call_log, product_id),
     )
-    store.mark_status(session_id, "finished")
+    store.mark_status(session_id, "budget_stopped" if stopped else "finished")
+
+
+@dataclass(frozen=True)
+class _Pace:
+    interval: float | None
+    sleep: Callable[[float], None]
+    clock: Callable[[], float]
+    call_log: object
+    product_id: uuid.UUID | None
 
 
 def _run_prompts(
@@ -74,15 +85,14 @@ def _run_prompts(
     params: ModelParameters | None,
     prompts: list[str],
     repeats: int,
-    interval: float | None,
-    sleep: Callable[[float], None],
-    clock: Callable[[], float],
-) -> None:
+    pace: _Pace,
+) -> bool:
     completed = 0
     failed = 0
     next_start: float | None = None
+    stopped = False
     for case_index, prompt in enumerate(prompts):
-        completed, failed, next_start = _run_repeats(
+        completed, failed, next_start, stopped = _run_repeats(
             session_id,
             store,
             adapter,
@@ -90,13 +100,14 @@ def _run_prompts(
             case_index,
             prompt,
             repeats,
-            interval,
-            sleep,
-            clock,
+            pace,
             completed,
             failed,
             next_start,
         )
+        if stopped:
+            break
+    return stopped
 
 
 def _run_repeats(
@@ -107,55 +118,92 @@ def _run_repeats(
     case_index: int,
     prompt: str,
     repeats: int,
-    interval: float | None,
-    sleep: Callable[[float], None],
-    clock: Callable[[], float],
+    pace: _Pace,
     completed: int,
     failed: int,
     next_start: float | None,
-) -> tuple[int, int, float | None]:
+) -> tuple[int, int, float | None, bool]:
+    stopped = False
     for repeat_index in range(repeats):
-        _wait_until(next_start, clock, sleep)
-        started = clock()
+        if _over_budget(pace.call_log, pace.product_id):
+            stopped = True
+            break
+        _wait_until(next_start, pace.clock, pace.sleep)
+        started = pace.clock()
+        started_at = datetime.now(UTC)
         response = _ask(adapter, prompt, params)
-        if interval is not None:
-            next_start = started + interval
+        ended_at = datetime.now(UTC)
+        if pace.interval is not None:
+            next_start = started + pace.interval
         failed_call = response.failure_kind is not None or response.error is not None
         if failed_call:
             failed += 1
         else:
             completed += 1
-        _save(session_id, store, case_index, repeat_index, prompt, response, completed, failed)
-    return completed, failed, next_start
+        record = _attempt_record(session_id, case_index, repeat_index, prompt, response)
+        rate = _bill_before_save(pace, record)
+        _save(session_id, store, record, completed, failed)
+        _record_call(pace, record, started_at, ended_at, rate)
+    return completed, failed, next_start, stopped
+
+
+def _over_budget(call_log, product_id: uuid.UUID | None) -> bool:
+    if call_log is None or product_id is None:
+        return False
+    return not call_log.allows(product_id)
+
+
+def _bill_before_save(pace: _Pace, record: AttemptRecord):
+    """None bila sesi ini tidak mencatat. Selain itu kurs yang sudah lolos cek."""
+    if pace.call_log is None or pace.product_id is None:
+        return None
+    return pace.call_log.ensure_billable(pace.product_id, record)
+
+
+def _record_call(pace: _Pace, record: AttemptRecord, started_at, ended_at, rate) -> None:
+    if pace.call_log is None or pace.product_id is None:
+        return
+    pace.call_log.record(
+        pace.product_id,
+        record,
+        started_at,
+        ended_at,
+        usd_idr_rate=rate,
+    )
+
+
+def _attempt_record(
+    session_id: uuid.UUID,
+    case_index: int,
+    repeat_index: int,
+    prompt: str,
+    response: ProviderResponse,
+) -> AttemptRecord:
+    kind = response.failure_kind
+    return AttemptRecord(
+        session_id=session_id,
+        case_index=case_index,
+        repeat_index=repeat_index,
+        prompt=prompt,
+        text=response.text,
+        model_version=response.model_version,
+        latency_ms=response.latency_ms,
+        raw=response.raw,
+        error=response.error,
+        failure_kind=None if kind is None else str(kind),
+        input_tokens=response.input_tokens,
+        output_tokens=response.output_tokens,
+    )
 
 
 def _save(
     session_id: uuid.UUID,
     store: SessionStore,
-    case_index: int,
-    repeat_index: int,
-    prompt: str,
-    response: ProviderResponse,
+    record: AttemptRecord,
     completed: int,
     failed: int,
 ) -> None:
-    kind = response.failure_kind
-    store.save_attempt(
-        AttemptRecord(
-            session_id=session_id,
-            case_index=case_index,
-            repeat_index=repeat_index,
-            prompt=prompt,
-            text=response.text,
-            model_version=response.model_version,
-            latency_ms=response.latency_ms,
-            raw=response.raw,
-            error=response.error,
-            failure_kind=None if kind is None else str(kind),
-            input_tokens=response.input_tokens,
-            output_tokens=response.output_tokens,
-        )
-    )
+    store.save_attempt(record)
     store.update_progress(session_id, completed=completed, failed=failed)
 
 
@@ -168,6 +216,8 @@ def run_next(
     rate_limit_per_minute: int | None = None,
     sleep: Callable[[float], None] = time.sleep,
     clock: Callable[[], float] = time.monotonic,
+    call_log=None,
+    product_id: uuid.UUID | None = None,
 ) -> bool:
     """Ambil satu sesi dari antrean. False kalau antrean kosong."""
     session_id = queue.take_next()
@@ -182,6 +232,8 @@ def run_next(
         rate_limit_per_minute=rate_limit_per_minute,
         sleep=sleep,
         clock=clock,
+        call_log=call_log,
+        product_id=product_id,
     )
     return True
 

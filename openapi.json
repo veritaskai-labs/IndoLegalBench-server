@@ -4593,7 +4593,8 @@
           "review",
           "suite",
           "ai_product",
-          "user"
+          "user",
+          "call_log"
         ],
         "title": "AuditEntityType",
         "description": "Jenis objek yang dicatat, sesuai katalog event D6a."

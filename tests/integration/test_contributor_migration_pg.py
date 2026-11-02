@@ -48,6 +48,9 @@ pytestmark = [
 def alembic_cfg(monkeypatch):
     """Alembic membaca URL dari settings (migrations/env.py), jadi arahkan ke database tes."""
     monkeypatch.setenv("DATABASE_URL", POSTGRES_URL)
+    # Downgrade ke SEBELUM melewati a1f8c7e3d092, yang menolak berjalan selama ada produk
+    # Manual (SCRUM-246). Tes PostgreSQL lain meninggalkannya di database tes bersama.
+    monkeypatch.setenv("ALLOW_MANUAL_PRODUCT_LOSS", "1")
     get_settings.cache_clear()
     cfg = Config(str(ROOT / "alembic.ini"))
     cfg.set_main_option("script_location", str(ROOT / "migrations"))
