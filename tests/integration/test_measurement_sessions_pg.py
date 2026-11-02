@@ -300,6 +300,88 @@ def test_sesi_yang_boleh_berdampingan_dengan_sesi_otomatis_berjalan(
     assert status == status_kedua
 
 
+def _arsipkan(conn, sesi_id, admin_id) -> None:
+    conn.execute(
+        text(
+            "UPDATE measurement_sessions SET archived_at = now(), archived_by = :admin_id "
+            "WHERE id = :id"
+        ),
+        {"id": sesi_id, "admin_id": admin_id},
+    )
+
+
+def test_sesi_otomatis_berjalan_tidak_bisa_diarsipkan(conn, produk_id, admin_id):
+    """Review #89 blocker 1: arsip tidak mengubah status, jadi baris arsip tetap
+    memegang satu-satunya slot runner, padahal SCRUM-210 menyembunyikannya."""
+    sesi_id = _sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
+    ubah_status(conn, sesi_id, "running")
+
+    sqlstate = galat(conn, lambda: _arsipkan(conn, sesi_id, admin_id)).sqlstate
+
+    assert sqlstate == CHECK_VIOLATION
+
+
+def test_sesi_arsip_tidak_bisa_mulai_berjalan(conn, produk_id, admin_id):
+    """Corner: urutan sebaliknya. Sesi yang diarsipkan saat menunggu tidak boleh
+    diambil runner dan menjadi baris berjalan yang tersembunyi."""
+    sesi_id = _sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
+    _arsipkan(conn, sesi_id, admin_id)
+
+    sqlstate = galat(conn, lambda: ubah_status(conn, sesi_id, "running")).sqlstate
+
+    assert sqlstate == CHECK_VIOLATION
+
+
+@pytest.mark.parametrize("status", ["finished", "finished_with_failures", "failed"])
+def test_sesi_selesai_tetap_bisa_diarsipkan(conn, produk_id, admin_id, status):
+    """Guard: aturan baru hanya menahan status running, bukan arsip AC10 lainnya.
+    Sesi queued sudah dibuktikan test_sesi_diarsipkan_dengan_pengarsipnya."""
+    sesi_id = _sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
+    ubah_status(conn, sesi_id, "running")
+    ubah_status(conn, sesi_id, status)
+
+    _arsipkan(conn, sesi_id, admin_id)
+
+    diarsipkan = conn.execute(
+        text("SELECT archived_by FROM measurement_sessions WHERE id = :id"), {"id": sesi_id}
+    ).scalar_one()
+    assert diarsipkan == admin_id
+
+
+def test_jenis_sesi_berjalan_tidak_bisa_diubah(conn, produk_id, admin_id):
+    """Review #89 blocker 1: mengubah sesi otomatis berjalan menjadi manual
+    mengeluarkannya dari indeks, lalu dua sesi otomatis bisa berjalan bersamaan."""
+    pertama = _sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
+    ubah_status(conn, pertama, "running")
+
+    sqlstate = sqlstate_penolakan(
+        conn,
+        "UPDATE measurement_sessions SET session_type = 'manual' WHERE id = :id",
+        {"id": pertama},
+    )
+
+    assert sqlstate == INSUFFICIENT_PRIVILEGE
+    kedua = _sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
+    assert galat(conn, lambda: ubah_status(conn, kedua, "running")).sqlstate == UNIQUE_VIOLATION
+
+
+def test_jenis_sesi_yang_masih_menunggu_bisa_diubah(conn, produk_id, admin_id):
+    """Guard: sebelum berjalan, sesi belum mengukur apa pun, jadi jenisnya masih boleh
+    dikoreksi."""
+    sesi_id = _sesi(conn, produk_id, admin_id, session_type="automatic", repetitions=3)
+
+    conn.execute(
+        text("UPDATE measurement_sessions SET session_type = 'manual' WHERE id = :id"),
+        {"id": sesi_id},
+    )
+
+    jenis = conn.execute(
+        text("SELECT session_type::text FROM measurement_sessions WHERE id = :id"),
+        {"id": sesi_id},
+    ).scalar_one()
+    assert jenis == "manual"
+
+
 def test_sesi_baru_belum_punya_waktu_antrean(conn, produk_id, admin_id):
     """D2: queued_at boleh kosong, diisi saat sesi masuk antrean (SCRUM-207)."""
     sesi_id = _sesi(conn, produk_id, admin_id)
