@@ -14,8 +14,9 @@ PBI-11 SCRUM-76 (SCRUM-205), D2:
 - Sesi tidak bisa dihapus atau di-TRUNCATE, hanya diarsipkan (AC10). Arsip dan
   "terima apa adanya" wajib lengkap dengan waktu dan pelakunya (CHECK).
 - Hanya satu sesi otomatis yang berstatus running (partial UNIQUE index).
-- measurement_session_suites: satu sesi bisa banyak suite (AC2).
-- session_product_copies: satu salinan produk per sesi, tanpa kredensial (AC6).
+- measurement_session_suites: satu sesi bisa banyak suite (AC2), hanya INSERT.
+- session_product_copies: satu salinan produk per sesi, tanpa kredensial (AC6),
+  hanya INSERT.
 - case_snapshots dan case_snapshot_items: salinan kasus per sesi yang hanya bisa
   di-INSERT. UPDATE, DELETE, dan TRUNCATE ditolak trigger untuk semua peran (AC6).
   Item memakai bentuk PBI-8 (case_id, case_version_id, body), keputusan PO 31 Okt.
@@ -83,7 +84,13 @@ product_provider_type_enum = postgresql.ENUM(
     name="ai_product_provider_type_enum", create_type=False
 )
 
-_SNAPSHOT_TABLES = ("case_snapshots", "case_snapshot_items")
+# Bukti apa yang diukur: hanya INSERT, untuk semua peran (AC2, AC6).
+_INSERT_ONLY_TABLES = (
+    "measurement_session_suites",
+    "session_product_copies",
+    "case_snapshots",
+    "case_snapshot_items",
+)
 
 _JSONB = sa.JSON().with_variant(postgresql.JSONB(), "postgresql")
 
@@ -301,7 +308,7 @@ def upgrade() -> None:
             $$ LANGUAGE plpgsql
             """
         )
-        for table in _SNAPSHOT_TABLES:
+        for table in _INSERT_ONLY_TABLES:
             # Termasuk UPDATE yang tidak mengubah apa pun: trigger baris selalu jalan.
             op.execute(
                 f"""

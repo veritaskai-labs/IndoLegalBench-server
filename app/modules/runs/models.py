@@ -6,7 +6,8 @@ Semua model wajib mewarisi Base dari app.shared.database supaya
 terdeteksi Alembic.
 
 PBI-11 SCRUM-76 (SCRUM-205), D2. Tabelnya dibuat migrasi 16014b26f0bf, yang
-juga memasang trigger PostgreSQL (sesi tidak bisa dihapus, snapshot hanya
+juga memasang trigger PostgreSQL (sesi tidak bisa dihapus, pilihan suite,
+salinan produk, dan snapshot hanya
 INSERT, jawaban percobaan permanen). Model di sini harus sama dengan migrasi
 itu; tests/integration/test_measurement_models_pg.py memeriksanya.
 
