@@ -638,6 +638,8 @@ def test_summary_null_budget_uses_shared_monthly_limit():
     summary = SummaryService(
         products=_Products(product),
         cases=type("K", (), {"approved_counts": lambda self, ids: {"dev": 1}})(),
+        texts=type("T", (), {"approved_texts": lambda self, ids: {"dev": [], "test": []}})(),
+        counter=type("C", (), {"count": lambda self, text, provider: 0})(),
         spend=type("S", (), {"spent_this_month_idr": lambda self, pid: Decimal("0")})(),
         history=type("H", (), {"average_answer_tokens": lambda self, pid: Decimal("1")})(),
         prices=type("P", (), {"usd_per_million_output_tokens": lambda self, a, b: Decimal("1")})(),

@@ -1,11 +1,11 @@
-"""Port yang dipakai ringkasan sesi pengukuran (PBI-11, SCRUM-206).
+"""Port yang dipakai ringkasan sesi pengukuran (PBI-11, SCRUM-206, SCRUM-244).
 
 Tabel sesi dan log panggilan (SCRUM-205, SCRUM-209) belum ada, jadi service
 ringkasan hanya berbicara lewat port ini. Implementasi nyata menyusul.
 """
 
 import uuid
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 from dataclasses import dataclass
 from decimal import Decimal
 from typing import Protocol
@@ -38,6 +38,12 @@ class ProductPort(Protocol):
 class CaseCountPort(Protocol):
     def approved_counts(self, suite_ids: set[uuid.UUID]) -> Mapping[str, int]:
         """Kasus approved per nama split tag. Suite yang tidak ada menjadi 404."""
+        raise NotImplementedError
+
+
+class CaseTextPort(Protocol):
+    def approved_texts(self, suite_ids: set[uuid.UUID]) -> Mapping[str, Sequence[str]]:
+        """identity.question per nama split ("dev" / "test"). Suite yang tidak ada menjadi 404."""
         raise NotImplementedError
 
 
