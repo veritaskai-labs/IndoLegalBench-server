@@ -265,9 +265,14 @@ def test_sesi_belum_commit_tanpa_kunci_produk_tidak_boleh_menghasilkan_jenis_cam
     # Arrange
     product_id, admin = produk
     hasil: dict[str, object] = {}
+    siap = threading.Event()
+    pid_penggati: dict[str, int] = {}
 
     def ganti_jenis():
         with buat_sesi() as db:
+            # Pid dicatat dari koneksi penggati sendiri, jadi yang ditunggu pasti backend ini.
+            pid_penggati["pid"] = db.connection().scalar(text("SELECT pg_backend_pid()"))
+            siap.set()
             try:
                 service.update_product(db, product_id, KE_MANUAL)
                 hasil["ganti"] = "berhasil"
@@ -277,12 +282,11 @@ def test_sesi_belum_commit_tanpa_kunci_produk_tidak_boleh_menghasilkan_jenis_cam
     # Act
     with engine.connect() as conn:
         tambah_sesi(conn, product_id, admin)
-        pid = _pid(conn)
         penggati = threading.Thread(target=ganti_jenis)
         penggati.start()
-        penggati.join(1.0)
-        if penggati.is_alive():  # perilaku setelah diperbaiki: menunggu kunci sesi ini
-            _tunggu_kunci(engine, _pid_selain(engine, pid))
+        assert siap.wait(BATAS_TUNGGU)
+        # Dengan kunci produk penggati menunggu sesi ini; tanpa kunci ia langsung selesai.
+        _tunggu_kunci_atau_selesai(engine, pid_penggati["pid"], penggati)
         conn.commit()
         penggati.join(BATAS_TUNGGU)
 
@@ -293,13 +297,18 @@ def test_sesi_belum_commit_tanpa_kunci_produk_tidak_boleh_menghasilkan_jenis_cam
     assert hasil == {"ganti": "MEASUREMENT_TYPE_IMMUTABLE"}
 
 
-def _pid_selain(engine, pid_sendiri: int) -> int:
-    """Backend lain yang sedang menunggu kunci di database ini."""
+def _tunggu_kunci_atau_selesai(engine, pid: int, thread: threading.Thread) -> None:
+    """Tunggu sampai backend pid menunggu kunci, atau thread-nya sudah selesai tanpa menunggu."""
+    batas = time.monotonic() + BATAS_TUNGGU
     with engine.connect() as pantau:
-        return pantau.scalar(
-            text(
-                "SELECT pid FROM pg_stat_activity WHERE datname = current_database() "
-                "AND wait_event_type = 'Lock' AND pid <> :pid LIMIT 1"
-            ),
-            {"pid": pid_sendiri},
-        )
+        while time.monotonic() < batas and thread.is_alive():
+            jenis = pantau.scalar(
+                text("SELECT wait_event_type FROM pg_stat_activity WHERE pid = :pid"),
+                {"pid": pid},
+            )
+            pantau.rollback()
+            if jenis == "Lock":
+                return
+            time.sleep(0.02)
+    if thread.is_alive():
+        pytest.fail(f"backend {pid} tidak menunggu kunci dan tidak selesai")

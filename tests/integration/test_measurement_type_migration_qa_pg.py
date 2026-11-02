@@ -49,7 +49,15 @@ pytestmark = [
 
 @pytest.fixture
 def alembic_cfg(monkeypatch):
-    """Alembic membaca URL dari settings (migrations/env.py), jadi arahkan ke database tes."""
+    """Alembic membaca URL dari settings (migrations/env.py), jadi arahkan ke database tes.
+
+    Downgrade mengubah skema database bersama, jadi file ini tidak boleh berjalan paralel
+    dengan tes PostgreSQL lain. CI menjalankan `pytest tests/integration -m postgres`
+    berurutan (tanpa pytest-xdist) dan teardown selalu kembali ke head. Bila suatu saat
+    xdist dipakai, tes ini dilewati alih-alih merusak tes lain di tengah jalan.
+    """
+    if os.environ.get("PYTEST_XDIST_WORKER"):
+        pytest.skip("migrasi men-downgrade database bersama; jalankan tanpa xdist")
     monkeypatch.setenv("DATABASE_URL", POSTGRES_URL)
     get_settings.cache_clear()
     cfg = Config(str(ROOT / "alembic.ini"))

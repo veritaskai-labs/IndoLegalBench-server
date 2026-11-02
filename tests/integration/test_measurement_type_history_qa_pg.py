@@ -86,6 +86,7 @@ def test_tanpa_tabel_sesi_hanya_service_yang_menjaga_jenis(engine, db):
     """Edge: sebelum SCRUM-205 membuat measurement_sessions, trigger tidak memeriksa apa pun
     dan SQL mentah bisa mengganti jenis. Kondisi sementara yang disengaja (to_regclass di
     a1f8c7e3d092); tes ini dilewati begitu tabel asli ada."""
+    # TODO(SCRUM-205): hapus tes ini saat #89 merge; setelah itu ia selalu dilewati.
     if tabel_sesi_ada(engine):
         pytest.skip("measurement_sessions sudah ada, trigger aktif")
     # Arrange
