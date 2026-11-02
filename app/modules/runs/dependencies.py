@@ -10,7 +10,6 @@ from app.modules.runs.adapters import (
     CallLogAnswerHistory,
     CallLogSpend,
     CaseCountAdapter,
-    InMemorySessionQueue,
     ProductAdapter,
     ProductCopyAdapter,
     SnapshotSourceAdapter,
@@ -22,7 +21,7 @@ from app.modules.runs.exchange_rate import (
     JisdorExchangeRate,
 )
 from app.modules.runs.pricing import ConfigPriceCatalog
-from app.modules.runs.repository import CallLogRepository
+from app.modules.runs.repository import CallLogRepository, SessionQueueRepository
 from app.modules.runs.service import SessionQueue, StartSessionService, SummaryService
 from app.modules.runs.session_ports import SessionQueueStore
 from app.modules.runs.worker import run_next
@@ -58,10 +57,9 @@ def get_summary_service(
     )
 
 
-@lru_cache
-def get_session_store() -> SessionQueueStore:
-    """Satu antrean untuk seluruh proses. Diganti adapter tabel saat SCRUM-205 masuk."""
-    return InMemorySessionQueue()
+def get_session_store(db: Session = Depends(get_db)) -> SessionQueueStore:
+    """Antrean sesi di measurement_sessions (#89), dibuat per request dari session database."""
+    return SessionQueueRepository(db)
 
 
 def get_start_service(
@@ -74,10 +72,10 @@ def get_start_service(
 def build_session_queue(db: Session) -> SessionQueue:
     """Antrean untuk runner worker (QueuePort SCRUM-208), di luar request HTTP.
 
-    Memakai penyimpanan sesi yang sama dengan POST /measurements.
+    Membaca tabel yang sama dengan POST /measurements.
     """
     return SessionQueue(
-        sessions=get_session_store(),
+        sessions=SessionQueueRepository(db),
         snapshots=SnapshotSourceAdapter(db),
         products=ProductCopyAdapter(db),
     )
