@@ -377,6 +377,13 @@ Set up once:
 A hotfix goes into `staging` first like any other change, then through the
 same release PR.
 
+Rolling back past migration `a1f8c7e3d092` (PBI-23, measurement type): the old
+schema cannot hold Manual products, so `alembic downgrade` stops while any exist
+and nothing changes. Take a backup first; to accept losing the Manual products,
+run the downgrade again with `ALLOW_MANUAL_PRODUCT_LOSS=1`. Going up through the
+same migration logs every soft-deleted product it renames to free a duplicate
+name (`WARN [alembic.runtime.migration] Nama produk terhapus diganti: ...`).
+
 The first release also sets prod up, since there is no prod stack before it:
 section 1 for `auth.veritask.ai` (application, URIs, accounts), section 3 for
 prod with new values (new `POSTGRES_PASSWORD` and `CREDENTIAL_ENCRYPTION_KEY`,

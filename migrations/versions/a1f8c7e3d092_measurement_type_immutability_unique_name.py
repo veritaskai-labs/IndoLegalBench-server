@@ -16,6 +16,7 @@ PBI-23 SCRUM-177 (SCRUM-200):
 """
 
 import logging
+import os
 from collections.abc import Sequence
 
 import sqlalchemy as sa
@@ -55,6 +56,9 @@ _SQL_GANTI_NAMA = """
     WHERE deleted_at IS NOT NULL
       AND name IN (SELECT name FROM ai_products GROUP BY name HAVING count(*) > 1)
 """
+
+# SCRUM-246: downgrade menghapus produk Manual hanya dengan persetujuan eksplisit.
+IZIN_HAPUS_MANUAL = "ALLOW_MANUAL_PRODUCT_LOSS"
 
 C1_CHECK_SQL = """(
     measurement_type = 'automatic'
@@ -249,6 +253,8 @@ def downgrade() -> None:
 
     # Hapus produk manual yang dibuat setelah migrasi ini, karena skema lama
     # mewajibkan seluruh kolom otomatis terisi (NOT NULL) dan tidak mengenal produk manual.
+    # SCRUM-246: hanya dengan persetujuan eksplisit, dan jumlahnya dicatat.
+    _pastikan_boleh_hapus_manual(bind)
     bind.execute(
         sa.text(
             """
@@ -303,3 +309,23 @@ def _laporkan_nama_diganti(bind) -> None:
     for product_id, lama, baru in baris:
         log.warning("Nama produk terhapus diganti: '%s' -> '%s' (id %s)", lama, baru, product_id)
     log.warning("%d nama produk terhapus diganti sebelum uq_ai_products_name dipasang", len(baris))
+
+
+def _pastikan_boleh_hapus_manual(bind) -> None:
+    """Tolak downgrade selama ada produk Manual, kecuali penghapusannya disetujui (SCRUM-246).
+
+    Skema lama tidak bisa menyimpan produk Manual. Seluruh downgrade berjalan dalam satu
+    transaksi, jadi penolakan di sini membatalkan semuanya dan database tetap di head.
+    """
+    jumlah = bind.execute(
+        sa.text("SELECT count(*) FROM ai_products WHERE measurement_type = 'manual'")
+    ).scalar()
+    if not jumlah:
+        return
+    if os.environ.get(IZIN_HAPUS_MANUAL) != "1":
+        raise RuntimeError(
+            f"Downgrade dibatalkan: {jumlah} produk Manual akan terhapus permanen karena skema "
+            f"lama tidak mengenalnya. Backup tabel ai_products dulu, lalu jalankan lagi dengan "
+            f"{IZIN_HAPUS_MANUAL}=1 untuk menyetujui penghapusan."
+        )
+    log.warning("%d produk Manual dihapus permanen (%s=1)", jumlah, IZIN_HAPUS_MANUAL)
