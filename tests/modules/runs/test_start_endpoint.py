@@ -13,6 +13,7 @@ Label: Positif = sesi dibuat, Negatif = sesi ditolak, Edge = batas perilaku.
 """
 
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -83,7 +84,7 @@ def test_admin_memulai_sesi_dan_sesi_menunggu_di_antrean(siap):
     assert response.status_code == 201
     body = response.json()
     assert body["status"] == "queued"
-    assert body["queue_order"] == 1
+    assert datetime.fromisoformat(body["queued_at"]).tzinfo is not None
     tersimpan = siap.antrean.get(uuid.UUID(body["session_id"]))
     assert tersimpan.new.label == "Run Oktober AiYU"
     assert tersimpan.new.created_by == ADMIN_LAIN
@@ -113,8 +114,9 @@ def test_sesi_kedua_mengantre_di_belakang_sesi_pertama(siap):
     kedua = client.post(URL, json=_badan(siap, label="Kedua")).json()
 
     # Assert
-    assert (pertama["queue_order"], kedua["queue_order"]) == (1, 2)
+    assert pertama["queued_at"] <= kedua["queued_at"]
     assert kedua["status"] == "queued"
+    assert str(siap.antrean.oldest_queued().id) == pertama["session_id"]
 
 
 @pytest.mark.parametrize("role", [Role.CONTRIBUTOR, Role.VIEWER])

@@ -3,8 +3,8 @@
 Tabel measurement_sessions milik SCRUM-205 belum ada. Sampai tabel itu masuk,
 InMemorySessionQueue memenuhi port SessionQueueStore supaya POST /measurements
 bisa dicoba. Yang diuji di sini perilaku yang nanti juga harus dipenuhi
-adapter tabel: sesi baru selalu Menunggu (AC3) dan queue_order naik terus,
-sehingga antrean FIFO sesuai D2 ("sisanya queued, urut queued_at"). Saat
+adapter tabel: sesi baru selalu Menunggu (AC3) dengan queued_at, dan antrean
+FIFO menurut queued_at sesuai D2 ("sisanya queued, urut queued_at"). Saat
 giliran tiba, start mengubah status dan menyimpan snapshot serta salinan
 produk sekaligus (AC2, AC6), dan menolak bila sesi lain sudah berjalan,
 seperti partial unique index "satu sesi automatic running" di D2.
@@ -14,7 +14,7 @@ Label: Positif = perilaku normal, Negatif = ditolak, Edge = batas perilaku.
 
 import threading
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 
 from app.modules.runs import adapters, schemas, session_ports
 
@@ -36,8 +36,8 @@ def _sesi(label: str = "Run Oktober") -> session_ports.NewSession:
     )
 
 
-def test_sesi_baru_menunggu_dengan_urutan_pertama():
-    """Positif: sesi pertama Menunggu dengan queue_order 1 (AC3)."""
+def test_sesi_baru_menunggu_dengan_waktu_masuk_antrean():
+    """Positif: sesi baru Menunggu dan queued_at diisi jam saat Mulai ditekan (AC3, D2)."""
     # Arrange
     antrean = adapters.InMemorySessionQueue(clock=lambda: JAM)
 
@@ -46,22 +46,37 @@ def test_sesi_baru_menunggu_dengan_urutan_pertama():
 
     # Assert
     assert sesi.status == schemas.SessionStatus.QUEUED
-    assert sesi.queue_order == 1
+    assert sesi.queued_at == JAM
     assert isinstance(sesi.id, uuid.UUID)
 
 
-def test_urutan_antrean_naik_dan_id_berbeda():
-    """Positif: sesi berikutnya mendapat urutan lebih besar, jadi yang lebih dulu jalan lebih dulu."""
+def test_yang_masuk_lebih_dulu_jalan_lebih_dulu():
+    """Positif: FIFO menurut queued_at, sesi yang lebih awal menjadi yang tertua."""
     # Arrange
-    antrean = adapters.InMemorySessionQueue(clock=lambda: JAM)
+    jam = iter([JAM, JAM + timedelta(minutes=5)])
+    antrean = adapters.InMemorySessionQueue(clock=lambda: next(jam))
 
     # Act
     pertama = antrean.create_queued(_sesi("A"))
     kedua = antrean.create_queued(_sesi("B"))
 
     # Assert
-    assert (pertama.queue_order, kedua.queue_order) == (1, 2)
+    assert pertama.queued_at < kedua.queued_at
+    assert antrean.oldest_queued().id == pertama.id
     assert pertama.id != kedua.id
+
+
+def test_queued_at_sama_tetap_urut_kedatangan():
+    """Edge: dua sesi masuk di detik yang sama, urutan kedatangan tetap dipakai."""
+    # Arrange
+    antrean = adapters.InMemorySessionQueue(clock=lambda: JAM)
+
+    # Act
+    pertama = antrean.create_queued(_sesi("A"))
+    antrean.create_queued(_sesi("B"))
+
+    # Assert
+    assert antrean.oldest_queued().id == pertama.id
 
 
 def test_isian_dan_waktu_masuk_antrean_tersimpan():
@@ -88,14 +103,14 @@ def test_sesi_yang_tidak_ada_dijawab_none():
     assert antrean.get(uuid.uuid4()) is None
 
 
-def test_pembuatan_bersamaan_tidak_membuat_urutan_ganda():
-    """Edge: dua Admin menekan Mulai bersamaan, urutan antrean tetap unik."""
+def test_pembuatan_bersamaan_tidak_kehilangan_sesi():
+    """Edge: banyak Admin menekan Mulai bersamaan, setiap sesi tersimpan dengan id sendiri."""
     # Arrange
     antrean = adapters.InMemorySessionQueue(clock=lambda: JAM)
-    hasil: list[int] = []
+    hasil: list[uuid.UUID] = []
 
     def buat():
-        hasil.append(antrean.create_queued(_sesi()).queue_order)
+        hasil.append(antrean.create_queued(_sesi()).id)
 
     # Act
     pekerja = [threading.Thread(target=buat) for _ in range(20)]
@@ -105,7 +120,8 @@ def test_pembuatan_bersamaan_tidak_membuat_urutan_ganda():
         satu.join()
 
     # Assert
-    assert sorted(hasil) == list(range(1, 21))
+    assert len(set(hasil)) == 20
+    assert len(antrean.get_all()) == 20
 
 
 ITEM = session_ports.SnapshotItem(
@@ -131,7 +147,7 @@ MULAI = datetime(2026, 11, 1, 4, 0, tzinfo=UTC)
 
 
 def test_menunggu_tertua_adalah_yang_pertama_masuk():
-    """Positif: FIFO menurut queue_order (D2: sisanya queued, urut queued_at)."""
+    """Positif: FIFO (D2: sisanya queued, urut queued_at)."""
     # Arrange
     antrean = adapters.InMemorySessionQueue(clock=lambda: JAM)
     pertama = antrean.create_queued(_sesi("A"))

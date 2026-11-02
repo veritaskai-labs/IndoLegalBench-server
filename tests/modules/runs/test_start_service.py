@@ -12,6 +12,7 @@ Label: Positif = sesi masuk antrean, Negatif = sesi ditolak, Edge = batas perila
 """
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 
@@ -23,6 +24,7 @@ SUITE_B = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
 PRODUCT_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c3")
 ADMIN_ID = uuid.UUID("00000000-0000-0000-0000-0000000000d4")
 SESSION_ID = uuid.UUID("00000000-0000-0000-0000-0000000000e5")
+JAM = datetime(2026, 11, 2, 3, 0, tzinfo=UTC)
 
 
 class _Ringkasan:
@@ -48,7 +50,7 @@ class _Antrean:
     def create_queued(self, new):
         self.dibuat.append(new)
         return session_ports.QueuedSession(
-            id=SESSION_ID, status=schemas.SessionStatus.QUEUED, queue_order=7
+            id=SESSION_ID, status=schemas.SessionStatus.QUEUED, queued_at=JAM
         )
 
 
@@ -93,8 +95,8 @@ def test_sesi_valid_masuk_antrean_dengan_semua_pilihan_pemulai():
     ]
 
 
-def test_jawaban_berisi_id_status_menunggu_dan_urutan_antrean():
-    """Positif: 201 {session_id, status: queued} seperti D3 langkah 23, plus urutan antrean."""
+def test_jawaban_berisi_id_status_menunggu_dan_waktu_antrean():
+    """Positif: 201 {session_id, status: queued} seperti D3 langkah 23, plus queued_at (nama D2)."""
     # Arrange
     start, _, _ = _service()
 
@@ -103,7 +105,7 @@ def test_jawaban_berisi_id_status_menunggu_dan_urutan_antrean():
 
     # Assert
     assert hasil == schemas.StartResponse(
-        session_id=SESSION_ID, status=schemas.SessionStatus.QUEUED, queue_order=7
+        session_id=SESSION_ID, status=schemas.SessionStatus.QUEUED, queued_at=JAM
     )
 
 
