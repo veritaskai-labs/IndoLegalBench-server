@@ -117,6 +117,8 @@ def upgrade() -> None:
         sa.Column("product_id", sa.Uuid(), sa.ForeignKey("ai_products.id"), nullable=False),
         sa.Column("repetitions", sa.SmallInteger(), nullable=False),
         sa.Column("split_filter", _enum(split_filter_enum), nullable=False),
+        # Penilai LLM (AC1). Tabel judge_providers milik PBI-14, jadi belum ber-FK.
+        sa.Column("judge_provider_id", sa.Uuid(), nullable=True),
         sa.Column("status", _enum(status_enum), server_default="queued", nullable=False),
         sa.Column("created_by", sa.Uuid(), sa.ForeignKey("users.id"), nullable=False),
         sa.Column(
@@ -198,7 +200,8 @@ def upgrade() -> None:
         # Setelah keluar dari queued, sesi sudah mengukur, jadi identitasnya beku.
         # session_type: sesi otomatis berjalan yang diubah jadi manual keluar dari
         # indeks satu-runner. product_id: memindah produk melepas kunci PBI-23 produk
-        # asal dan meninggalkan salinannya. label boleh berubah, hanya nama tampilan.
+        # asal dan meninggalkan salinannya. judge_provider_id: penilai dipilih saat
+        # sesi dibuat (PBI-14 AC6). label boleh berubah, hanya nama tampilan.
         # Batas attempts hanya diperiksa saat percobaan ditulis, jadi pengulangan
         # tidak boleh turun di bawah percobaan yang sudah ada, juga selagi queued.
         op.execute(
@@ -207,9 +210,10 @@ def upgrade() -> None:
             BEGIN
                 IF OLD.status <> 'queued'
                    AND (NEW.session_type, NEW.product_id, NEW.purpose, NEW.split_filter,
-                        NEW.repetitions)
+                        NEW.repetitions, NEW.judge_provider_id)
                        IS DISTINCT FROM (OLD.session_type, OLD.product_id, OLD.purpose,
-                                         OLD.split_filter, OLD.repetitions) THEN
+                                         OLD.split_filter, OLD.repetitions,
+                                         OLD.judge_provider_id) THEN
                     RAISE EXCEPTION 'what a started session measures cannot change'
                         USING ERRCODE = 'insufficient_privilege';
                 END IF;
@@ -269,6 +273,10 @@ def upgrade() -> None:
         sa.Column("price_input_usd_per_mtok", sa.Numeric(precision=12, scale=4), nullable=True),
         sa.Column("price_output_usd_per_mtok", sa.Numeric(precision=12, scale=4), nullable=True),
         sa.Column("monthly_budget_idr", sa.Numeric(precision=18, scale=2), nullable=True),
+        # Produk manual (PBI-23 AC3): penyedia dan situs tempat tim legal bertanya.
+        # access_note tidak disalin, sama seperti kredensial.
+        sa.Column("vendor_name", sa.String(length=200), nullable=True),
+        sa.Column("site_url", sa.String(length=2048), nullable=True),
         sa.Column(
             "copied_at", sa.DateTime(timezone=True), server_default=sa.func.now(), nullable=False
         ),
