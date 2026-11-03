@@ -12,15 +12,78 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 
-from sqlalchemy import exists, func, select
+from sqlalchemy import Row, exists, func, select
 from sqlalchemy.orm import Session
 
-from app.modules.runs.models import CallLog, MeasurementSession
+from app.modules.runs.models import (
+    Attempt,
+    AttemptStatus,
+    CallLog,
+    MeasurementSession,
+)
+
+# Panggilan yang sudah diproses dan tidak diulang lagi (PBI-12 AC5).
+_SELESAI = (AttemptStatus.SUCCEEDED, AttemptStatus.TECHNICAL_FAILURE)
 
 
 def product_has_sessions(db: Session, product_id: uuid.UUID) -> bool:
     """Sesi yang diarsipkan tetap terhitung: datanya tidak pernah dihapus (AC10)."""
     return bool(db.scalar(select(exists().where(MeasurementSession.product_id == product_id))))
+
+
+def session_progress(db: Session, measurement_id: uuid.UUID) -> Row | None:
+    """Angka satu sesi untuk layar progres, atau None bila sesinya tidak ada.
+
+    Dihitung lewat subquery supaya satu panggilan database cukup: endpoint ini
+    di-poll tiap beberapa detik. Biaya dijumlahkan lewat attempt_id, bukan lewat
+    call_logs.product_id, karena yang diminta biaya sesi ini saja.
+    """
+    jumlah_attempt = (
+        select(func.count())
+        .select_from(Attempt)
+        .where(Attempt.session_id == MeasurementSession.id)
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
+    jumlah_selesai = (
+        select(func.count())
+        .select_from(Attempt)
+        .where(
+            Attempt.session_id == MeasurementSession.id,
+            Attempt.status.in_(_SELESAI),
+        )
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
+    jumlah_gagal = (
+        select(func.count())
+        .select_from(Attempt)
+        .where(
+            Attempt.session_id == MeasurementSession.id,
+            Attempt.status == AttemptStatus.TECHNICAL_FAILURE,
+        )
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
+    biaya = (
+        select(func.coalesce(func.sum(CallLog.cost_idr), 0))
+        .select_from(CallLog)
+        .join(Attempt, Attempt.id == CallLog.attempt_id)
+        .where(Attempt.session_id == MeasurementSession.id)
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
+    return db.execute(
+        select(
+            MeasurementSession.product_id,
+            MeasurementSession.started_at,
+            MeasurementSession.updated_at,
+            jumlah_attempt.label("total_calls"),
+            jumlah_selesai.label("completed_calls"),
+            jumlah_gagal.label("failed_calls"),
+            biaya.label("running_cost_idr"),
+        ).where(MeasurementSession.id == measurement_id)
+    ).one_or_none()
 
 
 class CallLogRepository:
