@@ -168,6 +168,9 @@ class SummaryService:
 
         Jumlah kasus tetap dari CaseCountPort. Panjang kedua port tidak
         dicocokkan. Pertanyaan kosong dihitung nol dan tidak mengurangi kasus.
+        Hanya teks pertanyaan yang dihitung, bukan templat prompt atau system
+        prompt pada pemanggilan. Gemini, Anthropic, dan DeepSeek memakai
+        cl100k_base yang sama, jadi perkiraan bisa lebih rendah dari tagihan.
         """
         texts = self._texts.approved_texts(suite_ids)
         per_question = 0
