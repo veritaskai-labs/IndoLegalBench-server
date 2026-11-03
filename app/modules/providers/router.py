@@ -26,6 +26,7 @@ from app.modules.providers import service
 from app.modules.providers.models import MeasurementType
 from app.modules.providers.schemas import (
     AiProductCreate,
+    AiProductListItem,
     AiProductOption,
     AiProductRead,
     AiProductUpdate,
@@ -75,14 +76,14 @@ def create_product(
     return service.create_product(db, payload, created_by=_user_id(user))
 
 
-@router.get("", response_model=list[AiProductRead], summary="Daftar produk AI")
+@router.get("", response_model=list[AiProductListItem], summary="Daftar produk AI")
 def list_products(
     is_active: bool | None = Query(default=None),
     measurement_type: MeasurementType | None = Query(
         default=None, description="Saring per jenis pengukuran (PBI-23 AC6)."
     ),
     db: Session = Depends(get_db),
-) -> list[AiProductRead]:
+) -> list[AiProductListItem]:
     return service.list_products(db, is_active=is_active, measurement_type=measurement_type)
 
 

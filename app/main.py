@@ -37,7 +37,6 @@ from app.modules.reviews.router import router as reviews_router
 from app.modules.reviews.validation import verdict_error_from_pydantic
 from app.modules.runs.router import router as runs_router
 from app.modules.suites.router import router as suites_router
-from app.modules.suites.router import snapshot_router
 from app.shared.config import get_settings
 from app.shared.dev_db import bootstrap_local_sqlite
 from app.shared.exceptions import DomainError, SessionExpiredError
@@ -155,7 +154,6 @@ if settings.auth_oidc_mode == "fake":
 
     app.include_router(fake_router)
 app.include_router(suites_router)  # PBI-2
-app.include_router(snapshot_router)  # SCRUM-137 suite snapshots
 app.include_router(cases_router)  # PBI-3
 app.include_router(providers_router)  # PBI-10
 app.include_router(product_options_router)  # PBI-23 SCRUM-201

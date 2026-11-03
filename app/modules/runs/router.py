@@ -6,23 +6,49 @@ Router hanya menerjemahkan HTTP ke pemanggilan service. Tidak ada
 logika bisnis dan tidak ada query database di file ini.
 
 Prefix /measurements mengikuti tiket SCRUM-206 (POST /measurements/summary).
-TODO(PBI-11, PBI-12, PBI-13): endpoint mulai sesi dan daftar sesi menyusul.
+TODO(PBI-12, PBI-13): jeda, batal, dan penilaian sesi menyusul.
 """
 
 import uuid
+from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends
+from fastapi import APIRouter, Depends, status
+from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
-from app.modules.runs.dependencies import get_progress_service, get_summary_service
-from app.modules.runs.schemas import ProgressResponse, SummaryRequest, SummaryResponse
-from app.modules.runs.service import ProgressService, SummaryService
-from app.shared.security import Role, require_roles
+from app.modules.runs.dependencies import (
+    get_progress_service,
+    get_session_detail_service,
+    get_session_list_service,
+    get_start_service,
+    get_summary_service,
+)
+from app.modules.runs.schemas import (
+    ProgressResponse,
+    SessionArchiveResponse,
+    SessionDetail,
+    SessionListItem,
+    StartRequest,
+    StartResponse,
+    SummaryRequest,
+    SummaryResponse,
+)
+from app.modules.runs.service import ProgressService, StartSessionService, SummaryService
+from app.modules.runs.session_archive import archive_session
+from app.modules.runs.session_detail import SessionDetailService
+from app.modules.runs.session_list import SessionListService
+from app.shared.database import get_db
+from app.shared.security import CurrentUser, Role, require_roles
 
 # Admin dan Developer AI boleh membuat pengukuran (PBI-11 user story).
 _summary_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
 # AC6: Admin dan Developer AI boleh memantau progres pengukuran.
 _progress_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
+# AC10: peran yang sama memantau sesi di halaman Eksekusi.
+_session_list_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
+# Peran yang melihat daftar boleh merapikannya. Developer AI hanya sesi miliknya
+# (D10 kontrol sesi), dicek di session_archive.
+_archive_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
 
 router = APIRouter(prefix="/measurements", tags=["measurements"])
 
@@ -95,3 +121,87 @@ def read_progress(
     service: ProgressService = Depends(get_progress_service),
 ) -> ProgressResponse:
     return service.read(measurement_id)
+
+
+@router.get(
+    "",
+    response_model=list[SessionListItem],
+    summary="Daftar sesi pengukuran yang belum diarsipkan, terbaru di atas",
+    dependencies=[Depends(_session_list_roles)],
+)
+def list_sessions(
+    service: SessionListService = Depends(get_session_list_service),
+) -> list[SessionListItem]:
+    return service.list()
+
+
+@router.get(
+    "/{session_id}",
+    response_model=SessionDetail,
+    summary="Detail sesi dengan jawaban mentah per kasus dan percobaan",
+    responses={
+        404: {"model": ErrorBody, "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."}
+    },
+)
+def get_session(
+    session_id: uuid.UUID,
+    user: CurrentUser = Depends(_session_list_roles),
+    service: SessionDetailService = Depends(get_session_detail_service),
+) -> SessionDetail:
+    """Developer AI mendapat kasus test yang disamarkan (masked = true)."""
+    return service.get(session_id, viewer_role=user.role)
+
+
+_RESPONS_ARSIP = {
+    403: {
+        "model": ErrorBody,
+        "description": (
+            "Peran tidak berwenang (`FORBIDDEN`), atau Developer AI mengarsipkan sesi "
+            "buatan orang lain (`NOT_YOUR_SESSION`)."
+        ),
+    },
+    404: {"model": ErrorBody, "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."},
+    409: {
+        "model": ErrorBody,
+        "description": (
+            "Sesi masih antre atau berjalan (`SESSION_NOT_ARCHIVABLE`), atau sudah "
+            "diarsipkan (`SESSION_ALREADY_ARCHIVED`)."
+        ),
+    },
+}
+
+
+@router.patch(
+    "/{session_id}/archive",
+    response_model=SessionArchiveResponse,
+    summary="Arsipkan sesi yang sudah berakhir supaya tidak tampil di daftar",
+    responses=_RESPONS_ARSIP,
+)
+def archive(
+    session_id: uuid.UUID,
+    user: CurrentUser = Depends(_archive_roles),
+    db: Session = Depends(get_db),
+) -> SessionArchiveResponse:
+    return archive_session(
+        db,
+        session_id,
+        archived_by=uuid.UUID(str(user.user_id)),
+        actor_role=user.role,
+        now=datetime.now(UTC),
+    )
+
+
+# Tanpa endpoint duplikasi sesi (PBI-11 AC1): setiap sesi dibuat lewat Mulai.
+@router.post(
+    "",
+    response_model=StartResponse,
+    status_code=status.HTTP_201_CREATED,
+    summary="Mulai pengukuran: validasi ulang lalu sesi masuk antrean",
+    responses=_RESPONS_RINGKASAN,
+)
+def start(
+    payload: StartRequest,
+    user: CurrentUser = Depends(_summary_roles),
+    service: StartSessionService = Depends(get_start_service),
+) -> StartResponse:
+    return service.start(payload, created_by=uuid.UUID(str(user.user_id)))

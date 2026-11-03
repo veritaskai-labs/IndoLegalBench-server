@@ -625,6 +625,9 @@ def layanan(monkeypatch):
     reviews.count_cases_needing_reassignment.return_value = 0
     monkeypatch.setattr(dashboard_service, "cases_service", cases)
     monkeypatch.setattr(dashboard_service, "reviews_service", reviews)
+    runs = MagicMock()
+    runs.latest_session.return_value = None
+    monkeypatch.setattr(dashboard_service, "runs_service", runs)
     return cases
 
 

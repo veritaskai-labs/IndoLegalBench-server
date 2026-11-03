@@ -14,15 +14,19 @@ from sqlalchemy.orm import Session
 from app.modules.providers.models import AiProduct, MeasurementType
 
 
-def get_by_id(db: Session, product_id: uuid.UUID, *, for_update: bool = False) -> AiProduct | None:
+def get_by_id(
+    db: Session, product_id: uuid.UUID, *, for_update: bool = False, for_share: bool = False
+) -> AiProduct | None:
     """Mengembalikan None untuk produk yang sudah dihapus (deleted_at IS NOT NULL).
 
     for_update mengunci baris sampai transaksi selesai (SELECT ... FOR UPDATE) dan membaca
     ulang nilainya, supaya keputusan yang diambil sesudahnya memakai baris terbaru.
+    for_share sama, tetapi kunci baca (FOR SHARE): pembuat sesi menunggu ganti jenis
+    yang belum commit tanpa saling menahan sesama pembuat sesi.
     """
     query = db.query(AiProduct).filter(AiProduct.id == product_id, AiProduct.deleted_at.is_(None))
-    if for_update:
-        query = query.with_for_update().populate_existing()
+    if for_update or for_share:
+        query = query.with_for_update(read=for_share and not for_update).populate_existing()
     return query.first()
 
 

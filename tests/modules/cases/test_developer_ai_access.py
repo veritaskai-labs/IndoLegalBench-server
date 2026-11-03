@@ -257,9 +257,32 @@ _DIBUKA = {
     # PBI-23 (SCRUM-201): pilihan produk otomatis aktif di form pengukuran (D10, usulan
     # SA). Tujuan manual_entry tetap 403 untuk Developer AI, diuji di test_product_lists.py.
     ("GET", "/ai-products"),
+    # PBI-11: Developer AI ikut membuat pengukuran (ringkasan SCRUM-206, Mulai SCRUM-207).
+    ("POST", "/measurements/summary"),
+    ("POST", "/measurements"),
+    # PBI-11 AC8, AC10 (SCRUM-210): Developer AI memantau, membuka, dan mengarsipkan sesi.
+    # Isi kasus test tetap disamarkan, diuji di test_session_detail_endpoint.py.
+    ("GET", "/measurements"),
+    ("GET", "/measurements/{session_id}"),
+    ("PATCH", "/measurements/{session_id}/archive"),
+    # PBI-12 AC6 (SCRUM-215): Developer AI memantau angka progres sesi.
+    ("GET", "/measurements/{measurement_id}/progress"),
 }
 # Jalur tanpa penjaga peran: login, profil sendiri, dan lonceng notifikasi.
-_TANPA_PERAN = ("/health", "/auth/", "/me", "/notifications")
+_TANPA_PERAN = ("/health", "/auth/", "/notifications")
+
+
+def _tanpa_peran(path: str) -> bool:
+    # "/me" dicocokkan utuh: awalan "/me" saja ikut melewatkan "/measurements".
+    return path == "/me" or path.startswith(("/me/", *_TANPA_PERAN))
+
+
+def test_jalur_measurements_ikut_diperiksa_bukan_dianggap_profil():
+    """Edge: awalan /me hanya untuk profil sendiri, bukan /measurements (SCRUM-207)."""
+    # Arrange + Act + Assert
+    assert _tanpa_peran("/me")
+    assert not _tanpa_peran("/measurements")
+    assert not _tanpa_peran("/measurements/summary")
 
 
 def _jalur_tertutup() -> list[tuple[str, str, dict]]:
@@ -267,7 +290,7 @@ def _jalur_tertutup() -> list[tuple[str, str, dict]]:
 
     hasil = []
     for path, metode in app.openapi()["paths"].items():
-        if path.startswith(_TANPA_PERAN):
+        if _tanpa_peran(path):
             continue
         for nama, operasi in metode.items():
             if (nama.upper(), path) in _DIBUKA:

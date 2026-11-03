@@ -1,17 +1,22 @@
-"""Perakitan dependency FastAPI untuk modul runs (PBI-11, SCRUM-206)."""
+"""Perakitan dependency FastAPI untuk modul runs (PBI-11, SCRUM-206, SCRUM-207)."""
 
 from datetime import UTC, datetime
 from functools import lru_cache
 
 from fastapi import Depends
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
+from app.modules.notifications.service import DbNotifier
 from app.modules.runs.adapters import (
     CallLogAnswerHistory,
     CallLogSpend,
     CaseCountAdapter,
+    NameAdapter,
     ProductAdapter,
+    ProductCopyAdapter,
+    ProductLockAdapter,
     SessionProgressAdapter,
+    SnapshotSourceAdapter,
 )
 from app.modules.runs.call_log import CallLogService
 from app.modules.runs.exchange_rate import (
@@ -20,8 +25,20 @@ from app.modules.runs.exchange_rate import (
     JisdorExchangeRate,
 )
 from app.modules.runs.pricing import ConfigPriceCatalog
-from app.modules.runs.repository import CallLogRepository
-from app.modules.runs.service import ProgressService, SummaryService
+from app.modules.runs.repository import (
+    CallLogRepository,
+    SessionListRepository,
+    SessionQueueRepository,
+)
+from app.modules.runs.service import (
+    ProgressService,
+    SessionQueue,
+    StartSessionService,
+    SummaryService,
+)
+from app.modules.runs.session_detail import SessionDetailService
+from app.modules.runs.session_list import SessionListService
+from app.modules.runs.session_ports import SessionQueueStore
 from app.modules.runs.worker import run_next
 from app.shared.config import Settings, get_settings
 from app.shared.database import get_db
@@ -61,6 +78,45 @@ def get_progress_service(db: Session = Depends(get_db)) -> ProgressService:
         sessions=SessionProgressAdapter(db),
         products=ProductAdapter(db),
         spend=CallLogSpend(db),
+    )
+
+
+def get_session_list_service(db: Session = Depends(get_db)) -> SessionListService:
+    return SessionListService(sessions=SessionListRepository(db), names=NameAdapter(db))
+
+
+def get_session_detail_service(db: Session = Depends(get_db)) -> SessionDetailService:
+    return SessionDetailService(sessions=SessionListRepository(db), names=NameAdapter(db))
+
+
+def get_session_store(db: Session = Depends(get_db)) -> SessionQueueStore:
+    """Antrean sesi di measurement_sessions (#89), dibuat per request dari session database."""
+    return SessionQueueRepository(db)
+
+
+def get_start_service(
+    db: Session = Depends(get_db),
+    summary: SummaryService = Depends(get_summary_service),
+    sessions: SessionQueueStore = Depends(get_session_store),
+) -> StartSessionService:
+    """Ringkasan, kunci produk, dan INSERT sesi memakai satu session database (satu transaksi)."""
+    return StartSessionService(
+        summary=summary, sessions=sessions, product_lock=ProductLockAdapter(db)
+    )
+
+
+def build_session_queue(db: Session) -> SessionQueue:
+    """Antrean untuk runner worker (QueuePort SCRUM-208), di luar request HTTP.
+
+    Membaca tabel yang sama dengan POST /measurements.
+    """
+    return SessionQueue(
+        sessions=SessionQueueRepository(db),
+        snapshots=SnapshotSourceAdapter(db),
+        products=ProductCopyAdapter(db),
+        # Sesi pendek sendiri di database yang sama, supaya notifikasi tidak ikut
+        # transaksi antrean dan tidak bergantung pada pengaturan global.
+        notifier=DbNotifier(sessionmaker(bind=db.get_bind())),
     )
 
 

@@ -168,4 +168,5 @@ def test_jenis_objek_sesuai_katalog():
         "ai_product",
         "user",
         "call_log",
+        "measurement_session",
     }

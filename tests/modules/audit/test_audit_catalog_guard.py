@@ -19,7 +19,6 @@ PENGECUALIAN = {
     "legal_refs": "SCRUM-159: hanya migrasi data yang menulis; tracker ditentukan di SCRUM-160",
     "legal_ref_links": "SCRUM-159: hanya migrasi data yang menulis; tracker ditentukan di SCRUM-160",
     "notifications": "kotak masuk in-app; penugasan dan verdict yang memicunya sudah dicatat di tabel review",
-    "measurement_sessions": "SCRUM-205: hanya tabel; pelaku dan waktu arsip / terima apa adanya ada di baris, tracker ditentukan bersama aksinya (SCRUM-210, PBI-12)",
     "measurement_session_suites": "SCRUM-205: pilihan suite, ditulis sekali bersama sesinya",
     "session_product_copies": "SCRUM-205: salinan sekali tulis; perubahan produk sendiri sudah dicatat di ai_products",
     "case_snapshots": "SCRUM-205: hanya INSERT, UPDATE dan DELETE ditolak trigger",

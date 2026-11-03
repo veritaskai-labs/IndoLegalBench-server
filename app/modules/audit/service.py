@@ -27,6 +27,7 @@ from app.modules.auth import service as auth_service
 from app.modules.cases import service as cases_service
 from app.modules.providers import service as providers_service
 from app.modules.reviews import service as review_service
+from app.modules.runs import service as runs_service
 from app.modules.suites import service as suites_service
 from app.shared import request_context
 from app.shared.exceptions import ForbiddenError, NotFoundError, ValidationError
@@ -257,6 +258,9 @@ def _label_objek(
             db, _ids(kunci, AuditEntityType.AI_PRODUCT)
         ),
         AuditEntityType.USER: user_names,
+        AuditEntityType.MEASUREMENT_SESSION: runs_service.session_labels(
+            db, _ids(kunci, AuditEntityType.MEASUREMENT_SESSION)
+        ),
     }
 
 
