@@ -135,6 +135,7 @@ def test_hasil_hitungan_langsung_jadi_response():
     assert respons.remaining_seconds == 600
     assert respons.remaining_budget_idr == Decimal("380000.00")
 
+
 def test_sesi_yang_belum_mulai_tidak_menghitung_sisa_waktu():
     # Arrange: sesi masih antre, started_at di tabel belum terisi (SCRUM-205)
 
