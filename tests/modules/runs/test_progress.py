@@ -134,3 +134,20 @@ def test_hasil_hitungan_langsung_jadi_response():
     assert respons.percent_complete == Decimal("80.0")
     assert respons.remaining_seconds == 600
     assert respons.remaining_budget_idr == Decimal("380000.00")
+
+def test_sesi_yang_belum_mulai_tidak_menghitung_sisa_waktu():
+    # Arrange: sesi masih antre, started_at di tabel belum terisi (SCRUM-205)
+
+    # Act
+    angka = _hitung(
+        completed_calls=0,
+        failed_calls=0,
+        started_at=None,
+        running_cost_idr=Decimal("0.00"),
+    )
+
+    # Assert
+    assert angka.percent_complete == Decimal("0.0")
+    assert angka.percent_failed == Decimal("0.0")
+    assert angka.remaining_seconds is None
+    assert angka.running_cost_idr == Decimal("0.00")
