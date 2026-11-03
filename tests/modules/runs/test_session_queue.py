@@ -23,7 +23,7 @@ from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.modules.runs import schemas, service, session_ports, worker
-from app.shared.exceptions import NotFoundError
+from app.shared.exceptions import NotFoundError, ValidationError
 
 SUITE_A = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 PRODUCT_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c3")
@@ -83,12 +83,16 @@ class _Penyimpanan:
     seperti UPDATE status = failed di tabel.
     """
 
-    def __init__(self, *, berjalan=False, menunggu=None, start_berhasil=True) -> None:
+    def __init__(
+        self, *, berjalan=False, menunggu=None, start_berhasil=True, start_galat=()
+    ) -> None:
         self.berjalan = berjalan
         if menunggu is None:
             menunggu = []
         self.menunggu = list(menunggu) if isinstance(menunggu, list) else [menunggu]
         self.start_berhasil = start_berhasil
+        # id sesi yang start()-nya galat seperti database yang menolak di tengah transaksi.
+        self.start_galat = set(start_galat)
         self.dimulai: list[tuple] = []
         self.gagal: list[tuple] = []
 
@@ -105,30 +109,40 @@ class _Penyimpanan:
 
     def start(self, session_id, *, items, product, started_at) -> bool:
         self.dimulai.append((session_id, items, product, started_at))
+        if session_id in self.start_galat:
+            raise RuntimeError("galat database tak terduga")
         return self.start_berhasil
 
 
 class _Snapshot:
-    def __init__(self, items=None) -> None:
+    """Sumber snapshot palsu; galat_pertama membuat bacaan pertama gagal seperti koneksi putus."""
+
+    def __init__(self, items=None, *, galat_pertama=False) -> None:
         self.items = ITEMS if items is None else items
+        self.galat_pertama = galat_pertama
         self.diminta: list[tuple[uuid.UUID, ...]] = []
 
     def approved_items(self, suite_ids):
         self.diminta.append(tuple(suite_ids))
+        if self.galat_pertama and len(self.diminta) == 1:
+            raise RuntimeError("bacaan kasus gagal")
         return list(self.items)
 
 
 class _Produk:
-    """Produk palsu; id di `terhapus` menjawab seperti providers_service untuk produk yang dihapus."""
+    """Produk palsu; jawabannya meniru ProductCopyAdapter untuk produk dihapus atau nonaktif."""
 
-    def __init__(self, terhapus=()) -> None:
+    def __init__(self, terhapus=(), nonaktif=()) -> None:
         self.terhapus = set(terhapus)
+        self.nonaktif = set(nonaktif)
         self.diminta: list[uuid.UUID] = []
 
     def copy(self, product_id):
         self.diminta.append(product_id)
         if product_id in self.terhapus:
             raise NotFoundError("Produk AI tidak ditemukan")
+        if product_id in self.nonaktif:
+            raise ValidationError("Produk AI ini sedang nonaktif.", code="PRODUCT_INACTIVE")
         return SALINAN
 
 
@@ -330,3 +344,64 @@ def test_sesi_yang_gagal_dicatat_di_log_dengan_alasannya(caplog):
     # Assert
     assert str(SESI_LAMA) in caplog.text
     assert "produk" in caplog.text.lower()
+
+
+PRODUK_NONAKTIF = uuid.UUID("00000000-0000-0000-0000-0000000000f9")
+
+
+def test_galat_tak_terduga_saat_start_sesi_gagal_dan_antrean_lanjut(caplog):
+    """Negatif: review #87, galat database di start() tidak boleh membuat runner macet.
+
+    Tanpa ini oldest_queued() memberi sesi yang sama di setiap putaran dan runner
+    galat terus. Sesi itu ditandai failed (D4) dan jejaknya lengkap dengan traceback.
+    """
+    # Arrange
+    rusak = _menunggu()
+    sehat = _menunggu(sesi_id=SESI_BARU)
+    penyimpanan = _Penyimpanan(menunggu=[rusak, sehat], start_galat={SESI_LAMA})
+    antrean, _, _ = _antrean(penyimpanan)
+
+    # Act
+    with caplog.at_level(logging.ERROR, logger="app.modules.runs.service"):
+        hasil = antrean.take_next()
+
+    # Assert
+    assert hasil == SESI_BARU
+    assert penyimpanan.gagal == [(SESI_LAMA, JAM)]
+    (catatan,) = [r for r in caplog.records if str(SESI_LAMA) in r.getMessage()]
+    assert catatan.exc_info is not None
+
+
+def test_galat_saat_membaca_snapshot_sesi_gagal_dan_antrean_lanjut():
+    """Negatif: review #87, bacaan kasus yang galat untuk satu sesi tidak menahan sesi berikutnya."""
+    # Arrange
+    penyimpanan = _Penyimpanan(menunggu=[_menunggu(), _menunggu(sesi_id=SESI_BARU)])
+    antrean, _, _ = _antrean(penyimpanan, snapshot=_Snapshot(galat_pertama=True))
+
+    # Act
+    hasil = antrean.take_next()
+
+    # Assert
+    assert penyimpanan.gagal == [(SESI_LAMA, JAM)]
+    assert hasil == SESI_BARU
+
+
+def test_produk_dinonaktifkan_selama_menunggu_sesi_gagal_dan_antrean_lanjut(caplog):
+    """Negatif: review #87, sesi tidak boleh mulai pada produk yang dinonaktifkan sejak Mulai.
+
+    Ringkasan SCRUM-206 sudah menolak produk nonaktif saat Mulai; ini menutup
+    jeda saat sesi menunggu di belakang pengukuran yang panjang.
+    """
+    # Arrange
+    rusak = _menunggu(product_id=PRODUK_NONAKTIF)
+    penyimpanan = _Penyimpanan(menunggu=[rusak, _menunggu(sesi_id=SESI_BARU)])
+    antrean, _, _ = _antrean(penyimpanan, produk=_Produk(nonaktif={PRODUK_NONAKTIF}))
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger="app.modules.runs.service"):
+        hasil = antrean.take_next()
+
+    # Assert
+    assert hasil == SESI_BARU
+    assert penyimpanan.gagal == [(SESI_LAMA, JAM)]
+    assert "nonaktif" in caplog.text.lower()

@@ -20,7 +20,7 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import create_engine, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, ProgrammingError
 from sqlalchemy.orm import Session
 
 from app.modules.runs import repository, schemas, session_ports
@@ -193,4 +193,25 @@ def test_sesi_menunggu_boleh_ditandai_gagal_oleh_trigger(conn, siap):
     )
     assert _satu(
         conn, "SELECT finished_at IS NOT NULL FROM measurement_sessions WHERE id = :id", sesi_id
+    )
+
+
+def test_gagal_tetap_tercatat_setelah_bacaan_yang_membatalkan_transaksi(conn, db, siap):
+    """Edge: review #87, di PostgreSQL bacaan yang galat membatalkan seluruh transaksi.
+
+    Itulah yang terjadi bila bacaan snapshot gagal sebelum start(); fail() harus
+    tetap bisa menandai sesi, bukan berhenti dengan InFailedSqlTransaction.
+    """
+    # Arrange
+    sesi_id = siap.baru("Bacaan galat")
+    with pytest.raises(ProgrammingError):
+        db.execute(text("SELECT * FROM tabel_yang_tidak_ada"))
+
+    # Act
+    berhasil = siap.antrean.fail(sesi_id, finished_at=JAM)
+
+    # Assert
+    assert berhasil is True
+    assert _satu(conn, "SELECT status::text FROM measurement_sessions WHERE id = :id", sesi_id) == (
+        "failed"
     )

@@ -19,9 +19,12 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.modules.providers.models import MeasurementType, ProviderType
 from app.modules.providers.schemas import AiProductRead, ModelParams
 from app.modules.runs import adapters, session_ports
+from app.shared.exceptions import ValidationError
 
 SUITE_A = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 SUITE_B = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
@@ -157,3 +160,33 @@ def test_produk_tanpa_parameter_model_disalin_kosong():
 
     # Assert
     assert salinan.model_params is None
+
+
+def test_produk_nonaktif_tidak_disalin():
+    """Negatif: review #87, produk yang dinonaktifkan selama sesi menunggu tidak boleh dipakai.
+
+    Kodenya sama dengan penolakan ringkasan SCRUM-206 (PRODUCT_INACTIVE).
+    """
+    # Arrange
+    db = MagicMock(name="db")
+    with patch.object(adapters, "providers_service") as providers:
+        providers.get_product.return_value = _produk_read(is_active=False)
+
+        # Act + Assert
+        with pytest.raises(ValidationError) as galat:
+            adapters.ProductCopyAdapter(db).copy(PRODUCT_ID)
+
+    assert galat.value.code == "PRODUCT_INACTIVE"
+
+
+def test_salinan_produk_tidak_membawa_batas_laju_yang_belum_punya_kolom():
+    """Negatif: review #87, session_product_copies (#89) belum punya kolom rate_limit_per_minute.
+
+    Nilai yang disalin lalu dibuang membuat salinan tampak beku padahal tidak
+    tersimpan, jadi kolom itu tidak ikut sampai tabelnya punya tempat.
+    """
+    # Arrange + Act
+    kolom = {field.name for field in dataclasses.fields(session_ports.ProductCopy)}
+
+    # Assert
+    assert "rate_limit_per_minute" not in kolom

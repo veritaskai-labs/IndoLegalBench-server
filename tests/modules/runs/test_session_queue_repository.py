@@ -26,7 +26,7 @@ from decimal import Decimal
 
 import pytest
 from sqlalchemy import func, select, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.exc import IntegrityError, OperationalError
 
 from app.modules.runs import repository, schemas, session_ports
 from app.modules.runs.models import (
@@ -466,3 +466,51 @@ def test_tanpa_provider_penilai_kolomnya_kosong(antrean, db_session):
 
     # Assert
     assert db_session.get(MeasurementSession, hasil.id).judge_provider_id is None
+
+
+def test_galat_selain_integrity_juga_dibatalkan_dan_sesi_tetap_menunggu(
+    antrean, db_session, monkeypatch
+):
+    """Negatif: review #87, OperationalError atau DataError di tengah start() ikut dibatalkan.
+
+    Tanpa rollback, UPDATE running tertinggal di transaksi dan session database
+    yang dipakai runner berulang kali tidak bisa dipakai lagi pada putaran berikutnya.
+    """
+    # Arrange
+    sesi = antrean.create_queued(_baru())
+
+    def putus(*_args, **_kwargs):
+        raise OperationalError("INSERT INTO case_snapshots", {}, Exception("koneksi putus"))
+
+    monkeypatch.setattr(antrean, "_freeze", putus)
+
+    # Act
+    with pytest.raises(OperationalError):
+        antrean.start(sesi.id, items=ITEMS, product=_salinan(), started_at=MULAI)
+
+    # Assert
+    status = db_session.scalar(
+        select(MeasurementSession.status).where(MeasurementSession.id == sesi.id)
+    )
+    assert status == SessionStatus.QUEUED
+    assert antrean.oldest_queued().id == sesi.id
+
+
+def test_gagal_tetap_tercatat_setelah_transaksi_sebelumnya_galat(antrean, db_session):
+    """Edge: review #87, sesi tetap bisa ditandai failed walau bacaan sebelumnya galat.
+
+    Contohnya flush yang ditolak database: session ORM menunggu rollback, dan
+    tanpa rollback di fail() sesi itu malah tertinggal di antrean.
+    """
+    # Arrange
+    sesi = antrean.create_queued(_baru())
+    db_session.add(MeasurementSessionSuite(session_id=sesi.id, suite_id=SUITE_A))
+    with pytest.raises(IntegrityError):
+        db_session.flush()
+
+    # Act
+    berhasil = antrean.fail(sesi.id, finished_at=MULAI)
+
+    # Assert
+    assert berhasil is True
+    assert antrean.oldest_queued() is None
