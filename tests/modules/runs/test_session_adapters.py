@@ -96,7 +96,7 @@ def _produk_read(**ubah) -> AiProductRead:
         "has_credential": True,
         "rate_limit_per_minute": 30,
         "monthly_budget_idr": Decimal("500000.00"),
-        "model_params": ModelParams(temperature=0.3),
+        "model_params": ModelParams({"temperature": 0.3}),
         "price_input_usd_per_mtok": Decimal("1"),
         "price_output_usd_per_mtok": Decimal("10"),
         "is_active": True,
@@ -127,7 +127,8 @@ def test_salinan_produk_memuat_kolom_d2_dengan_nilai_saat_ini():
         provider_type="openai_compatible",
         base_url="https://api.example.test/v1/chat/completions",
         model_name="deepseek-flash",
-        model_params={"temperature": 0.3, "effort": None, "thinking": None, "web_search": None},
+        # Sejak #93 (SCRUM-247) model_params objek JSON bebas: hanya kunci yang diisi Admin.
+        model_params={"temperature": 0.3},
         rate_limit_per_minute=30,
         price_input_usd_per_mtok=Decimal("1"),
         price_output_usd_per_mtok=Decimal("10"),
