@@ -61,9 +61,9 @@ class SnapshotItem:
 class ProductCopy:
     """Salinan produk saat sesi berjalan (D2 session_product_copies), tanpa kredensial.
 
-    rate_limit_per_minute ikut disalin karena worker SCRUM-208 memakainya
-    untuk jeda antar panggilan. model_version_at_start belum diketahui
-    sebelum panggilan pertama, jadi diisi worker, bukan di sini.
+    rate_limit_per_minute tidak ikut karena session_product_copies (#89) belum
+    punya kolomnya. model_version_at_start belum diketahui sebelum panggilan
+    pertama, jadi diisi worker, bukan di sini.
     """
 
     product_id: uuid.UUID
@@ -73,7 +73,6 @@ class ProductCopy:
     base_url: str | None
     model_name: str | None
     model_params: dict[str, Any] | None
-    rate_limit_per_minute: int | None
     price_input_usd_per_mtok: Decimal | None
     price_output_usd_per_mtok: Decimal | None
     monthly_budget_idr: Decimal | None

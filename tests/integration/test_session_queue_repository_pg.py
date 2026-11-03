@@ -80,7 +80,6 @@ def siap(conn, db):
         base_url="https://api.example.test/v1/chat/completions",
         model_name="deepseek-flash",
         model_params=None,
-        rate_limit_per_minute=30,
         price_input_usd_per_mtok=Decimal("1"),
         price_output_usd_per_mtok=Decimal("10"),
         monthly_budget_idr=Decimal("500000"),

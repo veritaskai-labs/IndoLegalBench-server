@@ -19,7 +19,7 @@ from app.modules.runs.repository import CallLogRepository
 from app.modules.runs.session_ports import ProductCopy, SnapshotItem
 from app.modules.runs.summary_ports import ProductInfo
 from app.modules.suites import service as suites_service
-from app.shared.exceptions import NotFoundError
+from app.shared.exceptions import NotFoundError, ValidationError
 
 
 class CaseCountAdapter:
@@ -97,6 +97,9 @@ class ProductCopyAdapter:
 
     def copy(self, product_id: uuid.UUID) -> ProductCopy:
         product = providers_service.get_product(self._db, product_id)
+        if not product.is_active:
+            # Ringkasan SCRUM-206 menolak produk nonaktif saat Mulai; ini menutup jeda antrean.
+            raise ValidationError("Produk AI ini sedang nonaktif.", code="PRODUCT_INACTIVE")
         return ProductCopy(
             product_id=product.id,
             name=product.name,
@@ -105,7 +108,6 @@ class ProductCopyAdapter:
             base_url=product.base_url,
             model_name=product.model_name,
             model_params=product.model_params.model_dump() if product.model_params else None,
-            rate_limit_per_minute=product.rate_limit_per_minute,
             price_input_usd_per_mtok=product.price_input_usd_per_mtok,
             price_output_usd_per_mtok=product.price_output_usd_per_mtok,
             monthly_budget_idr=product.monthly_budget_idr,

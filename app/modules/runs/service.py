@@ -251,19 +251,25 @@ class SessionQueue:
         """Id sesi yang baru berjalan, atau None bila ada sesi berjalan atau antrean kosong.
 
         Sesi yang tidak bisa dimulai ditandai failed lalu sesi berikutnya dicoba,
-        supaya satu sesi rusak tidak menahan antrean selamanya.
+        supaya satu sesi rusak tidak menahan antrean selamanya. Itu termasuk galat
+        tak terduga: tanpa ditandai, oldest_queued() memberi sesi yang sama setiap putaran.
         """
         if self._sessions.running_exists():
             return None
         while (waiting := self._sessions.oldest_queued()) is not None:
-            prepared = self._prepare(waiting)
-            if prepared is None:
+            try:
+                prepared = self._prepare(waiting)
+                if prepared is None:
+                    continue
+                items, product = prepared
+                started = self._sessions.start(
+                    waiting.id, items=items, product=product, started_at=self._clock()
+                )
+            except Exception:
+                logger.exception("Measurement session %s failed before start", waiting.id)
+                self._sessions.fail(waiting.id, finished_at=self._clock())
                 continue
-            items, product = prepared
             # False berarti worker lain lebih dulu; sesi ini tetap Menunggu giliran berikutnya.
-            started = self._sessions.start(
-                waiting.id, items=items, product=product, started_at=self._clock()
-            )
             return waiting.id if started else None
         return None
 
@@ -273,6 +279,9 @@ class SessionQueue:
             product = self._products.copy(waiting.new.product_id)
         except NotFoundError:
             return self._fail(waiting, "produk AI sudah dihapus sejak Mulai ditekan")
+        except ValidationError:
+            # PRODUCT_INACTIVE dari ProductCopyAdapter: Admin menonaktifkan produk saat sesi menunggu.
+            return self._fail(waiting, "produk AI dinonaktifkan sejak Mulai ditekan")
         items = items_for_filter(
             self._snapshots.approved_items(waiting.new.suite_ids), waiting.new.case_filter
         )

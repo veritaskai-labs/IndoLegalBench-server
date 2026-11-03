@@ -230,7 +230,6 @@ def _salinan(**ubah) -> session_ports.ProductCopy:
         "base_url": "https://api.example.test/v1/chat/completions",
         "model_name": "deepseek-flash",
         "model_params": {"temperature": 0.3},
-        "rate_limit_per_minute": 30,
         "price_input_usd_per_mtok": Decimal("1.0000"),
         "price_output_usd_per_mtok": Decimal("10.0000"),
         "monthly_budget_idr": Decimal("500000.00"),

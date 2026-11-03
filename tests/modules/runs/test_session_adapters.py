@@ -132,7 +132,6 @@ def test_salinan_produk_memuat_kolom_d2_dengan_nilai_saat_ini():
         model_name="deepseek-flash",
         # Sejak #93 (SCRUM-247) model_params objek JSON bebas: hanya kunci yang diisi Admin.
         model_params={"temperature": 0.3},
-        rate_limit_per_minute=30,
         price_input_usd_per_mtok=Decimal("1"),
         price_output_usd_per_mtok=Decimal("10"),
         monthly_budget_idr=Decimal("500000.00"),

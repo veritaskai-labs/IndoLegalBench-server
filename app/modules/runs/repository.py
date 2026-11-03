@@ -196,8 +196,8 @@ class SessionQueueRepository:
         """D3 langkah 25-28 dalam satu transaksi: running, snapshot, salinan, attempts.
 
         False bila sesi tidak lagi menunggu atau sesi otomatis lain sudah running;
-        tidak ada yang tersimpan. Galat data lain dibatalkan lalu dinaikkan, supaya
-        sesi yang rusak tidak diam-diam menunggu selamanya.
+        tidak ada yang tersimpan. Galat lain apa pun dibatalkan lalu dinaikkan, supaya
+        session database runner tetap bisa dipakai dan SessionQueue menandai sesinya failed.
         """
         try:
             # UPDATE bersyarat: worker kedua yang membaca sesi yang sama mendapat 0 baris.
@@ -212,14 +212,17 @@ class SessionQueueRepository:
                 return False
             self._freeze(session_id, items, product)
             self._db.commit()
-        except IntegrityError as exc:
+        except Exception as exc:
             self._db.rollback()
-            if _sesi_lain_running(exc):
+            if isinstance(exc, IntegrityError) and _sesi_lain_running(exc):
                 return False
             raise
         return True
 
     def fail(self, session_id: uuid.UUID, *, finished_at: datetime) -> bool:
+        # fail() dipanggil setelah sesuatu gagal. Di PostgreSQL bacaan yang galat
+        # membatalkan seluruh transaksi, jadi buang dulu sebelum menandai sesi.
+        self._db.rollback()
         gagal = self._db.execute(
             update(MeasurementSession)
             .where(MeasurementSession.id == session_id, *_ANTREAN_OTOMATIS)
@@ -265,7 +268,7 @@ class SessionQueueRepository:
 
 
 def _product_copy_row(session_id: uuid.UUID, product: ProductCopy) -> SessionProductCopy:
-    """D2 session_product_copies. rate_limit_per_minute belum punya kolom di #89."""
+    """D2 session_product_copies."""
     return SessionProductCopy(
         session_id=session_id,
         product_id=product.product_id,
