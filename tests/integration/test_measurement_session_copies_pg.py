@@ -217,6 +217,27 @@ def test_salinan_produk_manual_tanpa_kolom_otomatis(conn, sesi_id, produk_id):
     assert jenis == "manual"
 
 
+def test_salinan_produk_manual_menyimpan_penyedia_dan_situs(conn, sesi_id, produk_id):
+    """PBI-23 AC3 lewat PBI-22: tim legal bertanya di situs penyedia, jadi sesi manual
+    harus mencatat penyedia dan situs saat sesi dibuat (review #89)."""
+    salinan_id = uuid.uuid4()
+    conn.execute(
+        text(
+            "INSERT INTO session_product_copies "
+            "(id, session_id, product_id, name, measurement_type, vendor_name, site_url) "
+            "VALUES (:id, :sesi, :produk, 'Justisio', 'manual', 'PT Justisio', "
+            "'https://justisio.example.test')"
+        ),
+        {"id": salinan_id, "sesi": sesi_id, "produk": produk_id},
+    )
+
+    baris = conn.execute(
+        text("SELECT vendor_name, site_url FROM session_product_copies WHERE id = :id"),
+        {"id": salinan_id},
+    ).one()
+    assert tuple(baris) == ("PT Justisio", "https://justisio.example.test")
+
+
 def test_satu_sesi_hanya_punya_satu_salinan_produk(conn, sesi_id, produk_id):
     """D2: satu sesi = satu produk, jadi session_id unik."""
     _salin(conn, sesi_id, produk_id)

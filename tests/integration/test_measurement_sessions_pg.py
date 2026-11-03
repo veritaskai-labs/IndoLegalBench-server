@@ -389,6 +389,7 @@ _IDENTITAS_BARU = {
     "repetitions": "1",
     "session_type": "CAST('manual' AS measurement_session_type_enum)",
     "product_id": ":produk_lain",
+    "judge_provider_id": "gen_random_uuid()",
 }
 
 
@@ -477,6 +478,19 @@ def test_sesi_baru_belum_punya_waktu_antrean(conn, produk_id, admin_id):
     ).scalar_one()
 
     assert antre is None
+
+
+def test_sesi_baru_boleh_belum_punya_penilai(conn, produk_id, admin_id):
+    """AC1: penilai LLM dipilih saat membuat sesi, tetapi tabel penilai milik PBI-14
+    belum ada, jadi kolomnya boleh kosong dan belum ber-FK (review #89)."""
+    sesi_id = _sesi(conn, produk_id, admin_id)
+
+    penilai = conn.execute(
+        text("SELECT judge_provider_id FROM measurement_sessions WHERE id = :id"),
+        {"id": sesi_id},
+    ).scalar_one()
+
+    assert penilai is None
 
 
 def test_waktu_antrean_menyimpan_zona_waktu(conn, produk_id, admin_id):
