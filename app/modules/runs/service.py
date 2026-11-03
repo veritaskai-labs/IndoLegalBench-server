@@ -31,10 +31,12 @@ from app.modules.runs.schemas import (
 )
 from app.modules.runs.session_ports import (
     NewSession,
+    ProductCopy,
     ProductCopySource,
     SessionQueueStore,
     SnapshotItem,
     SnapshotSource,
+    WaitingSession,
 )
 from app.modules.runs.summary_ports import (
     AnswerLengthPort,
@@ -239,18 +241,39 @@ class SessionQueue:
         self._clock = clock
 
     def take_next(self) -> uuid.UUID | None:
-        """Id sesi yang baru berjalan, atau None bila ada sesi berjalan atau antrean kosong."""
+        """Id sesi yang baru berjalan, atau None bila ada sesi berjalan atau antrean kosong.
+
+        Sesi yang tidak bisa dimulai ditandai failed lalu sesi berikutnya dicoba,
+        supaya satu sesi rusak tidak menahan antrean selamanya.
+        """
         if self._sessions.running_exists():
             return None
-        waiting = self._sessions.oldest_queued()
-        if waiting is None:
-            return None
+        while (waiting := self._sessions.oldest_queued()) is not None:
+            prepared = self._prepare(waiting)
+            if prepared is None:
+                continue
+            items, product = prepared
+            # False berarti worker lain lebih dulu; sesi ini tetap Menunggu giliran berikutnya.
+            started = self._sessions.start(
+                waiting.id, items=items, product=product, started_at=self._clock()
+            )
+            return waiting.id if started else None
+        return None
+
+    def _prepare(self, waiting: WaitingSession) -> tuple[list[SnapshotItem], ProductCopy] | None:
+        """Snapshot dan salinan produk, atau None bila sesi sudah ditandai failed."""
+        try:
+            product = self._products.copy(waiting.new.product_id)
+        except NotFoundError:
+            return self._fail(waiting, "produk AI sudah dihapus sejak Mulai ditekan")
         items = items_for_filter(
             self._snapshots.approved_items(waiting.new.suite_ids), waiting.new.case_filter
         )
-        product = self._products.copy(waiting.new.product_id)
-        # False berarti worker lain lebih dulu; sesi ini tetap Menunggu giliran berikutnya.
-        started = self._sessions.start(
-            waiting.id, items=items, product=product, started_at=self._clock()
-        )
-        return waiting.id if started else None
+        if not items:
+            return self._fail(waiting, "tidak ada lagi kasus layak untuk filter sesi ini")
+        return items, product
+
+    def _fail(self, waiting: WaitingSession, alasan: str) -> None:
+        # D4: failed = kesalahan fatal. Notifikasi ke pemulai milik SCRUM-210.
+        logger.warning("Measurement session %s failed before start: %s", waiting.id, alasan)
+        self._sessions.fail(waiting.id, finished_at=self._clock())

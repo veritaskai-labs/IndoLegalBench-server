@@ -105,6 +105,10 @@ class SessionQueueStore(Protocol):
         """
         raise NotImplementedError
 
+    def fail(self, session_id: uuid.UUID, *, finished_at: datetime) -> bool:
+        """Sesi queued menjadi failed (D4, kesalahan fatal sebelum mulai). False bila bukan queued."""
+        raise NotImplementedError
+
 
 class SnapshotSource(Protocol):
     def approved_items(self, suite_ids: Sequence[uuid.UUID]) -> list[SnapshotItem]:

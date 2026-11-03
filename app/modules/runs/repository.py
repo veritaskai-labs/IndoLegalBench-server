@@ -217,6 +217,16 @@ class SessionQueueRepository:
             raise
         return True
 
+    def fail(self, session_id: uuid.UUID, *, finished_at: datetime) -> bool:
+        gagal = self._db.execute(
+            update(MeasurementSession)
+            .where(MeasurementSession.id == session_id, *_ANTREAN_OTOMATIS)
+            .values(status=SessionStatus.FAILED, finished_at=finished_at)
+            .execution_options(synchronize_session=False)
+        ).rowcount
+        self._db.commit()
+        return gagal == 1
+
     def _freeze(
         self, session_id: uuid.UUID, items: Sequence[SnapshotItem], product: ProductCopy
     ) -> None:

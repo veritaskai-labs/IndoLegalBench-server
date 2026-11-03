@@ -1,7 +1,8 @@
 """Port sesi dan antrean untuk worker pengukuran.
 
-SCRUM-205 (tabel) dan SCRUM-207 (antrean) belum ada. Worker hanya
-berbicara lewat port ini. Implementasi nyata menyusul di tiket itu.
+Antrean sesi (QueuePort) dipenuhi SessionQueue di runs/service.py (SCRUM-207),
+di atas tabel SCRUM-205. SessionStore worker di atas tabel attempts belum ada;
+sampai itu ada, worker hanya berbicara lewat port ini.
 """
 
 import uuid
