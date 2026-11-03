@@ -79,7 +79,8 @@ class AnthropicMessagesAdapter(ProviderAdapter):
             "model": self.model_name,
             "messages": [{"role": "user", "content": prompt}],
         }
-        body.update(build_request_extras(self.name, parameters))
+        # Kunci adaptor ditulis terakhir, jadi parameter tidak bisa mengganti model atau prompt.
+        body = {**build_request_extras(self.name, parameters), **body}
         return perform_ask(
             url=self.base_url,
             headers={

@@ -36,6 +36,7 @@ from app.modules.providers.schemas import (
     AiProductRead,
     AiProductUpdate,
     ConnectionTestRead,
+    ModelParams,
 )
 from app.modules.runs import service as runs_service
 from app.shared.config import get_settings
@@ -64,10 +65,10 @@ def create_product(
 ) -> AiProductRead:
     jenis = payload.measurement_type
     isian = payload.model_dump(include=set(_SEMUA_ISIAN_JENIS))
-    if payload.model_params is not None:
-        # D1: kunci parameter yang kosong tidak disimpan, supaya dipakai default penyedia.
-        isian["model_params"] = payload.model_params.model_dump(exclude_none=True)
+    # SCRUM-247: JSON bebas disimpan apa adanya; {} sama dengan kosong (default penyedia).
+    isian["model_params"] = _parameter_model(payload.model_params)
     _pastikan_isian_sesuai_jenis(jenis, isian)
+    _pastikan_parameter_aman(isian["model_params"])
     _pastikan_catatan_tanpa_rahasia(payload.access_note)
     _pastikan_nama_bebas(db, payload.name)
     # Hanya isian milik jenis ini yang ditulis; kredensial hanya ada di produk Otomatis.
@@ -194,6 +195,8 @@ def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate)
     # PATCH tanpa measurement_type tidak bisa mengganti jenis, jadi tidak perlu mengunci.
     product = _wajib_ada(db, product_id, kunci="measurement_type" in payload.model_fields_set)
     perubahan = payload.model_dump(exclude_unset=True)
+    if "model_params" in perubahan:
+        perubahan["model_params"] = _parameter_model(payload.model_params)
     credential = perubahan.pop("credential", None)
     _filter_unchanged_nulls(perubahan)
 
@@ -214,6 +217,7 @@ def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate)
         target_type, _isian_setelah_ubah(product, perubahan, credential, berganti=tipe_berubah)
     )
     _pastikan_catatan_tanpa_rahasia(perubahan.get("access_note"))
+    _pastikan_parameter_aman(perubahan.get("model_params"))
 
     if "name" in perubahan:
         _pastikan_nama_bebas(db, perubahan["name"], kecuali=product.id)
@@ -348,6 +352,20 @@ def _pastikan_isian_sesuai_jenis(jenis: MeasurementType, isian: dict) -> None:
 def _pastikan_catatan_tanpa_rahasia(catatan: str | None) -> None:
     """422 ACCESS_NOTE_SECRET sebelum catatan tersimpan dan tersalin ke audit (AC3)."""
     masalah = rules.access_note_problem(catatan)
+    if masalah is not None:
+        raise ValidationError(masalah.message, code=masalah.code, field=masalah.field)
+
+
+def _parameter_model(params: ModelParams | None) -> dict | None:
+    """Isi JSON parameter model, atau None bila tidak diisi atau berupa {}."""
+    if params is None or not params.root:
+        return None
+    return params.root
+
+
+def _pastikan_parameter_aman(params: dict | None) -> None:
+    """422 dengan code dan field model_params sebelum parameter tersimpan (SCRUM-247)."""
+    masalah = rules.model_params_problem(params)
     if masalah is not None:
         raise ValidationError(masalah.message, code=masalah.code, field=masalah.field)
 

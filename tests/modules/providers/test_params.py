@@ -1,12 +1,18 @@
-"""SCRUM-76 SCRUM-208: one mapper from generic model parameters to provider bodies."""
+"""SCRUM-177 SCRUM-247: model parameters are free-form JSON sent to the provider as-is.
+
+The client asked at the PBI-23 UAT (2 Nov 2026) for parameters as JSON text, so a new
+model or a renamed parameter needs no code change. These replace the SCRUM-208 tests
+for the fixed temperature/effort/thinking/web_search mapping.
+"""
 
 import pytest
 
 from app.modules.providers.adapters.params import (
     ANTHROPIC_DEFAULT_MAX_TOKENS,
-    ModelParameters,
     build_request_extras,
 )
+
+_PROVIDERS = ["openai_compatible", "gemini_interactions", "anthropic_messages"]
 
 
 def test_none_parameters_send_nothing_except_anthropic_required_max_tokens():
@@ -17,57 +23,39 @@ def test_none_parameters_send_nothing_except_anthropic_required_max_tokens():
     }
 
 
-def test_empty_fields_are_omitted_and_gemini_sends_temperature():
-    params = ModelParameters(temperature=0.3, effort=None, thinking=None, web_search=None)
-    openai = build_request_extras("openai_compatible", params)
-    gemini = build_request_extras("gemini_interactions", params)
-    anthropic = build_request_extras("anthropic_messages", params)
-
-    assert openai == {"temperature": 0.3}
-    assert gemini == {"generation_config": {"temperature": 0.3}}
-    assert anthropic["temperature"] == 0.3
-    assert "effort" not in openai
+@pytest.mark.parametrize("provider", ["openai_compatible", "gemini_interactions"])
+def test_empty_object_sends_nothing(provider):
+    assert build_request_extras(provider, {}) == {}
 
 
-def test_known_effort_maps_only_for_openai_and_invalid_effort_is_dropped():
-    valid = ModelParameters(effort="low")
-    invalid = ModelParameters(effort="turbo")
-
-    assert build_request_extras("openai_compatible", valid) == {"reasoning_effort": "low"}
-    assert "reasoning_effort" not in build_request_extras("gemini_interactions", valid)
-    assert "reasoning_effort" not in build_request_extras("anthropic_messages", valid)
-    assert build_request_extras("openai_compatible", invalid) == {}
-
-
-@pytest.mark.parametrize(
-    "provider",
-    ["openai_compatible", "gemini_interactions", "anthropic_messages"],
-)
-def test_unsupported_thinking_and_web_search_are_dropped(provider):
-    params = ModelParameters(thinking=True, web_search=True)
+@pytest.mark.parametrize("provider", _PROVIDERS)
+def test_every_key_is_sent_as_is_including_nested_and_unknown_keys(provider):
+    params = {
+        "thinking": True,
+        "web_search": True,
+        "reasoning_effort": "high",
+        "generation_config": {"temperature": 0.3, "thinking_config": {"budget": 1024}},
+    }
     extras = build_request_extras(provider, params)
-    assert "thinking" not in extras
-    assert "web_search" not in extras
-    assert "tools" not in extras
+    for key, value in params.items():
+        assert extras[key] == value
 
 
-def test_explicit_max_tokens_is_sent_and_anthropic_none_uses_the_constant():
-    params = ModelParameters(max_tokens=128)
-    assert build_request_extras("openai_compatible", params) == {"max_tokens": 128}
-    assert build_request_extras("gemini_interactions", params) == {
-        "generation_config": {"max_output_tokens": 128}
-    }
-    both = ModelParameters(temperature=0.3, max_tokens=128)
-    assert build_request_extras("gemini_interactions", both) == {
-        "generation_config": {"temperature": 0.3, "max_output_tokens": 128}
-    }
-    assert build_request_extras("anthropic_messages", params)["max_tokens"] == 128
-    assert (
-        build_request_extras("anthropic_messages", ModelParameters())["max_tokens"]
-        == ANTHROPIC_DEFAULT_MAX_TOKENS
-    )
+def test_anthropic_keeps_an_explicit_max_tokens():
+    assert build_request_extras("anthropic_messages", {"max_tokens": 32})["max_tokens"] == 32
 
 
-def test_unknown_provider_drops_every_field():
-    params = ModelParameters(temperature=0.3, effort="high", max_tokens=10, thinking=True)
-    assert build_request_extras("aiyu_unknown", params) == {}
+def test_other_providers_get_no_default_max_tokens():
+    assert "max_tokens" not in build_request_extras("openai_compatible", {"temperature": 0.3})
+
+
+def test_extras_are_a_deep_copy_of_the_stored_parameters():
+    """Corner: an adapter changing its body must not change the session copy."""
+    params = {"generation_config": {"temperature": 0.3}}
+    extras = build_request_extras("gemini_interactions", params)
+    extras["generation_config"]["temperature"] = 1.0
+    assert params == {"generation_config": {"temperature": 0.3}}
+
+
+def test_unknown_provider_also_passes_parameters_through():
+    assert build_request_extras("aiyu_unknown", {"temperature": 0.3}) == {"temperature": 0.3}

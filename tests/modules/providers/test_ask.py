@@ -16,7 +16,6 @@ from app.modules.providers.adapters.openai_compatible import OpenAICompatibleAda
 from app.modules.providers.adapters.params import (
     ANTHROPIC_DEFAULT_MAX_TOKENS,
     ASK_TIMEOUT_SECONDS,
-    ModelParameters,
 )
 
 _KEY = "sk-test-secret-value"  # pragma: allowlist secret
@@ -83,7 +82,7 @@ def test_ask_prompt_only_uses_240s_read_timeout_and_no_system_message(monkeypatc
     assert timeout.read == ASK_TIMEOUT_SECONDS
 
 
-def test_openai_maps_parameters_and_keeps_the_key_out_of_raw(monkeypatch):
+def test_openai_sends_parameters_as_is_and_keeps_the_key_out_of_raw(monkeypatch):
     seen = {}
 
     def handler(request: httpx.Request) -> httpx.Response:
@@ -102,11 +101,12 @@ def test_openai_maps_parameters_and_keeps_the_key_out_of_raw(monkeypatch):
         )
 
     _transport(monkeypatch, handler)
-    params = ModelParameters(temperature=0.3, effort="high", thinking=True, web_search=True)
+    # SCRUM-247: JSON bebas dikirim apa adanya, termasuk kunci yang tidak dikenal adaptor.
+    params = {"temperature": 0.3, "reasoning_effort": "high", "thinking": {"type": "enabled"}}
     result = _openai().ask("pertanyaan", parameters=params, timeout=30)
     assert seen["body"]["temperature"] == 0.3
     assert seen["body"]["reasoning_effort"] == "high"
-    assert "thinking" not in seen["body"]
+    assert seen["body"]["thinking"] == {"type": "enabled"}
     assert _KEY not in json.dumps(result.raw)
     assert _KEY not in (result.error or "")
     assert _KEY not in result.text
@@ -238,7 +238,7 @@ def test_gemini_sends_temperature_and_reads_outputs(monkeypatch):
         )
 
     _transport(monkeypatch, handler)
-    result = _gemini().ask("tanya", parameters=ModelParameters(temperature=0.3))
+    result = _gemini().ask("tanya", parameters={"generation_config": {"temperature": 0.3}})
     assert result.text == "jawab"
     assert result.failure_kind is None
     assert seen["body"]["generation_config"]["temperature"] == 0.3
@@ -381,7 +381,7 @@ def test_anthropic_explicit_max_tokens_and_failure_kinds(monkeypatch):
     _transport(monkeypatch, handler)
     adapter = _anthropic()
     for _, kind in payloads:
-        assert adapter.ask("q", parameters=ModelParameters(max_tokens=32)).failure_kind == kind
+        assert adapter.ask("q", parameters={"max_tokens": 32}).failure_kind == kind
     assert seen["max_tokens"] == 32
 
 
@@ -395,7 +395,7 @@ def test_anthropic_invalid_json_and_rejected_key(monkeypatch):
     handler.calls = 0
     _transport(monkeypatch, handler)
     adapter = _anthropic()
-    assert adapter.ask("q", parameters=ModelParameters(max_tokens=32)).failure_kind == (
+    assert adapter.ask("q", parameters={"max_tokens": 32}).failure_kind == (
         FailureKind.PROVIDER_ERROR
     )
     denied = adapter.ask("q")
@@ -593,3 +593,22 @@ def test_unknown_provider_type_is_not_dispatched():
         api_key=_KEY,
     )
     assert result.status == "failed"
+
+
+@pytest.mark.parametrize(
+    ("adapter", "prompt_key"),
+    [(_openai, "messages"), (_gemini, "input"), (_anthropic, "messages")],
+)
+def test_parameters_cannot_replace_the_model_or_the_prompt(monkeypatch, adapter, prompt_key):
+    """SCRUM-247 negative: save already rejects these keys; the adapter still keeps its own."""
+    seen = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["body"] = json.loads(request.content)
+        return httpx.Response(500, text="stop")
+
+    _transport(monkeypatch, handler)
+    adapter().ask("asli", parameters={"model": "lain", prompt_key: "bukan prompt", "top_p": 0.9})
+    assert seen["body"]["model"] != "lain"
+    assert seen["body"][prompt_key] != "bukan prompt"
+    assert seen["body"]["top_p"] == 0.9
