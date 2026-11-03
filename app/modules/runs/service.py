@@ -15,6 +15,9 @@ from collections.abc import Mapping
 from dataclasses import asdict
 from decimal import Decimal
 
+from sqlalchemy.orm import Session
+
+from app.modules.runs import repository
 from app.modules.runs.call_log import monthly_limit
 from app.modules.runs.cost_estimator import estimate_cost_idr
 from app.modules.runs.exchange_rate import ExchangeRateProvider
@@ -213,3 +216,8 @@ class ProgressService:
             started_at=hitungan.started_at,
             updated_at=hitungan.updated_at,
         )
+
+
+def product_has_sessions(db: Session, product_id: uuid.UUID) -> bool:
+    """Riwayat pengukuran produk, untuk aturan jenis pengukuran PBI-23 di modul providers."""
+    return repository.product_has_sessions(db, product_id)

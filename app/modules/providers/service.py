@@ -38,6 +38,7 @@ from app.modules.providers.schemas import (
     ConnectionTestRead,
     ModelParams,
 )
+from app.modules.runs import service as runs_service
 from app.shared.config import get_settings
 from app.shared.exceptions import (
     ConflictError,
@@ -204,7 +205,7 @@ def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate)
     target_type = tipe_baru if tipe_berubah else product.measurement_type
 
     # Immutability check (C2)
-    if tipe_berubah and repository.has_measurement_sessions(db, product.id):
+    if tipe_berubah and runs_service.product_has_sessions(db, product.id):
         raise ValidationError(
             "Jenis pengukuran tidak dapat diubah karena produk sudah memiliki riwayat pengukuran",
             code="MEASUREMENT_TYPE_IMMUTABLE",
