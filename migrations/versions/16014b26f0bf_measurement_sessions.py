@@ -1,7 +1,7 @@
 """Add measurement_sessions.
 
 Revision ID: 16014b26f0bf
-Revises: d3c8a1e54b20
+Revises: b7e2c9d41a58
 Create Date: 2026-10-31 21:00:00.000000
 
 PBI-11 SCRUM-76 (SCRUM-205), D2:
@@ -35,7 +35,7 @@ from alembic import op
 from sqlalchemy.dialects import postgresql
 
 revision: str = "16014b26f0bf"  # pragma: allowlist secret
-down_revision: str | None = "d3c8a1e54b20"  # pragma: allowlist secret
+down_revision: str | None = "b7e2c9d41a58"  # pragma: allowlist secret
 branch_labels: str | Sequence[str] | None = None
 depends_on: str | Sequence[str] | None = None
 
