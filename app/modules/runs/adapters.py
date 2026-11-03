@@ -112,6 +112,16 @@ class ProductCopyAdapter:
         )
 
 
+class ProductLockAdapter:
+    """Kunci produk lewat providers.service, di session database yang sama dengan INSERT sesi."""
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def lock_measurement_type(self, product_id: uuid.UUID) -> str:
+        return providers_service.lock_for_new_session(self._db, product_id).value
+
+
 class CallLogSpend:
     """Pengeluaran bulan ini dari call_logs."""
 

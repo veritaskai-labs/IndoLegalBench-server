@@ -12,6 +12,7 @@ from app.modules.runs.adapters import (
     CaseCountAdapter,
     ProductAdapter,
     ProductCopyAdapter,
+    ProductLockAdapter,
     SnapshotSourceAdapter,
 )
 from app.modules.runs.call_log import CallLogService
@@ -63,10 +64,14 @@ def get_session_store(db: Session = Depends(get_db)) -> SessionQueueStore:
 
 
 def get_start_service(
+    db: Session = Depends(get_db),
     summary: SummaryService = Depends(get_summary_service),
     sessions: SessionQueueStore = Depends(get_session_store),
 ) -> StartSessionService:
-    return StartSessionService(summary=summary, sessions=sessions)
+    """Ringkasan, kunci produk, dan INSERT sesi memakai satu session database (satu transaksi)."""
+    return StartSessionService(
+        summary=summary, sessions=sessions, product_lock=ProductLockAdapter(db)
+    )
 
 
 def build_session_queue(db: Session) -> SessionQueue:

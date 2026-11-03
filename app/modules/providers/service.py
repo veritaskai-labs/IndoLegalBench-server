@@ -249,6 +249,19 @@ def delete_product(db: Session, product_id: uuid.UUID) -> None:
     repository.save(db, product)
 
 
+def lock_for_new_session(db: Session, product_id: uuid.UUID) -> MeasurementType:
+    """Kunci baris produk (FOR SHARE) untuk sesi yang akan dibuat, lalu jenis terbarunya.
+
+    Kontrak SCRUM-204 (#90) untuk SCRUM-207: kunci bertahan sampai transaksi pembuat
+    sesi selesai, jadi ganti jenis yang belum commit ditunggu dan hasilnya terbaca
+    (D1 C6, PBI-23 AC4). Produk yang sudah dihapus menjadi 404.
+    """
+    product = repository.get_by_id(db, product_id, for_share=True)
+    if product is None:
+        raise NotFoundError("Produk AI tidak ditemukan.", code="AI_PRODUCT_NOT_FOUND")
+    return product.measurement_type
+
+
 def set_active(db: Session, product_id: uuid.UUID, *, is_active: bool) -> AiProductRead:
     product = _wajib_ada(db, product_id)
     product.is_active = is_active

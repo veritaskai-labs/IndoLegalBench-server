@@ -110,6 +110,12 @@ class SessionQueueStore(Protocol):
         raise NotImplementedError
 
 
+class ProductLock(Protocol):
+    def lock_measurement_type(self, product_id: uuid.UUID) -> str:
+        """Kunci produk sampai transaksi selesai, lalu jenisnya (kontrak #90, D1 C6)."""
+        raise NotImplementedError
+
+
 class SnapshotSource(Protocol):
     def approved_items(self, suite_ids: Sequence[uuid.UUID]) -> list[SnapshotItem]:
         """Versi disetujui terbaru setiap kasus di suite itu, urut suite lalu kode kasus."""

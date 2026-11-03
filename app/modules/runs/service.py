@@ -33,6 +33,7 @@ from app.modules.runs.session_ports import (
     NewSession,
     ProductCopy,
     ProductCopySource,
+    ProductLock,
     SessionQueueStore,
     SnapshotItem,
     SnapshotSource,
@@ -50,6 +51,7 @@ from app.shared.exceptions import InternalError, NotFoundError, ValidationError
 logger = logging.getLogger(__name__)
 
 _CENT = Decimal("0.01")
+_PESAN_PRODUK_MANUAL = "Produk manual tidak bisa diukur otomatis. Catat jawabannya secara manual."
 
 # Split tag yang dihitung untuk tiap pilihan. Pilihan baru cukup menambah baris.
 _SPLITS_FOR_FILTER: Mapping[CaseFilter, tuple[str, ...]] = {
@@ -143,10 +145,7 @@ class SummaryService:
         if product is None:
             raise NotFoundError("Produk AI tidak ditemukan.", code="AI_PRODUCT_NOT_FOUND")
         if product.measurement_type != "automatic":
-            raise ValidationError(
-                "Produk manual tidak bisa diukur otomatis. Catat jawabannya secara manual.",
-                code="PRODUCT_NOT_AUTOMATIC",
-            )
+            raise ValidationError(_PESAN_PRODUK_MANUAL, code="PRODUCT_NOT_AUTOMATIC")
         if not product.is_active:
             raise ValidationError("Produk AI ini sedang nonaktif.", code="PRODUCT_INACTIVE")
         return product
@@ -189,12 +188,19 @@ class StartSessionService:
     tidak langsung berjalan: worker yang menjalankan saat gilirannya.
     """
 
-    def __init__(self, *, summary: SummaryService, sessions: SessionQueueStore) -> None:
+    def __init__(
+        self, *, summary: SummaryService, sessions: SessionQueueStore, product_lock: ProductLock
+    ) -> None:
         self._summary = summary
         self._sessions = sessions
+        self._product_lock = product_lock
 
     def start(self, request: StartRequest, *, created_by: uuid.UUID) -> StartResponse:
         self._summary.summarize(request)
+        # Kontrak #90: kunci produk dan baca ulang jenisnya di transaksi yang sama dengan
+        # INSERT sesi, supaya ganti jenis yang bersamaan tidak meloloskan sesi (D1 C6).
+        if self._product_lock.lock_measurement_type(request.product_id) != "automatic":
+            raise ValidationError(_PESAN_PRODUK_MANUAL, code="PRODUCT_NOT_AUTOMATIC")
         queued = self._sessions.create_queued(
             NewSession(
                 label=request.label,
