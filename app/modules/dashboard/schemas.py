@@ -5,6 +5,7 @@ from datetime import datetime
 from pydantic import BaseModel, Field
 
 from app.modules.reviews.schemas import PendingReview
+from app.modules.runs.schemas import SessionListItem
 
 
 class CaseCounts(BaseModel):
@@ -23,8 +24,8 @@ class OwnCaseSummary(BaseModel):
     total_cases: int
 
 
-class LatestRunSummary(BaseModel):
-    """Sesi pengukuran terakhir. Selalu null sampai PBI-11 mengisinya (AC1)."""
+class LatestRunSummary(SessionListItem):
+    """Sesi pengukuran terakhir, kolomnya sama dengan satu baris GET /measurements (AC1)."""
 
 
 class DashboardSummary(BaseModel):
@@ -57,5 +58,9 @@ class DashboardSummary(BaseModel):
         description="Hanya Admin: kasus yang perlu penugasan ulang reviewer. null untuk peran lain."
     )
     latest_run: LatestRunSummary | None = Field(
-        default=None, description="Sesi pengukuran terakhir. null sampai PBI-11 ada."
+        default=None,
+        description=(
+            "Hanya Admin: sesi terbaru yang belum diarsipkan. null untuk peran lain atau "
+            "bila belum ada pengukuran."
+        ),
     )

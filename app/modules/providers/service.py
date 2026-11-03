@@ -32,12 +32,14 @@ from app.modules.providers.models import (
 )
 from app.modules.providers.schemas import (
     AiProductCreate,
+    AiProductListItem,
     AiProductOption,
     AiProductRead,
     AiProductUpdate,
     ConnectionTestRead,
     ModelParams,
 )
+from app.modules.runs import service as runs_service
 from app.shared.config import get_settings
 from app.shared.exceptions import (
     ConflictError,
@@ -93,11 +95,24 @@ def get_product(db: Session, product_id: uuid.UUID) -> AiProductRead:
 
 
 def list_products(
-    db: Session, *, is_active: bool | None, measurement_type: MeasurementType | None = None
-) -> list[AiProductRead]:
-    """Daftar Admin, disaring status dan jenis (PBI-23 AC6)."""
+    db: Session,
+    *,
+    is_active: bool | None,
+    measurement_type: MeasurementType | None = None,
+    now: datetime | None = None,
+) -> list[AiProductListItem]:
+    """Daftar Admin, disaring status dan jenis, dengan sisa anggaran dan jumlah sesi (AC6)."""
     produk = repository.list_products(db, is_active=is_active, measurement_type=measurement_type)
-    return [_tampilkan(item) for item in produk]
+    sisa = runs_service.remaining_budgets(db, produk, now=now or datetime.now(UTC))
+    jumlah_sesi = runs_service.session_counts(db, [item.id for item in produk])
+    return [
+        AiProductListItem(
+            **_tampilkan(item).model_dump(),
+            remaining_budget_idr=sisa.get(item.id),
+            session_count=jumlah_sesi[item.id],
+        )
+        for item in produk
+    ]
 
 
 def list_options(
@@ -204,7 +219,7 @@ def update_product(db: Session, product_id: uuid.UUID, payload: AiProductUpdate)
     target_type = tipe_baru if tipe_berubah else product.measurement_type
 
     # Immutability check (C2)
-    if tipe_berubah and repository.has_measurement_sessions(db, product.id):
+    if tipe_berubah and runs_service.product_has_sessions(db, product.id):
         raise ValidationError(
             "Jenis pengukuran tidak dapat diubah karena produk sudah memiliki riwayat pengukuran",
             code="MEASUREMENT_TYPE_IMMUTABLE",
@@ -246,6 +261,19 @@ def delete_product(db: Session, product_id: uuid.UUID) -> None:
     product = _wajib_ada(db, product_id)
     product.deleted_at = datetime.now(UTC)
     repository.save(db, product)
+
+
+def lock_for_new_session(db: Session, product_id: uuid.UUID) -> MeasurementType:
+    """Kunci baris produk (FOR SHARE) untuk sesi yang akan dibuat, lalu jenis terbarunya.
+
+    Kontrak SCRUM-204 (#90) untuk SCRUM-207: kunci bertahan sampai transaksi pembuat
+    sesi selesai, jadi ganti jenis yang belum commit ditunggu dan hasilnya terbaca
+    (D1 C6, PBI-23 AC4). Produk yang sudah dihapus menjadi 404.
+    """
+    product = repository.get_by_id(db, product_id, for_share=True)
+    if product is None:
+        raise NotFoundError("Produk AI tidak ditemukan.", code="AI_PRODUCT_NOT_FOUND")
+    return product.measurement_type
 
 
 def set_active(db: Session, product_id: uuid.UUID, *, is_active: bool) -> AiProductRead:

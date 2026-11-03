@@ -11,10 +11,11 @@ Contoh hukum hanya KTK-001 dan contoh AC10 (belum dikonfirmasi tim legal).
 import uuid
 
 from app.modules.auth.models import User
+from app.modules.cases import service as cases_service
 from app.modules.cases.models import Case
 from app.shared.security import Role
 from tests.legal_refs import rujukan_ac10, rujukan_ktk_001
-from tests.modules.cases.test_cases import ADMIN_LAIN, _badan, _buat, _ganti, _setujui, _suite
+from tests.modules.cases.test_cases import ADMIN_LAIN, _badan, _buat, _setujui, _suite
 from tests.modules.conftest import USER_ID_QA
 
 TEKS_KTK_001 = "Pasal 156 UU 13/2003"
@@ -106,19 +107,18 @@ def test_rujukan_yang_benar_benar_berubah_tetap_tercatat(as_role, db_session):
     assert body["b"]["sections"]["legal_refs"][0]["display_text"] == TEKS_AC10
 
 
-def test_snapshot_suite_menyimpan_rujukan_dalam_bentuk_baru(as_role, buat_pengguna, db_session):
-    # Arrange
+def test_snapshot_suite_menyimpan_rujukan_dalam_bentuk_baru(as_role, db_session):
+    # Arrange: snapshot manual sudah dihapus (PBI-11 AC7), salinannya kini dibuat
+    # untuk snapshot otomatis sesi pengukuran lewat fungsi yang sama.
     client = as_role(Role.CONTRIBUTOR)
     _pengguna(db_session)
     suite_id, _ = _kasus_sprint_1_approved(client, db_session)
-    _ganti(client, buat_pengguna(Role.ADMIN, user_id=ADMIN_LAIN, name="Admin QA"))
 
     # Act
-    dibuat = client.post(f"/suites/{suite_id}/snapshots")
+    salinan = cases_service.approved_copies_for_suite(db_session, uuid.UUID(suite_id))
 
     # Assert
-    assert dibuat.status_code == 201, dibuat.text
-    rujukan = dibuat.json()["items"][0]["body"]["sections"]["legal_refs"]
+    rujukan = salinan[0]["body"]["sections"]["legal_refs"]
     assert [item["display_text"] for item in rujukan] == [TEKS_KTK_001]
     assert rujukan[0]["links"][0]["number"] == "13"
 

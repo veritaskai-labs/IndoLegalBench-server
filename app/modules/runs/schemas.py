@@ -7,10 +7,19 @@ TODO(PBI-11, PBI-12, PBI-13): definisikan schema sesuai kontrak.
 """
 
 import uuid
+from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
 from pydantic import BaseModel, Field, field_validator
+
+from app.modules.cases.models import SplitTag
+
+# Delapan bagian kasus yang sama dengan compare versi, supaya FE memakai satu tipe.
+from app.modules.cases.schemas import VersionSections
+
+# Satu enum status sesi untuk tabel (#89) dan kontrak API, supaya keduanya tidak menyimpang.
+from app.modules.runs.models import AttemptStatus, SessionStatus
 
 # PBI-11 AC3: satu angka pengulangan untuk seluruh pengukuran.
 MIN_REPEATS = 1
@@ -24,6 +33,13 @@ class CaseFilter(StrEnum):
     DEV = "dev"
     TEST = "test"
     BOTH = "both"
+
+
+class MeasurementPurpose(StrEnum):
+    """Pengukuran Resmi atau Uji Coba (PBI-11 AC1, D2 measurement_sessions.purpose)."""
+
+    OFFICIAL = "official"
+    TRIAL = "trial"
 
 
 class SummaryRequest(BaseModel):
@@ -70,3 +86,128 @@ class SummaryResponse(BaseModel):
         description="Perkiraan biaya dalam rupiah, sudah termasuk margin pengaman"
     )
     remaining_budget_idr: Decimal = Field(description="Sisa anggaran bulan ini untuk produk")
+
+
+class SessionProgressRead(BaseModel):
+    """Progres "X dari N" di daftar sesi (PBI-11 AC10)."""
+
+    completed: int = Field(
+        description="Percobaan yang sudah punya hasil akhir: berhasil atau gagal teknis"
+    )
+    total: int = Field(description="Semua percobaan sesi, kasus kali pengulangan. 0 selama antre")
+
+
+class SessionListItem(BaseModel):
+    """Satu baris daftar sesi pengukuran yang belum diarsipkan (PBI-11 AC10)."""
+
+    id: uuid.UUID
+    label: str
+    created_at: datetime
+    created_by: uuid.UUID
+    created_by_name: str | None = Field(
+        description="Nama pembuat sesi, null bila akunnya tidak ada"
+    )
+    product_id: uuid.UUID
+    product_name: str | None = Field(
+        description="Nama produk AI, tetap terisi walau produknya sudah dihapus"
+    )
+    case_count: int | None = Field(
+        description="Kasus di snapshot sesi. null selama sesi antre, snapshot dibuat saat mulai"
+    )
+    repetitions: int
+    status: SessionStatus
+    progress: SessionProgressRead
+
+
+class SessionArchiveResponse(BaseModel):
+    """Hasil arsip sesi. Sesinya tidak lagi tampil di GET /measurements (PBI-11 AC10)."""
+
+    id: uuid.UUID
+    archived_at: datetime
+    archived_by: uuid.UUID = Field(description="Pengguna yang mengarsipkan sesi")
+
+
+class AttemptResult(BaseModel):
+    """Satu percobaan: jawaban mentah apa adanya dari produk (PBI-11 AC8)."""
+
+    repetition_no: int
+    status: AttemptStatus
+    answer_text: str | None = Field(
+        description=(
+            "Jawaban mentah. null bila belum ada, gagal teknis, disamarkan, atau sesi "
+            "belum berakhir untuk Developer AI"
+        )
+    )
+    model_version: str | None
+
+
+class SessionCaseResult(BaseModel):
+    """Satu kasus di snapshot sesi beserta percobaannya, urut nomor pengulangan."""
+
+    snapshot_item_id: uuid.UUID
+    case_id: uuid.UUID
+    case_code: str
+    title: str
+    question: str | None = Field(description="Pertanyaan kasus. null bila disamarkan")
+    split_tag: SplitTag | None
+    masked: bool = Field(
+        description="true untuk kasus test yang dibuka Developer AI: isi dan jawaban disamarkan"
+    )
+    version_no: int | None = Field(description="Versi kasus yang dibekukan. null bila disamarkan")
+    sections: VersionSections | None = Field(
+        description="Delapan bagian kasus dari snapshot (AC7). null bila disamarkan"
+    )
+    attempts: list[AttemptResult]
+
+
+class SessionDetail(SessionListItem):
+    """Detail sesi: kolom daftar ditambah hasil per kasus (PBI-11 AC8)."""
+
+    purpose: MeasurementPurpose
+    # Nilai sama dengan case_filter di form Mulai, jadi FE memakai satu tipe.
+    split_filter: CaseFilter
+    snapshot_created_at: datetime | None = Field(
+        description="Waktu snapshot kasus dibuat (AC6). null selama sesi antre"
+    )
+    started_at: datetime | None
+    finished_at: datetime | None
+    archived_at: datetime | None = Field(description="Terisi bila sesi sudah diarsipkan")
+    cases: list[SessionCaseResult] = Field(
+        description="Kosong selama sesi antre, karena snapshot dibuat saat sesi mulai"
+    )
+
+
+# D2 measurement_sessions.label varchar(200).
+_PANJANG_LABEL = 200
+
+
+class StartRequest(SummaryRequest):
+    """Body POST /measurements (PBI-11 AC1, SCRUM-207).
+
+    Isian ringkasan diwarisi supaya Mulai divalidasi dengan aturan yang sama
+    seperti Lihat ringkasan, ditambah label dan tujuan yang wajib.
+    """
+
+    label: str = Field(
+        min_length=1, max_length=_PANJANG_LABEL, description="Nama sesi, wajib, maksimal 200"
+    )
+    purpose: MeasurementPurpose = Field(description="official = Pengukuran Resmi, trial = Uji Coba")
+    # AC1, D3 langkah 19. Opsional dan belum divalidasi: tabel judge_providers datang di PBI-14.
+    judge_provider_id: uuid.UUID | None = Field(
+        default=None, description="Provider penilai (LLM judge) yang dipilih; kosong sampai PBI-14"
+    )
+
+    @field_validator("label", mode="before")
+    @classmethod
+    def buang_spasi_tepi(cls, value):
+        # Label berisi spasi saja menjadi kosong, lalu ditolak min_length.
+        return value.strip() if isinstance(value, str) else value
+
+
+class StartResponse(BaseModel):
+    """Jawaban 201 tombol Mulai (D3 langkah 23)."""
+
+    session_id: uuid.UUID
+    status: SessionStatus = Field(description="Selalu queued: worker yang menjalankan saat giliran")
+    # Nama D2 (keputusan PO di #89): antrean FIFO diurutkan dengan queued_at.
+    queued_at: datetime = Field(description="Waktu masuk antrean; yang lebih awal jalan lebih dulu")

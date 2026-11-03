@@ -35,6 +35,12 @@ from app.modules.providers.service import (
 from app.modules.providers.service import (
     test_connection as service_test_connection,
 )
+from app.modules.runs.models import (
+    MeasurementSession,
+    SessionPurpose,
+    SessionType,
+    SplitFilter,
+)
 from app.shared.exceptions import ConflictError, InternalError, ValidationError
 from app.shared.security import Role
 
@@ -252,20 +258,17 @@ def test_measurement_type_cannot_be_changed_with_history(db_session):
     db_session.add(prod)
     db_session.commit()
 
-    # Buat tabel measurement_sessions tiruan sementara untuk menguji deteksi riwayat
-    db_session.execute(
-        text(
-            """
-            CREATE TABLE IF NOT EXISTS measurement_sessions (
-                id TEXT PRIMARY KEY,
-                product_id TEXT NOT NULL
-            )
-            """
+    # Riwayat = satu sesi pengukuran nyata (SCRUM-205), bukan tabel tiruan.
+    db_session.add(
+        MeasurementSession(
+            label="Uji coba",
+            purpose=SessionPurpose.TRIAL,
+            session_type=SessionType.AUTOMATIC,
+            product_id=prod.id,
+            repetitions=1,
+            split_filter=SplitFilter.DEV,
+            created_by=admin.id,
         )
-    )
-    db_session.execute(
-        text("INSERT INTO measurement_sessions (id, product_id) VALUES ('sess-1', :pid)"),
-        {"pid": str(prod.id)},
     )
     db_session.commit()
 

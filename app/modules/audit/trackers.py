@@ -436,6 +436,25 @@ class CallLogTracker(Tracker):
     fields = created_fields
 
 
+class MeasurementSessionTracker(Tracker):
+    """Arsip sesi pengukuran (PBI-11 AC10, SCRUM-210). Pelakunya actor_user_id.
+
+    Mulai sesi dan status dari worker belum ada di katalog D6a, jadi tidak
+    dicatat di sini. Terima apa adanya (PBI-12) menyusul bersama aksinya.
+    """
+
+    entity_type = AuditEntityType.MEASUREMENT_SESSION
+    prefix = "measurement_session"
+    fields = ("archived_at",)
+    special = frozenset(fields)
+
+    def created(self, row: Any) -> list[AuditEvent]:
+        return []
+
+    def _special_event(self, row: Any, field: str, change: Change) -> AuditEvent:
+        return self._field_event(row, "archived", field, change)
+
+
 TRACKERS: dict[str, Tracker] = {
     "suites": SuiteTracker(),
     "suite_snapshots": SuiteSnapshotTracker(),
@@ -448,6 +467,7 @@ TRACKERS: dict[str, Tracker] = {
     "ai_products": AiProductTracker(),
     "users": UserTracker(),
     "call_logs": CallLogTracker(),
+    "measurement_sessions": MeasurementSessionTracker(),
 }
 
 

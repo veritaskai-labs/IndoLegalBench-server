@@ -21,6 +21,7 @@ from app.modules.legal_refs import models as legal_refs_models  # noqa: F401
 from app.modules.notifications import models as notifications_models  # noqa: F401
 from app.modules.providers import models as providers_models  # noqa: F401
 from app.modules.reviews import models as reviews_models  # noqa: F401
+from app.modules.runs import models as runs_models  # noqa: F401
 from app.modules.suites import models as suites_models  # noqa: F401
 from app.shared.config import get_settings
 from app.shared.database import Base

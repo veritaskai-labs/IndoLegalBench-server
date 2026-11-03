@@ -1,7 +1,7 @@
 """Catat satu panggilan. Biaya menyusul di fungsi terpisah."""
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -17,9 +17,13 @@ DEFAULT_MONTHLY_BUDGET_IDR = Decimal("500000.00")
 
 
 def month_start(now: datetime) -> datetime:
-    """Awal bulan WIB. Reset tanggal 1 pukul 00.00 belum dikonfirmasi klien."""
+    """Awal bulan WIB, dikembalikan dalam UTC. Reset tanggal 1 pukul 00.00 belum dikonfirmasi klien.
+
+    UTC karena started_at ditulis worker dalam UTC. SQLite membuang zona waktu, jadi
+    batas WIB akan dibandingkan sebagai jam dinding dengan stempel UTC.
+    """
     local = now.astimezone(_JAKARTA)
-    return local.replace(day=1, hour=0, minute=0, second=0, microsecond=0)
+    return local.replace(day=1, hour=0, minute=0, second=0, microsecond=0).astimezone(UTC)
 
 
 def monthly_limit(product: ProductInfo) -> Decimal:

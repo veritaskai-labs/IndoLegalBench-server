@@ -4,7 +4,8 @@ Tes milik SCRUM-140 sudah menguji modul audit dari dalam. Berkas ini
 hanya menambah skenario SCRUM-142 yang belum tercakup, dan semuanya
 dijalankan lewat HTTP seperti pengguna sungguhan:
 
-- AC1: snapshot suite (PBI-8) dan versi baru hasil fork tercatat tepat satu kali
+- AC1: versi baru hasil fork tercatat tepat satu kali (snapshot manual PBI-8 dihapus
+  di PBI-11 AC7; pencatat suite_snapshots tetap diuji di test_audit_trackers.py)
 - AC3: saringan pelaku yang akunnya sudah dinonaktifkan tetap menemukan catatannya
 - AC5: Reviewer melihat riwayat kasus yang pernah ditugaskan (SCRUM-167)
 - AC6: nilai kredensial tidak ikut ke file CSV maupun PDF
@@ -74,25 +75,6 @@ def _jadi(client, buat_pengguna, role: Role, **identitas) -> None:
 
 
 # --- AC1: event katalog D6 tercatat tepat satu kali ---------------------------
-
-
-def test_ac1_positif_snapshot_suite_tercatat_sekali(as_role, buat_pengguna, db_session):
-    client = as_role(Role.CONTRIBUTOR)
-    suite_id = _suite(client)
-    case_id = _buat(client, suite_id).json()["id"]
-    _setujui(db_session, case_id)
-    _jadi(client, buat_pengguna, Role.ADMIN)
-
-    response = client.post(f"/suites/{suite_id}/snapshots")
-
-    assert response.status_code == 201
-    catatan = _catatan(db_session, "suite.snapshot_created")
-    assert len(catatan) == 1
-    baris = catatan[0]
-    assert baris.entity_type == "suite"
-    assert baris.entity_id == uuid.UUID(suite_id)
-    assert baris.actor_user_id == USER_ID_QA
-    assert baris.after == {"snapshot_id": response.json()["id"], "case_count": 1}
 
 
 def test_ac1_positif_versi_baru_hasil_fork_tercatat_sekali(as_role, db_session):

@@ -173,6 +173,22 @@ class AiProductRead(BaseModel):
     updated_at: datetime
 
 
+class AiProductListItem(AiProductRead):
+    """Satu baris daftar produk Admin, ditambah kolom turunan (PBI-11 SCRUM-210, PBI-23 AC6)."""
+
+    remaining_budget_idr: Decimal | None = Field(
+        default=None,
+        description=(
+            "Sisa anggaran bulan ini: batas bulanan dikurangi biaya sejak tanggal 1 pukul "
+            "00.00 WIB, tidak pernah negatif. null untuk produk Manual."
+        ),
+    )
+    session_count: int = Field(
+        default=0,
+        description="Jumlah sesi pengukuran produk ini, termasuk sesi yang diarsipkan.",
+    )
+
+
 class AiProductOption(BaseModel):
     """Satu pilihan produk di form pengukuran atau pencatatan manual (PBI-23 AC7, AC8).
 
