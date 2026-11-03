@@ -20,7 +20,7 @@ from sqlalchemy import create_engine, text
 from app.shared.config import get_settings
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "")
-SEBELUM = "d3c8a1e54b20"  # pragma: allowlist secret (revision id)
+SEBELUM = "b7e2c9d41a58"  # pragma: allowlist secret (revision id)
 ROOT = Path(__file__).resolve().parents[2]
 
 TABEL_205 = {

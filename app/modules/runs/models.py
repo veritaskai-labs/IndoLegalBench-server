@@ -149,6 +149,8 @@ class MeasurementSession(Base):
     split_filter: Mapped[SplitFilter] = mapped_column(
         _enum(SplitFilter, "measurement_split_filter_enum"), nullable=False
     )
+    # Penilai LLM (AC1). Tabel judge_providers milik PBI-14, jadi belum ber-FK.
+    judge_provider_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
     status: Mapped[SessionStatus] = mapped_column(
         _enum(SessionStatus, "measurement_session_status_enum"),
         nullable=False,
@@ -229,6 +231,9 @@ class SessionProductCopy(Base):
     price_input_usd_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     price_output_usd_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     monthly_budget_idr: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    # Produk manual (PBI-23 AC3). access_note tidak disalin, sama seperti kredensial.
+    vendor_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    site_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
     copied_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
