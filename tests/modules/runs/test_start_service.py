@@ -5,8 +5,12 @@ dan anggaran diperiksa ulang dengan aturan yang sama seperti ringkasan
 (SummaryService, SCRUM-206), karena keadaan bisa berubah di antara Lihat
 ringkasan dan Mulai. AC3: sesi baru selalu Menunggu (D3 langkah 20-23).
 
-Semua dependency palsu: ringkasan dan penyimpanan sesi. Tabel sesi (SCRUM-205)
-belum ada, jadi service hanya mengenal port SessionQueueStore.
+Kontrak #90 (SCRUM-204): sebelum sesi disimpan, baris produk dikunci FOR SHARE
+dan jenisnya dibaca ulang, supaya ganti jenis ke Manual yang terjadi bersamaan
+tidak meloloskan sesi otomatis untuk produk Manual (D1 C6, PBI-23 AC4). Kuncinya
+diuji di PostgreSQL di tests/integration/test_start_session_lock_pg.py.
+
+Semua dependency palsu: ringkasan, kunci produk, dan penyimpanan sesi.
 
 Label: Positif = sesi masuk antrean, Negatif = sesi ditolak, Edge = batas perilaku.
 """
@@ -67,10 +71,28 @@ def _permintaan(**ubah) -> schemas.StartRequest:
     return schemas.StartRequest(**nilai)
 
 
-def _service(ringkasan=None, antrean=None):
+class _Kunci:
+    """Kunci produk palsu: jenis yang terbaca setelah kunci didapat, atau galat produk hilang."""
+
+    def __init__(self, jenis: str = "automatic", galat: Exception | None = None) -> None:
+        self.jenis = jenis
+        self.galat = galat
+        self.dikunci: list[uuid.UUID] = []
+
+    def lock_measurement_type(self, product_id):
+        self.dikunci.append(product_id)
+        if self.galat is not None:
+            raise self.galat
+        return self.jenis
+
+
+def _service(ringkasan=None, antrean=None, kunci=None):
     ringkasan = ringkasan or _Ringkasan()
     antrean = antrean or _Antrean()
-    return service.StartSessionService(summary=ringkasan, sessions=antrean), ringkasan, antrean
+    start = service.StartSessionService(
+        summary=ringkasan, sessions=antrean, product_lock=kunci or _Kunci()
+    )
+    return start, ringkasan, antrean
 
 
 def test_sesi_valid_masuk_antrean_dengan_semua_pilihan_pemulai():
@@ -161,3 +183,60 @@ def test_suite_ganda_digabung_sebelum_disimpan():
 
     # Assert
     assert antrean.dibuat[0].suite_ids == (SUITE_A, SUITE_B)
+
+
+def test_produk_dikunci_sebelum_sesi_disimpan():
+    """Positif: kontrak #90, baris produk dikunci untuk produk yang dipilih sebelum INSERT sesi."""
+    # Arrange
+    kunci = _Kunci()
+    start, _, antrean = _service(kunci=kunci)
+
+    # Act
+    start.start(_permintaan(), created_by=ADMIN_ID)
+
+    # Assert
+    assert kunci.dikunci == [PRODUCT_ID]
+    assert len(antrean.dibuat) == 1
+
+
+def test_jenis_berubah_ke_manual_setelah_kunci_sesi_ditolak():
+    """Negatif: D1 C6, ganti jenis yang menang lebih dulu membuat Mulai ditolak tanpa sesi."""
+    # Arrange
+    start, _, antrean = _service(kunci=_Kunci(jenis="manual"))
+
+    # Act
+    with pytest.raises(ValidationError) as tertangkap:
+        start.start(_permintaan(), created_by=ADMIN_ID)
+
+    # Assert
+    assert tertangkap.value.code == "PRODUCT_NOT_AUTOMATIC"
+    assert antrean.dibuat == []
+
+
+def test_produk_dihapus_saat_dikunci_tidak_membuat_sesi():
+    """Negatif: produk hilang di antara ringkasan dan kunci; 404 diteruskan, tidak ada sesi."""
+    # Arrange
+    hilang = NotFoundError("Produk AI tidak ditemukan", code="AI_PRODUCT_NOT_FOUND")
+    start, _, antrean = _service(kunci=_Kunci(galat=hilang))
+
+    # Act
+    with pytest.raises(NotFoundError):
+        start.start(_permintaan(), created_by=ADMIN_ID)
+
+    # Assert
+    assert antrean.dibuat == []
+
+
+def test_ringkasan_gagal_tidak_sampai_mengunci_produk():
+    """Edge: validasi murah lebih dulu; kunci hanya diambil untuk permintaan yang lolos ringkasan."""
+    # Arrange
+    kunci = _Kunci()
+    galat = ValidationError("melebihi anggaran", code="BUDGET_EXCEEDED")
+    start, _, _ = _service(ringkasan=_Ringkasan(galat), kunci=kunci)
+
+    # Act
+    with pytest.raises(ValidationError):
+        start.start(_permintaan(), created_by=ADMIN_ID)
+
+    # Assert
+    assert kunci.dikunci == []
