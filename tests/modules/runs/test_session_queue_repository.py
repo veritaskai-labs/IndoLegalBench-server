@@ -444,3 +444,25 @@ def test_gagal_hanya_untuk_sesi_yang_masih_menunggu(antrean, db_session, keadaan
     assert berhasil is False
     if keadaan == "running":
         assert db_session.get(MeasurementSession, sesi_id).status == SessionStatus.RUNNING
+
+
+def test_provider_penilai_tersimpan_dan_terbaca_kembali(antrean, db_session):
+    """Positif: judge_provider_id (kolom #89) ditulis saat Mulai dan dibawa ke giliran sesi."""
+    # Arrange
+    judge = uuid.UUID("00000000-0000-0000-0000-0000000000f8")
+
+    # Act
+    hasil = antrean.create_queued(_baru(judge_provider_id=judge))
+
+    # Assert
+    assert db_session.get(MeasurementSession, hasil.id).judge_provider_id == judge
+    assert antrean.oldest_queued().new.judge_provider_id == judge
+
+
+def test_tanpa_provider_penilai_kolomnya_kosong(antrean, db_session):
+    """Edge: sesi tanpa penilai tetap tersimpan, kolomnya NULL sampai PBI-14."""
+    # Act
+    hasil = antrean.create_queued(_baru())
+
+    # Assert
+    assert db_session.get(MeasurementSession, hasil.id).judge_provider_id is None

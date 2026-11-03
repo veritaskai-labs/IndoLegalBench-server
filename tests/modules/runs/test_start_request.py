@@ -120,3 +120,40 @@ def test_label_dan_tujuan_tidak_boleh_dihilangkan(kolom):
     # Act + Assert
     with pytest.raises(ValidationError):
         schemas.StartRequest(**body)
+
+
+JUDGE = uuid.UUID("00000000-0000-0000-0000-0000000000f8")
+
+
+def test_provider_penilai_opsional_dan_kosong_bila_tidak_dikirim():
+    """Edge: judge_providers baru ada di PBI-14, jadi Mulai tetap bisa tanpa penilai."""
+    # Arrange
+    body = _body()
+
+    # Act
+    request = schemas.StartRequest(**body)
+
+    # Assert
+    assert request.judge_provider_id is None
+
+
+def test_provider_penilai_yang_dipilih_diterima():
+    """Positif: AC1, D3 langkah 19, penilai LLM dipilih di halaman Buat Pengukuran."""
+    # Arrange
+    body = _body(judge_provider_id=str(JUDGE))
+
+    # Act
+    request = schemas.StartRequest(**body)
+
+    # Assert
+    assert request.judge_provider_id == JUDGE
+
+
+def test_provider_penilai_bukan_uuid_ditolak():
+    """Negatif: id penilai yang rusak menjadi 422 sebelum data apa pun disentuh."""
+    # Arrange
+    body = _body(judge_provider_id="bukan-uuid")
+
+    # Act + Assert
+    with pytest.raises(ValidationError):
+        schemas.StartRequest(**body)

@@ -308,6 +308,21 @@ def test_produk_dihapus_setelah_mulai_sesi_gagal_saat_giliran(siap):
     assert repository.SessionQueueRepository(siap.db).oldest_queued() is None
 
 
+def test_provider_penilai_yang_dipilih_tersimpan_di_sesi(siap):
+    """Positif: AC1, D3 langkah 19, judge_provider_id dari body tersimpan di measurement_sessions."""
+    # Arrange
+    client = siap.sebagai(Role.ADMIN)
+    judge = uuid.uuid4()
+
+    # Act
+    response = client.post(URL, json=_badan(siap, judge_provider_id=str(judge)))
+
+    # Assert
+    assert response.status_code == 201
+    tersimpan = siap.db.get(MeasurementSession, uuid.UUID(response.json()["session_id"]))
+    assert tersimpan.judge_provider_id == judge
+
+
 def test_penyimpanan_sesi_memakai_tabel_untuk_request_itu(db_session):
     """Edge: penyimpanan dibuat per request dari session database, bukan satu objek bersama."""
     # Act
