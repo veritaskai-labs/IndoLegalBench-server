@@ -6804,6 +6804,19 @@
           "purpose": {
             "$ref": "#/components/schemas/MeasurementPurpose",
             "description": "official = Pengukuran Resmi, trial = Uji Coba"
+          },
+          "judge_provider_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Provider Id",
+            "description": "Provider penilai (LLM judge) yang dipilih; kosong sampai PBI-14"
           }
         },
         "type": "object",

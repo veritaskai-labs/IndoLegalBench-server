@@ -132,6 +132,7 @@ class SessionQueueRepository:
             status=SessionStatus.QUEUED,
             created_by=new.created_by,
             queued_at=queued_at,
+            judge_provider_id=new.judge_provider_id,
         )
         self._db.add(session)
         self._db.flush()
@@ -180,6 +181,7 @@ class SessionQueueRepository:
                 case_filter=CaseFilter(session.split_filter.value),
                 repetitions=session.repetitions,
                 created_by=session.created_by,
+                judge_provider_id=session.judge_provider_id,
             ),
         )
 

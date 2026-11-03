@@ -210,6 +210,7 @@ class StartSessionService:
                 case_filter=request.case_filter,
                 repetitions=request.repeat_count,
                 created_by=created_by,
+                judge_provider_id=request.judge_provider_id,
             )
         )
         return StartResponse(session_id=queued.id, status=queued.status, queued_at=queued.queued_at)

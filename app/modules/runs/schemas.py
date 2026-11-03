@@ -98,6 +98,10 @@ class StartRequest(SummaryRequest):
         min_length=1, max_length=_PANJANG_LABEL, description="Nama sesi, wajib, maksimal 200"
     )
     purpose: MeasurementPurpose = Field(description="official = Pengukuran Resmi, trial = Uji Coba")
+    # AC1, D3 langkah 19. Opsional dan belum divalidasi: tabel judge_providers datang di PBI-14.
+    judge_provider_id: uuid.UUID | None = Field(
+        default=None, description="Provider penilai (LLM judge) yang dipilih; kosong sampai PBI-14"
+    )
 
     @field_validator("label", mode="before")
     @classmethod

@@ -26,6 +26,8 @@ class NewSession:
     case_filter: CaseFilter
     repetitions: int
     created_by: uuid.UUID
+    # Dibekukan #89 setelah sesi keluar dari queued: penilai dipilih saat Mulai (PBI-14 AC6).
+    judge_provider_id: uuid.UUID | None = None
 
 
 @dataclass(frozen=True)
