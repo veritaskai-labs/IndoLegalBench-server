@@ -4,7 +4,11 @@ PBI-11 AC3: hanya satu pengukuran berjalan, yang lain mengantre dan jalan
 otomatis saat gilirannya. AC2 dan AC6: saat sesi mulai berjalan, kasus
 dibekukan (hanya yang disetujui dan bertag sesuai filter, versi disetujui
 terbaru) dan data produk disalin, dalam satu langkah. Alurnya D3 langkah
-24-27; "satu langkah" dipenuhi adapter tabel nanti dengan satu transaksi.
+24-27; "satu langkah" dipenuhi SessionQueueRepository dengan satu transaksi.
+
+Sesi yang tidak bisa dimulai saat gilirannya (produk sudah dihapus, atau tidak
+ada lagi kasus layak) ditandai failed (D4: kesalahan fatal) dan antrean lanjut
+ke sesi berikutnya, supaya satu sesi rusak tidak menahan antrean selamanya.
 
 SessionQueue memenuhi QueuePort milik worker SCRUM-208 (take_next), jadi
 run_next bisa langsung memakainya. Semua dependency di sini palsu.
@@ -13,11 +17,13 @@ Label: Positif = sesi mulai berjalan, Negatif = tidak ada yang dijalankan,
 Edge = batas perilaku.
 """
 
+import logging
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
 from app.modules.runs import schemas, service, session_ports, worker
+from app.shared.exceptions import NotFoundError
 
 SUITE_A = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 PRODUCT_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c3")
@@ -53,13 +59,15 @@ SALINAN = session_ports.ProductCopy(
 )
 
 
-def _menunggu(case_filter=schemas.CaseFilter.BOTH) -> session_ports.WaitingSession:
+def _menunggu(
+    case_filter=schemas.CaseFilter.BOTH, *, sesi_id=SESI_LAMA, product_id=PRODUCT_ID
+) -> session_ports.WaitingSession:
     return session_ports.WaitingSession(
-        id=SESI_LAMA,
+        id=sesi_id,
         new=session_ports.NewSession(
             label="Run Oktober",
             purpose=schemas.MeasurementPurpose.OFFICIAL,
-            product_id=PRODUCT_ID,
+            product_id=product_id,
             suite_ids=(SUITE_A,),
             case_filter=case_filter,
             repetitions=3,
@@ -69,19 +77,31 @@ def _menunggu(case_filter=schemas.CaseFilter.BOTH) -> session_ports.WaitingSessi
 
 
 class _Penyimpanan:
-    """Penyimpanan sesi palsu: bisa sedang ada sesi berjalan, atau kalah balapan saat start."""
+    """Penyimpanan sesi palsu: antrean berurutan, bisa ada sesi berjalan atau kalah balapan.
+
+    menunggu boleh satu sesi atau daftar; fail mengeluarkan sesi dari antrean
+    seperti UPDATE status = failed di tabel.
+    """
 
     def __init__(self, *, berjalan=False, menunggu=None, start_berhasil=True) -> None:
         self.berjalan = berjalan
-        self.menunggu = menunggu
+        if menunggu is None:
+            menunggu = []
+        self.menunggu = list(menunggu) if isinstance(menunggu, list) else [menunggu]
         self.start_berhasil = start_berhasil
         self.dimulai: list[tuple] = []
+        self.gagal: list[tuple] = []
 
     def running_exists(self) -> bool:
         return self.berjalan
 
     def oldest_queued(self):
-        return self.menunggu
+        return self.menunggu[0] if self.menunggu else None
+
+    def fail(self, session_id, *, finished_at) -> bool:
+        self.gagal.append((session_id, finished_at))
+        self.menunggu = [sesi for sesi in self.menunggu if sesi.id != session_id]
+        return True
 
     def start(self, session_id, *, items, product, started_at) -> bool:
         self.dimulai.append((session_id, items, product, started_at))
@@ -89,25 +109,31 @@ class _Penyimpanan:
 
 
 class _Snapshot:
-    def __init__(self) -> None:
+    def __init__(self, items=None) -> None:
+        self.items = ITEMS if items is None else items
         self.diminta: list[tuple[uuid.UUID, ...]] = []
 
     def approved_items(self, suite_ids):
         self.diminta.append(tuple(suite_ids))
-        return list(ITEMS)
+        return list(self.items)
 
 
 class _Produk:
-    def __init__(self) -> None:
+    """Produk palsu; id di `terhapus` menjawab seperti providers_service untuk produk yang dihapus."""
+
+    def __init__(self, terhapus=()) -> None:
+        self.terhapus = set(terhapus)
         self.diminta: list[uuid.UUID] = []
 
     def copy(self, product_id):
         self.diminta.append(product_id)
+        if product_id in self.terhapus:
+            raise NotFoundError("Produk AI tidak ditemukan")
         return SALINAN
 
 
-def _antrean(penyimpanan):
-    snapshot, produk = _Snapshot(), _Produk()
+def _antrean(penyimpanan, snapshot=None, produk=None):
+    snapshot, produk = snapshot or _Snapshot(), produk or _Produk()
     antrean = service.SessionQueue(
         sessions=penyimpanan, snapshots=snapshot, products=produk, clock=lambda: JAM
     )
@@ -238,3 +264,69 @@ def test_tanpa_jam_suntikan_waktu_mulai_memakai_utc_sekarang():
     started_at = penyimpanan.dimulai[0][3]
     assert started_at.tzinfo is UTC
     assert started_at >= sebelum
+
+
+SESI_BARU = uuid.UUID("00000000-0000-0000-0000-0000000000f6")
+PRODUK_TERHAPUS = uuid.UUID("00000000-0000-0000-0000-0000000000f7")
+
+
+def test_produk_terhapus_sesi_gagal_dan_antrean_lanjut_ke_sesi_berikutnya():
+    """Negatif: produk dihapus setelah Mulai; sesi itu failed, sesi berikutnya tetap berjalan."""
+    # Arrange
+    rusak = _menunggu(product_id=PRODUK_TERHAPUS)
+    sehat = _menunggu(sesi_id=SESI_BARU)
+    penyimpanan = _Penyimpanan(menunggu=[rusak, sehat])
+    antrean, _, _ = _antrean(penyimpanan, produk=_Produk(terhapus={PRODUK_TERHAPUS}))
+
+    # Act
+    hasil = antrean.take_next()
+
+    # Assert
+    assert penyimpanan.gagal == [(SESI_LAMA, JAM)]
+    assert hasil == SESI_BARU
+    assert [mulai[0] for mulai in penyimpanan.dimulai] == [SESI_BARU]
+
+
+def test_tanpa_kasus_layak_saat_giliran_sesi_gagal_bukan_jalan_kosong():
+    """Negatif: kasus layak habis sejak Mulai (filter test, tidak ada kasus test); sesi failed."""
+    # Arrange
+    penyimpanan = _Penyimpanan(menunggu=_menunggu(schemas.CaseFilter.TEST))
+    antrean, _, _ = _antrean(penyimpanan, snapshot=_Snapshot(items=[_item("PHK-001", "dev")]))
+
+    # Act
+    hasil = antrean.take_next()
+
+    # Assert
+    assert hasil is None
+    assert penyimpanan.gagal == [(SESI_LAMA, JAM)]
+    assert penyimpanan.dimulai == []
+
+
+def test_semua_sesi_rusak_antrean_habis_tanpa_macet():
+    """Edge: setiap sesi rusak dikeluarkan sekali, lalu take_next berhenti dengan None."""
+    # Arrange
+    sesi = [_menunggu(product_id=PRODUK_TERHAPUS, sesi_id=uuid.uuid4()) for _ in range(3)]
+    penyimpanan = _Penyimpanan(menunggu=sesi)
+    antrean, _, _ = _antrean(penyimpanan, produk=_Produk(terhapus={PRODUK_TERHAPUS}))
+
+    # Act
+    hasil = antrean.take_next()
+
+    # Assert
+    assert hasil is None
+    assert [gagal[0] for gagal in penyimpanan.gagal] == [satu.id for satu in sesi]
+
+
+def test_sesi_yang_gagal_dicatat_di_log_dengan_alasannya(caplog):
+    """Positif: sesi yang gagal sebelum mulai meninggalkan jejak alasan untuk Admin dan tim."""
+    # Arrange
+    penyimpanan = _Penyimpanan(menunggu=_menunggu(product_id=PRODUK_TERHAPUS))
+    antrean, _, _ = _antrean(penyimpanan, produk=_Produk(terhapus={PRODUK_TERHAPUS}))
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger="app.modules.runs.service"):
+        antrean.take_next()
+
+    # Assert
+    assert str(SESI_LAMA) in caplog.text
+    assert "produk" in caplog.text.lower()

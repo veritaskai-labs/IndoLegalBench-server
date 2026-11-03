@@ -176,3 +176,21 @@ def test_kasus_dan_versi_yang_tidak_cocok_ditolak_trigger_dan_dibatalkan(conn, s
         "queued"
     )
     assert _satu(conn, "SELECT count(*) FROM case_snapshots WHERE session_id = :id", sesi_id) == 0
+
+
+def test_sesi_menunggu_boleh_ditandai_gagal_oleh_trigger(conn, siap):
+    """Positif: trigger #89 mengizinkan queued -> failed dengan finished_at, tanpa snapshot."""
+    # Arrange
+    sesi_id = siap.baru("Produk dihapus")
+
+    # Act
+    berhasil = siap.antrean.fail(sesi_id, finished_at=JAM)
+
+    # Assert
+    assert berhasil is True
+    assert _satu(conn, "SELECT status::text FROM measurement_sessions WHERE id = :id", sesi_id) == (
+        "failed"
+    )
+    assert _satu(
+        conn, "SELECT finished_at IS NOT NULL FROM measurement_sessions WHERE id = :id", sesi_id
+    )

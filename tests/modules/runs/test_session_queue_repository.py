@@ -377,10 +377,10 @@ def test_start_hanya_untuk_sesi_otomatis_yang_masih_menunggu(antrean, db_session
     assert _jumlah(db_session, Attempt, sesi_id) == sebelum
 
 
-def test_snapshot_kosong_tetap_mulai_tanpa_percobaan(antrean, db_session):
-    """Edge: tidak ada kasus layak saat giliran tiba; sesi jalan dengan snapshot kosong.
+def test_repository_menerima_snapshot_kosong_tanpa_percobaan(antrean, db_session):
+    """Edge: repository tidak menilai isi snapshot; snapshot kosong tetap satu transaksi utuh.
 
-    Mengakhirinya sebagai failed adalah status D4 milik PBI-12.
+    SessionQueue yang memutuskan sesi tanpa kasus layak menjadi failed sebelum start.
     """
     # Arrange
     sesi = antrean.create_queued(_baru())
@@ -407,3 +407,40 @@ def test_galat_data_lain_tidak_disembunyikan_dan_sesi_tetap_menunggu(antrean, db
     # Assert
     assert db_session.get(MeasurementSession, sesi.id).status == SessionStatus.QUEUED
     assert _jumlah(db_session, CaseSnapshot, sesi.id) == 0
+
+
+def test_gagal_menandai_sesi_failed_dan_mengeluarkannya_dari_antrean(antrean, db_session):
+    """Positif: D4 failed untuk kesalahan fatal sebelum mulai; finished_at diisi, antrean lanjut."""
+    # Arrange
+    sesi = antrean.create_queued(_baru())
+
+    # Act
+    berhasil = antrean.fail(sesi.id, finished_at=MULAI)
+
+    # Assert
+    assert berhasil is True
+    baris = db_session.get(MeasurementSession, sesi.id)
+    assert baris.status == SessionStatus.FAILED
+    assert baris.finished_at.replace(tzinfo=UTC) == MULAI
+    assert baris.started_at is None
+    assert antrean.oldest_queued() is None
+
+
+@pytest.mark.parametrize("keadaan", ["running", "tidak_ada"])
+def test_gagal_hanya_untuk_sesi_yang_masih_menunggu(antrean, db_session, keadaan):
+    """Edge: sesi yang sudah jalan tidak bisa dijadikan failed dari antrean; id asing diabaikan."""
+    # Arrange
+    sesi = antrean.create_queued(_baru())
+    sesi_id = sesi.id
+    if keadaan == "running":
+        antrean.start(sesi_id, items=ITEMS, product=_salinan(), started_at=MULAI)
+    else:
+        sesi_id = uuid.uuid4()
+
+    # Act
+    berhasil = antrean.fail(sesi_id, finished_at=MULAI)
+
+    # Assert
+    assert berhasil is False
+    if keadaan == "running":
+        assert db_session.get(MeasurementSession, sesi_id).status == SessionStatus.RUNNING

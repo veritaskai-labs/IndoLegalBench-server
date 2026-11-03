@@ -14,7 +14,7 @@ Label: Positif = sesi dibuat, Negatif = sesi ditolak, Edge = batas perilaku.
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from types import SimpleNamespace
 
@@ -288,6 +288,24 @@ def test_filter_dev_hanya_membekukan_kasus_dev_saat_runner_mulai(siap):
     # Assert
     hitung = select(func.count()).select_from(Attempt).where(Attempt.session_id == sesi_id)
     assert siap.db.scalar(hitung) == 4
+
+
+def test_produk_dihapus_setelah_mulai_sesi_gagal_saat_giliran(siap):
+    """Negatif: produk dihapus di antara Mulai dan giliran; sesi failed, antrean tidak macet."""
+    # Arrange
+    client = siap.sebagai(Role.ADMIN)
+    sesi_id = uuid.UUID(client.post(URL, json=_badan(siap)).json()["session_id"])
+    siap.produk.deleted_at = datetime.now(UTC)
+    siap.db.commit()
+
+    # Act
+    dijalankan = dependencies.build_session_queue(siap.db).take_next()
+
+    # Assert
+    assert dijalankan is None
+    siap.db.expire_all()
+    assert siap.db.get(MeasurementSession, sesi_id).status == SessionStatus.FAILED
+    assert repository.SessionQueueRepository(siap.db).oldest_queued() is None
 
 
 def test_penyimpanan_sesi_memakai_tabel_untuk_request_itu(db_session):
