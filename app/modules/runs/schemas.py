@@ -92,5 +92,7 @@ class ProgressResponse(BaseModel):
     )
     running_cost_idr: Decimal = Field(description="Biaya berjalan dalam rupiah")
     remaining_budget_idr: Decimal = Field(description="Sisa anggaran bulan ini untuk produk")
-    started_at: datetime = Field(description="Waktu sesi mulai berjalan")
+    started_at: datetime | None = Field(
+        description="Waktu sesi mulai berjalan, null selama sesi masih antre"
+    )
     updated_at: datetime = Field(description="Waktu angka ini terakhir diperbarui")

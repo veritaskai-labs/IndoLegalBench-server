@@ -25,7 +25,7 @@ class SessionProgress:
     total_calls: int
     completed_calls: int
     failed_calls: int
-    started_at: datetime
+    started_at: datetime | None
     updated_at: datetime
     running_cost_idr: Decimal
 

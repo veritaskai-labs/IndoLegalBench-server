@@ -14,14 +14,13 @@ from sqlalchemy.orm import Session
 
 from app.modules.cases import service as cases_service
 from app.modules.providers import service as providers_service
+from app.modules.runs import repository
 from app.modules.runs.call_log import month_start
 from app.modules.runs.progress_ports import SessionProgress
 from app.modules.runs.repository import CallLogRepository
 from app.modules.runs.summary_ports import ProductInfo
-from app.modules.runs import repository
 from app.modules.suites import service as suites_service
 from app.shared.exceptions import NotFoundError
-
 
 
 class CaseCountAdapter:

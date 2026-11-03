@@ -6576,10 +6576,17 @@
             "description": "Sisa anggaran bulan ini untuk produk"
           },
           "started_at": {
-            "type": "string",
-            "format": "date-time",
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Started At",
-            "description": "Waktu sesi mulai berjalan"
+            "description": "Waktu sesi mulai berjalan, null selama sesi masih antre"
           },
           "updated_at": {
             "type": "string",

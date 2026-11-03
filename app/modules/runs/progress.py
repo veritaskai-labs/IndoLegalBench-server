@@ -36,7 +36,7 @@ def compute_progress(
     total_calls: int,
     completed_calls: int,
     failed_calls: int,
-    started_at: datetime,
+    started_at: datetime | None,
     now: datetime,
     running_cost_idr: Decimal,
     monthly_budget_idr: Decimal,
@@ -91,14 +91,12 @@ def _remaining_seconds(
     *,
     total_calls: int,
     completed_calls: int,
-    started_at: datetime,
+    started_at: datetime | None,
     now: datetime,
 ) -> int | None:
     """None selama belum ada panggilan selesai, karena kecepatannya belum diketahui."""
-    if completed_calls == 0:
+    if completed_calls == 0 or started_at is None:
         return None
-    if completed_calls >= total_calls:
-        return 0
     berjalan = Decimal(str((now - started_at).total_seconds()))
     per_panggilan = berjalan / Decimal(completed_calls)
     sisa = Decimal(total_calls - completed_calls)
@@ -110,7 +108,7 @@ def _require_valid_inputs(
     total_calls: int,
     completed_calls: int,
     failed_calls: int,
-    started_at: datetime,
+    started_at: datetime | None,
     now: datetime,
     running_cost_idr: Decimal,
     monthly_budget_idr: Decimal,
@@ -126,7 +124,7 @@ def _require_valid_inputs(
         or running_cost_idr < 0
         or monthly_budget_idr < 0
         or spent_this_month_idr < 0
-        or now < started_at
+        or (started_at is not None and now < started_at)
     )
     if salah:
         raise InternalError(
