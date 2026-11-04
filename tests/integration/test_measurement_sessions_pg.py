@@ -220,8 +220,12 @@ def test_arsip_wajib_lengkap_waktu_dan_pelakunya(conn, produk_id, admin_id, isia
 
 
 def test_terima_apa_adanya_lengkap_diterima(conn, produk_id, admin_id):
-    """D2: flag 'terima apa adanya' dengan waktu, pelaku, dan alasan, bukan status."""
+    """D2: flag 'terima apa adanya' dengan waktu, pelaku, dan alasan, bukan status.
+
+    SCRUM-214: hanya sesi finished_with_failures yang boleh diterima apa adanya.
+    """
     sesi_id = _sesi(conn, produk_id, admin_id)
+    ubah_status(conn, sesi_id, "finished_with_failures")
 
     conn.execute(
         text(
@@ -235,7 +239,7 @@ def test_terima_apa_adanya_lengkap_diterima(conn, produk_id, admin_id):
     status = conn.execute(
         text("SELECT status::text FROM measurement_sessions WHERE id = :id"), {"id": sesi_id}
     ).scalar_one()
-    assert status == "queued"
+    assert status == "finished_with_failures"
 
 
 @pytest.mark.parametrize(
@@ -249,7 +253,9 @@ def test_terima_apa_adanya_lengkap_diterima(conn, produk_id, admin_id):
     ids=["tanpa-alasan", "tanpa-pelaku", "tanpa-waktu", "alasan-hanya-spasi"],
 )
 def test_terima_apa_adanya_wajib_lengkap(conn, produk_id, admin_id, isian):
+    # finished_with_failures: yang diuji CHECK kelengkapan, bukan trigger status SCRUM-214.
     sesi_id = _sesi(conn, produk_id, admin_id)
+    ubah_status(conn, sesi_id, "finished_with_failures")
 
     sqlstate = sqlstate_penolakan(
         conn,

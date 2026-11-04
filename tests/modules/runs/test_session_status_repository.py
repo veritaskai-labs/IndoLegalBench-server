@@ -175,3 +175,43 @@ def test_gagal_sebelum_mulai_mencatat_penyebab_error(antrean, db_session):
     assert baris.stop_reason == "error"
     assert _utc(baris.stopped_at) == JAM
     assert _utc(baris.finished_at) == JAM
+
+
+def _terima(db_session, sesi_id: uuid.UUID) -> None:
+    db_session.execute(
+        update(MeasurementSession)
+        .where(MeasurementSession.id == sesi_id)
+        .values(
+            accepted_as_is_at=JAM,
+            accepted_as_is_by=uuid.uuid4(),
+            accepted_as_is_reason="Kegagalan dari penyedia",
+        )
+    )
+    db_session.commit()
+
+
+def test_sesi_yang_diterima_apa_adanya_tidak_bisa_dicoba_ulang(status_repo, sesi, db_session):
+    """Negatif: diterima = selesai sepenuhnya (AC9); coba ulang ditolak 409 SESSION_ACCEPTED."""
+    # Arrange
+    sesi_id = sesi("finished_with_failures")
+    _terima(db_session, sesi_id)
+
+    # Act
+    with pytest.raises(ConflictError) as error:
+        status_repo.change_status(sesi_id, SessionStatus.RUNNING, at=NANTI)
+
+    # Assert
+    assert error.value.code == "SESSION_ACCEPTED"
+    assert _baris(db_session, sesi_id).status == SessionStatus.FINISHED_WITH_FAILURES
+
+
+def test_coba_ulang_boleh_setelah_tanda_terima_dihapus(status_repo, sesi, db_session):
+    """Edge: tanpa tanda terima, finished_with_failures -> running (coba ulang) tetap sah."""
+    # Arrange
+    sesi_id = sesi("finished_with_failures")
+
+    # Act
+    status_repo.change_status(sesi_id, SessionStatus.RUNNING, at=NANTI)
+
+    # Assert
+    assert _baris(db_session, sesi_id).status == SessionStatus.RUNNING

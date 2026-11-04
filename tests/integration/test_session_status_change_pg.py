@@ -26,7 +26,14 @@ from sqlalchemy.orm import sessionmaker
 from app.modules.runs import repository
 from app.modules.runs.models import SessionStatus
 from app.shared.exceptions import ConflictError
-from tests.measurement_pg import CHECK_VIOLATION, buat_admin, buat_produk, buat_sesi, galat
+from tests.measurement_pg import (
+    CHECK_VIOLATION,
+    buat_admin,
+    buat_produk,
+    buat_sesi,
+    galat,
+    ubah_status,
+)
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "")
 JAM = datetime(2026, 11, 4, 7, 0, tzinfo=UTC)
@@ -178,3 +185,68 @@ def test_penulis_kedua_kalah_dan_tidak_menimpa_status_akhir(engine):
             )
             == "finished"
         )
+
+
+_TERIMA = (
+    "UPDATE measurement_sessions SET accepted_as_is_at = now(), accepted_as_is_by = :admin_id, "
+    "accepted_as_is_reason = 'Kegagalan dari penyedia' WHERE id = :id"
+)
+
+
+@pytest.mark.parametrize("status", ["queued", "running", "finished", "failed"])
+def test_terima_apa_adanya_hanya_untuk_selesai_dengan_kegagalan(conn, status):
+    """Negatif (catatan Adra #89): database menolak tanda terima pada status lain, 23514."""
+    # Arrange
+    admin_id = buat_admin(conn)
+    sesi_id = buat_sesi(conn, buat_produk(conn, admin_id), admin_id)
+    ubah_status(conn, sesi_id, status)
+
+    # Act
+    kesalahan = galat(
+        conn, lambda: conn.execute(text(_TERIMA), {"id": sesi_id, "admin_id": admin_id})
+    )
+
+    # Assert
+    assert kesalahan.sqlstate == CHECK_VIOLATION
+
+
+def test_tanda_terima_boleh_dihapus(conn):
+    """Positif (keputusan Rafa 4 Nov): Admin boleh menghapus tanda; ketiga kolom kosong lagi."""
+    # Arrange
+    admin_id = buat_admin(conn)
+    sesi_id = buat_sesi(conn, buat_produk(conn, admin_id), admin_id)
+    ubah_status(conn, sesi_id, "finished_with_failures")
+    conn.execute(text(_TERIMA), {"id": sesi_id, "admin_id": admin_id})
+
+    # Act
+    conn.execute(
+        text(
+            "UPDATE measurement_sessions SET accepted_as_is_at = NULL, accepted_as_is_by = NULL, "
+            "accepted_as_is_reason = NULL WHERE id = :id"
+        ),
+        {"id": sesi_id},
+    )
+
+    # Assert
+    assert (
+        conn.scalar(
+            text("SELECT accepted_as_is_at FROM measurement_sessions WHERE id = :id"),
+            {"id": sesi_id},
+        )
+        is None
+    )
+
+
+def test_sesi_yang_diterima_tidak_bisa_kembali_berjalan(conn):
+    """Negatif: coba ulang lewat SQL langsung juga ditolak selama tanda terima ada, 23514."""
+    # Arrange
+    admin_id = buat_admin(conn)
+    sesi_id = buat_sesi(conn, buat_produk(conn, admin_id), admin_id)
+    ubah_status(conn, sesi_id, "finished_with_failures")
+    conn.execute(text(_TERIMA), {"id": sesi_id, "admin_id": admin_id})
+
+    # Act
+    kesalahan = galat(conn, lambda: ubah_status(conn, sesi_id, "running"))
+
+    # Assert
+    assert kesalahan.sqlstate == CHECK_VIOLATION
