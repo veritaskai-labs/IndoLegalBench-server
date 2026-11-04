@@ -7680,12 +7680,14 @@
         "enum": [
           "queued",
           "running",
+          "paused",
+          "cancelled",
           "finished",
           "finished_with_failures",
           "failed"
         ],
         "title": "SessionStatus",
-        "description": "Status dasar. Dihentikan dan Dibatalkan menyusul di PBI-12."
+        "description": "Status sesi per D4. Perpindahan yang sah ada di session_transitions (SCRUM-214).\n\npaused mencakup Jeda dari pengguna dan sesi yang dihentikan sistem (restart, deploy,\nanggaran habis); D4 tidak memisahkan Dihentikan dari Dijeda."
       },
       "SplitTag": {
         "type": "string",

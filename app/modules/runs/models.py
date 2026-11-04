@@ -70,10 +70,16 @@ class SplitFilter(StrEnum):
 
 
 class SessionStatus(StrEnum):
-    """Status dasar. Dihentikan dan Dibatalkan menyusul di PBI-12."""
+    """Status sesi per D4. Perpindahan yang sah ada di session_transitions (SCRUM-214).
+
+    paused mencakup Jeda dari pengguna dan sesi yang dihentikan sistem (restart, deploy,
+    anggaran habis); D4 tidak memisahkan Dihentikan dari Dijeda.
+    """
 
     QUEUED = "queued"
     RUNNING = "running"
+    PAUSED = "paused"
+    CANCELLED = "cancelled"
     FINISHED = "finished"
     FINISHED_WITH_FAILURES = "finished_with_failures"
     FAILED = "failed"
