@@ -24,7 +24,7 @@ from app.modules.runs.worker import run_session
 from app.shared.security import Role
 from tests.modules.cases.test_cases import _buat, _setujui
 from tests.modules.runs.test_start_endpoint import URL as URL_MULAI
-from tests.modules.runs.test_start_endpoint import _badan, siap  # noqa: F401
+from tests.modules.runs.test_start_endpoint import _badan
 from tests.modules.runs.test_summary_endpoint import URL as URL_RINGKASAN
 from tests.modules.runs.test_worker import FakeSessionStore
 
@@ -33,7 +33,7 @@ ULANG = 3
 
 
 @pytest.fixture
-def sepuluh(siap):  # noqa: F811
+def sepuluh(siap):
     """Suite siap (3 kasus approved) ditambah 7 kasus approved: total 10, dev dan test."""
     for nomor in range(4, KASUS + 1):
         tag = "test" if nomor % 3 == 0 else "dev"
@@ -109,8 +109,13 @@ def test_worker_memanggil_provider_tiga_puluh_kali_dengan_teks_pertanyaan_saja()
     assert store.statuses == ["running", "finished"]
 
 
-def test_semua_panggilan_gagal_tetap_tiga_puluh_percobaan_dan_sesi_selesai():
-    """Edge: AC10, pengukuran lanjut walau setiap panggilan gagal; semuanya tercatat gagal."""
+def test_semua_panggilan_gagal_tetap_tiga_puluh_percobaan_dan_loop_berlanjut():
+    """Edge: pengukuran lanjut walau setiap panggilan gagal; semuanya tercatat gagal.
+
+    Status akhir sengaja tidak dicek. D4 menyebut semua gagal = Gagal dan sebagian gagal =
+    Selesai dengan kegagalan, tetapi worker masih menulis "finished" untuk keduanya. Itu celah
+    produk yang menunggu keputusan D4 (SCRUM-240), bukan perilaku yang boleh dikunci tes.
+    """
     # Arrange
     pertanyaan = [f"Pertanyaan nomor {nomor}?" for nomor in range(1, KASUS + 1)]
     store = FakeSessionStore(pertanyaan)
@@ -122,4 +127,4 @@ def test_semua_panggilan_gagal_tetap_tiga_puluh_percobaan_dan_sesi_selesai():
     assert len(store.attempts) == KASUS * ULANG
     assert all(rekam.failure_kind is not None for rekam in store.attempts)
     assert store.progress[-1] == (0, KASUS * ULANG)
-    assert store.statuses[-1] == "finished"
+    assert store.statuses[0] == "running"
