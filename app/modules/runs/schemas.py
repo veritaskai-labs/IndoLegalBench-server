@@ -127,6 +127,24 @@ class SessionArchiveResponse(BaseModel):
     archived_by: uuid.UUID = Field(description="Pengguna yang mengarsipkan sesi")
 
 
+class SessionAcceptRequest(BaseModel):
+    """Terima apa adanya (PBI-12 AC9). Alasan wajib; dicek di server supaya kodenya REASON_REQUIRED."""
+
+    reason: str | None = Field(
+        default=None,
+        description="Alasan tertulis Admin menerima sesi walau ada kegagalan teknis",
+    )
+
+
+class SessionAcceptResponse(BaseModel):
+    """Tanda terima apa adanya sesudah PATCH (terisi) atau DELETE (kosong)."""
+
+    id: uuid.UUID
+    accepted_as_is_at: datetime | None
+    accepted_as_is_by: uuid.UUID | None = Field(description="Admin yang menerima sesi")
+    accepted_as_is_reason: str | None
+
+
 class AttemptResult(BaseModel):
     """Satu percobaan: jawaban mentah apa adanya dari produk (PBI-11 AC8)."""
 

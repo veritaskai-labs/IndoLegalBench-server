@@ -8,6 +8,10 @@ D2's stopped_at and stop_reason record when and why a session stopped (agreed wi
 Adra, 4 Nov): user, budget or restart for paused, error for failed. A CHECK keeps the
 two together. They are cleared when the session runs again.
 
+Accept-as-is (Adra's #89 note): a trigger allows the flag only on a
+finished_with_failures session, so an accepted session cannot be retried until the
+flag is cleared. Clearing stays allowed (Rafa, 4 Nov).
+
 PostgreSQL 12+ allows ADD VALUE inside a transaction, as long as the new value is
 not used in that same transaction. Nothing here uses it.
 
@@ -57,6 +61,32 @@ def upgrade():
         "(stopped_at IS NULL) = (stop_reason IS NULL)",
     )
 
+    # Terima apa adanya hanya untuk finished_with_failures, dan sesi yang tertanda tidak
+    # berpindah status (coba ulang ditolak sampai tandanya dihapus). Status dibandingkan
+    # sebagai teks, supaya tidak memakai nilai enum baru di transaksi yang sama.
+    op.execute(
+        """
+        CREATE FUNCTION measurement_sessions_guard_accept() RETURNS trigger
+        LANGUAGE plpgsql AS $$
+        BEGIN
+            IF NEW.accepted_as_is_at IS NOT NULL
+               AND NEW.status::text <> 'finished_with_failures' THEN
+                RAISE EXCEPTION
+                    'accepted as-is is only for a finished_with_failures session (now %)',
+                    NEW.status
+                    USING ERRCODE = 'check_violation';
+            END IF;
+            RETURN NEW;
+        END;
+        $$
+        """
+    )
+    op.execute(
+        "CREATE TRIGGER measurement_sessions_guard_accept "
+        "BEFORE INSERT OR UPDATE ON measurement_sessions "
+        "FOR EACH ROW EXECUTE FUNCTION measurement_sessions_guard_accept()"
+    )
+
 
 def downgrade():
     bind = op.get_bind()
@@ -71,6 +101,8 @@ def downgrade():
             "finish them, or move them by hand, before downgrading."
         )
 
+    op.execute("DROP TRIGGER measurement_sessions_guard_accept ON measurement_sessions")
+    op.execute("DROP FUNCTION measurement_sessions_guard_accept()")
     op.drop_constraint(
         "ck_measurement_sessions_stop_complete", "measurement_sessions", type_="check"
     )

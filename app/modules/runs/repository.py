@@ -45,7 +45,7 @@ from app.modules.runs.session_ports import (
     WaitingSession,
 )
 from app.modules.runs.session_transitions import invalid_transition, sources_of
-from app.shared.exceptions import NotFoundError, ValidationError
+from app.shared.exceptions import ConflictError, NotFoundError, ValidationError
 
 
 def product_has_sessions(db: Session, product_id: uuid.UUID) -> bool:
@@ -337,6 +337,8 @@ class SessionStatusRepository:
             .where(
                 MeasurementSession.id == session_id,
                 MeasurementSession.status.in_(sources_of(target)),
+                # Diterima apa adanya = selesai sepenuhnya (AC9): tidak berpindah ke mana pun.
+                MeasurementSession.accepted_as_is_at.is_(None),
             )
             .values(status=target, **_kolom_waktu(target, at, reason))
             .execution_options(synchronize_session=False)
@@ -345,12 +347,20 @@ class SessionStatusRepository:
             self._db.commit()
             return
         self._db.rollback()
-        sekarang = self._db.scalar(
-            select(MeasurementSession.status).where(MeasurementSession.id == session_id)
-        )
+        sekarang = self._db.execute(
+            select(MeasurementSession.status, MeasurementSession.accepted_as_is_at).where(
+                MeasurementSession.id == session_id
+            )
+        ).first()
         if sekarang is None:
             raise NotFoundError("Sesi pengukuran tidak ditemukan.")
-        raise invalid_transition(sekarang, target)
+        status, diterima = sekarang
+        if diterima is not None:
+            raise ConflictError(
+                "Sesi sudah diterima apa adanya. Hapus tandanya dulu untuk mencoba ulang.",
+                code="SESSION_ACCEPTED",
+            )
+        raise invalid_transition(status, target)
 
 
 class SessionQueueRepository:
