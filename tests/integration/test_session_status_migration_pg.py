@@ -142,3 +142,40 @@ def test_downgrade_tanpa_sesi_berstatus_baru_mengembalikan_lima_status(conn):
         ).scalar_one()
         == 1
     )
+
+
+def test_head_punya_kolom_penyebab_berhenti(conn):
+    """Positif: D2 stopped_at dan stop_reason ada di head (keputusan dengan Adra, 4 Nov)."""
+    # Assert
+    assert _kolom_berhenti(conn) == {"stopped_at", "stop_reason"}
+    assert _tipe_alasan_ada(conn)
+
+
+def test_downgrade_menghapus_kolom_dan_tipe_penyebab_berhenti(conn):
+    """Positif: rollback membuang stopped_at, stop_reason, dan measurement_stop_reason_enum."""
+    # Act
+    _downgrade(conn)
+
+    # Assert
+    assert _kolom_berhenti(conn) == set()
+    assert not _tipe_alasan_ada(conn)
+
+
+def _kolom_berhenti(conn) -> set[str]:
+    return set(
+        conn.execute(
+            text(
+                "SELECT column_name FROM information_schema.columns "
+                "WHERE table_name = 'measurement_sessions' "
+                "AND column_name IN ('stopped_at', 'stop_reason')"
+            )
+        ).scalars()
+    )
+
+
+def _tipe_alasan_ada(conn) -> bool:
+    return bool(
+        conn.execute(
+            text("SELECT count(*) FROM pg_type WHERE typname = 'measurement_stop_reason_enum'")
+        ).scalar_one()
+    )

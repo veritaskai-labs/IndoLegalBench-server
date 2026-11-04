@@ -6,6 +6,7 @@ import pytest
 
 from app.modules.providers.adapters.base import FailureKind, ProviderResponse
 from app.modules.providers.adapters.mock_provider import MockProviderAdapter
+from app.modules.runs.models import SessionStatus
 from app.modules.runs.ports import AttemptRecord, QueuePort, SessionStore
 from app.modules.runs.worker import run_next, run_session
 from app.shared.exceptions import ValidationError
@@ -17,6 +18,7 @@ class FakeSessionStore:
         self.attempts: list[AttemptRecord] = []
         self.progress: list[tuple[int, int]] = []
         self.statuses: list[str] = []
+        self.stop_reasons: list[str | None] = []
 
     def list_cases(self, session_id: uuid.UUID) -> list[str]:
         del session_id
@@ -29,9 +31,10 @@ class FakeSessionStore:
         del session_id
         self.progress.append((completed, failed))
 
-    def mark_status(self, session_id: uuid.UUID, status: str) -> None:
+    def mark_status(self, session_id: uuid.UUID, status, *, stop_reason=None) -> None:
         del session_id
         self.statuses.append(status)
+        self.stop_reasons.append(stop_reason)
 
 
 class FakeQueue:
@@ -79,7 +82,9 @@ def test_run_session_repeats_each_case_and_sends_the_raw_prompt():
     assert all(item.failure_kind is None for item in store.attempts)
     assert store.progress[-1] == (6, 0)
     assert len(store.progress) == 6
-    assert store.statuses == ["running", "finished"]
+    # start() di antrean sudah menulis running; worker hanya menulis status akhir (D4).
+    assert store.statuses == ["finished"]
+    assert store.stop_reasons == [None]
 
 
 def test_failure_does_not_stop_the_loop():
@@ -89,7 +94,8 @@ def test_failure_does_not_stop_the_loop():
     assert len(store.attempts) == 4
     assert all(item.failure_kind == FailureKind.PROVIDER_ERROR for item in store.attempts)
     assert store.progress[-1] == (0, 4)
-    assert store.statuses[-1] == "finished"
+    # D4: semua panggilan diproses, ada kegagalan teknis.
+    assert store.statuses == ["finished_with_failures"]
 
 
 @pytest.mark.parametrize(
@@ -116,7 +122,7 @@ def test_adapter_exception_is_recorded_and_the_next_attempt_runs():
     assert store.attempts[0].failure_kind is None
     assert store.attempts[1].failure_kind == FailureKind.PROVIDER_ERROR
     assert "exploded" in (store.attempts[1].error or "")
-    assert store.statuses[-1] == "finished"
+    assert store.statuses == ["finished_with_failures"]
 
 
 def test_empty_session_finishes_without_attempts():
@@ -124,7 +130,14 @@ def test_empty_session_finishes_without_attempts():
     run_session(uuid.uuid4(), store, MockProviderAdapter("success"))
     assert store.attempts == []
     assert store.progress == []
-    assert store.statuses == ["running", "finished"]
+    assert store.statuses == ["finished"]
+
+
+def test_status_akhir_dikirim_sebagai_enum_sesi():
+    store = FakeSessionStore(["q"])
+    run_session(uuid.uuid4(), store, MockProviderAdapter("success"), repeats=1)
+    # Bukan string bebas seperti budget_stopped dulu.
+    assert all(isinstance(status, SessionStatus) for status in store.statuses)
 
 
 @pytest.mark.parametrize("repeats", [0, 6, -1])

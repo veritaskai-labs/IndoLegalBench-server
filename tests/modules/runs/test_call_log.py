@@ -561,6 +561,7 @@ def test_budget_stop_marks_a_distinct_status(db_session):
         def __init__(self):
             self.attempts = []
             self.statuses = []
+            self.stop_reasons = []
 
         def list_cases(self, session_id):
             return ["satu", "dua"]
@@ -571,8 +572,9 @@ def test_budget_stop_marks_a_distinct_status(db_session):
         def update_progress(self, session_id, *, completed, failed):
             return None
 
-        def mark_status(self, session_id, status):
+        def mark_status(self, session_id, status, *, stop_reason=None):
             self.statuses.append(status)
+            self.stop_reasons.append(stop_reason)
 
     ask = Ask()
     store = Store()
@@ -582,7 +584,10 @@ def test_budget_stop_marks_a_distinct_status(db_session):
 
     # Assert
     assert ask.calls == 1
-    assert store.statuses == ["running", "budget_stopped"]
+    # SCRUM-214 (Adra, 4 Nov): anggaran habis = paused dengan stop_reason budget;
+    # hasil yang selesai tetap tersimpan dan sesi bisa dilanjutkan (SCRUM-216).
+    assert store.statuses == ["paused"]
+    assert store.stop_reasons == ["budget"]
 
 
 def test_missing_price_is_not_free(db_session):

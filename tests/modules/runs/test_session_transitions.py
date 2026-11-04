@@ -7,6 +7,9 @@ INVALID_TRANSITION.
 
 Panah D4 (Bagian A) yang diizinkan:
 - queued -> running (giliran antrean), queued -> cancelled ([USULAN SA] boleh).
+- queued -> failed: sesi gagal disiapkan sebelum mulai (produk dihapus, tidak ada
+  kasus). Tidak digambar di D4, tetapi sesuai [USULAN SA] "failed = kesalahan fatal
+  sejak awal" dan sudah dilakukan SessionQueue (SCRUM-207).
 - running -> finished, finished_with_failures, failed, paused, cancelled.
 - finished_with_failures -> running (coba ulang yang gagal, PBI-12 AC3).
 - paused -> running dan cancelled -> running (Lanjutkan, PBI-12 AC8). Penjaga versi
@@ -44,6 +47,7 @@ _STATUS = [
 _D4 = {
     ("queued", "running"),
     ("queued", "cancelled"),
+    ("queued", "failed"),
     ("running", "finished"),
     ("running", "finished_with_failures"),
     ("running", "failed"),
