@@ -1,8 +1,12 @@
-"""PBI-12 (SCRUM-214): add paused and cancelled to measurement_session_status_enum.
+"""PBI-12 (SCRUM-214): paused and cancelled session statuses, and why a session stopped.
 
 D4 (Astha's state diagram) adds two session statuses on top of the PBI-11 base:
 paused (Jeda, or the system stopped the run) and cancelled (Batalkan). Names follow
 the staging enum, not the D4 labels.
+
+D2's stopped_at and stop_reason record when and why a session stopped (agreed with
+Adra, 4 Nov): user, budget or restart for paused, error for failed. A CHECK keeps the
+two together. They are cleared when the session runs again.
 
 PostgreSQL 12+ allows ADD VALUE inside a transaction, as long as the new value is
 not used in that same transaction. Nothing here uses it.
@@ -19,6 +23,7 @@ Revises: e4b7c2d9a615
 
 import sqlalchemy as sa
 from alembic import op
+from sqlalchemy.dialects import postgresql
 
 revision = "c1fd2ffcc735"  # pragma: allowlist secret
 down_revision = "e4b7c2d9a615"  # pragma: allowlist secret
@@ -28,12 +33,29 @@ depends_on = None
 _NEW_VALUES = ("paused", "cancelled")
 _BASE_VALUES = ("queued", "running", "finished", "finished_with_failures", "failed")
 
+stop_reason_enum = postgresql.ENUM(
+    "user", "budget", "restart", "error", name="measurement_stop_reason_enum", create_type=False
+)
+
 
 def upgrade():
-    if op.get_bind().dialect.name != "postgresql":
+    bind = op.get_bind()
+    if bind.dialect.name != "postgresql":
         return
     for value in _NEW_VALUES:
         op.execute(f"ALTER TYPE measurement_session_status_enum ADD VALUE IF NOT EXISTS '{value}'")
+
+    stop_reason_enum.create(bind, checkfirst=True)
+    op.add_column(
+        "measurement_sessions",
+        sa.Column("stopped_at", sa.DateTime(timezone=True), nullable=True),
+    )
+    op.add_column("measurement_sessions", sa.Column("stop_reason", stop_reason_enum, nullable=True))
+    op.create_check_constraint(
+        "ck_measurement_sessions_stop_complete",
+        "measurement_sessions",
+        "(stopped_at IS NULL) = (stop_reason IS NULL)",
+    )
 
 
 def downgrade():
@@ -48,6 +70,13 @@ def downgrade():
             f"{jumlah} measurement session(s) are still paused or cancelled. Resume and "
             "finish them, or move them by hand, before downgrading."
         )
+
+    op.drop_constraint(
+        "ck_measurement_sessions_stop_complete", "measurement_sessions", type_="check"
+    )
+    op.drop_column("measurement_sessions", "stop_reason")
+    op.drop_column("measurement_sessions", "stopped_at")
+    stop_reason_enum.drop(bind, checkfirst=True)
 
     op.drop_index("uq_measurement_sessions_one_running_automatic", "measurement_sessions")
     op.drop_constraint(

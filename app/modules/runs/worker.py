@@ -13,6 +13,7 @@ from typing import Protocol
 
 from app.modules.providers.adapters.base import FailureKind, ProviderResponse
 from app.modules.providers.adapters.params import ASK_TIMEOUT_SECONDS, ModelParameters
+from app.modules.runs.models import SessionStatus, StopReason
 from app.modules.runs.ports import AttemptRecord, QueuePort, SessionStore
 from app.shared.exceptions import ValidationError
 
@@ -56,8 +57,9 @@ def run_session(
         )
     interval = _call_interval(rate_limit_per_minute)
     prompts = list(store.list_cases(session_id))
-    store.mark_status(session_id, "running")
-    stopped = _run_prompts(
+    # Tidak menulis running: SessionQueue.start() sudah memindahkan sesi ke running,
+    # dan running -> running ditolak tabel D4 (SCRUM-214).
+    stopped, failed = _run_prompts(
         session_id,
         store,
         adapter,
@@ -66,7 +68,13 @@ def run_session(
         repeats,
         _Pace(interval, sleep, clock, call_log, product_id),
     )
-    store.mark_status(session_id, "budget_stopped" if stopped else "finished")
+    if stopped:
+        # Anggaran habis: hasil yang selesai tersimpan, sesi bisa dilanjutkan (Adra, 4 Nov).
+        store.mark_status(session_id, SessionStatus.PAUSED, stop_reason=StopReason.BUDGET)
+    elif failed:
+        store.mark_status(session_id, SessionStatus.FINISHED_WITH_FAILURES)
+    else:
+        store.mark_status(session_id, SessionStatus.FINISHED)
 
 
 @dataclass(frozen=True)
@@ -86,7 +94,8 @@ def _run_prompts(
     prompts: list[str],
     repeats: int,
     pace: _Pace,
-) -> bool:
+) -> tuple[bool, int]:
+    """(berhenti karena anggaran, jumlah percobaan gagal)."""
     completed = 0
     failed = 0
     next_start: float | None = None
@@ -107,7 +116,7 @@ def _run_prompts(
         )
         if stopped:
             break
-    return stopped
+    return stopped, failed
 
 
 def _run_repeats(

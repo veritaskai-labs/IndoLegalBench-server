@@ -253,7 +253,7 @@ def test_budget_stop_keeps_finished_rows_and_does_not_notify(db_session):
         def update_progress(self, session_id, *, completed, failed):
             return None
 
-        def mark_status(self, session_id, status):
+        def mark_status(self, session_id, status, *, stop_reason=None):
             return None
 
     ask = Ask()
@@ -488,7 +488,7 @@ def test_run_next_writes_a_call_log(db_session):
         def update_progress(self, session_id, *, completed, failed):
             return None
 
-        def mark_status(self, session_id, status):
+        def mark_status(self, session_id, status, *, stop_reason=None):
             self.statuses.append(status)
 
     class Queue:
@@ -700,7 +700,7 @@ def test_rate_failure_does_not_save_an_attempt(db_session):
         def update_progress(self, session_id, *, completed, failed):
             return None
 
-        def mark_status(self, session_id, status):
+        def mark_status(self, session_id, status, *, stop_reason=None):
             return None
 
     store = Store()

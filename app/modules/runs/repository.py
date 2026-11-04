@@ -32,6 +32,7 @@ from app.modules.runs.models import (
     SessionStatus,
     SessionType,
     SplitFilter,
+    StopReason,
 )
 from app.modules.runs.schemas import CaseFilter, MeasurementPurpose
 from app.modules.runs.session_detail import AttemptRow, CaseRow, SessionDetailRow
@@ -43,6 +44,8 @@ from app.modules.runs.session_ports import (
     SnapshotItem,
     WaitingSession,
 )
+from app.modules.runs.session_transitions import invalid_transition, sources_of
+from app.shared.exceptions import NotFoundError, ValidationError
 
 
 def product_has_sessions(db: Session, product_id: uuid.UUID) -> bool:
@@ -282,6 +285,74 @@ _ANTREAN_OTOMATIS = (
 )
 
 
+_SELESAI = frozenset(
+    {SessionStatus.FINISHED, SessionStatus.FINISHED_WITH_FAILURES, SessionStatus.FAILED}
+)
+
+
+def _kolom_waktu(
+    target: SessionStatus, at: datetime, stop_reason: StopReason | None
+) -> dict[str, object]:
+    """Kolom waktu yang ikut berubah bersama status (D2)."""
+    if target is SessionStatus.RUNNING:
+        return {"stopped_at": None, "stop_reason": None}
+    kolom: dict[str, object] = {}
+    if target in _SELESAI:
+        kolom["finished_at"] = at
+    if stop_reason is not None:
+        kolom["stopped_at"] = at
+        kolom["stop_reason"] = stop_reason
+    return kolom
+
+
+class SessionStatusRepository:
+    """Satu-satunya jalan tulis status sesi yang mengikuti tabel D4 (SCRUM-214).
+
+    UPDATE bersyarat: status sekarang harus salah satu asal yang sah untuk target.
+    Dua penulis bersamaan tidak bisa sama-sama menang, karena PostgreSQL membaca
+    ulang syaratnya setelah kunci baris penulis pertama lepas.
+    """
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def change_status(
+        self,
+        session_id: uuid.UUID,
+        target: SessionStatus | str,
+        *,
+        at: datetime,
+        stop_reason: StopReason | str | None = None,
+    ) -> None:
+        target = SessionStatus(target)
+        reason = None if stop_reason is None else StopReason(stop_reason)
+        if target is SessionStatus.PAUSED and reason is None:
+            raise ValidationError(
+                "Sesi yang berhenti wajib punya penyebab (user, budget, atau restart).",
+                code="STOP_REASON_REQUIRED",
+                field="stop_reason",
+            )
+        diubah = self._db.execute(
+            update(MeasurementSession)
+            .where(
+                MeasurementSession.id == session_id,
+                MeasurementSession.status.in_(sources_of(target)),
+            )
+            .values(status=target, **_kolom_waktu(target, at, reason))
+            .execution_options(synchronize_session=False)
+        ).rowcount
+        if diubah == 1:
+            self._db.commit()
+            return
+        self._db.rollback()
+        sekarang = self._db.scalar(
+            select(MeasurementSession.status).where(MeasurementSession.id == session_id)
+        )
+        if sekarang is None:
+            raise NotFoundError("Sesi pengukuran tidak ditemukan.")
+        raise invalid_transition(sekarang, target)
+
+
 class SessionQueueRepository:
     """Antrean sesi di measurement_sessions (SCRUM-207), memenuhi port SessionQueueStore."""
 
@@ -396,7 +467,14 @@ class SessionQueueRepository:
         gagal = self._db.execute(
             update(MeasurementSession)
             .where(MeasurementSession.id == session_id, *_ANTREAN_OTOMATIS)
-            .values(status=SessionStatus.FAILED, finished_at=finished_at)
+            # queued -> failed ada di tabel D4; syarat antrean di sini lebih sempit dari
+            # change_status, supaya antrean tidak pernah menggagalkan sesi yang sudah running.
+            .values(
+                status=SessionStatus.FAILED,
+                finished_at=finished_at,
+                stopped_at=finished_at,
+                stop_reason=StopReason.ERROR,
+            )
             .execution_options(synchronize_session=False)
         ).rowcount
         self._db.commit()
