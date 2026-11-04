@@ -1,8 +1,9 @@
-"""Cost settings read from the environment. SCRUM-76 SCRUM-206.
+"""Cost settings read from the environment. SCRUM-76 SCRUM-206 SCRUM-244.
 
 Margin, model prices and the fallback exchange rate are configuration
 (PBI-11 AC5). Prices and the rate have no default, so nothing is guessed.
-A bad value stops the app at startup instead of failing on a request.
+Input prices are a separate map and default to empty. A bad value stops
+the app at startup instead of failing on a request.
 """
 
 from decimal import Decimal
@@ -42,6 +43,43 @@ def test_margin_dan_kurs_dibaca_dari_environment_sebagai_decimal(monkeypatch):
     # Assert
     assert settings.cost_safety_margin_percent == Decimal("25")
     assert settings.cost_usd_idr_fallback_rate == Decimal("16250.5")
+
+
+def test_harga_masukan_bawaan_kosong(monkeypatch):
+    # Arrange + Act
+    settings = _settings(monkeypatch)
+
+    # Assert
+    assert settings.cost_model_input_prices == {}
+
+
+def test_harga_masukan_dibaca_dari_json_environment(monkeypatch):
+    # Arrange + Act
+    settings = _settings(
+        monkeypatch,
+        COST_MODEL_INPUT_PRICES=(
+            '{"openai_compatible:model-a": "0.10", "gemini_interactions:model-b": "0"}'
+        ),
+    )
+
+    # Assert: nol sah, dan peta ini tidak mengisi harga keluaran
+    assert settings.cost_model_input_prices == {
+        "openai_compatible:model-a": Decimal("0.10"),
+        "gemini_interactions:model-b": Decimal("0"),
+    }
+    assert settings.cost_model_prices == {}
+
+
+def test_harga_masukan_negatif_menghentikan_aplikasi_saat_start(monkeypatch):
+    # Arrange
+    monkeypatch.setenv("COST_MODEL_INPUT_PRICES", '{"openai_compatible:model-a": "-0.1"}')
+
+    # Act
+    with pytest.raises(ValidationError) as galat:
+        Settings(_env_file=None)
+
+    # Assert
+    assert "cost_model_input_prices" in str(galat.value).lower()
 
 
 def test_harga_model_dibaca_dari_json_environment(monkeypatch):

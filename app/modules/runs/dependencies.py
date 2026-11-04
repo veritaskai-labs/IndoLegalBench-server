@@ -1,4 +1,4 @@
-"""Perakitan dependency FastAPI untuk modul runs (PBI-11, SCRUM-206, SCRUM-207)."""
+"""Perakitan dependency FastAPI untuk modul runs (PBI-11, SCRUM-206/207/244)."""
 
 from datetime import UTC, datetime
 from functools import lru_cache
@@ -11,6 +11,7 @@ from app.modules.runs.adapters import (
     CallLogAnswerHistory,
     CallLogSpend,
     CaseCountAdapter,
+    CaseTextAdapter,
     NameAdapter,
     ProductAdapter,
     ProductCopyAdapter,
@@ -39,6 +40,7 @@ from app.modules.runs.service import (
 from app.modules.runs.session_detail import SessionDetailService
 from app.modules.runs.session_list import SessionListService
 from app.modules.runs.session_ports import SessionQueueStore
+from app.modules.runs.tokenizer import TiktokenCounter
 from app.modules.runs.worker import run_next
 from app.shared.config import Settings, get_settings
 from app.shared.database import get_db
@@ -63,9 +65,14 @@ def get_summary_service(
     return SummaryService(
         products=ProductAdapter(db),
         cases=CaseCountAdapter(db),
+        texts=CaseTextAdapter(db),
+        counter=TiktokenCounter(),
         spend=CallLogSpend(db),
         history=CallLogAnswerHistory(db),
-        prices=ConfigPriceCatalog(settings.cost_model_prices),
+        prices=ConfigPriceCatalog(
+            settings.cost_model_prices,
+            input_prices=settings.cost_model_input_prices,
+        ),
         rates=rates,
         safety_margin_percent=settings.cost_safety_margin_percent,
         default_avg_answer_tokens=settings.cost_default_avg_answer_tokens,

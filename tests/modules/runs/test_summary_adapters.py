@@ -1,9 +1,8 @@
-"""Real ports for the summary, built on other modules' services. SCRUM-76 SCRUM-206.
+"""Real ports for the summary, built on other modules' services. SCRUM-76 SCRUM-206 SCRUM-244.
 
 The runs module reaches cases, suites and providers only through their
 service functions. Those services are mocked here, so no test touches a
-database. Spending and answer length history have no table yet (SCRUM-209),
-so their ports say plainly that there is nothing.
+database. Question text is a separate port from the approved-case counts.
 """
 
 import uuid
@@ -81,6 +80,45 @@ def test_suite_tidak_ada_menghentikan_sebelum_menghitung_kasus():
 
     # Assert
     cases.count_approved_by_split.assert_not_called()
+
+
+def test_teks_kasus_memeriksa_suite_lalu_mengambil_pertanyaan_dengan_kunci_string():
+    # Arrange
+    db = MagicMock(name="db")
+    with (
+        patch.object(adapters, "suites_service") as suites,
+        patch.object(adapters, "cases_service") as cases,
+    ):
+        cases.approved_questions_by_split.return_value = {
+            SplitTag.DEV: ["Pertanyaan dev"],
+            SplitTag.TEST: ["Pertanyaan test"],
+        }
+
+        # Act
+        hasil = adapters.CaseTextAdapter(db).approved_texts({SUITE_A, SUITE_B})
+
+    # Assert
+    suites.require_existing.assert_called_once_with(db, {SUITE_A, SUITE_B})
+    cases.approved_questions_by_split.assert_called_once_with(db, {SUITE_A, SUITE_B})
+    assert hasil == {"dev": ["Pertanyaan dev"], "test": ["Pertanyaan test"]}
+    assert all(type(kunci) is str for kunci in hasil)
+
+
+def test_suite_tidak_ada_menghentikan_sebelum_mengambil_teks_kasus():
+    # Arrange
+    db = MagicMock(name="db")
+    with (
+        patch.object(adapters, "suites_service") as suites,
+        patch.object(adapters, "cases_service") as cases,
+    ):
+        suites.require_existing.side_effect = NotFoundError("Suite tidak ditemukan")
+
+        # Act
+        with pytest.raises(NotFoundError):
+            adapters.CaseTextAdapter(db).approved_texts({SUITE_A})
+
+    # Assert
+    cases.approved_questions_by_split.assert_not_called()
 
 
 def test_produk_dipetakan_ke_info_tanpa_kredensial():

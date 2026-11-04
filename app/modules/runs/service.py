@@ -53,10 +53,12 @@ from app.modules.runs.session_ports import (
 from app.modules.runs.summary_ports import (
     AnswerLengthPort,
     CaseCountPort,
+    CaseTextPort,
     ProductInfo,
     ProductPort,
     SpendPort,
 )
+from app.modules.runs.tokenizer import TokenCounter
 from app.shared.exceptions import InternalError, NotFoundError, ValidationError
 
 logger = logging.getLogger(__name__)
@@ -90,6 +92,8 @@ class SummaryService:
 
     Semua yang berubah-ubah masuk lewat port, jadi service ini tidak mengenal
     tabel, HTTP, atau konfigurasi. Yang dihitung: PBI-11 AC2, AC3, AC5.
+    Token masukan adalah jumlah token pertanyaan yang layak, dikali pengulangan
+    (SCRUM-76, SCRUM-244).
     """
 
     def __init__(
@@ -97,6 +101,8 @@ class SummaryService:
         *,
         products: ProductPort,
         cases: CaseCountPort,
+        texts: CaseTextPort,
+        counter: TokenCounter,
         spend: SpendPort,
         history: AnswerLengthPort,
         prices: PriceCatalog,
@@ -106,6 +112,8 @@ class SummaryService:
     ) -> None:
         self._products = products
         self._cases = cases
+        self._texts = texts
+        self._counter = counter
         self._spend = spend
         self._history = history
         self._prices = prices
@@ -115,7 +123,8 @@ class SummaryService:
 
     def summarize(self, request: SummaryRequest) -> SummaryResponse:
         product = self._require_automatic_product(request.product_id)
-        counts = self._cases.approved_counts(set(request.suite_ids))
+        suite_ids = set(request.suite_ids)
+        counts = self._cases.approved_counts(suite_ids)
         case_count = eligible_case_count(counts, request.case_filter)
         if case_count == 0:
             raise ValidationError(
@@ -129,6 +138,10 @@ class SummaryService:
             usd_per_million_output_tokens=self._output_price(product),
             usd_idr_rate=self._rates.usd_idr(),
             safety_margin_percent=self._margin,
+            total_input_tokens=self._input_tokens(
+                product, suite_ids, request.case_filter, request.repeat_count
+            ),
+            usd_per_million_input_tokens=self._input_price(product),
         )
         remaining = self._remaining_budget(product)
         if cost > remaining:
@@ -166,6 +179,34 @@ class SummaryService:
         if product.price_output_usd_per_mtok is not None:
             return product.price_output_usd_per_mtok
         return self._prices.usd_per_million_output_tokens(product.provider_type, product.model_name)
+
+    def _input_price(self, product: ProductInfo) -> Decimal:
+        """Harga masukan produk didahulukan. Katalog masukan hanya cadangan."""
+        if product.price_input_usd_per_mtok is not None:
+            return product.price_input_usd_per_mtok
+        return self._prices.usd_per_million_input_tokens(product.provider_type, product.model_name)
+
+    def _input_tokens(
+        self,
+        product: ProductInfo,
+        suite_ids: set[uuid.UUID],
+        case_filter: CaseFilter,
+        repeat_count: int,
+    ) -> int:
+        """Token pertanyaan yang layak, dihitung sekali, lalu dikali pengulangan.
+
+        Jumlah kasus tetap dari CaseCountPort. Panjang kedua port tidak
+        dicocokkan. Pertanyaan kosong dihitung nol dan tidak mengurangi kasus.
+        Hanya teks pertanyaan yang dihitung, bukan templat prompt atau system
+        prompt pada pemanggilan. Gemini, Anthropic, dan DeepSeek memakai
+        cl100k_base yang sama, jadi perkiraan bisa lebih rendah dari tagihan.
+        """
+        texts = self._texts.approved_texts(suite_ids)
+        per_question = 0
+        for split in _SPLITS_FOR_FILTER[case_filter]:
+            for question in texts.get(split, ()):
+                per_question += self._counter.count(question, product.provider_type or "")
+        return per_question * repeat_count
 
     def _avg_answer_tokens(self, product_id: uuid.UUID) -> Decimal:
         average = self._history.average_answer_tokens(product_id)

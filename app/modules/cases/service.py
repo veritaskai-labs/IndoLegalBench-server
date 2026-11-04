@@ -635,6 +635,23 @@ def count_approved_by_split(db: Session, suite_ids: set[uuid.UUID]) -> dict[Spli
     return counts
 
 
+def approved_questions_by_split(
+    db: Session, suite_ids: set[uuid.UUID]
+) -> dict[SplitTag, list[str]]:
+    """Question text of approved cases per split tag (SCRUM-76, SCRUM-244).
+
+    Called by the runs module for the measurement summary. Both tags are
+    always present. The text is the latest approved version's content
+    ["question"], ordered by case_code. A later unapproved draft is ignored.
+    Whether the suites exist is not checked here.
+    """
+    questions: dict[SplitTag, list[str]] = {tag: [] for tag in SplitTag}
+    if suite_ids:
+        for split, question in repository.approved_questions_by_split(db, suite_ids):
+            questions[split].append(question)
+    return questions
+
+
 def has_approved_case(db: Session, suite_id: uuid.UUID) -> bool:
     """True when the suite contains a case that has an approved version."""
     return repository.has_approved(db, suite_id)
