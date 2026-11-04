@@ -17,7 +17,7 @@ import pytest
 from app.modules.providers.models import MeasurementType
 from app.modules.runs.models import MeasurementSession, SessionStatus
 from app.shared.security import Role
-from tests.modules.runs.test_start_endpoint import URL, _badan, _jumlah_sesi, siap  # noqa: F401
+from tests.modules.runs.test_start_endpoint import URL, _badan, _jumlah_sesi
 from tests.modules.runs.test_summary_endpoint import _tambah_produk
 
 
@@ -38,7 +38,7 @@ def _produk_manual(db):
     )
 
 
-def test_produk_manual_ditolak_dan_tidak_membuat_sesi(siap):  # noqa: F811
+def test_produk_manual_ditolak_dan_tidak_membuat_sesi(siap):
     """Negatif: AC1, satu pengukuran hanya untuk produk otomatis; manual tidak lolos Mulai."""
     # Arrange
     manual = _produk_manual(siap.db)
@@ -53,7 +53,7 @@ def test_produk_manual_ditolak_dan_tidak_membuat_sesi(siap):  # noqa: F811
     assert _jumlah_sesi(siap.db) == 0
 
 
-def test_sesi_tidak_bisa_dihapus_lewat_http(siap):  # noqa: F811
+def test_sesi_tidak_bisa_dihapus_lewat_http(siap):
     """Negatif: AC10, sesi hanya diarsipkan; DELETE ditolak dan sesinya tetap ada."""
     # Arrange
     client = siap.sebagai(Role.ADMIN)
@@ -73,7 +73,7 @@ def test_sesi_tidak_bisa_dihapus_lewat_http(siap):  # noqa: F811
 @pytest.mark.parametrize(
     "ubah", [{"judge_provider_id": None}, {}], ids=["null-eksplisit", "tanpa-kunci"]
 )
-def test_penilai_kosong_diterima_dan_tersimpan_kosong(siap, ubah):  # noqa: F811
+def test_penilai_kosong_diterima_dan_tersimpan_kosong(siap, ubah):
     """Edge: client mengirim judge_provider_id null (atau tidak mengirim) sampai PBI-14 ada daftar penilai."""
     # Arrange
     client = siap.sebagai(Role.ADMIN)
@@ -87,7 +87,7 @@ def test_penilai_kosong_diterima_dan_tersimpan_kosong(siap, ubah):  # noqa: F811
     assert tersimpan.judge_provider_id is None
 
 
-def test_penilai_berupa_nama_model_ditolak_422(siap):  # noqa: F811
+def test_penilai_berupa_nama_model_ditolak_422(siap):
     """Negatif: kontrak meminta UUID; nama model seperti yang tampil di dropdown tidak boleh tersimpan."""
     # Arrange
     client = siap.sebagai(Role.ADMIN)
@@ -100,7 +100,7 @@ def test_penilai_berupa_nama_model_ditolak_422(siap):  # noqa: F811
     assert _jumlah_sesi(siap.db) == 0
 
 
-def test_galat_anggaran_membawa_angka_di_level_atas_bukan_di_details(siap):  # noqa: F811
+def test_galat_anggaran_membawa_angka_di_level_atas_bukan_di_details(siap):
     """Edge: AC5, client membaca sisa anggaran dan perkiraan biaya dari body galat, bukan dari details."""
     # Arrange: perkiraan di atas Rp100, anggaran tinggal Rp100
     siap.produk.monthly_budget_idr = Decimal("100.00")
