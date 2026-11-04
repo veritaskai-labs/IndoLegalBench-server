@@ -20,6 +20,7 @@ from app.modules.cases.schemas import VersionSections
 
 # Satu enum status sesi untuk tabel (#89) dan kontrak API, supaya keduanya tidak menyimpang.
 from app.modules.runs.models import AttemptStatus, SessionStatus, StopReason
+from app.shared.text import strip_blank
 
 # PBI-11 AC3: satu angka pengulangan untuk seluruh pengukuran.
 MIN_REPEATS = 1
@@ -231,8 +232,9 @@ class StartRequest(SummaryRequest):
     @field_validator("label", mode="before")
     @classmethod
     def buang_spasi_tepi(cls, value):
-        # Label berisi spasi saja menjadi kosong, lalu ditolak min_length.
-        return value.strip() if isinstance(value, str) else value
+        # Label berisi karakter kosong saja (termasuk zero-width, SCRUM-214) menjadi kosong,
+        # lalu ditolak min_length.
+        return strip_blank(value) if isinstance(value, str) else value
 
 
 class StartResponse(BaseModel):
