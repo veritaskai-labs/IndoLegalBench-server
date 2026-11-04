@@ -2,13 +2,17 @@
 FROM python:3.11-slim
 
 ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1
+    PYTHONUNBUFFERED=1 \
+    TIKTOKEN_CACHE_DIR=/srv/tiktoken-cache
 
 WORKDIR /srv
 
 # Runtime dependencies only. requirements-dev.txt does not go into the image.
 COPY requirements.txt ./
 RUN pip install --no-cache-dir -r requirements.txt
+# Bake cl100k_base into TIKTOKEN_CACHE_DIR while the build still has network.
+# The chown below leaves that cache readable by appuser.
+RUN python -c "import tiktoken; tiktoken.get_encoding('cl100k_base')"
 
 COPY alembic.ini ./
 COPY migrations ./migrations

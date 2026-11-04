@@ -103,6 +103,24 @@ def count_approved_by_split(db: Session, suite_ids: set[uuid.UUID]) -> dict[Spli
     return dict(rows)
 
 
+def approved_questions_by_split(
+    db: Session, suite_ids: set[uuid.UUID]
+) -> list[tuple[SplitTag, str]]:
+    """Question text of the latest approved version, ordered by case_code.
+
+    The text is content["question"]. The split tag is read from that approved
+    version, not from an open draft. A suite with no approved case adds no row.
+    """
+    rows = (
+        db.query(CaseVersion.split_tag, CaseVersion.content)
+        .join(Case, CaseVersion.id == Case.latest_approved_version_id)
+        .filter(Case.suite_id.in_(suite_ids))
+        .order_by(Case.case_code.asc())
+        .all()
+    )
+    return [(SplitTag(split), (content or {}).get("question") or "") for split, content in rows]
+
+
 def has_approved(db: Session, suite_id: uuid.UUID) -> bool:
     """True when any case in the suite has an approved version."""
     return (

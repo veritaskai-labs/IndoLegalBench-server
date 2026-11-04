@@ -1,12 +1,14 @@
-"""POST /measurements/summary. SCRUM-76 SCRUM-206.
+"""POST /measurements/summary. SCRUM-76 SCRUM-206 SCRUM-244.
 
 PBI-11 AC2, AC3 and AC5 through HTTP, with real suites, cases and a real
 product in the test database. Only the exchange rate and the settings are
 overridden, so no test reaches the network.
 
-Reference numbers: 3 approved cases (2 dev, 1 test) times 3 repeats is 9
-calls. At 500 answer tokens, 10 USD per million output tokens, a rate of
-16.000 rupiah and a 20 percent margin that is 864,00 rupiah.
+Reference numbers: 3 approved cases (2 dev, 1 test), each with the question
+"Apakah PHK tanpa surat sah?" (11 tokens), times 3 repeats is 99 input
+tokens and 9 calls. At 500 answer tokens, 10 USD per million input tokens,
+10 USD per million output tokens, a rate of 16.000 rupiah and a 20 percent
+margin that is 883,01 rupiah.
 """
 
 import uuid
@@ -31,6 +33,7 @@ HARGA = {"openai_compatible:deepseek-flash": Decimal("10")}
 def _settings(**ubah) -> Settings:
     nilai = {
         "cost_model_prices": HARGA,
+        "cost_model_input_prices": dict(HARGA),
         "cost_default_avg_answer_tokens": Decimal("500"),
     }
     nilai.update(ubah)
@@ -108,7 +111,7 @@ def test_admin_mendapat_ringkasan_lengkap_dan_hanya_kolom_ringkasan(siap):
         "total_calls": 9,
         "case_filter": "both",
         "repeat_count": 3,
-        "estimated_cost_idr": "864.00",
+        "estimated_cost_idr": "883.01",
         "remaining_budget_idr": "500000.00",
     }
 
@@ -305,7 +308,7 @@ def test_suite_hanya_berisi_draf_ditolak_422_tanpa_kasus_layak(siap):
 
 
 def test_biaya_melebihi_sisa_anggaran_ditolak_422_dengan_nama_produk_dan_sisa(siap):
-    # Arrange: anggaran bulanan hanya Rp100, perkiraan Rp864
+    # Arrange: anggaran bulanan hanya Rp100, perkiraan Rp883,01
     siap.produk.monthly_budget_idr = Decimal("100.00")
     siap.db.commit()
     client = siap.sebagai(Role.ADMIN)
@@ -319,12 +322,25 @@ def test_biaya_melebihi_sisa_anggaran_ditolak_422_dengan_nama_produk_dan_sisa(si
     assert body["code"] == "BUDGET_EXCEEDED"
     assert body["product_name"] == "AiYU"
     assert body["remaining_budget_idr"] == "100.00"
-    assert body["estimated_cost_idr"] == "864.00"
+    assert body["estimated_cost_idr"] == "883.01"
 
 
 def test_harga_model_belum_dikonfigurasi_dijawab_500_bukan_422(siap):
     # Arrange
     app.dependency_overrides[get_settings] = lambda: _settings(cost_model_prices={})
+    client = siap.sebagai(Role.ADMIN)
+
+    # Act
+    response = client.post(URL, json=_badan(siap))
+
+    # Assert
+    assert response.status_code == 500
+    assert response.json()["code"] == "PRICE_NOT_CONFIGURED"
+
+
+def test_harga_masukan_belum_dikonfigurasi_dijawab_500_bukan_422(siap):
+    # Arrange: harga keluaran ada, katalog masukan kosong, produk tanpa harga masukan
+    app.dependency_overrides[get_settings] = lambda: _settings(cost_model_input_prices={})
     client = siap.sebagai(Role.ADMIN)
 
     # Act

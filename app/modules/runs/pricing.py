@@ -1,4 +1,4 @@
-"""Katalog harga token untuk perkiraan biaya (PBI-11 AC5, SCRUM-206)."""
+"""Katalog harga token untuk perkiraan biaya (PBI-11 AC5, SCRUM-206, SCRUM-244)."""
 
 import logging
 from collections.abc import Mapping
@@ -17,16 +17,27 @@ class PriceCatalog(Protocol):
         """Harga USD per 1 juta token output untuk satu model."""
         raise NotImplementedError
 
+    def usd_per_million_input_tokens(self, provider_type: str, model_name: str) -> Decimal:
+        """Harga USD per 1 juta token input untuk satu model."""
+        raise NotImplementedError
+
 
 class ConfigPriceCatalog:
     """Harga dari konfigurasi, berkunci "provider_type:model_name".
 
-    Model tanpa harga adalah kesalahan konfigurasi server (500 dan log), bukan
-    angka tebakan. Harga nol sah untuk model gratis.
+    Harga masukan dan keluaran adalah dua peta terpisah. Model tanpa harga
+    adalah kesalahan konfigurasi server (500 dan log), bukan angka tebakan.
+    Harga nol sah untuk model gratis.
     """
 
-    def __init__(self, prices: Mapping[str, Decimal]) -> None:
+    def __init__(
+        self,
+        prices: Mapping[str, Decimal],
+        *,
+        input_prices: Mapping[str, Decimal] | None = None,
+    ) -> None:
         self._prices = dict(prices)
+        self._input_prices = dict(input_prices or {})
 
     def usd_per_million_output_tokens(self, provider_type: str, model_name: str) -> Decimal:
         price = self._prices.get(f"{provider_type}:{model_name}")
@@ -34,6 +45,16 @@ class ConfigPriceCatalog:
             logger.error("No price configured for %s model %s", provider_type, model_name)
             raise InternalError(
                 f"No price is configured for {provider_type} model {model_name}.",
+                code="PRICE_NOT_CONFIGURED",
+            )
+        return price
+
+    def usd_per_million_input_tokens(self, provider_type: str, model_name: str) -> Decimal:
+        price = self._input_prices.get(f"{provider_type}:{model_name}")
+        if price is None:
+            logger.error("No input price configured for %s model %s", provider_type, model_name)
+            raise InternalError(
+                f"No input price is configured for {provider_type} model {model_name}.",
                 code="PRICE_NOT_CONFIGURED",
             )
         return price
