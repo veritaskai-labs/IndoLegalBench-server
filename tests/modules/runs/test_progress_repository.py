@@ -76,7 +76,14 @@ def snapshot(db_session, sesi) -> CaseSnapshot:
     return row
 
 
-def _attempt(db_session, sesi, snapshot, status: AttemptStatus, repetition_no: int) -> Attempt:
+def _attempt(
+    db_session,
+    sesi,
+    snapshot,
+    status: AttemptStatus,
+    repetition_no: int,
+    updated_at: datetime | None = None,
+) -> Attempt:
     item = CaseSnapshotItem(
         snapshot_id=snapshot.id,
         case_id=uuid.uuid4(),
@@ -85,13 +92,17 @@ def _attempt(db_session, sesi, snapshot, status: AttemptStatus, repetition_no: i
     )
     db_session.add(item)
     db_session.flush()
-    row = Attempt(
-        session_id=sesi.id,
-        snapshot_item_id=item.id,
-        repetition_no=repetition_no,
-        source=AttemptSource.AUTOMATIC,
-        status=status,
-    )
+    nilai = {
+        "session_id": sesi.id,
+        "snapshot_item_id": item.id,
+        "repetition_no": repetition_no,
+        "source": AttemptSource.AUTOMATIC,
+        "status": status,
+    }
+    # updated_at diisi saat INSERT: default kolomnya baru jalan kalau tidak diberi nilai.
+    if updated_at is not None:
+        nilai["updated_at"] = updated_at
+    row = Attempt(**nilai)
     db_session.add(row)
     db_session.flush()
     return row
@@ -132,3 +143,27 @@ def test_hitungan_sesi_dari_attempt_dan_call_log(db_session, sesi, snapshot, pro
     assert hasil.completed_calls == 2
     assert hasil.failed_calls == 1
     assert hasil.running_cost_idr == Decimal("4000.00")
+
+
+def test_waktu_aktivitas_terakhir_dari_baris_attempt(db_session, sesi, snapshot):
+    """Baris sesi tidak ikut diperbarui tiap panggilan, jadi waktunya diambil dari attempt."""
+    # Arrange
+    lama = datetime(2026, 11, 3, 10, 0)
+    baru = datetime(2026, 11, 3, 10, 30)
+    _attempt(db_session, sesi, snapshot, AttemptStatus.SUCCEEDED, 1, updated_at=lama)
+    _attempt(db_session, sesi, snapshot, AttemptStatus.SUCCEEDED, 2, updated_at=baru)
+    db_session.commit()
+
+    # Act
+    hasil = repository.session_progress(db_session, sesi.id)
+
+    # Assert
+    assert hasil.last_attempt_at == baru
+
+
+def test_sesi_tanpa_attempt_belum_punya_waktu_aktivitas(db_session, sesi):
+    # Arrange + Act: sesi masih mengantre, belum ada panggilan sama sekali
+    hasil = repository.session_progress(db_session, sesi.id)
+
+    # Assert
+    assert hasil.last_attempt_at is None
