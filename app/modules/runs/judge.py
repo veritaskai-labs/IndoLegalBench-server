@@ -70,6 +70,8 @@ class JudgeRow:
     score: Decimal | None = None
     explanation: str | None = None
     reason_id: str | None = None
+    error: str | None = None
+    failure_kind: str | None = None
 
 
 @dataclass

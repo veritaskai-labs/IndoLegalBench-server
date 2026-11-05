@@ -143,3 +143,52 @@ def test_jebakan_tidak_mengubah_prompt_maupun_skor():
     assert pertama.rows[0].prompt == kedua.rows[0].prompt
     assert pertama.rows[0].score == kedua.rows[0].score == Decimal("0.50")
     assert "jebakan rahasia" not in pertama.rows[0].prompt
+
+
+def test_panggilan_gagal_tanpa_skor():
+    """Negatif: error adapter dikembalikan dan skor kosong."""
+    gagal = ProviderResponse(
+        text="CRITERION: a\nMET: yes",
+        model_version="",
+        latency_ms=5,
+        raw={},
+        error="upstream_error",
+        failure_kind="provider_error",
+    )
+    judge = _ScriptedJudge([gagal, _ok(_reply(("a", True)))])
+
+    hasil = run_judge(judge, _INPUTS, repetitions=1)
+
+    assert hasil.rows[0].error == "upstream_error"
+    assert hasil.rows[0].failure_kind == "provider_error"
+    assert hasil.rows[0].score is None
+    assert hasil.rows[0].criteria == ()
+
+
+def test_balasan_tanpa_kriteria_tidak_sah():
+    """Edge: sukses tanpa blok CRITERION bukan skor."""
+    judge = _ScriptedJudge([_ok("tidak ada blok"), _ok(_reply(("a", True)))])
+
+    hasil = run_judge(judge, _INPUTS, repetitions=1)
+
+    assert hasil.rows[0].error == "invalid_judge_reply"
+    assert hasil.rows[0].score is None
+    assert hasil.rows[0].failure_kind == "invalid_response"
+
+
+def test_failure_kind_tanpa_pesan_error_tetap_tanpa_skor():
+    """Negatif: jenis gagal adapter cukup untuk mengosongkan skor."""
+    gagal = ProviderResponse(
+        text="CRITERION: a\nMET: yes",
+        model_version="",
+        latency_ms=1,
+        raw={},
+        failure_kind="timeout",
+    )
+    judge = _ScriptedJudge([gagal, _ok(_reply(("a", True)))])
+
+    hasil = run_judge(judge, _INPUTS, repetitions=1)
+
+    assert hasil.rows[0].score is None
+    assert hasil.rows[0].failure_kind == "timeout"
+    assert hasil.rows[0].criteria == ()
