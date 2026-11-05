@@ -68,5 +68,14 @@ def run_judge(
     repetitions: int,
     writer: MemoryJudgeWriter | None = None,
 ) -> MemoryJudgeWriter:
-    del asker, inputs, repetitions
-    return writer if writer is not None else MemoryJudgeWriter()
+    if repetitions < 1:
+        raise ValueError("repetitions must be at least 1")
+    store = writer if writer is not None else MemoryJudgeWriter()
+    for repetition in range(1, repetitions + 1):
+        for kind, prompt in (
+            ("quality", quality_prompt(inputs)),
+            ("format", format_prompt(inputs)),
+        ):
+            asker.ask(prompt)
+            store.rows.append(JudgeRow(kind=kind, repetition=repetition, prompt=prompt))
+    return store
