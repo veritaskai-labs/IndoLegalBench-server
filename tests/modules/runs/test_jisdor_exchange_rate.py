@@ -209,6 +209,7 @@ def test_layanan_gagal_dan_cadangan_kosong_adalah_kesalahan_konfigurasi_500():
 
 
 def test_kurs_terakhir_tanpa_batas_umur_diganti_setelah_refresh_berhasil():
+    # Arrange
     server = _Server(
         _ok("16250.5"),
         httpx.Response(503),
@@ -219,13 +220,17 @@ def test_kurs_terakhir_tanpa_batas_umur_diganti_setelah_refresh_berhasil():
     adapter = _adapter(server, hari=hari, cadangan=None)
     assert adapter.usd_idr() == Decimal("16250.5")
 
+    # Act / Assert: each failed refresh keeps the last successful rate.
     for days in (1, 365):
         hari.hari = HARI_INI + timedelta(days=days)
         assert adapter.usd_idr() == Decimal("16250.5")
 
-    # A failed refresh must not suppress another attempt, even on the same day.
-    assert adapter.usd_idr() == Decimal("16300")
-    assert adapter.usd_idr() == Decimal("16300")
+    # Act: a failed refresh must not suppress another attempt on the same day.
+    refreshed = adapter.usd_idr()
+    cached = adapter.usd_idr()
+
+    # Assert
+    assert refreshed == cached == Decimal("16300")
     assert len(server.requests) == 4
 
 

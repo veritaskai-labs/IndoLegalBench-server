@@ -29,7 +29,7 @@ pytestmark = pytest.mark.skipif(
 )
 
 
-def _render(values, settings_file=None):
+def _render(values, settings_file=None, *, source_with_shell=False):
     # Isolate from host secrets and deploy/.env; Compose config never starts a container.
     env = {
         "PATH": os.environ["PATH"],
@@ -44,18 +44,29 @@ def _render(values, settings_file=None):
         "ZITADEL_CLIENT_ID": "synthetic-client",
         **values,
     }
+    command = [
+        "docker",
+        "compose",
+        "--env-file",
+        str(settings_file if settings_file and not source_with_shell else "/dev/null"),
+        "-f",
+        str(COMPOSE),
+        "config",
+        "--format",
+        "json",
+    ]
+    if source_with_shell:
+        # Match deploy.sh without interpolating file contents into shell code.
+        command = [
+            "bash",
+            "-c",
+            'set -a; . "$1"; shift; exec "$@"',
+            "scrum250-source",
+            str(settings_file),
+            *command,
+        ]
     result = subprocess.run(
-        [
-            "docker",
-            "compose",
-            "--env-file",
-            str(settings_file or "/dev/null"),
-            "-f",
-            str(COMPOSE),
-            "config",
-            "--format",
-            "json",
-        ],
+        command,
         env=env,
         check=True,
         capture_output=True,
@@ -65,14 +76,14 @@ def _render(values, settings_file=None):
 
 
 @pytest.mark.parametrize("service", ["api", "worker"])
-@pytest.mark.parametrize("source", ["host", "file"])
+@pytest.mark.parametrize("source", ["host", "file", "shell"])
 def test_configured_cost_values_reach_each_process_and_parse_as_settings(
     monkeypatch, tmp_path, service, source
 ):
-    if source == "file":
+    if source in {"file", "shell"}:
         settings_file = tmp_path / "synthetic-config.txt"
         settings_file.write_text("\n".join(f"{key}='{value}'" for key, value in COST_ENV.items()))
-        services = _render({}, settings_file)
+        services = _render({}, settings_file, source_with_shell=source == "shell")
     else:
         services = _render(COST_ENV)
     environment = services[service]["environment"]

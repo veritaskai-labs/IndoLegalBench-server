@@ -14,6 +14,12 @@ to both processes. No API credential, real price, rate or client data belongs in
 the repository. This change does not modify a credential file or introduce an
 operational token/rate default.
 
+Because `deploy.sh` sources the file as shell, wrap JSON values in single quotes
+to preserve their internal double quotes, for example `COST_MODEL_PRICES='{}'`.
+Use the commented entries in `deploy/.env.example`; replace empty catalogs with
+approved prices when product-specific prices are absent. Keep unused optional
+settings commented instead of assigning blank numeric/JSON values.
+
 ## Approved setup policy
 
 The PO selected **1,000 tokens per answer** on 5 November 2026 as the initial
@@ -73,6 +79,11 @@ HTTP/service tests cover no-history fallback, missing configuration, historical
 averages, product/catalog prices and Start's budget revalidation. Runtime tests
 use controlled providers; PostgreSQL cases require the dedicated migrated test
 database. These checks do not establish that the deployed processes are configured.
+
+CI also runs a dedicated verbose Compose test step after `docker compose version`.
+Missing Docker/Compose fails that step, rather than silently counting the
+configuration tests among the full suite's environment-specific skips. Its log
+lists each host, file, shell-sourced-file and unset-setting case individually.
 
 ## Dev readiness and smoke check
 
