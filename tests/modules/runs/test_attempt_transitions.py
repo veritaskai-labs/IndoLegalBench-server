@@ -27,6 +27,7 @@ SAH = {
     (_A.PENDING, _A.RUNNING),
     (_A.RUNNING, _A.SUCCEEDED),
     (_A.RUNNING, _A.TECHNICAL_FAILURE),
+    (_A.RUNNING, _A.PENDING),
     (_A.TECHNICAL_FAILURE, _A.PENDING),
 }
 
@@ -45,9 +46,16 @@ def aturan():
 
 @pytest.mark.parametrize(("asal", "tujuan", "sah"), PASANGAN)
 def test_tabel_sesuai_d4_untuk_setiap_pasangan(aturan, asal, tujuan, sah):
-    """Positif/Negatif: tabel memuat tepat empat perpindahan D4, termasuk diam di tempat."""
+    """Positif/Negatif: tabel memuat perpindahan sah termasuk running -> pending (SCRUM-217)."""
     # Act + Assert
     assert (tujuan in aturan.ALLOWED_ATTEMPT_TRANSITIONS[asal]) is sah
+
+
+def test_running_ke_pending_diizinkan_untuk_pemulihan_restart(aturan):
+    """Positif: pemulihan restart (SCRUM-217) boleh mengembalikan attempt running ke pending."""
+    # Act & Assert (tidak raise ConflictError)
+    aturan.ensure_attempt_transition(AttemptStatus.RUNNING, AttemptStatus.PENDING)
+
 
 
 @pytest.mark.parametrize(("asal", "tujuan", "sah"), PASANGAN)
