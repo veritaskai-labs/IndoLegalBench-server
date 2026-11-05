@@ -1,9 +1,10 @@
 """Passive requests must not slide the idle clock (SCRUM-251).
 
-Observes HTTP status, the session cookie, and the sessions row.
+Observes HTTP status, the session cookie, response headers, and the sessions row.
 Does not call resolve_session.
 """
 
+import json
 from datetime import UTC, datetime, timedelta
 
 import pytest
@@ -20,6 +21,10 @@ from tests.login import complete_login
 
 ACTIVITY_HEADER = "X-Veritask-Activity"
 PASSIVE = "passive"
+IDLE_TIMEOUT_HEADER = "x-veritask-idle-timeout"
+IDLE_DEADLINE_HEADER = "x-veritask-idle-deadline"
+ABSOLUTE_EXPIRES_HEADER = "x-veritask-absolute-expires-at"
+CLIENT_DEADLINE = "1999-01-01T00:00:00+00:00"
 
 
 def _aware(stamp: datetime) -> datetime:
@@ -172,3 +177,108 @@ def test_passive_request_for_deactivated_account_is_unauthenticated(client, db_s
     assert response.status_code == 401
     assert response.json()["code"] == "UNAUTHENTICATED"
     assert db_session.get(UserSession, session_id) is None
+
+
+def _assert_deadlines(response, *, last_activity: datetime, expires: datetime) -> None:
+    settings = get_settings()
+    assert response.headers.get(IDLE_TIMEOUT_HEADER) == str(settings.idle_timeout_minutes * 60)
+    deadline = response.headers.get(IDLE_DEADLINE_HEADER)
+    absolute = response.headers.get(ABSOLUTE_EXPIRES_HEADER)
+    assert deadline is not None
+    assert absolute is not None
+    assert _aware(datetime.fromisoformat(deadline)) == last_activity + timedelta(
+        minutes=settings.idle_timeout_minutes
+    )
+    assert _aware(datetime.fromisoformat(absolute)) == expires
+
+
+def test_active_me_exposes_configured_deadlines(client, db_session, monkeypatch):
+    complete_login(client, db_session, AUTHOR_SUB)
+    session = _session(db_session)
+    start = _aware(session.last_activity_at)
+    expires = _aware(session.expires_at)
+    frozen = start + timedelta(minutes=5)
+    clock = _install_clock(monkeypatch)
+    clock["now"] = frozen
+
+    response = client.get("/me")
+
+    assert response.status_code == 200
+    db_session.refresh(session)
+    assert _aware(session.last_activity_at) == frozen
+    assert _aware(session.expires_at) == expires
+    _assert_deadlines(response, last_activity=frozen, expires=expires)
+
+
+def test_passive_me_exposes_deadlines_without_sliding(client, db_session, monkeypatch):
+    complete_login(client, db_session, AUTHOR_SUB)
+    session = _session(db_session)
+    start = _aware(session.last_activity_at)
+    expires = _aware(session.expires_at)
+    clock = _install_clock(monkeypatch)
+    clock["now"] = start + timedelta(minutes=5)
+
+    response = client.get("/me", headers={ACTIVITY_HEADER: PASSIVE})
+
+    assert response.status_code == 200
+    db_session.refresh(session)
+    assert _aware(session.last_activity_at) == start
+    assert _aware(session.expires_at) == expires
+    _assert_deadlines(response, last_activity=start, expires=expires)
+
+
+def test_client_supplied_deadline_does_not_change_server_deadline(client, db_session, monkeypatch):
+    complete_login(client, db_session, AUTHOR_SUB)
+    session = _session(db_session)
+    start = _aware(session.last_activity_at)
+    expires = _aware(session.expires_at)
+    clock = _install_clock(monkeypatch)
+    clock["now"] = start + timedelta(minutes=5)
+
+    response = client.get(
+        "/me",
+        headers={ACTIVITY_HEADER: PASSIVE, "X-Veritask-Idle-Deadline": CLIENT_DEADLINE},
+    )
+
+    assert response.status_code == 200
+    db_session.refresh(session)
+    assert _aware(session.expires_at) == expires
+    assert response.headers.get(IDLE_DEADLINE_HEADER) != CLIENT_DEADLINE
+    _assert_deadlines(response, last_activity=start, expires=expires)
+
+
+def test_openapi_names_activity_header_on_session_reads(client):
+    spec = client.get("/openapi.json").json()
+    for path in ("/me", "/auth/done"):
+        operation = json.dumps(spec["paths"][path]["get"])
+        assert ACTIVITY_HEADER in operation
+        assert "X-Veritask-Idle-Timeout" in operation
+        assert "X-Veritask-Idle-Deadline" in operation
+        assert "X-Veritask-Absolute-Expires-At" in operation
+
+
+def test_preflight_allows_activity_header_for_configured_origin(client):
+    response = client.options(
+        "/me",
+        headers={
+            "Origin": "http://localhost:3000",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": ACTIVITY_HEADER,
+        },
+    )
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
+    assert response.headers.get("access-control-allow-headers") == ACTIVITY_HEADER
+
+
+def test_preflight_rejects_foreign_origin(client):
+    response = client.options(
+        "/me",
+        headers={
+            "Origin": "https://evil.example",
+            "Access-Control-Request-Method": "GET",
+            "Access-Control-Request-Headers": ACTIVITY_HEADER,
+        },
+    )
+    assert response.status_code == 400
+    assert response.headers.get("access-control-allow-origin") is None
