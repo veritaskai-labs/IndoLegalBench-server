@@ -328,6 +328,7 @@ class SessionStatusRepository:
         *,
         at: datetime,
         stop_reason: StopReason | str | None = None,
+        commit: bool = True,
     ) -> None:
         target = SessionStatus(target)
         reason = None if stop_reason is None else StopReason(stop_reason)
@@ -349,7 +350,10 @@ class SessionStatusRepository:
             .execution_options(synchronize_session=False)
         ).rowcount
         if diubah == 1:
-            self._db.commit()
+            if commit:
+                self._db.commit()
+            else:
+                self._db.flush()
             return
         self._db.rollback()
         sekarang = self._db.execute(
