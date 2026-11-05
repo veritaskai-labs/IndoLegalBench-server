@@ -7,8 +7,8 @@ The worker has no HTTP port and is not attached to the edge network. On boot it
 waits for SCRUM-217 to resolve a pre-existing running session; it never silently
 auto-resumes one. A duplicate worker process exits if another owns the lease.
 
-The branch depends on SCRUM-214 PR #97. Merge/rebase on its final contract before
-release. Do not merge the dependent status implementation separately from its owner.
+The worker uses the SCRUM-214 status contract merged in PR #97. Later transition
+and recovery work must integrate with that contract rather than duplicate it.
 
 The queue creates snapshot items and pending attempts. The store orders snapshot
 items by case ID and snapshot-item ID, claims each pending attempt durably before
@@ -57,3 +57,37 @@ Verification: run the runtime integration tests with a controlled provider, then
 repeat against migrated PostgreSQL, including enum/trigger and advisory-lock
 checks. Deployed laptop/physical-phone QA and a client-authorized small real-AI
 run remain required before UAT acceptance.
+
+## Manual recovery for a blocked running session
+
+Until SCRUM-217 recovery is integrated, an uncertain attempt or fatal error after
+partial execution leaves the session running. Its logical running slot blocks
+queued sessions, although the PostgreSQL dispatcher lease is released on exception.
+The supervisor retries after five seconds; ERROR logs identify the session UUID
+and exception class without logging provider text or a traceback. This is an
+operator intervention condition, not permission to resend the call.
+
+1. Find the session UUID in the ERROR log and stop the worker with
+   `docker compose stop worker` from `deploy/`. Let any active call finish.
+2. Inspect that session's attempt statuses and call-log metadata through the
+   authorised operator tools. Keep all answers, attempts and previous call logs.
+   Do not copy raw provider responses or credentials into tickets or logs.
+3. If an attempt is still running, have the SCRUM-217 owner reconcile whether
+   the provider processed it. Do not reset it to pending merely to unblock the
+   queue: that may repeat a paid call. Keep the worker stopped until reconciled.
+4. Correct the operational cause (credential availability, prices, rate source
+   or database write failure) without changing frozen model inputs or answers.
+   After reconciliation and operator approval, use the existing
+   `SessionStatusRepository.change_status` transition to `paused` with reason
+   `restart` and the current UTC timestamp, then restart the worker. This records
+   an operator stop and releases the running slot; it does not assign a new
+   fatal-error terminal status. Never bypass the transition service with SQL.
+5. Resume only through the authorised SCRUM-216 flow once available and only
+   after the cause and uncertain attempts are resolved. The runtime skips
+   successful attempts; explicit failed-only retry remains SCRUM-218's scope.
+
+SA/PO still owns the terminal-status policy for fatal errors after partial
+execution. Escalate unresolved cases with the session UUID and safe error class;
+do not invent a status or auto-retry uncertain calls. The one-time model-version
+trigger exception in migration `d49a1f2b3c60` also still requires sign-off from
+the #97 owner/SA before merge; these recovery notes do not constitute that sign-off.

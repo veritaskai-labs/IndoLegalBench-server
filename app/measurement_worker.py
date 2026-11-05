@@ -32,7 +32,7 @@ def wait_for_recovery(stop: threading.Event, *, factory=None) -> None:
             )
             if running is None:
                 return
-        logger.error("Measurement worker waiting for startup recovery (SCRUM-217)")
+        logger.error("Measurement session %s waiting for startup recovery (SCRUM-217)", running)
         stop.wait(5)
 
 
