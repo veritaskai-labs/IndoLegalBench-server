@@ -48,10 +48,24 @@ settings = get_settings()
 audit_listener.install()
 
 
+def _recover_sessions_on_startup() -> None:
+    """SCRUM-217: Saat server menyala, tandai sesi RUNNING menjadi PAUSED (AC8, D5)."""
+    try:
+        from app.modules.runs.recovery import recover_after_restart
+        from app.shared.database import get_session_factory
+
+        with get_session_factory()() as db:
+            recover_after_restart(db)
+    except Exception:
+        # Menjaga server tetap boot bila database belum siap atau migrasi belum selesai.
+        pass
+
+
 @asynccontextmanager
 async def lifespan(_: FastAPI):
     # TODO(SCRUM-89): drop SQLite create_all / DEV_ZITADEL_SUB
     bootstrap_local_sqlite()
+    _recover_sessions_on_startup()
     yield
 
 
