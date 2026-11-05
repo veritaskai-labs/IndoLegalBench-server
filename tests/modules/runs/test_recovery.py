@@ -431,3 +431,39 @@ async def test_lifespan_startup_hook_recovers_running_sessions(
     # Attempt running di-reset ke pending
     attempt = db_session.scalar(select(Attempt).where(Attempt.session_id == sesi_id))
     assert attempt.status == AttemptStatus.PENDING
+
+
+@pytest.mark.asyncio
+async def test_lifespan_startup_hook_skips_recovery_when_worker_lease_held(
+    monkeypatch, db_session, produk_otomatis, admin_user
+):
+    """Edge: jika worker lease sedang dipegang worker aktif, API startup TIDAK menghentikan sesi RUNNING."""
+    from contextlib import contextmanager
+
+    sesi = _buat_sesi(db_session, produk_otomatis, admin_user, status=SessionStatus.RUNNING)
+    sesi_id = sesi.id
+    _tambah_snapshot_dan_attempts(db_session, sesi, [AttemptStatus.RUNNING])
+
+    from app.modules.runs import execution
+    from app.shared import database
+
+    class DummyApp:
+        pass
+
+    @contextmanager
+    def fake_worker_lease(bind):
+        # Simulasikan worker lain sedang memegang advisory lock
+        yield False
+
+    monkeypatch.setattr(database, "get_session_factory", lambda: lambda: db_session)
+    monkeypatch.setattr(execution, "worker_lease", fake_worker_lease)
+
+    async with lifespan(DummyApp()):
+        pass
+
+    db_session.expire_all()
+    baris = db_session.get(MeasurementSession, sesi_id)
+    # Sesi TETAP RUNNING, tidak di-pause karena worker aktif masih mendispatch
+    assert baris.status == SessionStatus.RUNNING
+    attempt = db_session.scalar(select(Attempt).where(Attempt.session_id == sesi_id))
+    assert attempt.status == AttemptStatus.RUNNING
