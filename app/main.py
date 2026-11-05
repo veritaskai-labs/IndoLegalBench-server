@@ -41,6 +41,11 @@ from app.modules.suites.router import router as suites_router
 from app.shared.config import get_settings
 from app.shared.dev_db import bootstrap_local_sqlite
 from app.shared.exceptions import DomainError, SessionExpiredError
+from app.shared.security import (
+    ABSOLUTE_EXPIRES_HEADER,
+    IDLE_DEADLINE_HEADER,
+    IDLE_TIMEOUT_HEADER,
+)
 from app.shared.validation_errors import detail_aman
 
 settings = get_settings()
@@ -88,12 +93,19 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
+# Credentialed fetches only see response headers named here. The session
+# clocks are set on every successful get_current_user response.
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.cors_origins,
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=[
+        IDLE_TIMEOUT_HEADER,
+        IDLE_DEADLINE_HEADER,
+        ABSOLUTE_EXPIRES_HEADER,
+    ],
 )
 
 

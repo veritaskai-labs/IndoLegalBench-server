@@ -341,7 +341,9 @@ def _kolom_waktu(
 ) -> dict[str, object]:
     """Kolom waktu yang ikut berubah bersama status (D2)."""
     if target is SessionStatus.RUNNING:
-        return {"stopped_at": None, "stop_reason": None}
+        # Coba ulang dan Lanjutkan: sesi belum selesai lagi, jadi waktu selesai lama dibuang
+        # (catatan Roben #97). Selesai berikutnya mengisi waktu yang baru.
+        return {"stopped_at": None, "stop_reason": None, "finished_at": None}
     kolom: dict[str, object] = {}
     if target in _SELESAI:
         kolom["finished_at"] = at
@@ -349,6 +351,35 @@ def _kolom_waktu(
         kolom["stopped_at"] = at
         kolom["stop_reason"] = stop_reason
     return kolom
+
+
+def _catat_status(
+    db: Session,
+    session_id: uuid.UUID,
+    asal: SessionStatus | str,
+    tujuan: SessionStatus,
+    stop_reason: StopReason | None,
+) -> None:
+    """Satu baris audit per perpindahan status, di transaksi yang sama (PBI-18, D6b).
+
+    Listener audit hanya melihat flush ORM, sedangkan status ditulis lewat UPDATE Core
+    bersyarat, jadi ketiga jalan tulis status memanggil ini sendiri. Pelaku dibaca dari
+    session; tanpa pelaku (worker, antrean) kejadiannya tercatat sebagai sistem.
+    """
+    # Diimpor di sini: audit.service mengimpor runs.service, yang mengimpor file ini.
+    from app.modules.audit import service as audit_service
+
+    sesudah = {"status": tujuan.value}
+    if stop_reason is not None:
+        sesudah["stop_reason"] = stop_reason.value
+    audit_service.record(
+        db,
+        action="measurement_session.status_changed",
+        entity_type="measurement_session",
+        entity_id=session_id,
+        before={"status": SessionStatus(asal).value},
+        after=sesudah,
+    )
 
 
 class SessionStatusRepository:
@@ -379,6 +410,12 @@ class SessionStatusRepository:
                 code="STOP_REASON_REQUIRED",
                 field="stop_reason",
             )
+        # Kunci baris dulu supaya status asal di catatan audit pasti status yang diganti.
+        asal = self._db.scalar(
+            select(MeasurementSession.status)
+            .where(MeasurementSession.id == session_id)
+            .with_for_update()
+        )
         diubah = self._db.execute(
             update(MeasurementSession)
             .where(
@@ -391,10 +428,15 @@ class SessionStatusRepository:
             .execution_options(synchronize_session=False)
         ).rowcount
         if diubah == 1:
-            if commit:
-                self._db.commit()
-            else:
-                self._db.flush()
+            try:
+                _catat_status(self._db, session_id, asal, target, reason)
+                if commit:
+                    self._db.commit()
+                else:
+                    self._db.flush()
+            except Exception:
+                self._db.rollback()
+                raise
             return
         self._db.rollback()
         sekarang = self._db.execute(
@@ -512,6 +554,7 @@ class SessionQueueRepository:
                 self._db.rollback()
                 return False
             self._freeze(session_id, items, product)
+            _catat_status(self._db, session_id, SessionStatus.QUEUED, SessionStatus.RUNNING, None)
             self._db.commit()
         except Exception as exc:
             self._db.rollback()
@@ -537,7 +580,20 @@ class SessionQueueRepository:
             )
             .execution_options(synchronize_session=False)
         ).rowcount
-        self._db.commit()
+        try:
+            if gagal == 1:
+                _catat_status(
+                    self._db,
+                    session_id,
+                    SessionStatus.QUEUED,
+                    SessionStatus.FAILED,
+                    StopReason.ERROR,
+                )
+            self._db.commit()
+        except Exception:
+            # Sama seperti start() dan change_status: session worker harus tetap bisa dipakai.
+            self._db.rollback()
+            raise
         return gagal == 1
 
     def _freeze(

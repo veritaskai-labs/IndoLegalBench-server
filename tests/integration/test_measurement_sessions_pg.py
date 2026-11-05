@@ -13,6 +13,7 @@ from zoneinfo import ZoneInfo
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import DBAPIError
 
 from tests.measurement_pg import (
     CHECK_VIOLATION,
@@ -103,6 +104,56 @@ def test_label_kosong_atau_hanya_spasi_ditolak(conn, produk_id, admin_id, label)
     sqlstate = _ditolak(conn, produk_id=produk_id, admin_id=admin_id, label=label)
 
     assert sqlstate == CHECK_VIOLATION
+
+
+# SCRUM-214, catatan Adra di #89: trim() PostgreSQL hanya membuang spasi biasa.
+KOSONG_TAK_TERLIHAT = {
+    "tab-baris": "\t\n",
+    "nbsp": "\u00a0",
+    "zwsp": "\u200b",
+    "bom": "\ufeff",
+    "spasi-ideografik": "\u3000",
+    "campuran": " \u00a0\u200b\t",
+}
+
+
+@pytest.mark.parametrize("label", list(KOSONG_TAK_TERLIHAT.values()), ids=list(KOSONG_TAK_TERLIHAT))
+def test_label_yang_hanya_berisi_karakter_kosong_tak_terlihat_ditolak(
+    conn, produk_id, admin_id, label
+):
+    """Negatif: tab, NBSP, zero-width, BOM saja bukan nama sesi, walau API dilewati."""
+    sqlstate = _ditolak(conn, produk_id=produk_id, admin_id=admin_id, label=label)
+
+    assert sqlstate == CHECK_VIOLATION
+
+
+def test_setiap_karakter_kosong_python_juga_ditolak_database(conn, produk_id, admin_id):
+    """Edge: CHECK database dan app.shared.text memakai daftar yang sama, karakter per karakter."""
+    # Di dalam tes, supaya modul yang belum ada tidak menghentikan pengumpulan file ini.
+    from app.shared.text import BLANK_CHARS
+
+    lolos = []
+    for karakter in BLANK_CHARS:
+        savepoint = conn.begin_nested()
+        try:
+            _sesi(conn, produk_id, admin_id, label=karakter * 2)
+        except DBAPIError as error:
+            assert error.orig.sqlstate == CHECK_VIOLATION
+        else:
+            lolos.append(f"U+{ord(karakter):04X}")
+        savepoint.rollback()
+
+    assert lolos == []
+
+
+def test_label_dengan_karakter_tak_terlihat_di_tengah_diterima(conn, produk_id, admin_id):
+    """Edge: hanya label yang seluruhnya kosong yang ditolak."""
+    sesi_id = _sesi(conn, produk_id, admin_id, label="\u200bRun\u00a0November\u200b")
+
+    label = conn.execute(
+        text("SELECT label FROM measurement_sessions WHERE id = :id"), {"id": sesi_id}
+    ).scalar_one()
+    assert label == "\u200bRun\u00a0November\u200b"
 
 
 def test_label_dua_ratus_karakter_diterima_lebih_ditolak(conn, produk_id, admin_id):
@@ -261,6 +312,26 @@ def test_terima_apa_adanya_wajib_lengkap(conn, produk_id, admin_id, isian):
         conn,
         f"UPDATE measurement_sessions SET {isian} WHERE id = :id",
         {"id": sesi_id, "admin_id": admin_id},
+    )
+
+    assert sqlstate == CHECK_VIOLATION
+
+
+@pytest.mark.parametrize(
+    "alasan", list(KOSONG_TAK_TERLIHAT.values()), ids=list(KOSONG_TAK_TERLIHAT)
+)
+def test_alasan_terima_yang_hanya_berisi_karakter_kosong_tak_terlihat_ditolak(
+    conn, produk_id, admin_id, alasan
+):
+    """Negatif: alasan 'terima apa adanya' wajib berisi teks nyata (AC9, SCRUM-214)."""
+    sesi_id = _sesi(conn, produk_id, admin_id)
+    ubah_status(conn, sesi_id, "finished_with_failures")
+
+    sqlstate = sqlstate_penolakan(
+        conn,
+        "UPDATE measurement_sessions SET accepted_as_is_at = now(), "
+        "accepted_as_is_by = :admin_id, accepted_as_is_reason = :alasan WHERE id = :id",
+        {"id": sesi_id, "admin_id": admin_id, "alasan": alasan},
     )
 
     assert sqlstate == CHECK_VIOLATION

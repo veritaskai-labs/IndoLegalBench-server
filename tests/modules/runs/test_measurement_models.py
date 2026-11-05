@@ -10,6 +10,7 @@ menghentikan seluruh pengumpulan tes.
 """
 
 import importlib
+from datetime import UTC, datetime
 
 import pytest
 from sqlalchemy import text
@@ -113,3 +114,55 @@ def test_salinan_produk_tanpa_kolom_kredensial(runs_models):
 
     assert "name" in kolom
     assert not [nama for nama in kolom if "credential" in nama]
+
+
+# SCRUM-214, catatan Adra di #89: CHECK label dan alasan "terima apa adanya" dulu memakai
+# trim() biasa, jadi tab, NBSP, atau zero-width saja lolos. CHECK model berlaku juga di
+# SQLite (create_all), jadi tes unit ikut menjaganya.
+KOSONG_TAK_TERLIHAT = {"tab-baris": "\t\n", "nbsp": "\u00a0", "zwsp": "\u200b", "bom": "\ufeff"}
+
+
+@pytest.mark.parametrize("label", list(KOSONG_TAK_TERLIHAT.values()), ids=list(KOSONG_TAK_TERLIHAT))
+def test_label_yang_hanya_berisi_karakter_kosong_ditolak_database(
+    db_session, runs_models, produk, admin, label
+):
+    """Negatif: database menolak label kosong walau API dilewati."""
+    # Act / Assert
+    db_session.add(_sesi(runs_models, produk, admin, label=label))
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()
+
+
+def test_label_dengan_zero_width_di_tengah_diterima_database(
+    db_session, runs_models, produk, admin
+):
+    """Edge: hanya label yang seluruhnya kosong yang ditolak."""
+    # Act
+    db_session.add(_sesi(runs_models, produk, admin, label="Run\u200bNovember"))
+    db_session.commit()
+
+    # Assert
+    assert db_session.query(runs_models.MeasurementSession).one().label == "Run\u200bNovember"
+
+
+@pytest.mark.parametrize(
+    "alasan", list(KOSONG_TAK_TERLIHAT.values()), ids=list(KOSONG_TAK_TERLIHAT)
+)
+def test_alasan_terima_yang_hanya_berisi_karakter_kosong_ditolak_database(
+    db_session, runs_models, produk, admin, alasan
+):
+    """Negatif: alasan 'terima apa adanya' wajib berisi teks nyata (AC9)."""
+    # Arrange
+    m = runs_models
+    sesi = _sesi(m, produk, admin, status=m.SessionStatus.FINISHED_WITH_FAILURES)
+    db_session.add(sesi)
+    db_session.commit()
+
+    # Act / Assert
+    sesi.accepted_as_is_at = datetime(2026, 11, 4, tzinfo=UTC)
+    sesi.accepted_as_is_by = admin.id
+    sesi.accepted_as_is_reason = alasan
+    with pytest.raises(IntegrityError):
+        db_session.commit()
+    db_session.rollback()

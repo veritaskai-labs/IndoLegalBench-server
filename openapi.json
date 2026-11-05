@@ -181,6 +181,26 @@
         "summary": "Landing lokal setelah login",
         "description": "Same payload as /me. Used when there is no frontend on :3000.",
         "operationId": "auth_done_auth_done_get",
+        "parameters": [
+          {
+            "name": "X-Veritask-Activity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact value `passive` authenticates without updating last_activity_at. Any other value, or omitting the header, refreshes activity. Every route that uses get_current_user or require_role honors this header and, on success, sets X-Veritask-Idle-Timeout, X-Veritask-Idle-Deadline, and X-Veritask-Absolute-Expires-At.",
+              "title": "X-Veritask-Activity"
+            },
+            "description": "Exact value `passive` authenticates without updating last_activity_at. Any other value, or omitting the header, refreshes activity. Every route that uses get_current_user or require_role honors this header and, on success, sets X-Veritask-Idle-Timeout, X-Veritask-Idle-Deadline, and X-Veritask-Absolute-Expires-At."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -188,6 +208,28 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-Veritask-Idle-Timeout": {
+                "description": "Configured idle timeout in seconds (IDLE_TIMEOUT_MINUTES * 60).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Veritask-Idle-Deadline": {
+                "description": "When the idle window ends, after this request's activity decision. Not taken from the client.",
+                "schema": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "X-Veritask-Absolute-Expires-At": {
+                "description": "sessions.expires_at, set at login and not extended by requests.",
+                "schema": {
+                  "type": "string",
+                  "format": "date-time"
                 }
               }
             }
@@ -198,6 +240,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -212,6 +264,26 @@
         ],
         "summary": "Profil pengguna yang sedang login",
         "operationId": "me_me_get",
+        "parameters": [
+          {
+            "name": "X-Veritask-Activity",
+            "in": "header",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Exact value `passive` authenticates without updating last_activity_at. Any other value, or omitting the header, refreshes activity. Every route that uses get_current_user or require_role honors this header and, on success, sets X-Veritask-Idle-Timeout, X-Veritask-Idle-Deadline, and X-Veritask-Absolute-Expires-At.",
+              "title": "X-Veritask-Activity"
+            },
+            "description": "Exact value `passive` authenticates without updating last_activity_at. Any other value, or omitting the header, refreshes activity. Every route that uses get_current_user or require_role honors this header and, on success, sets X-Veritask-Idle-Timeout, X-Veritask-Idle-Deadline, and X-Veritask-Absolute-Expires-At."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -219,6 +291,28 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/MeResponse"
+                }
+              }
+            },
+            "headers": {
+              "X-Veritask-Idle-Timeout": {
+                "description": "Configured idle timeout in seconds (IDLE_TIMEOUT_MINUTES * 60).",
+                "schema": {
+                  "type": "string"
+                }
+              },
+              "X-Veritask-Idle-Deadline": {
+                "description": "When the idle window ends, after this request's activity decision. Not taken from the client.",
+                "schema": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              },
+              "X-Veritask-Absolute-Expires-At": {
+                "description": "sessions.expires_at, set at login and not extended by requests.",
+                "schema": {
+                  "type": "string",
+                  "format": "date-time"
                 }
               }
             }
@@ -229,6 +323,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -7820,6 +7924,11 @@
             "title": "Accepted As Is Reason",
             "description": "Alasan tertulis terima apa adanya"
           },
+          "report_eligible": {
+            "type": "boolean",
+            "title": "Report Eligible",
+            "description": "Boleh jadi dasar laporan (D4): finished, atau finished_with_failures yang diterima apa adanya. cancelled dan status lain false (PBI-15/16)"
+          },
           "cases": {
             "items": {
               "$ref": "#/components/schemas/SessionCaseResult"
@@ -7853,6 +7962,7 @@
           "accepted_as_is_at",
           "accepted_as_is_by",
           "accepted_as_is_reason",
+          "report_eligible",
           "cases"
         ],
         "title": "SessionDetail",

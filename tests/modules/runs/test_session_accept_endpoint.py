@@ -96,7 +96,34 @@ def test_alasan_disimpan_tanpa_spasi_di_tepi(as_role, db_session, gagal_sebagian
     assert _baca(db_session, gagal_sebagian.id).accepted_as_is_reason == "Cukup"
 
 
-@pytest.mark.parametrize("isi", [{}, {"reason": None}, {"reason": ""}, {"reason": "   "}])
+def test_karakter_kosong_tak_terlihat_di_tepi_alasan_dibuang(as_role, db_session, gagal_sebagian):
+    """Edge: zero-width, NBSP, dan baris baru di tepi alasan dibuang, isi di tengah tetap."""
+    # Act
+    response = as_role(Role.ADMIN).patch(
+        _url(gagal_sebagian.id), json={"reason": "\u200b\nGangguan\u00a0penyedia\u00a0\ufeff"}
+    )
+
+    # Assert
+    assert response.status_code == 200
+    tersimpan = _baca(db_session, gagal_sebagian.id).accepted_as_is_reason
+    assert tersimpan == "Gangguan\u00a0penyedia"
+
+
+@pytest.mark.parametrize(
+    "isi",
+    [
+        {},
+        {"reason": None},
+        {"reason": ""},
+        {"reason": "   "},
+        # Catatan Adra di #89: karakter kosong selain spasi biasa.
+        {"reason": "\t\n"},
+        {"reason": "\u00a0"},
+        {"reason": "\u200b\u200b"},
+        {"reason": " \ufeff\u2060 "},
+    ],
+    ids=["tanpa-isian", "null", "kosong", "spasi", "tab-baris", "nbsp", "zwsp", "bom-wj"],
+)
 def test_tanpa_alasan_ditolak(as_role, db_session, gagal_sebagian, isi):
     """Negatif: alasan wajib (AC9); kosong, null, atau hanya spasi = 422 REASON_REQUIRED."""
     # Act
