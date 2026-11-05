@@ -215,3 +215,49 @@ def test_coba_ulang_boleh_setelah_tanda_terima_dihapus(status_repo, sesi, db_ses
 
     # Assert
     assert _baris(db_session, sesi_id).status == SessionStatus.RUNNING
+
+
+def test_coba_ulang_mengosongkan_waktu_selesai_lama(status_repo, sesi, db_session):
+    """Negatif: running -> finished_with_failures -> running tidak membawa finished_at lama.
+
+    Ditemukan Roben di review #97: GET menjawab status running dengan finished_at terisi,
+    padahal sesinya belum selesai lagi.
+    """
+    # Arrange
+    sesi_id = sesi("running")
+    status_repo.change_status(sesi_id, SessionStatus.FINISHED_WITH_FAILURES, at=JAM)
+
+    # Act
+    status_repo.change_status(sesi_id, SessionStatus.RUNNING, at=NANTI)
+
+    # Assert
+    assert _baris(db_session, sesi_id).finished_at is None
+
+
+def test_coba_ulang_lalu_dijeda_tetap_tanpa_waktu_selesai(status_repo, sesi, db_session):
+    """Edge: coba ulang yang dijeda belum selesai, jadi finished_at tetap kosong."""
+    # Arrange
+    sesi_id = sesi("running")
+    status_repo.change_status(sesi_id, SessionStatus.FINISHED_WITH_FAILURES, at=JAM)
+    status_repo.change_status(sesi_id, SessionStatus.RUNNING, at=NANTI)
+
+    # Act
+    status_repo.change_status(sesi_id, SessionStatus.PAUSED, at=NANTI, stop_reason="user")
+
+    # Assert
+    baris = _baris(db_session, sesi_id)
+    assert (baris.status, baris.finished_at) == (SessionStatus.PAUSED, None)
+
+
+def test_coba_ulang_yang_selesai_lagi_mencatat_waktu_selesai_baru(status_repo, sesi, db_session):
+    """Positif: selesai kedua kali memakai waktu selesai yang baru, bukan yang pertama."""
+    # Arrange
+    sesi_id = sesi("running")
+    status_repo.change_status(sesi_id, SessionStatus.FINISHED_WITH_FAILURES, at=JAM)
+    status_repo.change_status(sesi_id, SessionStatus.RUNNING, at=JAM + timedelta(minutes=5))
+
+    # Act
+    status_repo.change_status(sesi_id, SessionStatus.FINISHED, at=NANTI)
+
+    # Assert
+    assert _utc(_baris(db_session, sesi_id).finished_at) == NANTI
