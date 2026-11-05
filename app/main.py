@@ -11,6 +11,7 @@ Satu-satunya tugas file ini:
 Jangan menaruh logika bisnis di file ini.
 """
 
+import logging
 import uuid
 from contextlib import asynccontextmanager
 
@@ -43,22 +44,27 @@ from app.shared.exceptions import DomainError, SessionExpiredError
 from app.shared.validation_errors import detail_aman
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 # PBI-18: setiap perubahan di tabel katalog D6a tercatat otomatis.
 audit_listener.install()
 
 
 def _recover_sessions_on_startup() -> None:
-    """SCRUM-217: Saat server menyala, tandai sesi RUNNING menjadi PAUSED (AC8, D5)."""
+    """SCRUM-217: Saat API server menyala, pulihkan sesi RUNNING jika worker lease bebas."""
     try:
+        from app.modules.runs.execution import worker_lease
         from app.modules.runs.recovery import recover_after_restart
         from app.shared.database import get_session_factory
 
-        with get_session_factory()() as db:
+        with get_session_factory()() as db, worker_lease(db.get_bind()) as acquired:
+            if not acquired:
+                logger.info("Worker lease currently held by active worker; skipping API recovery.")
+                return
             recover_after_restart(db)
     except Exception:
         # Menjaga server tetap boot bila database belum siap atau migrasi belum selesai.
-        pass
+        logger.exception("Failed to recover sessions on startup")
 
 
 @asynccontextmanager

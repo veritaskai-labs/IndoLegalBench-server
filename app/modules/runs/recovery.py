@@ -13,6 +13,7 @@ Tujuan:
    ditandai Dihentikan lewat layanan transisi (SessionStatusRepository).
 """
 
+import logging
 import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
@@ -29,6 +30,8 @@ from app.modules.runs.models import (
     StopReason,
 )
 from app.modules.runs.repository import SessionStatusRepository
+
+logger = logging.getLogger(__name__)
 
 # Default timeout heartbeat: 300 detik (5 menit).
 # Batas waktu satu panggilan ke penyedia AI adalah 240 detik (ASK_TIMEOUT_SECONDS),
@@ -82,20 +85,23 @@ class RecoveryService:
 
         recovered_ids: list[uuid.UUID] = []
         for session_id in running_sessions:
-            # 1. Reset in-flight attempts to pending (parkir teknis, D5 langkah 41)
-            self._reset_interrupted_attempts(session_id)
+            try:
+                # 1. Reset in-flight attempts to pending (parkir teknis, D5 langkah 41)
+                self._reset_interrupted_attempts(session_id)
 
-            # 2. Transition session to paused with stop_reason restart
-            self._status_repo.change_status(
-                session_id,
-                SessionStatus.PAUSED,
-                at=now,
-                stop_reason=StopReason.RESTART,
-                commit=False,
-            )
-            recovered_ids.append(session_id)
+                # 2. Transition session to paused with stop_reason restart
+                self._status_repo.change_status(
+                    session_id,
+                    SessionStatus.PAUSED,
+                    at=now,
+                    stop_reason=StopReason.RESTART,
+                    commit=True,
+                )
+                recovered_ids.append(session_id)
+            except Exception:
+                self._db.rollback()
+                logger.exception("Failed to recover session %s on restart", session_id)
 
-        self._db.commit()
         return recovered_ids
 
     def check_worker_liveness(
@@ -124,18 +130,22 @@ class RecoveryService:
         for session in candidates:
             session_updated_at = _as_utc(session.updated_at)
             if session_updated_at is not None and session_updated_at <= cutoff:
-                self._reset_interrupted_attempts(session.id)
-                self._status_repo.change_status(
-                    session.id,
-                    SessionStatus.PAUSED,
-                    at=now,
-                    stop_reason=StopReason.RESTART,
-                    commit=False,
-                )
-                stale_ids.append(session.id)
+                try:
+                    self._reset_interrupted_attempts(session.id)
+                    self._status_repo.change_status(
+                        session.id,
+                        SessionStatus.PAUSED,
+                        at=now,
+                        stop_reason=StopReason.RESTART,
+                        commit=True,
+                    )
+                    stale_ids.append(session.id)
+                except Exception:
+                    self._db.rollback()
+                    logger.exception(
+                        "Failed to pause stale session %s on liveness check", session.id
+                    )
 
-        if stale_ids:
-            self._db.commit()
         return stale_ids
 
     def record_heartbeat(self, session_id: uuid.UUID) -> bool:

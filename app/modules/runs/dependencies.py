@@ -25,7 +25,6 @@ from app.modules.runs.exchange_rate import (
     JisdorExchangeRate,
 )
 from app.modules.runs.pricing import ConfigPriceCatalog
-from app.modules.runs.recovery import RecoveryService
 from app.modules.runs.repository import (
     CallLogRepository,
     SessionListRepository,
@@ -145,7 +144,3 @@ def run_queued_measurement(
         product_id=product_id,
         **kwargs,
     )
-
-
-def get_recovery_service(db: Session = Depends(get_db)) -> RecoveryService:
-    return RecoveryService(db)
