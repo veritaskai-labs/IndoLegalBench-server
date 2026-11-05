@@ -10,6 +10,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 
 from pydantic import BaseModel, Field, field_validator
 
@@ -197,13 +198,20 @@ class SessionDetail(SessionListItem):
         description="Waktu sesi berhenti (jeda, anggaran, restart, error). null selama berjalan"
     )
     stop_reason: StopReason | None = Field(
-        description="Penyebab berhenti: user, budget, restart (paused) atau error (failed)"
+        description="Penyebab berhenti: user, budget, restart; error untuk persiapan gagal atau versi berubah setelah resume"
     )
     accepted_as_is_at: datetime | None = Field(
         description="Waktu Admin menandai terima apa adanya. null bila tidak tertanda"
     )
     accepted_as_is_by: uuid.UUID | None = Field(description="Admin yang menerima sesi")
     accepted_as_is_reason: str | None = Field(description="Alasan tertulis terima apa adanya")
+    resumed_after_long_pause: bool = Field(
+        default=False, description="Pernah dilanjutkan setelah jeda melebihi batas konfigurasi"
+    )
+    model_version_unverified: bool = Field(
+        default=False, description="Pernah dilanjutkan tanpa bukti versi terverifikasi"
+    )
+    resume_error_code: Literal["MODEL_VERSION_CHANGED"] | None = None
     report_eligible: bool = Field(
         description=(
             "Boleh jadi dasar laporan (D4): finished, atau finished_with_failures yang "
@@ -250,3 +258,27 @@ class StartResponse(BaseModel):
     status: SessionStatus = Field(description="Selalu queued: worker yang menjalankan saat giliran")
     # Nama D2 (keputusan PO di #89): antrean FIFO diurutkan dengan queued_at.
     queued_at: datetime = Field(description="Waktu masuk antrean; yang lebih awal jalan lebih dulu")
+
+
+class SessionControlResponse(BaseModel):
+    """Kontrol diterima (202); call aktif masih boleh menyelesaikan persistence."""
+
+    id: uuid.UUID
+    status: SessionStatus
+    stopped_at: datetime
+    stop_reason: StopReason
+
+
+class SessionResumeRequest(BaseModel):
+    """Konfirmasi eksplisit Admin bila pernah sukses tetapi provider belum memberi versi."""
+
+    confirm_unverified_version: bool = Field(default=False, strict=True)
+
+
+class SessionResumeResponse(BaseModel):
+    """202: worker yang sama melanjutkan pending; cancellation sebelum mulai masuk queued."""
+
+    id: uuid.UUID
+    status: SessionStatus
+    resumed_after_long_pause: bool
+    model_version_unverified: bool

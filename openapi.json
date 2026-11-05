@@ -3023,6 +3023,267 @@
         }
       }
     },
+    "/measurements/{session_id}/pause": {
+      "post": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Jeda seluruh sesi; call aktif tetap disimpan sebelum worker berhenti",
+        "operationId": "pause_measurements__session_id__pause_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionControlResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Belum masuk (`UNAUTHENTICATED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya Admin, atau Dev AI pemilik bila flag aktif (`FORBIDDEN`, `NOT_YOUR_SESSION`, `ADMIN_CONFIRMATION_REQUIRED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sesi tidak ada (`MEASUREMENT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Transisi tidak sah atau berulang (`INVALID_TRANSITION`), sesi diarsipkan (`SESSION_ARCHIVED`), diterima apa adanya (`SESSION_ACCEPTED`), atau manual (`SESSION_NOT_AUTOMATIC`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/measurements/{session_id}/cancel": {
+      "post": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Batalkan seluruh sesi; hasil, call log dan biaya tetap tersimpan",
+        "operationId": "cancel_measurements__session_id__cancel_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionControlResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Belum masuk (`UNAUTHENTICATED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya Admin, atau Dev AI pemilik bila flag aktif (`FORBIDDEN`, `NOT_YOUR_SESSION`, `ADMIN_CONFIRMATION_REQUIRED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sesi tidak ada (`MEASUREMENT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Transisi tidak sah atau berulang (`INVALID_TRANSITION`), sesi diarsipkan (`SESSION_ARCHIVED`), diterima apa adanya (`SESSION_ACCEPTED`), atau manual (`SESSION_NOT_AUTOMATIC`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/measurements/{session_id}/resume": {
+      "post": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Lanjutkan sisa pekerjaan dengan guard versi dan penanda jeda panjang",
+        "operationId": "resume_measurements__session_id__resume_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionResumeRequest",
+                "default": {
+                  "confirm_unverified_version": false
+                }
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionResumeResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Belum masuk (`UNAUTHENTICATED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya Admin, atau Dev AI pemilik bila flag aktif (`FORBIDDEN`, `NOT_YOUR_SESSION`, `ADMIN_CONFIRMATION_REQUIRED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sesi tidak ada (`MEASUREMENT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Resume ditolak: MODEL_VERSION_CHANGED (mulai sesi baru), MODEL_VERSION_CONFIRMATION_REQUIRED (konfirmasi Admin), ATTEMPT_RECOVERY_REQUIRED, ANOTHER_SESSION_RUNNING, SESSION_NOT_RESUMABLE, SESSION_ARCHIVED, SESSION_ACCEPTED, SESSION_NOT_AUTOMATIC.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/measurements/summary": {
       "post": {
         "tags": [
@@ -7734,6 +7995,35 @@
         "title": "SessionCaseResult",
         "description": "Satu kasus di snapshot sesi beserta percobaannya, urut nomor pengulangan."
       },
+      "SessionControlResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          },
+          "stopped_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Stopped At"
+          },
+          "stop_reason": {
+            "$ref": "#/components/schemas/StopReason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "stopped_at",
+          "stop_reason"
+        ],
+        "title": "SessionControlResponse",
+        "description": "Kontrol diterima (202); call aktif masih boleh menyelesaikan persistence."
+      },
       "SessionDetail": {
         "properties": {
           "id": {
@@ -7884,7 +8174,7 @@
                 "type": "null"
               }
             ],
-            "description": "Penyebab berhenti: user, budget, restart (paused) atau error (failed)"
+            "description": "Penyebab berhenti: user, budget, restart; error untuk persiapan gagal atau versi berubah setelah resume"
           },
           "accepted_as_is_at": {
             "anyOf": [
@@ -7923,6 +8213,30 @@
             ],
             "title": "Accepted As Is Reason",
             "description": "Alasan tertulis terima apa adanya"
+          },
+          "resumed_after_long_pause": {
+            "type": "boolean",
+            "title": "Resumed After Long Pause",
+            "description": "Pernah dilanjutkan setelah jeda melebihi batas konfigurasi",
+            "default": false
+          },
+          "model_version_unverified": {
+            "type": "boolean",
+            "title": "Model Version Unverified",
+            "description": "Pernah dilanjutkan tanpa bukti versi terverifikasi",
+            "default": false
+          },
+          "resume_error_code": {
+            "anyOf": [
+              {
+                "type": "string",
+                "const": "MODEL_VERSION_CHANGED"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Resume Error Code"
           },
           "report_eligible": {
             "type": "boolean",
@@ -8079,6 +8393,47 @@
         "title": "SessionProgressRead",
         "description": "Progres \"X dari N\" di daftar sesi (PBI-11 AC10)."
       },
+      "SessionResumeRequest": {
+        "properties": {
+          "confirm_unverified_version": {
+            "type": "boolean",
+            "title": "Confirm Unverified Version",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "SessionResumeRequest",
+        "description": "Konfirmasi eksplisit Admin bila pernah sukses tetapi provider belum memberi versi."
+      },
+      "SessionResumeResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          },
+          "resumed_after_long_pause": {
+            "type": "boolean",
+            "title": "Resumed After Long Pause"
+          },
+          "model_version_unverified": {
+            "type": "boolean",
+            "title": "Model Version Unverified"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "resumed_after_long_pause",
+          "model_version_unverified"
+        ],
+        "title": "SessionResumeResponse",
+        "description": "202: worker yang sama melanjutkan pending; cancellation sebelum mulai masuk queued."
+      },
       "SessionStatus": {
         "type": "string",
         "enum": [
@@ -8223,7 +8578,7 @@
           "error"
         ],
         "title": "StopReason",
-        "description": "Penyebab sesi berhenti (D2 stop_reason). paused: user, budget, restart; failed: error."
+        "description": "paused: user, budget, restart, atau error versi setelah resume; failed: error persiapan."
       },
       "SuiteCreate": {
         "properties": {
