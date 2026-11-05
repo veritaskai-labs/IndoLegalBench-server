@@ -56,6 +56,25 @@ services:
         aliases: ["${STACK}-api"]
     logging: *logging
 
+  worker:
+    build: ..
+    image: indolegalbench-server:${STACK:?set STACK in deploy/.env}
+    command: ["python", "-m", "app.measurement_worker"]
+    restart: unless-stopped
+    # Allow the bounded provider call to finish and persist before graceful shutdown.
+    stop_grace_period: 260s
+    environment:
+      APP_ENV: ${APP_ENV:?set APP_ENV in deploy/.env}
+      DEBUG: "false"
+      AUTH_OIDC_MODE: zitadel
+      DATABASE_URL: postgresql+psycopg://indolegalbench:${POSTGRES_PASSWORD}@db:5432/indolegalbench
+      CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
+      JISDOR_API_KEY: ${JISDOR_API_KEY:-}
+    depends_on:
+      db:
+        condition: service_healthy
+    logging: *logging
+
   web:
     build:
       context: ${CLIENT_DIR:-../../IndoLegalBench-client}
