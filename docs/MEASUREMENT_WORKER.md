@@ -37,12 +37,15 @@ Controls default to Admin-only. `MEASUREMENT_DEV_AI_CONTROLS_ENABLED=false` keep
 Developer AI view access unchanged; if explicitly enabled, only sessions with
 `created_by` equal to that Developer AI's user ID can be controlled. An Admin
 must still provide any required unknown-version confirmation.
-The approved pause/cancel/resume rollout rule is Admin by default, with own-session
-Developer AI access only when the explicit flag is enabled. Retry (#99) should
+Pending formal PO sign-off on D10, the implemented conservative rollout is Admin
+by default for pause/cancel/resume, with own-session Developer AI access only
+when the explicit flag is enabled. Retry (#99) should
 align with this rollout rule; unknown-version confirmation remains Admin-only.
-SCRUM-216 implements pause/cancel/resume. The retry owner must align its separate
-endpoint before the combined PBI is accepted. Archive is a separate operation; its
-own-session ownership rule is reused here without broadening execution rights.
+SCRUM-216 implements pause/cancel/resume. The retry owner plans to align its
+separate endpoint with this proposed policy
+([SA rereview](https://github.com/veritaskai-labs/IndoLegalBench-server/pull/102#pullrequestreview-5785387291));
+PBI acceptance still requires the PO permission decision. Archive is a separate
+operation; its own-session ownership rule is reused here without broadening execution rights.
 Pause and cancel return 202 with `{id, status, stopped_at, stop_reason}` after the control
 transaction commits. The state blocks the next dispatch; an already claimed call
 may still be finishing and will keep its answer, call log and cost. `stop_reason`
@@ -93,8 +96,8 @@ No actual environment/credential file is changed by this implementation.
 Apply migration `e216a5b7c901` and deploy matching API/worker code together. Downgrade
 refuses while resume verification/marker evidence exists rather than silently
 discarding a model-version block. Preserve that evidence and reconcile with the
-owner before rollback. The migration branches from #98; whichever of this change
-and #99 lands second must reconcile its Alembic parent with final staging.
+owner before rollback. The migration follows staging revision `e7a41c2b9d53` from #104. Whichever of
+this change and #99 lands second must reconcile its Alembic parent with final staging.
 
 Final status and the starter's in-app notification commit atomically through the
 existing notifier contract. Repeating finalization does not send a second message.
@@ -120,6 +123,9 @@ then the existing configuration catalog). Never use fabricated prices/rates to
 make a measurement proceed. The worker needs the same applicable cost settings
 and daily-rate configuration as the API. No `.env` file or actual credential is
 included in this change.
+
+See [MEASUREMENT_COST_SETUP.md](MEASUREMENT_COST_SETUP.md) for the shared API/worker
+environment contract, approved-value requirements and non-secret dev smoke checks.
 
 Verification: run the runtime integration tests with a controlled provider, then
 repeat against migrated PostgreSQL, including enum/trigger and advisory-lock

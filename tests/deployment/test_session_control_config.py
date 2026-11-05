@@ -69,3 +69,13 @@ def test_settings_read_approved_environment_names(monkeypatch):
     settings = Settings(_env_file=None)
     assert settings.resume_long_stop_days == 2
     assert settings.measurement_dev_ai_controls_enabled is True
+
+
+def test_alembic_history_has_one_head():
+    """Independent feature migrations must form one deployable upgrade path."""
+    from alembic.config import Config
+    from alembic.script import ScriptDirectory
+
+    config = Config(str(Path(__file__).resolve().parents[2] / "alembic.ini"))
+    history = ScriptDirectory.from_config(config)
+    assert len(history.get_heads()) == 1, history.get_heads()

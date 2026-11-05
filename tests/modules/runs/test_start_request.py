@@ -157,3 +157,37 @@ def test_provider_penilai_bukan_uuid_ditolak():
     # Act + Assert
     with pytest.raises(ValidationError):
         schemas.StartRequest(**body)
+
+
+# SCRUM-214, catatan Adra di #89: label yang hanya berisi karakter kosong tak terlihat.
+LABEL_KOSONG = {
+    "tab-baris": "\t\n",
+    "nbsp": "\u00a0",
+    "zwsp": "\u200b\u200b",
+    "bom": "\ufeff",
+    "spasi-ideografik": "\u3000",
+    "campuran": " \u00a0\u200b\t",
+}
+
+
+@pytest.mark.parametrize("label", list(LABEL_KOSONG.values()), ids=list(LABEL_KOSONG))
+def test_label_yang_hanya_berisi_karakter_kosong_ditolak(label):
+    """Negatif: tab, baris baru, NBSP, zero-width, atau BOM saja bukan nama sesi (AC1)."""
+    # Arrange
+    body = _body(label=label)
+
+    # Act + Assert
+    with pytest.raises(ValidationError):
+        schemas.StartRequest(**body)
+
+
+def test_karakter_kosong_tak_terlihat_di_tepi_label_dibuang():
+    """Edge: zero-width dan NBSP di tepi ikut dibuang, isi di tengah tetap."""
+    # Arrange
+    body = _body(label="\u200b\u00a0Run\u00a0November\ufeff")
+
+    # Act
+    request = schemas.StartRequest(**body)
+
+    # Assert
+    assert request.label == "Run\u00a0November"

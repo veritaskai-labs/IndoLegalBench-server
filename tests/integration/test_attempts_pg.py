@@ -96,9 +96,19 @@ def _ditolak(conn, **ubah) -> str:
 
 
 def _jawab(conn, percobaan_id, jawaban: str = JAWABAN) -> None:
+    # Lewat running dulu: sejak SCRUM-214 database menolak pending -> succeeded (D4 bagian B).
+    _mulai(conn, percobaan_id)
     conn.execute(
         text("UPDATE attempts SET answer_text = :jawaban, status = 'succeeded' WHERE id = :id"),
         {"jawaban": jawaban, "id": percobaan_id},
+    )
+
+
+def _mulai(conn, percobaan_id) -> None:
+    """Worker mengambil percobaan: pending -> running. Tidak mengubah yang sudah berjalan."""
+    conn.execute(
+        text("UPDATE attempts SET status = 'running' WHERE id = :id AND status = 'pending'"),
+        {"id": percobaan_id},
     )
 
 
@@ -175,6 +185,7 @@ def test_status_bergerak_lalu_jawaban_ditulis_sekali(conn, sesi_id, item_id):
 
 def test_kegagalan_teknis_tanpa_jawaban(conn, sesi_id, item_id):
     percobaan_id = _percobaan(conn, sesi_id, item_id)
+    _mulai(conn, percobaan_id)
 
     conn.execute(
         text("UPDATE attempts SET status = 'technical_failure' WHERE id = :id"),
@@ -253,6 +264,7 @@ def test_baris_jawaban_yang_sudah_ada_tidak_bisa_dipindah(
     """Review #89 blocker 5: jawaban permanen tidak berarti kalau barisnya bisa
     dipindah ke sesi, kasus, atau versi model lain."""
     percobaan_id = _percobaan(conn, sesi_id, item_id)
+    _mulai(conn, percobaan_id)
     conn.execute(
         text(
             "UPDATE attempts SET answer_text = :jawaban, model_version = 'model-uji-2026-10', "

@@ -127,11 +127,12 @@ def _aware(stamp: datetime) -> datetime:
     return stamp
 
 
-def resolve_session(db: DbSession, session_id: uuid.UUID) -> User:
+def resolve_session(db: DbSession, session_id: uuid.UUID, *, refresh_activity: bool = True) -> User:
     """Load an active session and enforce idle plus the absolute cap.
 
     Other modules must go through get_current_user / require_role, not this
-    function, except auth itself.
+    function, except auth itself. refresh_activity is false for a passive
+    request: the checks still run, and last_activity_at is left as it is.
     """
     session = repository.get_session(db, session_id)
     if session is None:
@@ -151,7 +152,8 @@ def resolve_session(db: DbSession, session_id: uuid.UUID) -> User:
         repository.delete_session(db, session_id)
         raise UnauthenticatedError("Authentication required.")
 
-    repository.update_session_activity(db, session, last_activity_at=now)
+    if refresh_activity:
+        repository.update_session_activity(db, session, last_activity_at=now)
     return user
 
 

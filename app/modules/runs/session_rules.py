@@ -9,6 +9,7 @@ from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
+from app.modules.runs.models import SessionStatus
 from app.shared.exceptions import ConflictError
 
 # Sesi yang sudah berakhir. Status PBI-12 (stopped, cancelled) belum ada di sini
@@ -45,6 +46,19 @@ def progress(status_counts: Mapping[str, int]) -> SessionProgress:
 def has_ended(status: str) -> bool:
     """Status yang belum dikenal dianggap belum berakhir, supaya aturannya tetap ketat."""
     return status in _ENDED
+
+
+def is_report_eligible(status: SessionStatus | str, *, accepted_as_is_at: datetime | None) -> bool:
+    """Sesi yang boleh jadi dasar laporan (D4, PBI-12 AC7 dan AC9; dipakai PBI-15/16).
+
+    finished layak. finished_with_failures layak hanya bila Admin menerimanya apa
+    adanya. cancelled tidak layak sampai dilanjutkan dan selesai; status lain belum
+    berakhir atau gagal. Status di luar enum ditolak (ValueError), bukan dianggap tidak layak.
+    """
+    status = SessionStatus(status)
+    if status is SessionStatus.FINISHED:
+        return True
+    return status is SessionStatus.FINISHED_WITH_FAILURES and accepted_as_is_at is not None
 
 
 def ensure_archivable(status: str, *, archived_at: datetime | None) -> None:

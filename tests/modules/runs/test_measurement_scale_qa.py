@@ -113,9 +113,10 @@ def test_worker_memanggil_provider_tiga_puluh_kali_dengan_teks_pertanyaan_saja()
 def test_semua_panggilan_gagal_tetap_tiga_puluh_percobaan_dan_loop_berlanjut():
     """Edge: pengukuran lanjut walau setiap panggilan gagal; semuanya tercatat gagal.
 
-    Status akhir sengaja tidak dicek. D4 menyebut semua gagal = Gagal dan sebagian gagal =
-    Selesai dengan kegagalan, tetapi worker masih menulis "finished" untuk keduanya. Itu celah
-    produk yang menunggu keputusan D4 (SCRUM-240), bukan perilaku yang boleh dikunci tes.
+    Status akhir = finished_with_failures, bukan failed (Kak Aileen, 4 Nov, dari SCRUM-210 dan
+    PBI-12 AC1): panggilan gagal tidak menghentikan sesi dan tidak ada ambang kegagalan, jadi
+    sesi jalan sampai habis dan "Coba ulang yang gagal" (AC3) tetap tersedia. failed hanya
+    untuk kesalahan fatal sebelum sesi mulai (SCRUM-214).
     """
     # Arrange
     pertanyaan = [f"Pertanyaan nomor {nomor}?" for nomor in range(1, KASUS + 1)]
@@ -129,4 +130,4 @@ def test_semua_panggilan_gagal_tetap_tiga_puluh_percobaan_dan_loop_berlanjut():
     assert all(rekam.failure_kind is not None for rekam in store.attempts)
     assert store.progress[-1] == (0, KASUS * ULANG)
     # SCRUM-214: worker hanya menulis satu status akhir (running sudah ditulis start()).
-    assert len(store.statuses) == 1
+    assert store.statuses == ["finished_with_failures"]

@@ -17,6 +17,18 @@ x-logging: &logging
     max-size: "10m"
     max-file: "5"
 
+# The API estimates cost; the worker bills calls. Both need the same configuration.
+# Null entries pass through configured host values and stay absent when unset,
+# preserving Settings defaults instead of sending an invalid empty Decimal/JSON.
+x-measurement-cost-environment: &measurement-cost-environment
+  COST_MODEL_PRICES:
+  COST_MODEL_INPUT_PRICES:
+  COST_SAFETY_MARGIN_PERCENT:
+  COST_USD_IDR_FALLBACK_RATE:
+  COST_DEFAULT_AVG_ANSWER_TOKENS:
+  JISDOR_API_URL:
+  JISDOR_API_KEY:
+
 services:
   api:
     build: ..
@@ -26,6 +38,7 @@ services:
     # Exactly one API container. The unfinished-login state lives in process
     # memory, so never scale this service up. See "Read this first".
     environment:
+      <<: *measurement-cost-environment
       APP_ENV: ${APP_ENV:?set APP_ENV in deploy/.env}
       DEBUG: "false"
       DATABASE_URL: postgresql+psycopg://indolegalbench:${POSTGRES_PASSWORD}@db:5432/indolegalbench
@@ -66,12 +79,12 @@ services:
     # Allow the bounded provider call to finish and persist before graceful shutdown.
     stop_grace_period: 260s
     environment:
+      <<: *measurement-cost-environment
       APP_ENV: ${APP_ENV:?set APP_ENV in deploy/.env}
       DEBUG: "false"
       AUTH_OIDC_MODE: zitadel
       DATABASE_URL: postgresql+psycopg://indolegalbench:${POSTGRES_PASSWORD}@db:5432/indolegalbench
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
-      JISDOR_API_KEY: ${JISDOR_API_KEY:-}
     depends_on:
       db:
         condition: service_healthy

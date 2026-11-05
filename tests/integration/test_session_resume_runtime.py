@@ -99,6 +99,8 @@ def test_unknown_baseline_can_initialize_once_after_confirmed_resume(siap):
     )
     row = siap.db.get(MeasurementSession, session_id)
     assert row.status == "finished" and row.model_version_unverified
+    detail = siap.client.get(f"/measurements/{session_id}").json()
+    assert detail["report_eligible"] is True and detail["model_version_unverified"] is True
     assert not row.resume_version_check_pending
     assert len(provider.calls) == 9
 

@@ -78,9 +78,9 @@ def test_long_stop_boundary_uses_stopped_at(siap, monkeypatch, offset, marked):
     assert row.finished_at is None
     assert row.stopped_at is None
     assert row.stop_reason is None
-    assert (
-        siap.client.get(f"/measurements/{session_id}").json()["resumed_after_long_pause"] is marked
-    )
+    detail = siap.client.get(f"/measurements/{session_id}").json()
+    assert detail["resumed_after_long_pause"] is marked
+    assert detail["report_eligible"] is False
 
 
 def test_resume_defaults_are_approved_and_flag_is_off():
