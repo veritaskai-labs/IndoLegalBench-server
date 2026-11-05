@@ -94,6 +94,55 @@ def get_product(db: Session, product_id: uuid.UUID) -> AiProductRead:
     return _tampilkan(_wajib_ada(db, product_id))
 
 
+def build_measurement_adapter(db: Session, configuration):
+    """Worker memakai salinan konfigurasi; kredensial hanya dibuka di service pemiliknya."""
+    from app.modules.providers.adapters.dispatch import build_adapter
+
+    product = _wajib_ada(db, configuration.product_id)
+    try:
+        secret = decrypt_credential(_as_bytes(product.credential_encrypted))
+    except (CredentialError, TypeError):
+        raise InternalError("measurement credential unavailable") from None
+    adapter = build_adapter(
+        provider_type=configuration.provider_type,
+        base_url=configuration.base_url,
+        model_name=configuration.model_name,
+        api_key=secret,
+    )
+    return _SafeMeasurementAdapter(adapter, secret, configuration.base_url)
+
+
+class _SafeMeasurementAdapter:
+    """Jangan simpan credential/alamat endpoint dari body atau exception provider."""
+
+    def __init__(self, adapter, secret, endpoint):
+        self.adapter = adapter
+        self.secret = secret
+        self.endpoint = endpoint
+
+    def ask(self, prompt, **kwargs):
+        from app.modules.providers.adapters.ask_call import scrub
+        from app.modules.providers.adapters.base import FailureKind, ProviderResponse
+
+        try:
+            response = self.adapter.ask(prompt, **kwargs)
+        except Exception:
+            return ProviderResponse(
+                text="",
+                model_version="",
+                latency_ms=0,
+                raw={},
+                error="provider call failed",
+                failure_kind=FailureKind.PROVIDER_ERROR,
+            )
+        for value in (self.secret, self.endpoint):
+            response.text = scrub(response.text, value)
+            response.raw = scrub(response.raw, value)
+            response.error = scrub(response.error, value)
+            response.model_version = scrub(response.model_version, value)
+        return response
+
+
 def list_products(
     db: Session,
     *,
