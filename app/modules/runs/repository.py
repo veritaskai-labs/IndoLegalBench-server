@@ -580,11 +580,20 @@ class SessionQueueRepository:
             )
             .execution_options(synchronize_session=False)
         ).rowcount
-        if gagal == 1:
-            _catat_status(
-                self._db, session_id, SessionStatus.QUEUED, SessionStatus.FAILED, StopReason.ERROR
-            )
-        self._db.commit()
+        try:
+            if gagal == 1:
+                _catat_status(
+                    self._db,
+                    session_id,
+                    SessionStatus.QUEUED,
+                    SessionStatus.FAILED,
+                    StopReason.ERROR,
+                )
+            self._db.commit()
+        except Exception:
+            # Sama seperti start() dan change_status: session worker harus tetap bisa dipakai.
+            self._db.rollback()
+            raise
         return gagal == 1
 
     def _freeze(
