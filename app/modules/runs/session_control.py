@@ -7,6 +7,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.runs import repository
+from app.modules.runs.execution import worker_lease
 from app.modules.runs.models import AttemptStatus, SessionStatus, SessionType, StopReason
 from app.modules.runs.schemas import SessionControlResponse, SessionResumeResponse
 from app.modules.runs.session_control_repository import (
@@ -72,8 +73,6 @@ def _dispatcher_is_active(db):
     # An orphan running attempt is recovery's responsibility; SQLite has no advisory lease.
     if db.get_bind().dialect.name != "postgresql":
         return False
-    from app.modules.runs.execution import worker_lease
-
     with worker_lease(db.get_bind()) as acquired:
         return not acquired
 

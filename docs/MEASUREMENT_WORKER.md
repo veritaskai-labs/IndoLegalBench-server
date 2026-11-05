@@ -22,6 +22,10 @@ restarts/replicas. A running attempt left after a crash is uncertain: dispatch r
 a recovery-required error rather than resending a potentially paid call. SCRUM-217
 must resolve those attempts and pause abandoned running sessions before allowing
 resume. This worker does not implement the recovery decision or heartbeat itself.
+When resume checks whether an in-flight dispatcher is active, the HTTP request
+briefly probes this same advisory lease. If an idle worker tick overlaps a successful
+probe, that tick can defer dispatch until its next poll (normally 5 seconds).
+The probe releases the lease before returning and never dispatches paid work.
 
 Controls must use SCRUM-214 transitions. The dispatcher checks the session again
 before every call. SIGTERM/SIGINT lets the current call persist, then pauses the
@@ -33,20 +37,28 @@ Controls default to Admin-only. `MEASUREMENT_DEV_AI_CONTROLS_ENABLED=false` keep
 Developer AI view access unchanged; if explicitly enabled, only sessions with
 `created_by` equal to that Developer AI's user ID can be controlled. An Admin
 must still provide any required unknown-version confirmation.
-Both return 202 with `{id, status, stopped_at, stop_reason}` after the control
+The approved pause/cancel/resume rollout rule is Admin by default, with own-session
+Developer AI access only when the explicit flag is enabled. Retry (#99) should
+align with this rollout rule; unknown-version confirmation remains Admin-only.
+SCRUM-216 implements pause/cancel/resume. The retry owner must align its separate
+endpoint before the combined PBI is accepted. Archive is a separate operation; its
+own-session ownership rule is reused here without broadening execution rights.
+Pause and cancel return 202 with `{id, status, stopped_at, stop_reason}` after the control
 transaction commits. The state blocks the next dispatch; an already claimed call
 may still be finishing and will keep its answer, call log and cost. `stop_reason`
 is `user` for both actions. GET detail reloads the persisted stop metadata.
 Repeated or invalid actions return 409 `INVALID_TRANSITION`; archived sessions
 return `SESSION_ARCHIVED`, accepted sessions `SESSION_ACCEPTED`, and manual sessions
 `SESSION_NOT_AUTOMATIC`. Cancellation while queued is allowed by the merged D4.
-Pause then cancel is allowed by the SCRUM-216 decision supplied by Roben (5 Nov).
+Pause then cancel and never-started requeue are approved in the
+[SCRUM-216 SA review](https://github.com/veritaskai-labs/IndoLegalBench-server/pull/102#pullrequestreview-5783940566).
 
 Resume returns 202 `{id, status, resumed_after_long_pause, model_version_unverified}`.
 It reopens a prepared session as `running`; the same leased dispatcher processes
 pending attempts and preserves successful/failed attempts. A cancelled session
 that never started returns to `queued`, so original preparation creates its first
-snapshot/copy. An occupied running slot returns 409 `ANOTHER_SESSION_RUNNING` with
+snapshot/copy. Its new queued_at intentionally puts it at the back of the queue.
+An occupied running slot returns 409 `ANOTHER_SESSION_RUNNING` with
 no partial writes. Repeated resume is 409 `SESSION_NOT_RESUMABLE`. An uncertain
 running attempt without a live dispatcher lease is 409 `ATTEMPT_RECOVERY_REQUIRED`;
 SCRUM-217 must reconcile it first. No automatic retry is introduced.
@@ -60,8 +72,10 @@ with `model_version_unverified`; if successful calls exist but none has a versio
 the API first returns 409 `MODEL_VERSION_CONFIRMATION_REQUIRED`. Admin can explicitly
 resubmit `{confirm_unverified_version: true}`. Developer AI cannot confirm this.
 
-The first response after resume is checked again in the worker transaction. If it
-reveals a changed version, its attempt/result/log/cost are still saved, the session
+The worker keeps version verification pending until a response carries a version.
+A versionless success or technical failure sets the unverified marker and does not
+consume the check, even if every remaining response lacks a version. The first
+version-carrying response is compared in the worker transaction. If it reveals a changed version, its attempt/result/log/cost are still saved, the session
 pauses with reason `error`, and GET detail exposes `resume_error_code=MODEL_VERSION_CHANGED`.
 The earlier HTTP 202 cannot change retrospectively; subsequent resume requests are
 409 and a new session is required. A concurrent user pause/cancel keeps its state

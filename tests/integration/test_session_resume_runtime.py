@@ -141,7 +141,7 @@ def test_first_resumed_response_without_version_stays_explicitly_unverified(siap
     siap.db.expire_all()
     row = siap.db.get(MeasurementSession, session_id)
     assert row.status == "finished" and row.model_version_unverified
-    assert not row.resume_version_check_pending and row.resume_error_code is None
+    assert row.resume_version_check_pending and row.resume_error_code is None
     assert (
         siap.db.scalar(
             select(SessionProductCopy.model_version_at_start).where(
@@ -284,3 +284,53 @@ def test_rapid_pause_resume_during_active_call_does_not_duplicate_dispatch(siap)
     siap.db.expire_all()
     assert siap.db.get(MeasurementSession, session_id).status == "finished"
     assert len(provider.calls) == len(session_logs(siap.db, session_id)) == 9
+
+
+@pytest.mark.parametrize("first_behavior", ["error", "ok"])
+@pytest.mark.parametrize("observed", ["model-v1", "changed-v2"])
+def test_versionless_response_keeps_guard_until_version_evidence(siap, first_behavior, observed):
+    """Failure or success without a version cannot consume the resumed guard."""
+    session_id, provider, run = paused(siap)
+    assert siap.sebagai(Role.ADMIN).post(f"/measurements/{session_id}/resume").status_code == 202
+    original = provider.ask
+    provider.on_call = None
+
+    def sequenced(*args, **kwargs):
+        # First resumed call is the session's second call overall.
+        first_resumed = len(provider.calls) == 1
+        if len(provider.calls) == 2:
+            siap.db.expire_all()
+            row = siap.db.get(MeasurementSession, session_id)
+            assert row.resume_version_check_pending
+        provider.behavior = first_behavior if first_resumed else "ok"
+        response = original(*args, **kwargs)
+        response.model_version = "" if first_resumed else observed
+        return response
+
+    provider.ask = sequenced
+    assert run()
+    siap.db.expire_all()
+    row = siap.db.get(MeasurementSession, session_id)
+    mismatch = observed != "model-v1"
+    assert row.status == (
+        "paused"
+        if mismatch
+        else "finished_with_failures"
+        if first_behavior == "error"
+        else "finished"
+    )
+    assert row.resume_error_code == ("MODEL_VERSION_CHANGED" if mismatch else None)
+    assert row.model_version_unverified and not row.resume_version_check_pending
+    assert len(provider.calls) == (3 if mismatch else 9)
+    attempts = list(siap.db.scalars(select(Attempt).where(Attempt.session_id == session_id)))
+    assert sum(a.status == AttemptStatus.TECHNICAL_FAILURE for a in attempts) == (
+        first_behavior == "error"
+    )
+    assert sum(a.status == AttemptStatus.PENDING for a in attempts) == (6 if mismatch else 0)
+    logs = session_logs(siap.db, session_id)
+    assert len(logs) == len(provider.calls) and all(log.cost_idr > 0 for log in logs)
+    if mismatch:
+        assert row.stop_reason == "error"
+        response = siap.client.post(f"/measurements/{session_id}/resume")
+        assert response.status_code == 409 and response.json()["code"] == "MODEL_VERSION_CHANGED"
+    assert run() is False

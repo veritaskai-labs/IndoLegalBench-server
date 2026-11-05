@@ -119,10 +119,10 @@ class TableSessionStore(SessionStore):
     def _verify_resumed_response(self, session, baseline, observed):
         if not session.resume_version_check_pending:
             return
-        session.resume_version_check_pending = False
         if not observed:
             session.model_version_unverified = True
             return
+        session.resume_version_check_pending = False
         if baseline and observed != baseline:
             # The HTTP 202 is already sent; persist the conflict for GET and future resume.
             session.resume_error_code = "MODEL_VERSION_CHANGED"

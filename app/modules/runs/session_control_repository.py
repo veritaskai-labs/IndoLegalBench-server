@@ -2,7 +2,7 @@
 
 import uuid
 
-from sqlalchemy import exists, select
+from sqlalchemy import exists, func, select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -40,15 +40,18 @@ class SessionControlRepository:
         )
 
     def successful_version_seen(self, product_id: uuid.UUID) -> bool:
-        return any(
-            version.strip()
-            for version in self.db.scalars(
-                select(CallLog.model_version)
-                .join(Attempt, Attempt.id == CallLog.attempt_id)
-                .where(
-                    CallLog.product_id == product_id,
-                    CallLog.result == "ok",
-                    Attempt.status == AttemptStatus.SUCCEEDED,
+        return bool(
+            self.db.scalar(
+                select(
+                    select(CallLog.id)
+                    .join(Attempt, Attempt.id == CallLog.attempt_id)
+                    .where(
+                        CallLog.product_id == product_id,
+                        CallLog.result == "ok",
+                        Attempt.status == AttemptStatus.SUCCEEDED,
+                        func.trim(CallLog.model_version) != "",
+                    )
+                    .exists()
                 )
             )
         )
