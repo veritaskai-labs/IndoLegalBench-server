@@ -238,7 +238,8 @@ def clear_accept(session_id: uuid.UUID, db: Session = Depends(get_db)) -> Sessio
         409: {
             "model": ErrorBody,
             "description": (
-                "Sesi bukan Selesai dengan kegagalan (`SESSION_NOT_RETRYABLE`), sudah diterima "
+                "Sesi diarsipkan (`SESSION_ARCHIVED`), manual (`SESSION_NOT_AUTOMATIC`), "
+                "bukan Selesai dengan kegagalan (`SESSION_NOT_RETRYABLE`), sudah diterima "
                 "apa adanya (`SESSION_ACCEPTED`), atau sesi otomatis lain sedang berjalan "
                 "(`ANOTHER_SESSION_RUNNING`)."
             ),
@@ -289,7 +290,7 @@ def get_attempt_calls(
     user: CurrentUser = Depends(_session_list_roles),
     db: Session = Depends(get_db),
 ) -> AttemptCalls:
-    """Developer AI mendapat kasus test yang disamarkan: hanya jenis kegagalan dan waktu."""
+    """Developer AI hanya melihat detail lengkap kasus dev pada sesi yang sudah berakhir."""
     return attempt_calls(db, session_id, attempt_id, viewer_role=user.role)
 
 

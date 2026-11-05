@@ -198,7 +198,10 @@ class AttemptCalls(BaseModel):
     repetition_no: int
     status: AttemptStatus
     masked: bool = Field(
-        description="true untuk kasus test yang dibuka Developer AI: hanya jenis dan waktu"
+        description=(
+            "true bila Developer AI membuka kasus selain dev atau sesi yang belum berakhir: "
+            "hanya jenis kegagalan dan waktu"
+        )
     )
     calls: list[CallAttemptLog]
 

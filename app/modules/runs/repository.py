@@ -258,7 +258,12 @@ class CallLogRepository:
         self._db.flush()
 
     def next_try_no(self, attempt_id: uuid.UUID) -> int:
-        """Nomor upaya berikutnya untuk attempt ini (D2 try_no, 1 = awal)."""
+        """Nomor upaya berikutnya untuk attempt ini (D2 try_no, 1 = awal).
+
+        Baca lalu tulis ini aman karena satu attempt hanya dipanggil satu dispatcher:
+        lease advisory worker dan klaim attempt running sebelum panggilan (#98).
+        UNIQUE (attempt_id, try_no) tetap menolak bila asumsi itu suatu saat dilanggar.
+        """
         terakhir = self._db.scalar(
             select(func.max(CallLog.try_no)).where(CallLog.attempt_id == attempt_id)
         )
@@ -430,8 +435,8 @@ def attempt_statuses(db: Session, session_id: uuid.UUID) -> dict[uuid.UUID, Atte
     return dict(rows.all())
 
 
-def session_exists(db: Session, session_id: uuid.UUID) -> bool:
-    return bool(db.scalar(select(exists().where(MeasurementSession.id == session_id))))
+def session_status(db: Session, session_id: uuid.UUID) -> SessionStatus | None:
+    return db.scalar(select(MeasurementSession.status).where(MeasurementSession.id == session_id))
 
 
 def attempt_with_calls(

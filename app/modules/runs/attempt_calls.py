@@ -5,8 +5,12 @@ ini, urut try_no, termasuk upaya dari Coba ulang. raw_response adalah respons as
 penyedia sebagai bukti; ringkasan galat diambil dari catatan worker (#98,
 raw._execution.error), karena call_logs belum punya kolom error_summary.
 
-D10 bagian C: untuk Developer AI, detail teknis error kasus test disamarkan di
-server. Yang tersisa hanya jenis kegagalan dan waktunya (D5 langkah 37).
+D10 untuk Developer AI, ditegakkan di server: detail teknis disamarkan kecuali
+kasus dev pada sesi yang sudah berakhir. Kasus test (bagian C) dan tag yang tidak
+dikenal tertutup (fail-closed), dan hasil sesi yang belum berakhir hanya untuk
+Admin seperti detail sesi (#91), karena raw_response memuat jawaban mentah dan
+coba ulang membuat sesi running lagi. Yang tersisa hanya jenis kegagalan dan
+waktunya (D5 langkah 37).
 """
 
 import uuid
@@ -16,6 +20,7 @@ from sqlalchemy.orm import Session
 from app.modules.runs import repository
 from app.modules.runs.models import CallLog
 from app.modules.runs.schemas import AttemptCalls, CallAttemptLog
+from app.modules.runs.session_rules import has_ended
 from app.shared.exceptions import NotFoundError
 from app.shared.security import Role
 
@@ -23,14 +28,15 @@ from app.shared.security import Role
 def attempt_calls(
     db: Session, session_id: uuid.UUID, attempt_id: uuid.UUID, *, viewer_role: Role
 ) -> AttemptCalls:
-    if not repository.session_exists(db, session_id):
+    status = repository.session_status(db, session_id)
+    if status is None:
         raise NotFoundError("Pengukuran tidak ditemukan.", code="MEASUREMENT_NOT_FOUND")
     found = repository.attempt_with_calls(db, session_id, attempt_id)
     if found is None:
         raise NotFoundError("Percobaan tidak ditemukan di sesi ini.", code="ATTEMPT_NOT_FOUND")
     attempt, body, calls = found
     split_tag = (body.get("sections") or {}).get("split_tag")
-    masked = viewer_role == Role.DEVELOPER_AI and split_tag == "test"
+    masked = viewer_role == Role.DEVELOPER_AI and (split_tag != "dev" or not has_ended(status))
     return AttemptCalls(
         attempt_id=attempt.id,
         repetition_no=attempt.repetition_no,

@@ -3426,7 +3426,7 @@
             }
           },
           "409": {
-            "description": "Sesi bukan Selesai dengan kegagalan (`SESSION_NOT_RETRYABLE`), sudah diterima apa adanya (`SESSION_ACCEPTED`), atau sesi otomatis lain sedang berjalan (`ANOTHER_SESSION_RUNNING`).",
+            "description": "Sesi diarsipkan (`SESSION_ARCHIVED`), manual (`SESSION_NOT_AUTOMATIC`), bukan Selesai dengan kegagalan (`SESSION_NOT_RETRYABLE`), sudah diterima apa adanya (`SESSION_ACCEPTED`), atau sesi otomatis lain sedang berjalan (`ANOTHER_SESSION_RUNNING`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -3454,7 +3454,7 @@
           "measurements"
         ],
         "summary": "Detail teknis setiap upaya panggilan satu percobaan (lihat detail teknis)",
-        "description": "Developer AI mendapat kasus test yang disamarkan: hanya jenis kegagalan dan waktu.",
+        "description": "Developer AI hanya melihat detail lengkap kasus dev pada sesi yang sudah berakhir.",
         "operationId": "get_attempt_calls_measurements__session_id__attempts__attempt_id__calls_get",
         "parameters": [
           {
@@ -5211,7 +5211,7 @@
           "masked": {
             "type": "boolean",
             "title": "Masked",
-            "description": "true untuk kasus test yang dibuka Developer AI: hanya jenis dan waktu"
+            "description": "true bila Developer AI membuka kasus selain dev atau sesi yang belum berakhir: hanya jenis kegagalan dan waktu"
           },
           "calls": {
             "items": {

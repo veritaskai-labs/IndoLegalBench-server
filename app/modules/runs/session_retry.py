@@ -10,7 +10,9 @@ D5 langkah 30 menulis status sesi kembali queued; yang dipakai D4 dan tabel
 transisi SCRUM-214 (keputusan Rafa di #97): finished_with_failures -> running.
 
 Urutan pemeriksaan: sesi ada (404), Developer AI hanya sesi miliknya (403, D10),
-keadaan sesi (409), lalu pilihan percobaan (422). Baris sesi dikunci sampai commit.
+keadaan sesi (409: diarsipkan, manual, diterima apa adanya, bukan Selesai dengan
+kegagalan), lalu pilihan percobaan (422). Kode 409-nya sama dengan kontrol sesi
+SCRUM-216. Baris sesi dikunci sampai commit.
 """
 
 import uuid
@@ -19,7 +21,7 @@ from datetime import datetime
 from sqlalchemy.orm import Session
 
 from app.modules.runs import repository
-from app.modules.runs.models import AttemptStatus, SessionStatus
+from app.modules.runs.models import AttemptStatus, SessionStatus, SessionType
 from app.modules.runs.schemas import SessionRetryRequest, SessionRetryResponse
 from app.modules.runs.session_archive import NOT_YOUR_SESSION
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
@@ -42,6 +44,11 @@ def retry_failed_attempts(
         raise ForbiddenError(
             "Developer AI hanya bisa mencoba ulang sesi yang ia buat.", code=NOT_YOUR_SESSION
         )
+    if session.archived_at is not None:
+        # CHECK running_not_archived (#91) akan menolak juga, tapi sebagai galat 500.
+        raise ConflictError("Sesi sudah diarsipkan.", code="SESSION_ARCHIVED")
+    if session.session_type != SessionType.AUTOMATIC:
+        raise ConflictError("Coba ulang hanya untuk sesi otomatis.", code="SESSION_NOT_AUTOMATIC")
     if session.accepted_as_is_at is not None:
         raise ConflictError(
             "Sesi sudah diterima apa adanya. Hapus tandanya dulu untuk mencoba ulang.",
