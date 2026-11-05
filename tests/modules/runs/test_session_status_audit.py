@@ -306,3 +306,26 @@ def test_terima_tidak_menulis_catatan_status(as_role, db_session, gagal_sebagian
 
     # Assert
     assert _catatan(db_session, gagal_sebagian.id) == []
+
+
+def test_audit_gagal_saat_fail_membatalkan_perubahan(antrean, db_session, monkeypatch):
+    """Edge: fail() membatalkan UPDATE-nya bila audit gagal, seperti start() dan change_status.
+
+    Catatan Adra di #104: tanpa rollback, session worker tertinggal dengan UPDATE yang belum
+    di-commit, jadi tick berikutnya masih melihat sesi itu failed di transaksi yang sama.
+    """
+    # Arrange
+    sesi_id = antrean.create_queued(_baru()).id
+
+    def gagal(*_args, **_kwargs):
+        raise RuntimeError("audit_logs tidak bisa ditulis")
+
+    monkeypatch.setattr(audit_service, "record", gagal)
+
+    # Act
+    with pytest.raises(RuntimeError):
+        antrean.fail(sesi_id, finished_at=JAM)
+
+    # Assert: tanpa rollback manual di tes, session tetap bisa dipakai dan sesi masih antre.
+    db_session.expire_all()
+    assert db_session.get(MeasurementSession, sesi_id).status == SessionStatus.QUEUED
