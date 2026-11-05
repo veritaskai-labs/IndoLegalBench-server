@@ -162,6 +162,7 @@ class CallLogAnswerHistory:
     def average_answer_tokens(self, product_id: uuid.UUID) -> Decimal | None:
         return self._rows.output_token_average(product_id)
 
+
 def _utc(nilai: datetime | None) -> datetime | None:
     """Waktu di database selalu UTC. SQLite yang dipakai test mengembalikannya tanpa
     zona, jadi zonanya dipasang di perbatasan ini supaya service hanya mengenal
@@ -169,6 +170,7 @@ def _utc(nilai: datetime | None) -> datetime | None:
     if nilai is None:
         return None
     return nilai if nilai.tzinfo is not None else nilai.replace(tzinfo=UTC)
+
 
 class SessionProgressAdapter:
     """Angka satu sesi dari database, dipetakan ke bentuk yang dipakai ProgressService."""
@@ -196,20 +198,6 @@ class NameAdapter:
 
     def __init__(self, db: Session) -> None:
         self._db = db
-
-    def progress(self, measurement_id: uuid.UUID) -> SessionProgress | None:
-        baris = repository.session_progress(self._db, measurement_id)
-        if baris is None:
-            return None
-        return SessionProgress(
-            product_id=baris.product_id,
-            total_calls=int(baris.total_calls),
-            completed_calls=int(baris.completed_calls),
-            failed_calls=int(baris.failed_calls),
-            started_at=baris.started_at,
-            updated_at=baris.updated_at,
-            running_cost_idr=Decimal(baris.running_cost_idr),
-        )
 
     def product_names(self, product_ids: set[uuid.UUID]) -> Mapping[uuid.UUID, str]:
         return providers_service.product_names(self._db, product_ids)
