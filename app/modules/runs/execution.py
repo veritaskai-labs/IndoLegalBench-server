@@ -7,7 +7,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
 
-from sqlalchemy import select, text
+from sqlalchemy import text
 
 from app.modules.providers import service as providers_service
 from app.modules.runs.adapters import ProductAdapter
@@ -16,17 +16,12 @@ from app.modules.runs.dependencies import build_session_queue, get_exchange_rate
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.execution_store import ExecutionInterrupted, TableSessionStore
 from app.modules.runs.models import (
-    Attempt,
     AttemptStatus,
-    CallLog,
-    MeasurementSession,
-    SessionProductCopy,
     SessionStatus,
-    SessionType,
     StopReason,
 )
 from app.modules.runs.pricing import ConfigPriceCatalog
-from app.modules.runs.repository import CallLogRepository
+from app.modules.runs.repository import CallLogRepository, ExecutionReadRepository
 from app.modules.runs.summary_ports import ProductInfo
 from app.modules.runs.worker import run_next
 from app.shared.config import get_settings
@@ -145,13 +140,13 @@ def run_once(
         )
 
 
+def find_running_session(db):
+    """Public runtime read used by the process entrypoint's startup guard."""
+    return ExecutionReadRepository(db).running_automatic_id()
+
+
 def _run_claimed(db, options: _ExecutionOptions):
-    session_id = db.scalar(
-        select(MeasurementSession.id).where(
-            MeasurementSession.status == SessionStatus.RUNNING,
-            MeasurementSession.session_type == SessionType.AUTOMATIC,
-        )
-    )
+    session_id = find_running_session(db)
     if session_id is None:
         session_id = build_session_queue(db).take_next()
     if session_id is None:
@@ -169,12 +164,11 @@ def _run_claimed(db, options: _ExecutionOptions):
 
 
 def _execute_claimed(db, session_id, options: _ExecutionOptions):
-    session = db.get(MeasurementSession, session_id)
-    copy = db.scalars(
-        select(SessionProductCopy).where(SessionProductCopy.session_id == session_id)
-    ).one()
+    repository = ExecutionReadRepository(db)
+    session = repository.session(session_id)
+    copy = repository.product_copy(session_id)
     store = TableSessionStore(db, session_id, stopping=options.stopping)
-    states = list(db.scalars(select(Attempt.status).where(Attempt.session_id == session_id)))
+    states = repository.attempt_statuses(session_id)
     if AttemptStatus.RUNNING in states:
         raise RuntimeError("uncertain attempt requires recovery before dispatch")
     if AttemptStatus.PENDING not in states:
@@ -196,13 +190,9 @@ def _execute_claimed(db, session_id, options: _ExecutionOptions):
             clock=lambda: datetime.now(UTC),
         )
     except (DomainError, ValueError):
-        prior_call = db.scalar(
-            select(CallLog.id)
-            .join(Attempt, Attempt.id == CallLog.attempt_id)
-            .where(Attempt.session_id == session_id)
-            .limit(1)
-        )
-        if prior_call is None and all(state == AttemptStatus.PENDING for state in states):
+        if not repository.has_calls(session_id) and all(
+            state == AttemptStatus.PENDING for state in states
+        ):
             store.mark_status(session_id, SessionStatus.FAILED, stop_reason=StopReason.ERROR)
             return True
         raise  # Fatal mid-run remains an explicit SA/PO decision, never guessed here.

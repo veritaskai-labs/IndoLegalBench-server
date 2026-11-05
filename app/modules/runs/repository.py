@@ -1,7 +1,7 @@
 """Akses database modul runs.
 
-ATURAN: hanya runs/service.py yang boleh memanggil file ini. Modul lain
-tidak boleh mengimpor repository milik modul lain.
+ATURAN: service dan runtime di dalam modul runs memakai repository ini.
+Modul lain masuk lewat service/runtime, bukan mengimpor repository milik modul lain.
 
 Isi file ini murni query, tanpa logika bisnis.
 
@@ -84,6 +84,47 @@ def get_session_for_update(db: Session, session_id: uuid.UUID) -> MeasurementSes
         .with_for_update()
         .execution_options(populate_existing=True)
     ).first()
+
+
+class ExecutionReadRepository:
+    """Read model worker/startup; persistence and status transitions retain their owners."""
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def running_automatic_id(self) -> uuid.UUID | None:
+        return self._db.scalar(
+            select(MeasurementSession.id).where(
+                MeasurementSession.status == SessionStatus.RUNNING,
+                MeasurementSession.session_type == SessionType.AUTOMATIC,
+            )
+        )
+
+    def session(self, session_id: uuid.UUID) -> MeasurementSession:
+        return self._db.scalars(
+            select(MeasurementSession).where(MeasurementSession.id == session_id)
+        ).one()
+
+    def product_copy(self, session_id: uuid.UUID) -> SessionProductCopy:
+        return self._db.scalars(
+            select(SessionProductCopy).where(SessionProductCopy.session_id == session_id)
+        ).one()
+
+    def attempt_statuses(self, session_id: uuid.UUID) -> list[AttemptStatus]:
+        return list(
+            self._db.scalars(select(Attempt.status).where(Attempt.session_id == session_id))
+        )
+
+    def has_calls(self, session_id: uuid.UUID) -> bool:
+        return (
+            self._db.scalar(
+                select(CallLog.id)
+                .join(Attempt, Attempt.id == CallLog.attempt_id)
+                .where(Attempt.session_id == session_id)
+                .limit(1)
+            )
+            is not None
+        )
 
 
 class SessionListRepository:

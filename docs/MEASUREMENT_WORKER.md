@@ -89,5 +89,8 @@ operator intervention condition, not permission to resend the call.
 SA/PO still owns the terminal-status policy for fatal errors after partial
 execution. Escalate unresolved cases with the session UUID and safe error class;
 do not invent a status or auto-retry uncertain calls. The one-time model-version
-trigger exception in migration `d49a1f2b3c60` also still requires sign-off from
-the #97 owner/SA before merge; these recovery notes do not constitute that sign-off.
+trigger exception in migration `d49a1f2b3c60` was approved by the SA against
+D2/D3/D5 in the [PR #98 SA review](https://github.com/veritaskai-labs/IndoLegalBench-server/pull/98#issuecomment-6652764014).
+The attempt is explicitly flushed before the copy update so its version evidence
+exists regardless of ORM table ordering. SCRUM-216 must treat a null initial model
+version as unknown when evaluating resume; it is not proof of a version match or change.
