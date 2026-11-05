@@ -16,14 +16,14 @@ clears and re-accepts it first. The downgrade restores the plain trim() CHECKs, 
 are looser, so it never fails.
 
 Revision ID: 9b526a16b704
-Revises: c1fd2ffcc735
+Revises: d49a1f2b3c60
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 revision = "9b526a16b704"  # pragma: allowlist secret
-down_revision = "c1fd2ffcc735"  # pragma: allowlist secret
+down_revision = "d49a1f2b3c60"  # pragma: allowlist secret
 branch_labels = None
 depends_on = None
 

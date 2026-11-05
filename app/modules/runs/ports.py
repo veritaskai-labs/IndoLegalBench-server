@@ -29,6 +29,7 @@ class AttemptRecord:
     failure_kind: str | None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    attempt_id: uuid.UUID | None = None
 
 
 class SessionStore(Protocol):
