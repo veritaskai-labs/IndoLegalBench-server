@@ -142,11 +142,9 @@ def _run_repeats(
             stopped = True
             break
         _wait_until(next_start, pace.clock, pace.sleep)
-        attempt_id = None
-        if pace.before_attempt is not None:
-            attempt_id = pace.before_attempt(case_index, repeat_index)
-            if attempt_id is None:
-                continue
+        can_dispatch, attempt_id = _claim_attempt(pace, case_index, repeat_index)
+        if not can_dispatch:
+            continue
         started = pace.clock()
         started_at = datetime.now(UTC)
         response = _ask(adapter, prompt, params)
@@ -165,6 +163,16 @@ def _run_repeats(
         if pace.after_attempt is not None:
             pace.after_attempt()
     return completed, failed, next_start, stopped
+
+
+def _claim_attempt(
+    pace: _Pace, case_index: int, repeat_index: int
+) -> tuple[bool, uuid.UUID | None]:
+    """Legacy stores dispatch directly; durable stores must claim before I/O."""
+    if pace.before_attempt is None:
+        return True, None
+    attempt_id = pace.before_attempt(case_index, repeat_index)
+    return attempt_id is not None, attempt_id
 
 
 def _over_budget(call_log, product_id: uuid.UUID | None) -> bool:
