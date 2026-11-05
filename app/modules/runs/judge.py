@@ -4,6 +4,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 
+from app.modules.runs.call_cost import actual_cost_idr
+
 _QUALITY_LEAD = (
     "Score the quality of the provider answer against each criterion. "
     "Use only the criteria, the ground truth, and the question. "
@@ -92,10 +94,9 @@ def run_judge(
     inputs: JudgeInputs,
     *,
     repetitions: int,
-    prices: object = None,
+    prices: JudgePrices | None = None,
     writer: MemoryJudgeWriter | None = None,
 ) -> MemoryJudgeWriter:
-    del prices
     if repetitions < 1:
         raise ValueError("repetitions must be at least 1")
     store = writer if writer is not None else MemoryJudgeWriter()
@@ -125,6 +126,7 @@ def run_judge(
                     reason_id=reason_id,
                     error=error,
                     failure_kind=failure_kind,
+                    cost_idr=_cost(response, prices),
                 )
             )
     return store
@@ -177,3 +179,15 @@ def _score(criteria: Sequence[CriterionJudgement]) -> Decimal:
     met = sum(1 for item in criteria if item.met)
     ratio = Decimal(met) / Decimal(len(criteria))
     return ratio.quantize(_SCORE_QUANTUM, rounding=ROUND_HALF_UP)
+
+
+def _cost(response: object, prices: JudgePrices | None) -> Decimal | None:
+    if prices is None:
+        return None
+    return actual_cost_idr(
+        input_tokens=response.input_tokens,
+        output_tokens=response.output_tokens,
+        usd_per_million_input_tokens=prices.usd_per_million_input_tokens,
+        usd_per_million_output_tokens=prices.usd_per_million_output_tokens,
+        usd_idr_rate=prices.usd_idr_rate,
+    )
