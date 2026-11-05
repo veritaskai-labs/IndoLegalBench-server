@@ -41,7 +41,9 @@ def test_adapter_uses_frozen_settings_and_scrubs_response(monkeypatch):
             )
 
     monkeypatch.setitem(dispatch._ADAPTERS, "openai_compatible", Adapter)
-    response = service.build_measurement_adapter(None, config).ask("question")
+    adapter = service.build_measurement_adapter(None, config)
+    assert not hasattr(adapter, "secret")
+    response = adapter.ask("question")
     assert "secret-token" not in repr(response) and config.base_url not in repr(response)
     assert response.text == " text"
 
