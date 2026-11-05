@@ -26,7 +26,7 @@ from app.modules.runs.models import (
     StopReason,
 )
 from app.modules.runs.recovery import check_worker_liveness, recover_after_restart
-from tests.measurement_pg import buat_admin
+from tests.measurement_pg import buat_admin, buat_item_snapshot
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "")
 WAKTU_MULAI = datetime(2026, 11, 5, 8, 0, tzinfo=UTC)
@@ -78,41 +78,9 @@ def _buat_sesi_pg(session: Session, product_id: uuid.UUID, admin_id: uuid.UUID) 
 
 
 def _buat_snapshot_dan_attempt_pg(
-    session: Session, session_id: uuid.UUID
+    session: Session, session_id: uuid.UUID, admin_id: uuid.UUID
 ) -> tuple[uuid.UUID, uuid.UUID]:
-    snapshot_id = uuid.uuid4()
-    session.execute(
-        text("INSERT INTO case_snapshots (id, session_id, created_at) VALUES (:id, :sid, :now)"),
-        {"id": snapshot_id, "sid": session_id, "now": WAKTU_MULAI},
-    )
-    case_id = uuid.uuid4()
-    version_id = uuid.uuid4()
-    # Kasus sintetis dummy di cases & case_versions untuk FK
-    session.execute(
-        text(
-            "INSERT INTO cases (id, case_code, created_by, status) VALUES (:id, 'K-001', (SELECT id FROM users LIMIT 1), 'approved')"
-        ),
-        {"id": case_id},
-    )
-    session.execute(
-        text(
-            """
-            INSERT INTO case_versions (id, case_id, version_no, created_by, split_tag, content)
-            VALUES (:id, :cid, 1, (SELECT id FROM users LIMIT 1), 'dev', '{"title": "Uji"}'::jsonb)
-            """
-        ),
-        {"id": version_id, "cid": case_id},
-    )
-    item_id = uuid.uuid4()
-    session.execute(
-        text(
-            """
-            INSERT INTO case_snapshot_items (id, snapshot_id, case_id, case_version_id, body)
-            VALUES (:id, :sid, :cid, :vid, '{"split_tag": "dev"}'::jsonb)
-            """
-        ),
-        {"id": item_id, "sid": snapshot_id, "cid": case_id, "vid": version_id},
-    )
+    item_id = buat_item_snapshot(session.connection(), session_id, admin_id)
     attempt_id = uuid.uuid4()
     session.execute(
         text(
@@ -148,7 +116,7 @@ def test_recover_after_restart_on_postgresql(pg_session):
         {"id": product_id, "name": f"Produk Auto {product_id.hex[:6]}", "admin_id": admin_id},
     )
     session_id = _buat_sesi_pg(pg_session, product_id, admin_id)
-    _, attempt_id = _buat_snapshot_dan_attempt_pg(pg_session, session_id)
+    _, attempt_id = _buat_snapshot_dan_attempt_pg(pg_session, session_id, admin_id)
 
     # Act
     recovered = recover_after_restart(pg_session, at=WAKTU_RESTART)
@@ -186,7 +154,7 @@ def test_check_worker_liveness_on_postgresql(pg_session):
         {"id": product_id, "name": f"Produk Auto {product_id.hex[:6]}", "admin_id": admin_id},
     )
     session_id = _buat_sesi_pg(pg_session, product_id, admin_id)
-    _, attempt_id = _buat_snapshot_dan_attempt_pg(pg_session, session_id)
+    _, attempt_id = _buat_snapshot_dan_attempt_pg(pg_session, session_id, admin_id)
 
     sekarang = WAKTU_MULAI + timedelta(minutes=10)
 
