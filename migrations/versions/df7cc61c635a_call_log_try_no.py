@@ -11,14 +11,14 @@ than one row. The correlated subquery runs on both PostgreSQL and SQLite. The
 downgrade only drops the two columns; every call row stays.
 
 Revision ID: df7cc61c635a
-Revises: d49a1f2b3c60
+Revises: e7a41c2b9d53
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 revision = "df7cc61c635a"  # pragma: allowlist secret
-down_revision = "d49a1f2b3c60"  # pragma: allowlist secret
+down_revision = "e7a41c2b9d53"  # pragma: allowlist secret
 branch_labels = None
 depends_on = None
 
@@ -41,9 +41,7 @@ def upgrade():
             sa.Column("try_no", sa.SmallInteger(), nullable=False, server_default=sa.text("1"))
         )
         batch.add_column(
-            sa.Column(
-                "is_manual_retry", sa.Boolean(), nullable=False, server_default=sa.false()
-            )
+            sa.Column("is_manual_retry", sa.Boolean(), nullable=False, server_default=sa.false())
         )
     op.execute(_NUMBER_EXISTING_CALLS)
     op.execute("UPDATE call_logs SET is_manual_retry = (try_no > 1)")
