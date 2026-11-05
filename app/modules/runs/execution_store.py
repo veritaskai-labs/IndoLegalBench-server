@@ -22,6 +22,7 @@ from app.modules.runs.models import (
     StopReason,
 )
 from app.modules.runs.ports import AttemptRecord, SessionStore
+from app.modules.runs.recovery import record_heartbeat
 from app.modules.runs.repository import SessionStatusRepository
 from app.modules.runs.session_notice import notify_session_ended
 
@@ -86,6 +87,7 @@ class TableSessionStore(SessionStore):
         self.db.commit()
         if claimed != 1:
             raise ExecutionInterrupted
+        record_heartbeat(self.db, self.session_id)
         return row.id
 
     def save_attempt(self, record: AttemptRecord) -> None:
@@ -139,11 +141,7 @@ class TableSessionStore(SessionStore):
         # Counters are derived from attempts by the list/progress APIs, never duplicated here.
         if session_id != self.session_id:
             raise ValueError(_WRONG_SESSION)
-        self.db.execute(
-            update(MeasurementSession)
-            .where(MeasurementSession.id == session_id)
-            .values(updated_at=datetime.now(UTC))
-        )
+        record_heartbeat(self.db, session_id)
 
     def commit_attempt(self) -> None:
         self.db.commit()
