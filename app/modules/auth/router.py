@@ -33,7 +33,17 @@ from app.modules.auth.service import AuthService
 from app.shared.config import get_settings
 from app.shared.database import get_db
 from app.shared.exceptions import DomainError
-from app.shared.security import CurrentUser, Role, get_current_user, require_roles
+from app.shared.security import (
+    ABSOLUTE_EXPIRES_HEADER,
+    ACTIVITY_HEADER,
+    IDLE_DEADLINE_HEADER,
+    IDLE_TIMEOUT_HEADER,
+    PASSIVE_ACTIVITY,
+    CurrentUser,
+    Role,
+    get_current_user,
+    require_roles,
+)
 
 router = APIRouter()
 
@@ -65,28 +75,28 @@ _SESSION_RESPONSES: dict[int | str, dict] = {
 # sets these three response headers. They are declared here, on the session
 # reads SCRUM-254 will call.
 _ACTIVITY_HEADER = Header(
-    alias="X-Veritask-Activity",
+    alias=ACTIVITY_HEADER,
     description=(
-        "Exact value `passive` authenticates without updating last_activity_at. "
-        "Any other value, or omitting the header, refreshes activity. Every route "
-        "that uses get_current_user or require_role honors this header and, on "
-        "success, sets X-Veritask-Idle-Timeout, X-Veritask-Idle-Deadline, and "
-        "X-Veritask-Absolute-Expires-At."
+        f"Exact value `{PASSIVE_ACTIVITY}` authenticates without updating "
+        "last_activity_at. Any other value, or omitting the header, refreshes "
+        "activity. Every route that uses get_current_user or require_role honors "
+        "this header and, on success, sets X-Veritask-Idle-Timeout, "
+        "X-Veritask-Idle-Deadline, and X-Veritask-Absolute-Expires-At."
     ),
 )
 _DEADLINE_HEADERS = {
-    "X-Veritask-Idle-Timeout": {
+    IDLE_TIMEOUT_HEADER: {
         "description": "Configured idle timeout in seconds (IDLE_TIMEOUT_MINUTES * 60).",
         "schema": {"type": "string"},
     },
-    "X-Veritask-Idle-Deadline": {
+    IDLE_DEADLINE_HEADER: {
         "description": (
             "When the idle window ends, after this request's activity decision. "
             "Not taken from the client."
         ),
         "schema": {"type": "string", "format": "date-time"},
     },
-    "X-Veritask-Absolute-Expires-At": {
+    ABSOLUTE_EXPIRES_HEADER: {
         "description": "sessions.expires_at, set at login and not extended by requests.",
         "schema": {"type": "string", "format": "date-time"},
     },

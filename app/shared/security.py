@@ -53,6 +53,14 @@ class CurrentUser:
         self.role = role
 
 
+# Header names are case-insensitive. PASSIVE_ACTIVITY is exact and case-sensitive.
+ACTIVITY_HEADER = "X-Veritask-Activity"
+PASSIVE_ACTIVITY = "passive"
+IDLE_TIMEOUT_HEADER = "X-Veritask-Idle-Timeout"
+IDLE_DEADLINE_HEADER = "X-Veritask-Idle-Deadline"
+ABSOLUTE_EXPIRES_HEADER = "X-Veritask-Absolute-Expires-At"
+
+
 def get_current_user(
     request: Request,
     response: Response,
@@ -76,8 +84,7 @@ def get_current_user(
     session_id = session_id_from_cookie(request, settings)
     if session_id is None:
         raise UnauthenticatedError("Authentication required.")
-    # Exact value. Header names are case-insensitive; this value is not.
-    passive = request.headers.get("x-veritask-activity") == "passive"
+    passive = request.headers.get(ACTIVITY_HEADER.lower()) == PASSIVE_ACTIVITY
     user = auth_service.resolve_session(db, session_id, refresh_activity=not passive)
     set_session_cookie(response, settings, session_id)
     _set_session_deadlines(response, settings, auth_repository.get_session(db, session_id))
@@ -100,9 +107,9 @@ def _set_session_deadlines(response: Response, settings, session_row) -> None:
     if expires_at.tzinfo is None:
         expires_at = expires_at.replace(tzinfo=UTC)
     idle = timedelta(minutes=settings.idle_timeout_minutes)
-    response.headers["X-Veritask-Idle-Timeout"] = str(settings.idle_timeout_minutes * 60)
-    response.headers["X-Veritask-Idle-Deadline"] = (last_activity + idle).isoformat()
-    response.headers["X-Veritask-Absolute-Expires-At"] = expires_at.isoformat()
+    response.headers[IDLE_TIMEOUT_HEADER] = str(settings.idle_timeout_minutes * 60)
+    response.headers[IDLE_DEADLINE_HEADER] = (last_activity + idle).isoformat()
+    response.headers[ABSOLUTE_EXPIRES_HEADER] = expires_at.isoformat()
 
 
 def require_roles(*allowed: Role):
