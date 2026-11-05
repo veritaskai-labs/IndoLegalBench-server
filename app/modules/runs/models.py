@@ -21,6 +21,7 @@ from enum import StrEnum
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -86,7 +87,7 @@ class SessionStatus(StrEnum):
 
 
 class StopReason(StrEnum):
-    """Penyebab sesi berhenti (D2 stop_reason). paused: user, budget, restart; failed: error."""
+    """paused: user, budget, restart, atau error versi setelah resume; failed: error persiapan."""
 
     USER = "user"
     BUDGET = "budget"
@@ -195,6 +196,16 @@ class MeasurementSession(Base):
     stop_reason: Mapped[StopReason | None] = mapped_column(
         _enum(StopReason, "measurement_stop_reason_enum"), nullable=True
     )
+    resumed_after_long_pause: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    model_version_unverified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    resume_version_check_pending: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    resume_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey(_USER_FK), nullable=True

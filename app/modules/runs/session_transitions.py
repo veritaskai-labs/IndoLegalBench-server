@@ -18,8 +18,9 @@ ALLOWED_TRANSITIONS: dict[SessionStatus, frozenset[SessionStatus]] = {
         {_S.FINISHED, _S.FINISHED_WITH_FAILURES, _S.FAILED, _S.PAUSED, _S.CANCELLED}
     ),
     # Lanjutkan (AC8).
-    _S.PAUSED: frozenset({_S.RUNNING}),
-    _S.CANCELLED: frozenset({_S.RUNNING}),
+    # SCRUM-216: Roben approved pause→cancel and requeue of never-started cancellation (5 Nov).
+    _S.PAUSED: frozenset({_S.RUNNING, _S.CANCELLED}),
+    _S.CANCELLED: frozenset({_S.RUNNING, _S.QUEUED}),
     # Coba ulang yang gagal (AC3).
     _S.FINISHED_WITH_FAILURES: frozenset({_S.RUNNING}),
     _S.FINISHED: frozenset(),
