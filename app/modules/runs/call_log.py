@@ -83,6 +83,7 @@ class CallLogService:
         rate = self._rates.usd_idr() if usd_idr_rate is None else usd_idr_rate
         label, kind = technical_result(record)
         product = self._products.get(product_id)
+        try_no = 1 if record.attempt_id is None else self._repository.next_try_no(record.attempt_id)
         row = CallLog(
             attempt_id=record.attempt_id or uuid.uuid4(),
             product_id=product_id,
@@ -103,6 +104,10 @@ class CallLogService:
             result=label,
             failure_kind=kind,
             raw=record.raw,
+            try_no=try_no,
+            # D4: tidak ada coba ulang otomatis, jadi upaya ke-2 dan seterusnya selalu
+            # datang dari tombol pengguna (Coba ulang SCRUM-218, Lanjutkan SCRUM-217).
+            is_manual_retry=try_no > 1,
         )
         self._repository.add(row)
         return row

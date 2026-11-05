@@ -211,6 +211,13 @@ class CallLogRepository:
         self._db.add(row)
         self._db.flush()
 
+    def next_try_no(self, attempt_id: uuid.UUID) -> int:
+        """Nomor upaya berikutnya untuk attempt ini (D2 try_no, 1 = awal)."""
+        terakhir = self._db.scalar(
+            select(func.max(CallLog.try_no)).where(CallLog.attempt_id == attempt_id)
+        )
+        return (terakhir or 0) + 1
+
     def sum_cost_since(self, product_id: uuid.UUID, start: datetime) -> Decimal:
         total = self._db.scalar(
             select(func.coalesce(func.sum(CallLog.cost_idr), 0)).where(
