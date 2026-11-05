@@ -17,9 +17,8 @@ _A = AttemptStatus
 ALLOWED_ATTEMPT_TRANSITIONS: dict[AttemptStatus, frozenset[AttemptStatus]] = {
     # Worker mengambil percobaan.
     _A.PENDING: frozenset({_A.RUNNING}),
-    # Jawaban sah, gagal teknis (tanpa respons, error penyedia, timeout 240 detik, ...),
-    # atau pemulihan restart saat server/worker crash (SCRUM-217).
-    _A.RUNNING: frozenset({_A.SUCCEEDED, _A.TECHNICAL_FAILURE, _A.PENDING}),
+    # Jawaban sah, atau gagal teknis (tanpa respons, error penyedia, timeout 240 detik, ...).
+    _A.RUNNING: frozenset({_A.SUCCEEDED, _A.TECHNICAL_FAILURE}),
     # Hanya coba ulang manual (AC2, AC3). D4 menggambar panah ke running; dibuka ulang ke
     # pending supaya klaim worker tetap satu-satunya jalan masuk ke running.
     _A.TECHNICAL_FAILURE: frozenset({_A.PENDING}),

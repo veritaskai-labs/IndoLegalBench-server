@@ -7,8 +7,10 @@ Tujuan:
    Berjalan (RUNNING) dan worker-nya sudah mati ditandai Dihentikan (PAUSED) dengan
    stop_reason = RESTART.
 2. Tidak lanjut otomatis: Admin menekan 'Lanjutkan' (AC8).
-3. Attempt yang sedang berjalan saat restart (AttemptStatus.RUNNING) dikembalikan
-   ke PENDING supaya dapat dijalankan kembali saat sesi dilanjutkan (D5 langkah 41).
+3. Attempt yang sedang berjalan saat restart dibiarkan RUNNING (uncertain) sesuai
+   MEASUREMENT_WORKER.md baris 78-80; tidak di-reset ke pending agar tidak memicu
+   panggilan berulang yang berpotensi berbayar saat resume. Rekonsiliasi attempt
+   diserahkan ke kontrol resume (SCRUM-216).
 4. Worker liveness: sesi Berjalan yang heartbeat-nya lewat batas waktu (stale)
    ditandai Dihentikan lewat layanan transisi (SessionStatusRepository).
 """
@@ -22,8 +24,6 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from app.modules.runs.models import (
-    Attempt,
-    AttemptStatus,
     MeasurementSession,
     SessionStatus,
     SessionType,
@@ -65,10 +65,10 @@ class RecoveryService:
     def recover_after_restart(self) -> list[uuid.UUID]:
         """Tandai seluruh sesi otomatis yang RUNNING menjadi PAUSED saat startup.
 
-        Sesuai D5 langkah 7 (nomor 39-41):
+        Sesuai D5 langkah 7 (nomor 39-41) dan MEASUREMENT_WORKER.md:
         - SELECT sesi status = running (dan session_type = automatic)
-        - Reset attempt running yang terputus -> pending
         - UPDATE status = paused, stop_reason = 'restart', stopped_at = now
+        - Attempt in-flight dibiarkan RUNNING (uncertain) untuk rekonsiliasi SCRUM-216.
         - Tidak lanjut otomatis; Admin menekan Lanjutkan.
         """
         now = self._clock()
@@ -86,10 +86,7 @@ class RecoveryService:
         recovered_ids: list[uuid.UUID] = []
         for session_id in running_sessions:
             try:
-                # 1. Reset in-flight attempts to pending (parkir teknis, D5 langkah 41)
-                self._reset_interrupted_attempts(session_id)
-
-                # 2. Transition session to paused with stop_reason restart
+                # Transition session to paused with stop_reason restart
                 self._status_repo.change_status(
                     session_id,
                     SessionStatus.PAUSED,
@@ -131,7 +128,6 @@ class RecoveryService:
             session_updated_at = _as_utc(session.updated_at)
             if session_updated_at is not None and session_updated_at <= cutoff:
                 try:
-                    self._reset_interrupted_attempts(session.id)
                     self._status_repo.change_status(
                         session.id,
                         SessionStatus.PAUSED,
@@ -163,17 +159,6 @@ class RecoveryService:
             self._db.commit()
             return True
         return False
-
-    def _reset_interrupted_attempts(self, session_id: uuid.UUID) -> int:
-        """Reset attempt berstatus RUNNING menjadi PENDING."""
-        return self._db.execute(
-            update(Attempt)
-            .where(
-                Attempt.session_id == session_id,
-                Attempt.status == AttemptStatus.RUNNING,
-            )
-            .values(status=AttemptStatus.PENDING)
-        ).rowcount
 
 
 def recover_after_restart(db: Session, *, at: datetime | None = None) -> list[uuid.UUID]:
