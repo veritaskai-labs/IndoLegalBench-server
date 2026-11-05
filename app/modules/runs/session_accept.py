@@ -18,6 +18,7 @@ from app.modules.runs import repository
 from app.modules.runs.models import MeasurementSession, SessionStatus
 from app.modules.runs.schemas import SessionAcceptResponse
 from app.shared.exceptions import ConflictError, NotFoundError, ValidationError
+from app.shared.text import strip_blank
 
 
 def _sesi(db: Session, session_id: uuid.UUID) -> MeasurementSession:
@@ -45,7 +46,8 @@ def accept_session(
     now: datetime,
 ) -> SessionAcceptResponse:
     session = _sesi(db, session_id)
-    alasan = (reason or "").strip()
+    # strip_blank, bukan strip(): zero-width space dan BOM juga bukan alasan (catatan Adra #89).
+    alasan = strip_blank(reason or "")
     if not alasan:
         raise ValidationError(
             "Alasan menerima sesi apa adanya wajib diisi.", code="REASON_REQUIRED", field="reason"

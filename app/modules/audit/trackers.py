@@ -437,22 +437,52 @@ class CallLogTracker(Tracker):
 
 
 class MeasurementSessionTracker(Tracker):
-    """Arsip sesi pengukuran (PBI-11 AC10, SCRUM-210). Pelakunya actor_user_id.
+    """Arsip dan terima apa adanya sesi pengukuran. PBI-11 AC10, PBI-12 AC9. Pelaku actor_user_id.
 
-    Mulai sesi dan status dari worker belum ada di katalog D6a, jadi tidak
-    dicatat di sini. Terima apa adanya (PBI-12) menyusul bersama aksinya.
+    Status sesi tidak dipantau di sini: ditulis lewat UPDATE Core bersyarat yang tidak
+    terlihat listener, jadi repository runs mencatat measurement_session.status_changed
+    sendiri (SCRUM-214). Mulai sesi (baris baru) belum ada di katalog D6a.
+
+    Terima apa adanya: alasannya masuk kolom reason. Hapus tanda: alasan yang dihapus
+    disimpan di before, supaya jejak alasan lama tidak hilang (keputusan Rafa 4 Nov).
     """
 
     entity_type = AuditEntityType.MEASUREMENT_SESSION
     prefix = "measurement_session"
-    fields = ("archived_at",)
+    fields = ("archived_at", "accepted_as_is_at", "accepted_as_is_reason")
     special = frozenset(fields)
 
     def created(self, row: Any) -> list[AuditEvent]:
         return []
 
-    def _special_event(self, row: Any, field: str, change: Change) -> AuditEvent:
-        return self._field_event(row, "archived", field, change)
+    def updated(self, row: Any, changes: dict[str, Change]) -> list[AuditEvent]:
+        events = []
+        if "archived_at" in changes:
+            events.append(self._field_event(row, "archived", "archived_at", changes["archived_at"]))
+        if "accepted_as_is_at" in changes:
+            events.append(self._acceptance_event(row, changes))
+        return events
+
+    def _acceptance_event(self, row: Any, changes: dict[str, Change]) -> AuditEvent:
+        diterima = changes["accepted_as_is_at"]
+        if diterima.new is not None:
+            return self._event(
+                row,
+                "accepted_as_is",
+                reason=row.accepted_as_is_reason,
+                before={"accepted_as_is_at": _json(diterima.old)},
+                after={"accepted_as_is_at": _json(diterima.new)},
+            )
+        alasan = changes.get("accepted_as_is_reason")
+        return self._event(
+            row,
+            "acceptance_cleared",
+            before={
+                "accepted_as_is_at": _json(diterima.old),
+                "accepted_as_is_reason": None if alasan is None else alasan.old,
+            },
+            after={"accepted_as_is_at": None, "accepted_as_is_reason": None},
+        )
 
 
 TRACKERS: dict[str, Tracker] = {

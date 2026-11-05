@@ -40,6 +40,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.database import Base
+from app.shared.text import sql_not_blank
 
 # JSONB on PostgreSQL, plain JSON on SQLite so the tests keep running.
 _JSONB = JSON().with_variant(JSONB(), "postgresql")
@@ -110,6 +111,9 @@ def _enum(enum_cls: type[StrEnum], name: str) -> Enum:
     return Enum(enum_cls, name=name, values_callable=_enum_values)
 
 
+# Alasan "terima apa adanya" wajib berisi teks nyata (AC9); kosong tak terlihat ditolak.
+_REASON_NOT_BLANK = sql_not_blank("coalesce(accepted_as_is_reason, '')")
+
 _RUNNING_AUTOMATIC = text("status = 'running' AND session_type = 'automatic'")
 
 
@@ -119,7 +123,8 @@ class MeasurementSession(Base):
     __tablename__ = "measurement_sessions"
     __table_args__ = (
         CheckConstraint("repetitions BETWEEN 1 AND 5", name="ck_measurement_sessions_repetitions"),
-        CheckConstraint("length(trim(label)) > 0", name="ck_measurement_sessions_label_not_blank"),
+        # Bukan trim() biasa: tab, NBSP, dan zero-width saja juga kosong (SCRUM-214, #89).
+        CheckConstraint(sql_not_blank("label"), name="ck_measurement_sessions_label_not_blank"),
         CheckConstraint(
             "(archived_at IS NULL) = (archived_by IS NULL)",
             name="ck_measurement_sessions_archived_complete",
@@ -128,7 +133,7 @@ class MeasurementSession(Base):
             "(accepted_as_is_at IS NULL AND accepted_as_is_by IS NULL "
             "AND accepted_as_is_reason IS NULL) OR "
             "(accepted_as_is_at IS NOT NULL AND accepted_as_is_by IS NOT NULL "
-            "AND length(trim(coalesce(accepted_as_is_reason, ''))) > 0)",
+            f"AND {_REASON_NOT_BLANK})",
             name="ck_measurement_sessions_accepted_as_is_complete",
         ),
         # Baris arsip disembunyikan SCRUM-210, jadi tidak boleh memegang slot runner.

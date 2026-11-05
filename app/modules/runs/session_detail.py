@@ -22,7 +22,7 @@ from app.modules.cases.service import MASKED_CASE_CODE, MASKED_TITLE
 from app.modules.runs.models import AttemptStatus, StopReason
 from app.modules.runs.schemas import AttemptResult, SessionCaseResult, SessionDetail
 from app.modules.runs.session_list import NameLookup, SessionRow, to_list_item
-from app.modules.runs.session_rules import has_ended
+from app.modules.runs.session_rules import has_ended, is_report_eligible
 from app.shared.exceptions import NotFoundError
 from app.shared.security import Role
 
@@ -99,6 +99,9 @@ class SessionDetailService:
             accepted_as_is_at=row.accepted_as_is_at,
             accepted_as_is_by=row.accepted_as_is_by,
             accepted_as_is_reason=row.accepted_as_is_reason,
+            report_eligible=is_report_eligible(
+                summary.status, accepted_as_is_at=row.accepted_as_is_at
+            ),
             cases=cases,
         )
 
