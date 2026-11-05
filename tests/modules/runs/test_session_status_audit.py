@@ -267,7 +267,10 @@ def test_terima_apa_adanya_tercatat_dengan_alasan_dan_pelaku(as_role, db_session
     assert catatan.reason == "Gagal karena penyedia"
     assert catatan.actor_role == "admin"
     assert catatan.before == {"accepted_as_is_at": None}
-    assert catatan.after == {"accepted_as_is_at": response.json()["accepted_as_is_at"]}
+    # Bandingkan waktunya, bukan teksnya: SQLite membuang zona waktu saat baris dibaca ulang.
+    dicatat = datetime.fromisoformat(catatan.after["accepted_as_is_at"])
+    dijawab = datetime.fromisoformat(response.json()["accepted_as_is_at"]).replace(tzinfo=UTC)
+    assert dicatat == dijawab
 
 
 def test_hapus_tanda_tercatat_dengan_alasan_lama(as_role, db_session, gagal_sebagian):  # noqa: F811
