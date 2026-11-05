@@ -20,16 +20,18 @@ from app.modules.runs.models import (
     SessionProductCopy,
     SessionStatus,
 )
-from app.modules.runs.ports import AttemptRecord
+from app.modules.runs.ports import AttemptRecord, SessionStore
 from app.modules.runs.repository import SessionStatusRepository
 from app.modules.runs.session_notice import notify_session_ended
+
+_WRONG_SESSION = "wrong session"
 
 
 class ExecutionInterrupted(Exception):
     """Kontrol sesi atau penghentian proses melarang dispatch berikutnya."""
 
 
-class TableSessionStore:
+class TableSessionStore(SessionStore):
     def __init__(self, db: Session, session_id: uuid.UUID, *, stopping=lambda: False):
         self.db = db
         self.session_id = session_id
@@ -45,7 +47,7 @@ class TableSessionStore:
 
     def list_cases(self, session_id: uuid.UUID) -> list[str]:
         if session_id != self.session_id:
-            raise ValueError("wrong session")
+            raise ValueError(_WRONG_SESSION)
         return [item.body["sections"]["identity.question"] for item in self.items]
 
     def _session(self) -> MeasurementSession:
@@ -112,7 +114,7 @@ class TableSessionStore:
     def update_progress(self, session_id: uuid.UUID, *, completed: int, failed: int) -> None:
         # Counters are derived from attempts by the list/progress APIs, never duplicated here.
         if session_id != self.session_id:
-            raise ValueError("wrong session")
+            raise ValueError(_WRONG_SESSION)
         self.db.execute(
             update(MeasurementSession)
             .where(MeasurementSession.id == session_id)
@@ -125,7 +127,7 @@ class TableSessionStore:
     def mark_status(self, session_id, status, *, stop_reason=None) -> None:
         row = self._session()
         if session_id != self.session_id:
-            raise ValueError("wrong session")
+            raise ValueError(_WRONG_SESSION)
         if row.status != SessionStatus.RUNNING:
             return  # A control action wins over worker completion.
         if status in (SessionStatus.FINISHED, SessionStatus.FINISHED_WITH_FAILURES):
