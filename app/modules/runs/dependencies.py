@@ -16,6 +16,7 @@ from app.modules.runs.adapters import (
     ProductAdapter,
     ProductCopyAdapter,
     ProductLockAdapter,
+    SessionProgressAdapter,
     SnapshotSourceAdapter,
 )
 from app.modules.runs.call_log import CallLogService
@@ -30,7 +31,12 @@ from app.modules.runs.repository import (
     SessionListRepository,
     SessionQueueRepository,
 )
-from app.modules.runs.service import SessionQueue, StartSessionService, SummaryService
+from app.modules.runs.service import (
+    ProgressService,
+    SessionQueue,
+    StartSessionService,
+    SummaryService,
+)
 from app.modules.runs.session_detail import SessionDetailService
 from app.modules.runs.session_list import SessionListService
 from app.modules.runs.session_ports import SessionQueueStore
@@ -70,6 +76,16 @@ def get_summary_service(
         rates=rates,
         safety_margin_percent=settings.cost_safety_margin_percent,
         default_avg_answer_tokens=settings.cost_default_avg_answer_tokens,
+    )
+
+
+def get_progress_service(db: Session = Depends(get_db)) -> ProgressService:
+    """Satu agregasi sesi, satu produk, satu angka pemakaian bulan ini."""
+    return ProgressService(
+        sessions=SessionProgressAdapter(db),
+        products=ProductAdapter(db),
+        spend=CallLogSpend(db),
+        clock=lambda: datetime.now(UTC),
     )
 
 

@@ -17,12 +17,14 @@ from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
 from app.modules.runs.dependencies import (
+    get_progress_service,
     get_session_detail_service,
     get_session_list_service,
     get_start_service,
     get_summary_service,
 )
 from app.modules.runs.schemas import (
+    ProgressResponse,
     SessionAcceptRequest,
     SessionAcceptResponse,
     SessionArchiveResponse,
@@ -33,7 +35,7 @@ from app.modules.runs.schemas import (
     SummaryRequest,
     SummaryResponse,
 )
-from app.modules.runs.service import StartSessionService, SummaryService
+from app.modules.runs.service import ProgressService, StartSessionService, SummaryService
 from app.modules.runs.session_accept import accept_session, clear_acceptance
 from app.modules.runs.session_archive import archive_session
 from app.modules.runs.session_control_router import router as control_router
@@ -44,6 +46,8 @@ from app.shared.security import CurrentUser, Role, require_roles
 
 # Admin dan Developer AI boleh membuat pengukuran (PBI-11 user story).
 _summary_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
+# AC6: Admin dan Developer AI boleh memantau progres pengukuran.
+_progress_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
 # AC10: peran yang sama memantau sesi di halaman Eksekusi.
 _session_list_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
 # Peran yang melihat daftar boleh merapikannya. Developer AI hanya sesi miliknya
@@ -95,6 +99,35 @@ def summarize(
     service: SummaryService = Depends(get_summary_service),
 ) -> SummaryResponse:
     return service.summarize(payload)
+
+
+_RESPONS_PROGRES = {
+    404: {
+        "model": ErrorBody,
+        "description": (
+            "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`) atau produknya "
+            "sudah dihapus (`AI_PRODUCT_NOT_FOUND`)."
+        ),
+    },
+    500: {
+        "model": ErrorBody,
+        "description": "Anggaran bulanan produk belum disetel (`BUDGET_NOT_CONFIGURED`).",
+    },
+}
+
+
+@router.get(
+    "/{measurement_id}/progress",
+    response_model=ProgressResponse,
+    summary="Angka progres pengukuran untuk layar pemantauan",
+    dependencies=[Depends(_progress_roles)],
+    responses=_RESPONS_PROGRES,
+)
+def read_progress(
+    measurement_id: uuid.UUID,
+    service: ProgressService = Depends(get_progress_service),
+) -> ProgressResponse:
+    return service.read(measurement_id)
 
 
 @router.get(

@@ -14,7 +14,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import exists, func, null, select, update
+from sqlalchemy import Row, exists, func, null, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -47,10 +47,79 @@ from app.modules.runs.session_ports import (
 from app.modules.runs.session_transitions import invalid_transition, sources_of
 from app.shared.exceptions import ConflictError, NotFoundError, ValidationError
 
+# Panggilan yang sudah diproses dan tidak diulang lagi (PBI-12 AC5).
+_ATTEMPT_SELESAI = (
+    AttemptStatus.SUCCEEDED,
+    AttemptStatus.TECHNICAL_FAILURE,
+)
+
 
 def product_has_sessions(db: Session, product_id: uuid.UUID) -> bool:
     """Sesi yang diarsipkan tetap terhitung: datanya tidak pernah dihapus (AC10)."""
     return bool(db.scalar(select(exists().where(MeasurementSession.product_id == product_id))))
+
+
+def session_progress(db: Session, measurement_id: uuid.UUID) -> Row | None:
+    """Angka satu sesi untuk layar progres, atau None bila sesinya tidak ada.
+
+    Dihitung lewat subquery supaya satu panggilan database cukup: endpoint ini
+    di-poll tiap beberapa detik. Biaya dijumlahkan lewat attempt_id, bukan lewat
+    call_logs.product_id, karena yang diminta biaya sesi ini saja.
+    """
+    jumlah_attempt = (
+        select(func.count())
+        .select_from(Attempt)
+        .where(Attempt.session_id == MeasurementSession.id)
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
+    jumlah_selesai = (
+        select(func.count())
+        .select_from(Attempt)
+        .where(
+            Attempt.session_id == MeasurementSession.id,
+            Attempt.status.in_(_ATTEMPT_SELESAI),
+        )
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
+    jumlah_gagal = (
+        select(func.count())
+        .select_from(Attempt)
+        .where(
+            Attempt.session_id == MeasurementSession.id,
+            Attempt.status == AttemptStatus.TECHNICAL_FAILURE,
+        )
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
+    biaya = (
+        select(func.coalesce(func.sum(CallLog.cost_idr), 0))
+        .select_from(CallLog)
+        .join(Attempt, Attempt.id == CallLog.attempt_id)
+        .where(Attempt.session_id == MeasurementSession.id)
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
+    aktivitas_terakhir = (
+        select(func.max(Attempt.updated_at))
+        .select_from(Attempt)
+        .where(Attempt.session_id == MeasurementSession.id)
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
+    return db.execute(
+        select(
+            MeasurementSession.product_id,
+            MeasurementSession.started_at,
+            MeasurementSession.updated_at,
+            jumlah_attempt.label("total_calls"),
+            jumlah_selesai.label("completed_calls"),
+            jumlah_gagal.label("failed_calls"),
+            biaya.label("running_cost_idr"),
+            aktivitas_terakhir.label("last_attempt_at"),
+        ).where(MeasurementSession.id == measurement_id)
+    ).one_or_none()
 
 
 def count_sessions_by_product(
@@ -334,8 +403,12 @@ _ANTREAN_OTOMATIS = (
 )
 
 
-_SELESAI = frozenset(
-    {SessionStatus.FINISHED, SessionStatus.FINISHED_WITH_FAILURES, SessionStatus.FAILED}
+_SESSION_SELESAI = frozenset(
+    {
+        SessionStatus.FINISHED,
+        SessionStatus.FINISHED_WITH_FAILURES,
+        SessionStatus.FAILED,
+    }
 )
 
 
@@ -349,7 +422,7 @@ def _kolom_waktu(
             reopened["queued_at"] = at
         return reopened
     kolom: dict[str, object] = {}
-    if target in _SELESAI:
+    if target in _SESSION_SELESAI:
         kolom["finished_at"] = at
     if stop_reason is not None:
         kolom["stopped_at"] = at

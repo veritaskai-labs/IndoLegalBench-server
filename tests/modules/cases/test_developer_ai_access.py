@@ -265,6 +265,8 @@ _DIBUKA = {
     ("GET", "/measurements"),
     ("GET", "/measurements/{session_id}"),
     ("PATCH", "/measurements/{session_id}/archive"),
+    # PBI-12 AC6 (SCRUM-215): Developer AI memantau angka progres sesi.
+    ("GET", "/measurements/{measurement_id}/progress"),
 }
 # Jalur tanpa penjaga peran: login, profil sendiri, dan lonceng notifikasi.
 _TANPA_PERAN = ("/health", "/auth/", "/notifications")
