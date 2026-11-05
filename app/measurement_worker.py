@@ -28,14 +28,28 @@ def wait_for_recovery(stop: threading.Event, *, factory=None) -> None:
         stop.wait(5)
 
 
-def serve(stop: threading.Event, *, factory=None, dispatch=run_once, startup=None) -> None:
+def serve(
+    stop: threading.Event,
+    *,
+    factory=None,
+    dispatch=run_once,
+    startup=None,
+    liveness_check=None,
+) -> None:
     if startup is not None:
         startup(stop)
+    check = liveness_check
+    if check is None:
+        from app.modules.runs.recovery import check_worker_liveness
+
+        check = check_worker_liveness
     sessions = factory or get_session_factory()
     while not stop.is_set():
         try:
             with sessions() as db:
                 busy = dispatch(db, stopping=stop.is_set)
+                if not busy:
+                    check(db)
         except Exception as exc:
             # Do not log exception text/tracebacks: provider/connection errors may contain secrets.
             logger.error("Measurement dispatcher stopped safely (%s)", type(exc).__name__)
