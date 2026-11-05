@@ -190,6 +190,7 @@ class SessionListRepository:
         ):
             attempts[attempt.snapshot_item_id].append(
                 AttemptRow(
+                    id=attempt.id,
                     repetition_no=attempt.repetition_no,
                     status=AttemptStatus(attempt.status),
                     answer_text=attempt.answer_text,

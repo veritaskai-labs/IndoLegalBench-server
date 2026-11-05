@@ -210,6 +210,12 @@ class AttemptCalls(BaseModel):
 class AttemptResult(BaseModel):
     """Satu percobaan: jawaban mentah apa adanya dari produk (PBI-11 AC8)."""
 
+    id: uuid.UUID = Field(
+        description=(
+            "id percobaan untuk coba ulang per kasus (attempt_ids) dan detail teknis. "
+            "Tetap ada di kasus yang disamarkan karena tidak memuat isi kasus"
+        )
+    )
     repetition_no: int
     status: AttemptStatus
     answer_text: str | None = Field(

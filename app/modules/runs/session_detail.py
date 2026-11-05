@@ -29,6 +29,7 @@ from app.shared.security import Role
 
 @dataclass(frozen=True)
 class AttemptRow:
+    id: uuid.UUID
     repetition_no: int
     status: AttemptStatus
     answer_text: str | None
@@ -122,6 +123,8 @@ def _case(case: CaseRow, *, hide_test: bool, hide_answers: bool) -> SessionCaseR
         sections=None if masked else VersionSections.model_validate(sections),
         attempts=[
             AttemptResult(
+                # Tidak disamarkan: FE perlu id untuk coba ulang per kasus (SCRUM-218).
+                id=attempt.id,
                 repetition_no=attempt.repetition_no,
                 status=attempt.status,
                 answer_text=None if masked or hide_answers else attempt.answer_text,

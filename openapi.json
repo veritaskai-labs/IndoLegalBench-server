@@ -5338,6 +5338,12 @@
       },
       "AttemptResult": {
         "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id",
+            "description": "id percobaan untuk coba ulang per kasus (attempt_ids) dan detail teknis. Tetap ada di kasus yang disamarkan karena tidak memuat isi kasus"
+          },
           "repetition_no": {
             "type": "integer",
             "title": "Repetition No"
@@ -5371,6 +5377,7 @@
         },
         "type": "object",
         "required": [
+          "id",
           "repetition_no",
           "status",
           "answer_text",
