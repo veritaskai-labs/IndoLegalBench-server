@@ -204,6 +204,12 @@ class SessionDetail(SessionListItem):
     )
     accepted_as_is_by: uuid.UUID | None = Field(description="Admin yang menerima sesi")
     accepted_as_is_reason: str | None = Field(description="Alasan tertulis terima apa adanya")
+    report_eligible: bool = Field(
+        description=(
+            "Boleh jadi dasar laporan (D4): finished, atau finished_with_failures yang "
+            "diterima apa adanya. cancelled dan status lain false (PBI-15/16)"
+        )
+    )
     cases: list[SessionCaseResult] = Field(
         description="Kosong selama sesi antre, karena snapshot dibuat saat sesi mulai"
     )

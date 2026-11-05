@@ -7820,6 +7820,11 @@
             "title": "Accepted As Is Reason",
             "description": "Alasan tertulis terima apa adanya"
           },
+          "report_eligible": {
+            "type": "boolean",
+            "title": "Report Eligible",
+            "description": "Boleh jadi dasar laporan (D4): finished, atau finished_with_failures yang diterima apa adanya. cancelled dan status lain false (PBI-15/16)"
+          },
           "cases": {
             "items": {
               "$ref": "#/components/schemas/SessionCaseResult"
@@ -7853,6 +7858,7 @@
           "accepted_as_is_at",
           "accepted_as_is_by",
           "accepted_as_is_reason",
+          "report_eligible",
           "cases"
         ],
         "title": "SessionDetail",
