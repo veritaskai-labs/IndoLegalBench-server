@@ -1,5 +1,7 @@
 """Pesan user penilai. SCRUM-224."""
 
+from decimal import Decimal
+
 from app.modules.providers.adapters.base import ProviderResponse
 from app.modules.runs.judge import (
     JudgeInputs,
@@ -65,3 +67,79 @@ def test_dua_prompt_per_pengulangan_membawa_empat_masukan():
     assert judge.prompts[1] == format_prompt(_INPUTS)
     for prompt in judge.prompts:
         assert _INPUTS.traps not in prompt
+
+
+def _reply(*pairs: tuple[str, bool], explanation: str = "Kriteria tidak terpenuhi.") -> str:
+    blocks: list[str] = []
+    for criterion, met in pairs:
+        if met:
+            blocks.append(f"CRITERION: {criterion}\nMET: yes")
+        else:
+            blocks.append(f"CRITERION: {criterion}\nMET: no\nEXPLANATION: {explanation}")
+    return "\n".join(blocks)
+
+
+def test_skor_proporsional_dan_alasan_placeholder():
+    """Positif: 3 dari 4 menjadi 0.75, semua terpenuhi menjadi 1.00."""
+    sebagian = _reply(("a", True), ("b", True), ("c", True), ("d", False))
+    penuh = _reply(("a", True), ("b", True))
+    judge = _ScriptedJudge([_ok(sebagian), _ok(penuh)])
+
+    hasil = run_judge(judge, _INPUTS, repetitions=1)
+
+    baris = hasil.rows[0]
+    assert baris.score == Decimal("0.75")
+    assert baris.criteria[3].met is False
+    assert baris.criteria[3].explanation == "Kriteria tidak terpenuhi."
+    assert baris.criteria[3].reason_id == "unmet"
+    assert baris.reason_id == "unmet"
+    assert hasil.rows[1].score == Decimal("1.00")
+    assert hasil.rows[1].reason_id is None
+    assert hasil.rows[1].explanation is None
+
+
+def test_penjelasan_hanya_saat_kriteria_tidak_terpenuhi():
+    """Edge: baris EXPLANATION pada MET yes tidak menjadi alasan."""
+    teks = "CRITERION: menyebut pasal\nMET: yes\nEXPLANATION: tidak dipakai"
+    judge = _ScriptedJudge([_ok(teks), _ok(_reply(("a", True)))])
+
+    hasil = run_judge(judge, _INPUTS, repetitions=1)
+
+    assert hasil.rows[0].criteria[0].met is True
+    assert hasil.rows[0].criteria[0].explanation is None
+    assert hasil.rows[0].criteria[0].reason_id is None
+    assert hasil.rows[0].score == Decimal("1.00")
+
+
+def test_skor_dibulatkan_dua_desimal():
+    """Edge: 2 dari 3 dibulatkan ke 0.67."""
+    judge = _ScriptedJudge(
+        [_ok(_reply(("a", True), ("b", True), ("c", False))), _ok(_reply(("a", True)))]
+    )
+
+    hasil = run_judge(judge, _INPUTS, repetitions=1)
+
+    assert hasil.rows[0].score == Decimal("0.67")
+
+
+def test_jebakan_tidak_mengubah_prompt_maupun_skor():
+    """Negatif: isi jebakan tidak masuk pesan dan tidak mengubah skor."""
+    tanpa = JudgeInputs(
+        criteria=_INPUTS.criteria,
+        ground_truth=_INPUTS.ground_truth,
+        question=_INPUTS.question,
+        provider_answer=_INPUTS.provider_answer,
+    )
+
+    def _jawaban() -> list[ProviderResponse]:
+        return [
+            _ok(_reply(("a", True), ("b", False))),
+            _ok(_reply(("a", True), ("b", False))),
+        ]
+
+    pertama = run_judge(_ScriptedJudge(_jawaban()), _INPUTS, repetitions=1)
+    kedua = run_judge(_ScriptedJudge(_jawaban()), tanpa, repetitions=1)
+
+    assert pertama.rows[0].prompt == kedua.rows[0].prompt
+    assert pertama.rows[0].score == kedua.rows[0].score == Decimal("0.50")
+    assert "jebakan rahasia" not in pertama.rows[0].prompt

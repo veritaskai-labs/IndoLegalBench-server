@@ -1,6 +1,7 @@
 """Penilai LLM. SCRUM-224. Pesan user untuk kualitas dan format."""
 
 from dataclasses import dataclass, field
+from decimal import Decimal
 
 _QUALITY_LEAD = (
     "Score the quality of the provider answer against each criterion. "
@@ -50,10 +51,22 @@ def _prompt(lead: str, inputs: JudgeInputs) -> str:
 
 
 @dataclass(frozen=True)
+class CriterionJudgement:
+    criterion: str
+    met: bool
+    explanation: str | None
+    reason_id: str | None
+
+
+@dataclass(frozen=True)
 class JudgeRow:
     kind: str
     repetition: int
     prompt: str
+    criteria: tuple[CriterionJudgement, ...] = ()
+    score: Decimal | None = None
+    explanation: str | None = None
+    reason_id: str | None = None
 
 
 @dataclass
