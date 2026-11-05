@@ -669,3 +669,30 @@ def test_budget_increase_allows_resume_without_changing_frozen_token_prices(siap
     assert len(provider.calls) == 9
     assert siap.db.get(MeasurementSession, session_id).status == "finished"
     assert set(siap.db.scalars(select(CallLog.cost_idr))) == {Decimal("4.80")}
+
+
+def test_copy_version_flush_has_persisted_attempt_evidence(siap):
+    from sqlalchemy import event
+
+    session_id = start(siap)
+    previous = siap.db.autoflush
+    siap.db.autoflush = False  # Match the production session factory.
+
+    def check_evidence(db, *_):
+        for row in db.dirty:
+            if isinstance(row, SessionProductCopy) and row.model_version_at_start:
+                evidence = db.connection().scalar(
+                    select(Attempt.id).where(
+                        Attempt.session_id == row.session_id,
+                        Attempt.model_version == row.model_version_at_start,
+                    )
+                )
+                assert evidence is not None, "copy version must have already-flushed evidence"
+
+    event.listen(siap.db, "before_flush", check_evidence)
+    try:
+        assert runner(siap, Provider())()
+        assert siap.db.get(MeasurementSession, session_id).status == "finished"
+    finally:
+        event.remove(siap.db, "before_flush", check_evidence)
+        siap.db.autoflush = previous
