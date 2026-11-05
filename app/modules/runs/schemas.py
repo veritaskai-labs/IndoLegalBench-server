@@ -172,6 +172,37 @@ class SessionRetryResponse(BaseModel):
     )
 
 
+class CallAttemptLog(BaseModel):
+    """Satu upaya panggilan di call_logs, untuk tombol "lihat detail teknis" (D5 langkah 33-38)."""
+
+    try_no: int = Field(description="Upaya ke-n pada percobaan ini, 1 = panggilan awal")
+    is_manual_retry: bool = Field(description="true untuk upaya dari Coba ulang atau Lanjutkan")
+    started_at: datetime
+    ended_at: datetime
+    duration_ms: int
+    result: str = Field(description="ok, atau jenis kegagalan teknis")
+    failure_kind: str | None
+    model_version: str
+    error_summary: str | None = Field(
+        description="Ringkasan galat dari worker. null bila berhasil atau disamarkan"
+    )
+    raw_response: dict | None = Field(
+        description="Respons asli penyedia sebagai bukti. null bila disamarkan"
+    )
+
+
+class AttemptCalls(BaseModel):
+    """Riwayat upaya satu percobaan, urut try_no (PBI-12 AC3)."""
+
+    attempt_id: uuid.UUID
+    repetition_no: int
+    status: AttemptStatus
+    masked: bool = Field(
+        description="true untuk kasus test yang dibuka Developer AI: hanya jenis dan waktu"
+    )
+    calls: list[CallAttemptLog]
+
+
 class AttemptResult(BaseModel):
     """Satu percobaan: jawaban mentah apa adanya dari produk (PBI-11 AC8)."""
 

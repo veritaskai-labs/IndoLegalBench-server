@@ -384,6 +384,28 @@ def attempt_statuses(db: Session, session_id: uuid.UUID) -> dict[uuid.UUID, Atte
     return dict(rows.all())
 
 
+def session_exists(db: Session, session_id: uuid.UUID) -> bool:
+    return bool(db.scalar(select(exists().where(MeasurementSession.id == session_id))))
+
+
+def attempt_with_calls(
+    db: Session, session_id: uuid.UUID, attempt_id: uuid.UUID
+) -> tuple[Attempt, dict, list[CallLog]] | None:
+    """Percobaan sesi ini, body item snapshot-nya, dan semua upayanya urut try_no."""
+    baris = db.execute(
+        select(Attempt, CaseSnapshotItem.body)
+        .join(CaseSnapshotItem, CaseSnapshotItem.id == Attempt.snapshot_item_id)
+        .where(Attempt.id == attempt_id, Attempt.session_id == session_id)
+    ).first()
+    if baris is None:
+        return None
+    attempt, body = baris
+    calls = list(
+        db.scalars(select(CallLog).where(CallLog.attempt_id == attempt_id).order_by(CallLog.try_no))
+    )
+    return attempt, body, calls
+
+
 def reopen_for_retry(
     db: Session, session_id: uuid.UUID, attempt_ids: Sequence[uuid.UUID], *, at: datetime
 ) -> None:

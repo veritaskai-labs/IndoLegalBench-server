@@ -3365,6 +3365,153 @@
         }
       }
     },
+    "/measurements/{session_id}/retry": {
+      "post": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Coba ulang percobaan yang gagal; sesi berjalan lagi dan runner memanggil ulang",
+        "operationId": "retry_measurements__session_id__retry_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionRetryRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionRetryResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Peran tidak berwenang (`FORBIDDEN`), atau Developer AI mencoba ulang sesi buatan orang lain (`NOT_YOUR_SESSION`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Sesi bukan Selesai dengan kegagalan (`SESSION_NOT_RETRYABLE`), sudah diterima apa adanya (`SESSION_ACCEPTED`), atau sesi otomatis lain sedang berjalan (`ANOTHER_SESSION_RUNNING`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Pilih `attempt_ids` atau `all_failed`. Percobaan yang bukan gagal teknis di sesi ini (`ATTEMPT_NOT_RETRYABLE`, berisi `attempt_ids`), atau tidak ada yang gagal (`NO_FAILED_ATTEMPTS`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/measurements/{session_id}/attempts/{attempt_id}/calls": {
+      "get": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Detail teknis setiap upaya panggilan satu percobaan (lihat detail teknis)",
+        "description": "Developer AI mendapat kasus test yang disamarkan: hanya jenis kegagalan dan waktu.",
+        "operationId": "get_attempt_calls_measurements__session_id__attempts__attempt_id__calls_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "attempt_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Attempt Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/AttemptCalls"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`), atau percobaan bukan milik sesi ini (`ATTEMPT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit-logs": {
       "get": {
         "tags": [
@@ -5047,6 +5194,44 @@
         "title": "AssignmentVoidReason",
         "description": "end_reason assignment void (D11). Kode stabil; FE yang memetakan ke teks (SCRUM-198)."
       },
+      "AttemptCalls": {
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id"
+          },
+          "repetition_no": {
+            "type": "integer",
+            "title": "Repetition No"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AttemptStatus"
+          },
+          "masked": {
+            "type": "boolean",
+            "title": "Masked",
+            "description": "true untuk kasus test yang dibuka Developer AI: hanya jenis dan waktu"
+          },
+          "calls": {
+            "items": {
+              "$ref": "#/components/schemas/CallAttemptLog"
+            },
+            "type": "array",
+            "title": "Calls"
+          }
+        },
+        "type": "object",
+        "required": [
+          "attempt_id",
+          "repetition_no",
+          "status",
+          "masked",
+          "calls"
+        ],
+        "title": "AttemptCalls",
+        "description": "Riwayat upaya satu percobaan, urut try_no (PBI-12 AC3)."
+      },
       "AttemptResult": {
         "properties": {
           "repetition_no": {
@@ -5337,6 +5522,94 @@
         ],
         "title": "AwaitingRevisionReview",
         "description": "Satu baris antrean \"Menunggu revisi penulis\" untuk reviewer (SCRUM-242).\n\nassignment_id adalah penugasan reviewer ini sendiri. thread_assignment_ids\nberisi penugasan di round itu yang punya komentar, supaya reviewer yang\nsetuju bisa membuka thread rekannya lewat GET /reviews/{id}/discussion."
+      },
+      "CallAttemptLog": {
+        "properties": {
+          "try_no": {
+            "type": "integer",
+            "title": "Try No",
+            "description": "Upaya ke-n pada percobaan ini, 1 = panggilan awal"
+          },
+          "is_manual_retry": {
+            "type": "boolean",
+            "title": "Is Manual Retry",
+            "description": "true untuk upaya dari Coba ulang atau Lanjutkan"
+          },
+          "started_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Started At"
+          },
+          "ended_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Ended At"
+          },
+          "duration_ms": {
+            "type": "integer",
+            "title": "Duration Ms"
+          },
+          "result": {
+            "type": "string",
+            "title": "Result",
+            "description": "ok, atau jenis kegagalan teknis"
+          },
+          "failure_kind": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Kind"
+          },
+          "model_version": {
+            "type": "string",
+            "title": "Model Version"
+          },
+          "error_summary": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Summary",
+            "description": "Ringkasan galat dari worker. null bila berhasil atau disamarkan"
+          },
+          "raw_response": {
+            "anyOf": [
+              {
+                "additionalProperties": true,
+                "type": "object"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Raw Response",
+            "description": "Respons asli penyedia sebagai bukti. null bila disamarkan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "try_no",
+          "is_manual_retry",
+          "started_at",
+          "ended_at",
+          "duration_ms",
+          "result",
+          "failure_kind",
+          "model_version",
+          "error_summary",
+          "raw_response"
+        ],
+        "title": "CallAttemptLog",
+        "description": "Satu upaya panggilan di call_logs, untuk tombol \"lihat detail teknis\" (D5 langkah 33-38)."
       },
       "CaseCompleteness": {
         "properties": {
@@ -7901,6 +8174,64 @@
         ],
         "title": "SessionProgressRead",
         "description": "Progres \"X dari N\" di daftar sesi (PBI-11 AC10)."
+      },
+      "SessionRetryRequest": {
+        "properties": {
+          "attempt_ids": {
+            "anyOf": [
+              {
+                "items": {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Attempt Ids",
+            "description": "Percobaan gagal yang dicentang. Kosongkan bila all_failed"
+          },
+          "all_failed": {
+            "type": "boolean",
+            "title": "All Failed",
+            "description": "true untuk mencoba ulang semua percobaan yang gagal",
+            "default": false
+          }
+        },
+        "type": "object",
+        "title": "SessionRetryRequest",
+        "description": "Coba ulang yang gagal (PBI-12 AC3): per kasus lewat attempt_ids, atau semua (D4)."
+      },
+      "SessionRetryResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          },
+          "retried_attempt_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Retried Attempt Ids",
+            "description": "Percobaan yang kembali pending, urut kasus lalu nomor pengulangan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "retried_attempt_ids"
+        ],
+        "title": "SessionRetryResponse",
+        "description": "Sesi berjalan lagi; runner hanya memanggil ulang percobaan yang dibuka."
       },
       "SessionStatus": {
         "type": "string",
