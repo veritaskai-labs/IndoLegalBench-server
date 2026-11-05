@@ -265,6 +265,10 @@ _DIBUKA = {
     ("GET", "/measurements"),
     ("GET", "/measurements/{session_id}"),
     ("PATCH", "/measurements/{session_id}/archive"),
+    # PBI-12 AC3 (SCRUM-218): coba ulang sesi miliknya (D10 [USULAN PO]) dan detail teknis
+    # upaya; detail kasus test disamarkan, diuji di test_session_retry_endpoint.py.
+    ("POST", "/measurements/{session_id}/retry"),
+    ("GET", "/measurements/{session_id}/attempts/{attempt_id}/calls"),
 }
 # Jalur tanpa penjaga peran: login, profil sendiri, dan lonceng notifikasi.
 _TANPA_PERAN = ("/health", "/auth/", "/notifications")
