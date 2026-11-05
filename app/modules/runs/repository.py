@@ -300,7 +300,9 @@ def _kolom_waktu(
 ) -> dict[str, object]:
     """Kolom waktu yang ikut berubah bersama status (D2)."""
     if target is SessionStatus.RUNNING:
-        return {"stopped_at": None, "stop_reason": None}
+        # Coba ulang dan Lanjutkan: sesi belum selesai lagi, jadi waktu selesai lama dibuang
+        # (catatan Roben #97). Selesai berikutnya mengisi waktu yang baru.
+        return {"stopped_at": None, "stop_reason": None, "finished_at": None}
     kolom: dict[str, object] = {}
     if target in _SELESAI:
         kolom["finished_at"] = at
