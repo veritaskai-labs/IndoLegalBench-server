@@ -28,6 +28,60 @@ before every call. SIGTERM/SIGINT lets the current call persist, then pauses the
 session with reason `restart`; the 260-second Compose grace period exceeds the
 provider's 240-second timeout. Hard kills still require SCRUM-217 recovery.
 
+SCRUM-216 adds `POST /measurements/{id}/pause`, `/cancel` and `/resume`.
+Controls default to Admin-only. `MEASUREMENT_DEV_AI_CONTROLS_ENABLED=false` keeps
+Developer AI view access unchanged; if explicitly enabled, only sessions with
+`created_by` equal to that Developer AI's user ID can be controlled. An Admin
+must still provide any required unknown-version confirmation.
+Both return 202 with `{id, status, stopped_at, stop_reason}` after the control
+transaction commits. The state blocks the next dispatch; an already claimed call
+may still be finishing and will keep its answer, call log and cost. `stop_reason`
+is `user` for both actions. GET detail reloads the persisted stop metadata.
+Repeated or invalid actions return 409 `INVALID_TRANSITION`; archived sessions
+return `SESSION_ARCHIVED`, accepted sessions `SESSION_ACCEPTED`, and manual sessions
+`SESSION_NOT_AUTOMATIC`. Cancellation while queued is allowed by the merged D4.
+Pause then cancel is allowed by the SCRUM-216 decision supplied by Roben (5 Nov).
+
+Resume returns 202 `{id, status, resumed_after_long_pause, model_version_unverified}`.
+It reopens a prepared session as `running`; the same leased dispatcher processes
+pending attempts and preserves successful/failed attempts. A cancelled session
+that never started returns to `queued`, so original preparation creates its first
+snapshot/copy. An occupied running slot returns 409 `ANOTHER_SESSION_RUNNING` with
+no partial writes. Repeated resume is 409 `SESSION_NOT_RESUMABLE`. An uncertain
+running attempt without a live dispatcher lease is 409 `ATTEMPT_RECOVERY_REQUIRED`;
+SCRUM-217 must reconcile it first. No automatic retry is introduced.
+
+The version source is the last successful call/attempt of the same product across
+sessions, ordered by ended_at, started_at, then ID. Only provider-reported response
+`model` is recorded as measurement version; a configured alias is not substituted.
+A known difference from `model_version_at_start` rejects resume with 409
+`MODEL_VERSION_CHANGED`. No discovery call is made. Unknown versions permit resume
+with `model_version_unverified`; if successful calls exist but none has a version,
+the API first returns 409 `MODEL_VERSION_CONFIRMATION_REQUIRED`. Admin can explicitly
+resubmit `{confirm_unverified_version: true}`. Developer AI cannot confirm this.
+
+The first response after resume is checked again in the worker transaction. If it
+reveals a changed version, its attempt/result/log/cost are still saved, the session
+pauses with reason `error`, and GET detail exposes `resume_error_code=MODEL_VERSION_CHANGED`.
+The earlier HTTP 202 cannot change retrospectively; subsequent resume requests are
+409 and a new session is required. A concurrent user pause/cancel keeps its state
+and reason while retaining the version error. A null baseline is initialized once
+when a response first carries a version; absence remains explicit unknown evidence.
+
+`RESUME_LONG_STOP_DAYS` defaults to 7 (non-negative integer); interval is measured
+from the previous stopped_at in UTC. Strictly greater than the limit sets
+`resumed_after_long_pause`, without rejecting resume. Both markers persist in GET
+detail and remain true as historical evidence on later resumes. Legacy missing
+stopped_at cannot establish elapsed duration and is not assigned a guessed date.
+The two configuration values are forwarded by local/deploy Compose to the API.
+No actual environment/credential file is changed by this implementation.
+
+Apply migration `e216a5b7c901` and deploy matching API/worker code together. Downgrade
+refuses while resume verification/marker evidence exists rather than silently
+discarding a model-version block. Preserve that evidence and reconcile with the
+owner before rollback. The migration branches from #98; whichever of this change
+and #99 lands second must reconcile its Alembic parent with final staging.
+
 Final status and the starter's in-app notification commit atomically through the
 existing notifier contract. Repeating finalization does not send a second message.
 Budget pauses send no completion notification. All processed calls failing still
@@ -82,7 +136,7 @@ operator intervention condition, not permission to resend the call.
    `restart` and the current UTC timestamp, then restart the worker. This records
    an operator stop and releases the running slot; it does not assign a new
    fatal-error terminal status. Never bypass the transition service with SQL.
-5. Resume only through the authorised SCRUM-216 flow once available and only
+5. Resume only through the authorised SCRUM-216 flow and only
    after the cause and uncertain attempts are resolved. The runtime skips
    successful attempts; explicit failed-only retry remains SCRUM-218's scope.
 

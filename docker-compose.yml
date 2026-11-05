@@ -15,6 +15,8 @@ services:
       # Host db, not localhost: this runs inside the compose network.
       DATABASE_URL: postgresql+psycopg://indolegalbench:indolegalbench@db:5432/indolegalbench
       CORS_ORIGINS: '["http://localhost:3000"]'
+      RESUME_LONG_STOP_DAYS: ${RESUME_LONG_STOP_DAYS:-7}
+      MEASUREMENT_DEV_AI_CONTROLS_ENABLED: ${MEASUREMENT_DEV_AI_CONTROLS_ENABLED:-false}
     ports:
       - "8000:8000"
     depends_on:
