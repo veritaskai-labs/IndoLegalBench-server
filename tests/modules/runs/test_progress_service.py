@@ -161,3 +161,15 @@ def test_anggaran_belum_disetel_jadi_error_internal():
         service.read(_SESI)
 
     assert exc.value.code == "BUDGET_NOT_CONFIGURED"
+
+def test_sisa_waktu_dihitung_dari_jam_sekarang_bukan_dari_updated_at():
+    """Baris sesi tidak ikut diperbarui tiap panggilan, jadi updated_at bisa tertinggal jauh."""
+    # Arrange: angka sesi terakhir berubah tepat saat sesi mulai
+    service = _service(hitungan=_hitungan(updated_at=_MULAI), produk=_produk())
+
+    # Act
+    respons = service.read(_SESI)
+
+    # Assert
+    assert respons.remaining_seconds == 600
+    assert respons.updated_at == _MULAI
