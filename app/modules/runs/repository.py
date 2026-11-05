@@ -18,7 +18,6 @@ from sqlalchemy import Row, exists, func, null, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-# Panggilan yang sudah diproses dan tidak diulang lagi (PBI-12 AC5).
 from app.modules.runs.models import (
     Attempt,
     AttemptSource,
@@ -45,6 +44,7 @@ from app.modules.runs.session_ports import (
     WaitingSession,
 )
 
+# Panggilan yang sudah diproses dan tidak diulang lagi (PBI-12 AC5).
 _SELESAI = (AttemptStatus.SUCCEEDED, AttemptStatus.TECHNICAL_FAILURE)
 
 
@@ -95,6 +95,13 @@ def session_progress(db: Session, measurement_id: uuid.UUID) -> Row | None:
         .correlate(MeasurementSession)
         .scalar_subquery()
     )
+    aktivitas_terakhir = (
+        select(func.max(Attempt.updated_at))
+        .select_from(Attempt)
+        .where(Attempt.session_id == MeasurementSession.id)
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
     return db.execute(
         select(
             MeasurementSession.product_id,
@@ -104,6 +111,7 @@ def session_progress(db: Session, measurement_id: uuid.UUID) -> Row | None:
             jumlah_selesai.label("completed_calls"),
             jumlah_gagal.label("failed_calls"),
             biaya.label("running_cost_idr"),
+            aktivitas_terakhir.label("last_attempt_at"),
         ).where(MeasurementSession.id == measurement_id)
     ).one_or_none()
 
