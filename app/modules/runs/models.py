@@ -70,13 +70,28 @@ class SplitFilter(StrEnum):
 
 
 class SessionStatus(StrEnum):
-    """Status dasar. Dihentikan dan Dibatalkan menyusul di PBI-12."""
+    """Status sesi per D4. Perpindahan yang sah ada di session_transitions (SCRUM-214).
+
+    paused mencakup Jeda dari pengguna dan sesi yang dihentikan sistem (restart, deploy,
+    anggaran habis); D4 tidak memisahkan Dihentikan dari Dijeda.
+    """
 
     QUEUED = "queued"
     RUNNING = "running"
+    PAUSED = "paused"
+    CANCELLED = "cancelled"
     FINISHED = "finished"
     FINISHED_WITH_FAILURES = "finished_with_failures"
     FAILED = "failed"
+
+
+class StopReason(StrEnum):
+    """Penyebab sesi berhenti (D2 stop_reason). paused: user, budget, restart; failed: error."""
+
+    USER = "user"
+    BUDGET = "budget"
+    RESTART = "restart"
+    ERROR = "error"
 
 
 class AttemptSource(StrEnum):
@@ -120,6 +135,11 @@ class MeasurementSession(Base):
         CheckConstraint(
             "NOT (status = 'running' AND archived_at IS NOT NULL)",
             name="ck_measurement_sessions_running_not_archived",
+        ),
+        # Waktu berhenti tanpa penyebab (atau sebaliknya) tidak bisa dijelaskan ke Admin.
+        CheckConstraint(
+            "(stopped_at IS NULL) = (stop_reason IS NULL)",
+            name="ck_measurement_sessions_stop_complete",
         ),
         Index("ix_measurement_sessions_product_id", "product_id"),
         # Satu sesi otomatis berjalan (AC3). Parsial di kedua dialek: tanpa
@@ -170,6 +190,11 @@ class MeasurementSession(Base):
     queued_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    # D2: kapan dan mengapa sesi berhenti (SCRUM-214). Kosong lagi saat sesi berjalan kembali.
+    stopped_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    stop_reason: Mapped[StopReason | None] = mapped_column(
+        _enum(StopReason, "measurement_stop_reason_enum"), nullable=True
+    )
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey(_USER_FK), nullable=True

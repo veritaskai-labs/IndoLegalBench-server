@@ -106,7 +106,8 @@ def test_worker_memanggil_provider_tiga_puluh_kali_dengan_teks_pertanyaan_saja()
     ]
     assert all(rekam.text == f"mock:{rekam.prompt}" for rekam in store.attempts)
     assert store.progress[-1] == (KASUS * ULANG, 0)
-    assert store.statuses == ["running", "finished"]
+    # SCRUM-214: running ditulis SessionQueue.start(), worker hanya menulis status akhir.
+    assert store.statuses == ["finished"]
 
 
 def test_semua_panggilan_gagal_tetap_tiga_puluh_percobaan_dan_loop_berlanjut():
@@ -127,4 +128,5 @@ def test_semua_panggilan_gagal_tetap_tiga_puluh_percobaan_dan_loop_berlanjut():
     assert len(store.attempts) == KASUS * ULANG
     assert all(rekam.failure_kind is not None for rekam in store.attempts)
     assert store.progress[-1] == (0, KASUS * ULANG)
-    assert store.statuses[0] == "running"
+    # SCRUM-214: worker hanya menulis satu status akhir (running sudah ditulis start()).
+    assert len(store.statuses) == 1

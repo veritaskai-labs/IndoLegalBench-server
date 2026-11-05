@@ -10,6 +10,8 @@ from collections.abc import Sequence
 from dataclasses import dataclass
 from typing import Protocol
 
+from app.modules.runs.models import SessionStatus, StopReason
+
 
 @dataclass(frozen=True)
 class AttemptRecord:
@@ -44,8 +46,17 @@ class SessionStore(Protocol):
         """Jumlah selesai, jumlah gagal, dipanggil setelah setiap percobaan."""
         raise NotImplementedError
 
-    def mark_status(self, session_id: uuid.UUID, status: str) -> None:
-        """Status sesi: running, finished, atau budget_stopped."""
+    def mark_status(
+        self,
+        session_id: uuid.UUID,
+        status: SessionStatus,
+        *,
+        stop_reason: StopReason | None = None,
+    ) -> None:
+        """Status akhir sesi (D4): finished, finished_with_failures, atau paused + penyebab.
+
+        Implementasi SQL memanggil SessionStatusRepository.change_status (SCRUM-214).
+        """
         raise NotImplementedError
 
 

@@ -19,7 +19,7 @@ from typing import Any, Protocol
 
 from app.modules.cases.schemas import VersionSections
 from app.modules.cases.service import MASKED_CASE_CODE, MASKED_TITLE
-from app.modules.runs.models import AttemptStatus
+from app.modules.runs.models import AttemptStatus, StopReason
 from app.modules.runs.schemas import AttemptResult, SessionCaseResult, SessionDetail
 from app.modules.runs.session_list import NameLookup, SessionRow, to_list_item
 from app.modules.runs.session_rules import has_ended
@@ -52,6 +52,11 @@ class SessionDetailRow:
     started_at: datetime | None
     finished_at: datetime | None
     archived_at: datetime | None
+    stopped_at: datetime | None
+    stop_reason: StopReason | None
+    accepted_as_is_at: datetime | None
+    accepted_as_is_by: uuid.UUID | None
+    accepted_as_is_reason: str | None
     cases: list[CaseRow]
 
 
@@ -89,6 +94,11 @@ class SessionDetailService:
             started_at=row.started_at,
             finished_at=row.finished_at,
             archived_at=row.archived_at,
+            stopped_at=row.stopped_at,
+            stop_reason=row.stop_reason,
+            accepted_as_is_at=row.accepted_as_is_at,
+            accepted_as_is_by=row.accepted_as_is_by,
+            accepted_as_is_reason=row.accepted_as_is_reason,
             cases=cases,
         )
 
