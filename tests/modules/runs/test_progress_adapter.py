@@ -66,6 +66,7 @@ def test_sesi_yang_tidak_ada_jadi_none():
     # Assert
     assert hasil is None
 
+
 def test_waktu_terakhir_diperbarui_memakai_attempt_terbaru():
     # Arrange: angkanya berubah karena attempt, bukan karena baris sesi diperbarui
     db = MagicMock()

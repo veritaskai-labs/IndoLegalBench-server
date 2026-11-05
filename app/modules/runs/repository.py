@@ -48,7 +48,10 @@ from app.modules.runs.session_transitions import invalid_transition, sources_of
 from app.shared.exceptions import ConflictError, NotFoundError, ValidationError
 
 # Panggilan yang sudah diproses dan tidak diulang lagi (PBI-12 AC5).
-_SELESAI = (AttemptStatus.SUCCEEDED, AttemptStatus.TECHNICAL_FAILURE)
+_ATTEMPT_SELESAI = (
+    AttemptStatus.SUCCEEDED,
+    AttemptStatus.TECHNICAL_FAILURE,
+)
 
 
 def product_has_sessions(db: Session, product_id: uuid.UUID) -> bool:
@@ -75,7 +78,7 @@ def session_progress(db: Session, measurement_id: uuid.UUID) -> Row | None:
         .select_from(Attempt)
         .where(
             Attempt.session_id == MeasurementSession.id,
-            Attempt.status.in_(_SELESAI),
+            Attempt.status.in_(_ATTEMPT_SELESAI),
         )
         .correlate(MeasurementSession)
         .scalar_subquery()
@@ -356,8 +359,12 @@ _ANTREAN_OTOMATIS = (
 )
 
 
-_SELESAI = frozenset(
-    {SessionStatus.FINISHED, SessionStatus.FINISHED_WITH_FAILURES, SessionStatus.FAILED}
+_SESSION_SELESAI = frozenset(
+    {
+        SessionStatus.FINISHED,
+        SessionStatus.FINISHED_WITH_FAILURES,
+        SessionStatus.FAILED,
+    }
 )
 
 
@@ -368,7 +375,7 @@ def _kolom_waktu(
     if target is SessionStatus.RUNNING:
         return {"stopped_at": None, "stop_reason": None}
     kolom: dict[str, object] = {}
-    if target in _SELESAI:
+    if target in _SESSION_SELESAI:
         kolom["finished_at"] = at
     if stop_reason is not None:
         kolom["stopped_at"] = at
