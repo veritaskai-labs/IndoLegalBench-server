@@ -50,6 +50,12 @@ def produk(db_session):
     return item
 
 
+def _utc(nilai: str) -> datetime:
+    # SQLite membuang zona waktu; PostgreSQL mengembalikan waktu ber-zona (UTC).
+    waktu = datetime.fromisoformat(nilai)
+    return waktu if waktu.tzinfo else waktu.replace(tzinfo=UTC)
+
+
 def _detail(client, session_id: uuid.UUID) -> dict:
     response = client.get(f"/measurements/{session_id}")
     assert response.status_code == 200, response.text
@@ -120,7 +126,7 @@ def test_penyebab_jeda_terbaca_ulang(as_role, db_session, produk, pembuat, penye
     # Assert
     assert body["status"] == "paused"
     assert body["stop_reason"] == penyebab.value
-    assert datetime.fromisoformat(body["stopped_at"]) == BERHENTI
+    assert _utc(body["stopped_at"]) == BERHENTI
 
 
 def test_dilanjutkan_menghapus_penyebab_berhenti(as_role, db_session, produk, pembuat):

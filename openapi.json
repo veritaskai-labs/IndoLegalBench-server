@@ -7758,6 +7758,68 @@
             "title": "Archived At",
             "description": "Terisi bila sesi sudah diarsipkan"
           },
+          "stopped_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stopped At",
+            "description": "Waktu sesi berhenti (jeda, anggaran, restart, error). null selama berjalan"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StopReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Penyebab berhenti: user, budget, restart (paused) atau error (failed)"
+          },
+          "accepted_as_is_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted As Is At",
+            "description": "Waktu Admin menandai terima apa adanya. null bila tidak tertanda"
+          },
+          "accepted_as_is_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted As Is By",
+            "description": "Admin yang menerima sesi"
+          },
+          "accepted_as_is_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted As Is Reason",
+            "description": "Alasan tertulis terima apa adanya"
+          },
           "cases": {
             "items": {
               "$ref": "#/components/schemas/SessionCaseResult"
@@ -7786,6 +7848,11 @@
           "started_at",
           "finished_at",
           "archived_at",
+          "stopped_at",
+          "stop_reason",
+          "accepted_as_is_at",
+          "accepted_as_is_by",
+          "accepted_as_is_reason",
           "cases"
         ],
         "title": "SessionDetail",
@@ -8036,6 +8103,17 @@
         ],
         "title": "StartResponse",
         "description": "Jawaban 201 tombol Mulai (D3 langkah 23)."
+      },
+      "StopReason": {
+        "type": "string",
+        "enum": [
+          "user",
+          "budget",
+          "restart",
+          "error"
+        ],
+        "title": "StopReason",
+        "description": "Penyebab sesi berhenti (D2 stop_reason). paused: user, budget, restart; failed: error."
       },
       "SuiteCreate": {
         "properties": {

@@ -127,6 +127,11 @@ class SessionListRepository:
             started_at=session.started_at,
             finished_at=session.finished_at,
             archived_at=session.archived_at,
+            stopped_at=session.stopped_at,
+            stop_reason=None if session.stop_reason is None else StopReason(session.stop_reason),
+            accepted_as_is_at=session.accepted_as_is_at,
+            accepted_as_is_by=session.accepted_as_is_by,
+            accepted_as_is_reason=session.accepted_as_is_reason,
             cases=self._cases(session_id),
         )
 
