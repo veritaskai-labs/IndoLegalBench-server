@@ -139,6 +139,28 @@ class DbNotifier:
                 db.close()
 
 
+class TransactionNotifier:
+    """Notifikasi worker ikut transaksi status akhir; commit milik pemanggil."""
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def notify(self, user_ids: Sequence[uuid.UUID], type: str, payload: Mapping[str, str]) -> None:
+        repository.insert_many(
+            self._db,
+            [
+                Notification(
+                    user_id=user_id,
+                    type=type,
+                    title=payload["title"],
+                    body=payload["body"],
+                    link=payload["link"],
+                )
+                for user_id in user_ids
+            ],
+        )
+
+
 def enqueue_review_reply(
     db: Session, *, recipient_id: uuid.UUID, assignment_id: uuid.UUID, from_reviewer: bool
 ) -> None:

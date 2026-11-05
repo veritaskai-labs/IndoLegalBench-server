@@ -84,7 +84,7 @@ class CallLogService:
         label, kind = technical_result(record)
         product = self._products.get(product_id)
         row = CallLog(
-            attempt_id=uuid.uuid4(),
+            attempt_id=record.attempt_id or uuid.uuid4(),
             product_id=product_id,
             started_at=started,
             ended_at=ended,

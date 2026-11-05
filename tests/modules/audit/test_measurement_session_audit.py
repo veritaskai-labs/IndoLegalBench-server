@@ -1,8 +1,9 @@
 """Audit arsip sesi pengukuran. PBI-11 AC10, SCRUM-210, PBI-18.
 
 Reviewer SCRUM-205 meminta tracker measurement_sessions ditambahkan bersama
-aksi arsip. Yang dicatat hanya arsip: mulai sesi dan status dari worker belum
-ada di katalog D6a, jadi tidak menulis apa pun di sini.
+aksi arsip. Tracker ini mencatat arsip (di sini) serta terima apa adanya
+(test_session_status_audit). Perpindahan status ditulis lewat UPDATE Core, jadi
+dicatat repository runs sendiri, bukan tracker ini (SCRUM-214).
 
 Setiap tes diberi label di docstring-nya:
 - Positif: perilaku yang memang diharapkan terjadi.
@@ -56,7 +57,7 @@ def test_sesi_baru_tidak_dicatat_tracker_ini():
 
 
 def test_status_dari_worker_tidak_dicatat():
-    """Negatif: running ke finished bukan aksi pengguna, bukti panggilannya di call_logs."""
+    """Negatif: tracker tidak memantau status, supaya tidak tercatat dua kali (SCRUM-214)."""
     # Arrange
     tracker = tracker_for("measurement_sessions")
 
