@@ -53,6 +53,9 @@ make a measurement proceed. The worker needs the same applicable cost settings
 and daily-rate configuration as the API. No `.env` file or actual credential is
 included in this change.
 
+See [MEASUREMENT_COST_SETUP.md](MEASUREMENT_COST_SETUP.md) for the shared API/worker
+environment contract, approved-value requirements and non-secret dev smoke checks.
+
 Verification: run the runtime integration tests with a controlled provider, then
 repeat against migrated PostgreSQL, including enum/trigger and advisory-lock
 checks. Deployed laptop/physical-phone QA and a client-authorized small real-AI

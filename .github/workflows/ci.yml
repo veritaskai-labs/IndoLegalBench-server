@@ -66,6 +66,11 @@ jobs:
       - name: Format check
         run: ruff format --check .
 
+      - name: Test measurement cost configuration (Compose required)
+        run: |
+          docker compose version
+          pytest tests/deployment/test_measurement_cost_environment.py -v --no-cov
+
       - name: Test
         run: pytest --cov-report=xml
 
