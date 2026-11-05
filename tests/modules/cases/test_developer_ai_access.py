@@ -269,6 +269,8 @@ _DIBUKA = {
     # upaya; detail kasus test disamarkan, diuji di test_session_retry_endpoint.py.
     ("POST", "/measurements/{session_id}/retry"),
     ("GET", "/measurements/{session_id}/attempts/{attempt_id}/calls"),
+    # PBI-12 AC6 (SCRUM-215): Developer AI memantau angka progres sesi.
+    ("GET", "/measurements/{measurement_id}/progress"),
 }
 # Jalur tanpa penjaga peran: login, profil sendiri, dan lonceng notifikasi.
 _TANPA_PERAN = ("/health", "/auth/", "/notifications")

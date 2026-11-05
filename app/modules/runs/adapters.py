@@ -6,7 +6,7 @@ mereka, tidak lewat tabel atau repository.
 
 import uuid
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -15,7 +15,9 @@ from sqlalchemy.orm import Session
 from app.modules.auth import service as auth_service
 from app.modules.cases import service as cases_service
 from app.modules.providers import service as providers_service
+from app.modules.runs import repository
 from app.modules.runs.call_log import month_start
+from app.modules.runs.progress_ports import SessionProgress
 from app.modules.runs.repository import CallLogRepository
 from app.modules.runs.session_ports import ProductCopy, SnapshotItem
 from app.modules.runs.summary_ports import ProductInfo
@@ -159,6 +161,36 @@ class CallLogAnswerHistory:
 
     def average_answer_tokens(self, product_id: uuid.UUID) -> Decimal | None:
         return self._rows.output_token_average(product_id)
+
+
+def _utc(nilai: datetime | None) -> datetime | None:
+    """Waktu di database selalu UTC. SQLite yang dipakai test mengembalikannya tanpa
+    zona, jadi zonanya dipasang di perbatasan ini supaya service hanya mengenal
+    waktu berzona dan tidak pernah mengurangkan naive dengan aware."""
+    if nilai is None:
+        return None
+    return nilai if nilai.tzinfo is not None else nilai.replace(tzinfo=UTC)
+
+
+class SessionProgressAdapter:
+    """Angka satu sesi dari database, dipetakan ke bentuk yang dipakai ProgressService."""
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def progress(self, measurement_id: uuid.UUID) -> SessionProgress | None:
+        baris = repository.session_progress(self._db, measurement_id)
+        if baris is None:
+            return None
+        return SessionProgress(
+            product_id=baris.product_id,
+            total_calls=int(baris.total_calls),
+            completed_calls=int(baris.completed_calls),
+            failed_calls=int(baris.failed_calls),
+            started_at=_utc(baris.started_at),
+            updated_at=_utc(baris.last_attempt_at or baris.updated_at),
+            running_cost_idr=Decimal(baris.running_cost_idr),
+        )
 
 
 class NameAdapter:

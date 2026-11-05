@@ -90,6 +90,31 @@ class SummaryResponse(BaseModel):
     remaining_budget_idr: Decimal = Field(description="Sisa anggaran bulan ini untuk produk")
 
 
+class ProgressResponse(BaseModel):
+    """Angka layar progres yang di-poll tiap beberapa detik (PBI-12 AC5, AC6).
+
+    Tidak memuat jumlah coba ulang yang sedang berjalan dan tidak memuat
+    penanda produk bermasalah (AC5). Uang dikirim sebagai string.
+    """
+
+    completed_calls: int = Field(description="Panggilan selesai, termasuk yang gagal")
+    total_calls: int = Field(description="Kasus kali pengulangan")
+    percent_complete: Decimal = Field(description="Persen selesai, satu desimal")
+    failed_calls: int = Field(description="Panggilan selesai yang gagal")
+    percent_failed: Decimal = Field(
+        description="Persen gagal dari panggilan yang sudah selesai, satu desimal"
+    )
+    remaining_seconds: int | None = Field(
+        description="Perkiraan sisa waktu dalam detik, null sebelum ada panggilan selesai"
+    )
+    running_cost_idr: Decimal = Field(description="Biaya berjalan dalam rupiah")
+    remaining_budget_idr: Decimal = Field(description="Sisa anggaran bulan ini untuk produk")
+    started_at: datetime | None = Field(
+        description="Waktu sesi mulai berjalan, null selama sesi masih antre"
+    )
+    updated_at: datetime = Field(description="Waktu angka ini terakhir diperbarui")
+
+
 class SessionProgressRead(BaseModel):
     """Progres "X dari N" di daftar sesi (PBI-11 AC10)."""
 
