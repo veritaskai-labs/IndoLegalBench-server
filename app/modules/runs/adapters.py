@@ -6,7 +6,7 @@ mereka, tidak lewat tabel atau repository.
 
 import uuid
 from collections.abc import Mapping, Sequence
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
@@ -162,6 +162,13 @@ class CallLogAnswerHistory:
     def average_answer_tokens(self, product_id: uuid.UUID) -> Decimal | None:
         return self._rows.output_token_average(product_id)
 
+def _utc(nilai: datetime | None) -> datetime | None:
+    """Waktu di database selalu UTC. SQLite yang dipakai test mengembalikannya tanpa
+    zona, jadi zonanya dipasang di perbatasan ini supaya service hanya mengenal
+    waktu berzona dan tidak pernah mengurangkan naive dengan aware."""
+    if nilai is None:
+        return None
+    return nilai if nilai.tzinfo is not None else nilai.replace(tzinfo=UTC)
 
 class SessionProgressAdapter:
     """Angka satu sesi dari database, dipetakan ke bentuk yang dipakai ProgressService."""
@@ -178,8 +185,8 @@ class SessionProgressAdapter:
             total_calls=int(baris.total_calls),
             completed_calls=int(baris.completed_calls),
             failed_calls=int(baris.failed_calls),
-            started_at=baris.started_at,
-            updated_at=baris.updated_at,
+            started_at=_utc(baris.started_at),
+            updated_at=_utc(baris.last_attempt_at or baris.updated_at),
             running_cost_idr=Decimal(baris.running_cost_idr),
         )
 
