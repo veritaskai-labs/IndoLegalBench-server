@@ -60,8 +60,9 @@ def get_current_user(
     """Ambil pengguna dari cookie sesi. Tanpa sesi → 401 UNAUTHENTICATED.
 
     Idle melebihi batas → hapus sesi, 401 SESSION_EXPIRED, cookie dihapus
-    di domain_error_handler. Request yang lolos memperbarui last_activity_at
-    dan me-refresh max-age cookie.
+    di domain_error_handler. Request yang lolos me-refresh max-age cookie.
+    `X-Veritask-Activity: passive` tidak memperbarui last_activity_at.
+    Nilai lain, atau header yang tidak ada, tetap memperbaruinya.
     """
     # Imported here, not at the top: auth.models imports Role from this module,
     # so a top-level import of auth.service is circular.
@@ -72,7 +73,9 @@ def get_current_user(
     session_id = session_id_from_cookie(request, settings)
     if session_id is None:
         raise UnauthenticatedError("Authentication required.")
-    user = auth_service.resolve_session(db, session_id)
+    # Exact value. Header names are case-insensitive; this value is not.
+    passive = request.headers.get("x-veritask-activity") == "passive"
+    user = auth_service.resolve_session(db, session_id, refresh_activity=not passive)
     set_session_cookie(response, settings, session_id)
     current = CurrentUser(
         user_id=user.id,
