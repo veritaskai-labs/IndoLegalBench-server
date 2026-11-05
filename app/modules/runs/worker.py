@@ -43,6 +43,8 @@ def run_session(
     clock: Callable[[], float] = time.monotonic,
     call_log=None,
     product_id: uuid.UUID | None = None,
+    before_attempt: Callable[[int, int], uuid.UUID | None] | None = None,
+    after_attempt: Callable[[], None] | None = None,
 ) -> None:
     """Jalankan setiap kasus × repeats. repeats di luar 1–5 ditolak.
 
@@ -66,7 +68,7 @@ def run_session(
         params,
         prompts,
         repeats,
-        _Pace(interval, sleep, clock, call_log, product_id),
+        _Pace(interval, sleep, clock, call_log, product_id, before_attempt, after_attempt),
     )
     if stopped:
         # Anggaran habis: hasil yang selesai tersimpan, sesi bisa dilanjutkan (Adra, 4 Nov).
@@ -84,6 +86,8 @@ class _Pace:
     clock: Callable[[], float]
     call_log: object
     product_id: uuid.UUID | None
+    before_attempt: Callable[[int, int], uuid.UUID | None] | None
+    after_attempt: Callable[[], None] | None
 
 
 def _run_prompts(
@@ -138,6 +142,9 @@ def _run_repeats(
             stopped = True
             break
         _wait_until(next_start, pace.clock, pace.sleep)
+        can_dispatch, attempt_id = _claim_attempt(pace, case_index, repeat_index)
+        if not can_dispatch:
+            continue
         started = pace.clock()
         started_at = datetime.now(UTC)
         response = _ask(adapter, prompt, params)
@@ -149,11 +156,23 @@ def _run_repeats(
             failed += 1
         else:
             completed += 1
-        record = _attempt_record(session_id, case_index, repeat_index, prompt, response)
+        record = _attempt_record(session_id, case_index, repeat_index, prompt, response, attempt_id)
         rate = _bill_before_save(pace, record)
         _save(session_id, store, record, completed, failed)
         _record_call(pace, record, started_at, ended_at, rate)
+        if pace.after_attempt is not None:
+            pace.after_attempt()
     return completed, failed, next_start, stopped
+
+
+def _claim_attempt(
+    pace: _Pace, case_index: int, repeat_index: int
+) -> tuple[bool, uuid.UUID | None]:
+    """Legacy stores dispatch directly; durable stores must claim before I/O."""
+    if pace.before_attempt is None:
+        return True, None
+    attempt_id = pace.before_attempt(case_index, repeat_index)
+    return attempt_id is not None, attempt_id
 
 
 def _over_budget(call_log, product_id: uuid.UUID | None) -> bool:
@@ -187,17 +206,24 @@ def _attempt_record(
     repeat_index: int,
     prompt: str,
     response: ProviderResponse,
+    attempt_id: uuid.UUID | None = None,
 ) -> AttemptRecord:
     kind = response.failure_kind
     return AttemptRecord(
         session_id=session_id,
+        attempt_id=attempt_id,
         case_index=case_index,
         repeat_index=repeat_index,
         prompt=prompt,
         text=response.text,
         model_version=response.model_version,
         latency_ms=response.latency_ms,
-        raw=response.raw,
+        raw=response.raw
+        if attempt_id is None
+        else {
+            **response.raw,
+            "_execution": {"error": response.error, "answer_text": response.text},
+        },
         error=response.error,
         failure_kind=None if kind is None else str(kind),
         input_tokens=response.input_tokens,
@@ -227,6 +253,8 @@ def run_next(
     clock: Callable[[], float] = time.monotonic,
     call_log=None,
     product_id: uuid.UUID | None = None,
+    before_attempt: Callable[[int, int], uuid.UUID | None] | None = None,
+    after_attempt: Callable[[], None] | None = None,
 ) -> bool:
     """Ambil satu sesi dari antrean. False kalau antrean kosong."""
     session_id = queue.take_next()
@@ -243,6 +271,8 @@ def run_next(
         clock=clock,
         call_log=call_log,
         product_id=product_id,
+        before_attempt=before_attempt,
+        after_attempt=after_attempt,
     )
     return True
 
