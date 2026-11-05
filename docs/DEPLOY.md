@@ -1,5 +1,9 @@
 # Deploying IndoLegalBench
 
+Automatic measurement cost configuration and the dev smoke-check procedure are
+documented in [MEASUREMENT_COST_SETUP.md](MEASUREMENT_COST_SETUP.md). The API and
+worker must receive the same applicable cost and daily-rate settings.
+
 How to run IndoLegalBench on the dedicated Tencent Cloud VM that Veritask
 provides (2 vCPU, 8 GB RAM, 70 GB, Ubuntu, hosted in Indonesia). We run
 everything on it ourselves with Docker Compose. The VM holds two independent
