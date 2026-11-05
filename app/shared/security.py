@@ -8,6 +8,7 @@ Idle timeout dan sliding `last_activity_at` ada di auth.service.resolve_session.
 """
 
 import uuid
+from datetime import UTC, timedelta
 from enum import StrEnum
 
 from fastapi import Depends, Request, Response
@@ -63,9 +64,11 @@ def get_current_user(
     di domain_error_handler. Request yang lolos me-refresh max-age cookie.
     `X-Veritask-Activity: passive` tidak memperbarui last_activity_at.
     Nilai lain, atau header yang tidak ada, tetap memperbaruinya.
+    Request yang lolos mengirim batas idle, deadline idle, dan expires_at.
     """
     # Imported here, not at the top: auth.models imports Role from this module,
     # so a top-level import of auth.service is circular.
+    from app.modules.auth import repository as auth_repository
     from app.modules.auth import service as auth_service
     from app.modules.auth.cookies import session_id_from_cookie, set_session_cookie
 
@@ -77,6 +80,7 @@ def get_current_user(
     passive = request.headers.get("x-veritask-activity") == "passive"
     user = auth_service.resolve_session(db, session_id, refresh_activity=not passive)
     set_session_cookie(response, settings, session_id)
+    _set_session_deadlines(response, settings, auth_repository.get_session(db, session_id))
     current = CurrentUser(
         user_id=user.id,
         name=user.name,
@@ -85,6 +89,20 @@ def get_current_user(
     )
     _ikat_aktor(request, db, current)
     return current
+
+
+def _set_session_deadlines(response: Response, settings, session_row) -> None:
+    """Publish the clocks the server already stores. Does not read a client deadline."""
+    last_activity = session_row.last_activity_at
+    expires_at = session_row.expires_at
+    if last_activity.tzinfo is None:
+        last_activity = last_activity.replace(tzinfo=UTC)
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=UTC)
+    idle = timedelta(minutes=settings.idle_timeout_minutes)
+    response.headers["X-Veritask-Idle-Timeout"] = str(settings.idle_timeout_minutes * 60)
+    response.headers["X-Veritask-Idle-Deadline"] = (last_activity + idle).isoformat()
+    response.headers["X-Veritask-Absolute-Expires-At"] = expires_at.isoformat()
 
 
 def require_roles(*allowed: Role):
