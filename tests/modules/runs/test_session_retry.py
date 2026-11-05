@@ -22,9 +22,10 @@ from datetime import UTC, datetime
 import pytest
 from pydantic import ValidationError as PydanticValidationError
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 
 from app.modules.auth.models import User
-from app.modules.runs import session_retry
+from app.modules.runs import repository, session_retry
 from app.modules.runs.models import Attempt, AttemptStatus, MeasurementSession, SessionStatus
 from app.modules.runs.schemas import SessionRetryRequest
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
@@ -208,7 +209,11 @@ def test_sesi_tidak_ada_ditolak_404(db_session, sesi):
 def test_hanya_sesi_selesai_dengan_kegagalan_yang_bisa_dicoba_ulang(
     db_session, produk, pembuat, status
 ):
-    """Negatif: D4 hanya menggambar coba ulang dari Selesai dengan kegagalan (409)."""
+    """Negatif: D4 hanya menggambar coba ulang dari Selesai dengan kegagalan (409).
+
+    Kodenya SESSION_NOT_RETRYABLE, bukan INVALID_TRANSITION: paused -> running sah
+    (Lanjutkan), jadi pesan "tidak bisa berpindah" akan menyesatkan.
+    """
     # Arrange
     lain = _sesi(db_session, produk, pembuat, status=status)
     _mulai(db_session, lain, [_OK, _GAGAL])
@@ -217,7 +222,7 @@ def test_hanya_sesi_selesai_dengan_kegagalan_yang_bisa_dicoba_ulang(
     # Act + Assert
     with pytest.raises(ConflictError) as galat:
         _ulang(db_session, lain, all_failed=True)
-    assert galat.value.code == "INVALID_TRANSITION"
+    assert galat.value.code == "SESSION_NOT_RETRYABLE"
     assert _status(db_session, lain.id) == sebelum
     assert _status_sesi(db_session, lain.id) == status
 
@@ -310,3 +315,22 @@ def test_isian_coba_ulang_harus_tepat_satu_pilihan(isian):
     # Act + Assert
     with pytest.raises(PydanticValidationError):
         SessionRetryRequest(**isian)
+
+
+def test_galat_database_lain_tidak_disembunyikan_dan_dibatalkan(db_session, sesi, monkeypatch):
+    """Negatif: hanya index "satu sesi running" yang menjadi 409; galat lain naik apa adanya.
+
+    Percobaan yang sempat dibuka ikut dibatalkan, jadi sesi tetap bisa dicoba ulang lagi.
+    """
+
+    # Arrange
+    def ditolak(*_args, **_kwargs):
+        raise IntegrityError("UPDATE measurement_sessions", {}, Exception("check lain"))
+
+    monkeypatch.setattr(repository.SessionStatusRepository, "change_status", ditolak)
+    sebelum = _status(db_session, sesi.id)
+
+    # Act + Assert
+    with pytest.raises(IntegrityError):
+        _ulang(db_session, sesi, all_failed=True)
+    assert _status(db_session, sesi.id) == sebelum

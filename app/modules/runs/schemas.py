@@ -11,7 +11,7 @@ from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.modules.cases.models import SplitTag
 
@@ -143,6 +143,33 @@ class SessionAcceptResponse(BaseModel):
     accepted_as_is_at: datetime | None
     accepted_as_is_by: uuid.UUID | None = Field(description="Admin yang menerima sesi")
     accepted_as_is_reason: str | None
+
+
+class SessionRetryRequest(BaseModel):
+    """Coba ulang yang gagal (PBI-12 AC3): per kasus lewat attempt_ids, atau semua (D4)."""
+
+    attempt_ids: list[uuid.UUID] | None = Field(
+        default=None, description="Percobaan gagal yang dicentang. Kosongkan bila all_failed"
+    )
+    all_failed: bool = Field(
+        default=False, description="true untuk mencoba ulang semua percobaan yang gagal"
+    )
+
+    @model_validator(mode="after")
+    def _tepat_satu_pilihan(self) -> "SessionRetryRequest":
+        if bool(self.attempt_ids) == self.all_failed:
+            raise ValueError("Pilih attempt_ids atau all_failed, tepat salah satu.")
+        return self
+
+
+class SessionRetryResponse(BaseModel):
+    """Sesi berjalan lagi; runner hanya memanggil ulang percobaan yang dibuka."""
+
+    id: uuid.UUID
+    status: SessionStatus
+    retried_attempt_ids: list[uuid.UUID] = Field(
+        description="Percobaan yang kembali pending, urut kasus lalu nomor pengulangan"
+    )
 
 
 class AttemptResult(BaseModel):

@@ -374,6 +374,49 @@ class SessionStatusRepository:
         raise invalid_transition(status, target)
 
 
+def attempt_statuses(db: Session, session_id: uuid.UUID) -> dict[uuid.UUID, AttemptStatus]:
+    """Status setiap percobaan sesi, urut kasus lalu nomor pengulangan (SCRUM-218)."""
+    rows = db.execute(
+        select(Attempt.id, Attempt.status)
+        .where(Attempt.session_id == session_id)
+        .order_by(Attempt.snapshot_item_id, Attempt.repetition_no)
+    )
+    return dict(rows.all())
+
+
+def reopen_for_retry(
+    db: Session, session_id: uuid.UUID, attempt_ids: Sequence[uuid.UUID], *, at: datetime
+) -> None:
+    """Satu transaksi: percobaan gagal kembali pending dan sesi berjalan lagi (PBI-12 AC3, D4).
+
+    Status sesi lewat change_status (SCRUM-214). Bila sesi otomatis lain sedang
+    running, partial index #89 menolak dan percobaan ikut dibatalkan.
+    """
+    try:
+        db.execute(
+            update(Attempt)
+            .where(
+                Attempt.session_id == session_id,
+                Attempt.id.in_(attempt_ids),
+                Attempt.status == AttemptStatus.TECHNICAL_FAILURE,
+            )
+            .values(status=AttemptStatus.PENDING)
+            .execution_options(synchronize_session=False)
+        )
+        SessionStatusRepository(db).change_status(
+            session_id, SessionStatus.RUNNING, at=at, commit=False
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if _sesi_lain_running(exc):
+            raise ConflictError(
+                "Masih ada pengukuran otomatis lain yang berjalan. Coba ulang setelah selesai.",
+                code="ANOTHER_SESSION_RUNNING",
+            ) from exc
+        raise
+
+
 class SessionQueueRepository:
     """Antrean sesi di measurement_sessions (SCRUM-207), memenuhi port SessionQueueStore."""
 
