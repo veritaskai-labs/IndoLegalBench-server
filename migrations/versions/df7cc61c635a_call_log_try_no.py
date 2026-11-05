@@ -11,14 +11,14 @@ than one row. The correlated subquery runs on both PostgreSQL and SQLite. The
 downgrade only drops the two columns; every call row stays.
 
 Revision ID: df7cc61c635a
-Revises: e7a41c2b9d53
+Revises: e216a5b7c901
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 revision = "df7cc61c635a"  # pragma: allowlist secret
-down_revision = "e7a41c2b9d53"  # pragma: allowlist secret
+down_revision = "e216a5b7c901"  # pragma: allowlist secret
 branch_labels = None
 depends_on = None
 
