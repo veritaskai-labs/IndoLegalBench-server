@@ -3274,6 +3274,160 @@
         }
       }
     },
+    "/measurements/{session_id}/accept": {
+      "patch": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Terima apa adanya: sesi dengan kegagalan dianggap selesai sepenuhnya",
+        "operationId": "accept_measurements__session_id__accept_patch",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/SessionAcceptRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionAcceptResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya Admin (`FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Sesi bukan Selesai dengan kegagalan (`SESSION_NOT_ACCEPTABLE`), atau sudah diterima (`ALREADY_ACCEPTED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Alasan kosong (`REASON_REQUIRED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "delete": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Hapus tanda terima apa adanya; sesi bisa dicoba ulang lagi",
+        "operationId": "clear_accept_measurements__session_id__accept_delete",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionAcceptResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya Admin (`FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Sesi belum diterima (`NOT_ACCEPTED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit-logs": {
       "get": {
         "tags": [
@@ -7433,6 +7587,79 @@
         "title": "RoundStatus",
         "description": "awaiting_assignment sampai dua reviewer aktif terpasang (SCRUM-144)."
       },
+      "SessionAcceptRequest": {
+        "properties": {
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "Alasan tertulis Admin menerima sesi walau ada kegagalan teknis"
+          }
+        },
+        "type": "object",
+        "title": "SessionAcceptRequest",
+        "description": "Terima apa adanya (PBI-12 AC9). Alasan wajib; dicek di server supaya kodenya REASON_REQUIRED."
+      },
+      "SessionAcceptResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "accepted_as_is_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted As Is At"
+          },
+          "accepted_as_is_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted As Is By",
+            "description": "Admin yang menerima sesi"
+          },
+          "accepted_as_is_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted As Is Reason"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "accepted_as_is_at",
+          "accepted_as_is_by",
+          "accepted_as_is_reason"
+        ],
+        "title": "SessionAcceptResponse",
+        "description": "Tanda terima apa adanya sesudah PATCH (terisi) atau DELETE (kosong)."
+      },
       "SessionArchiveResponse": {
         "properties": {
           "id": {
@@ -7683,6 +7910,68 @@
             "title": "Archived At",
             "description": "Terisi bila sesi sudah diarsipkan"
           },
+          "stopped_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Stopped At",
+            "description": "Waktu sesi berhenti (jeda, anggaran, restart, error). null selama berjalan"
+          },
+          "stop_reason": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/StopReason"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Penyebab berhenti: user, budget, restart (paused) atau error (failed)"
+          },
+          "accepted_as_is_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted As Is At",
+            "description": "Waktu Admin menandai terima apa adanya. null bila tidak tertanda"
+          },
+          "accepted_as_is_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted As Is By",
+            "description": "Admin yang menerima sesi"
+          },
+          "accepted_as_is_reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Accepted As Is Reason",
+            "description": "Alasan tertulis terima apa adanya"
+          },
           "cases": {
             "items": {
               "$ref": "#/components/schemas/SessionCaseResult"
@@ -7711,6 +8000,11 @@
           "started_at",
           "finished_at",
           "archived_at",
+          "stopped_at",
+          "stop_reason",
+          "accepted_as_is_at",
+          "accepted_as_is_by",
+          "accepted_as_is_reason",
           "cases"
         ],
         "title": "SessionDetail",
@@ -7832,12 +8126,14 @@
         "enum": [
           "queued",
           "running",
+          "paused",
+          "cancelled",
           "finished",
           "finished_with_failures",
           "failed"
         ],
         "title": "SessionStatus",
-        "description": "Status dasar. Dihentikan dan Dibatalkan menyusul di PBI-12."
+        "description": "Status sesi per D4. Perpindahan yang sah ada di session_transitions (SCRUM-214).\n\npaused mencakup Jeda dari pengguna dan sesi yang dihentikan sistem (restart, deploy,\nanggaran habis); D4 tidak memisahkan Dihentikan dari Dijeda."
       },
       "SplitTag": {
         "type": "string",
@@ -7959,6 +8255,17 @@
         ],
         "title": "StartResponse",
         "description": "Jawaban 201 tombol Mulai (D3 langkah 23)."
+      },
+      "StopReason": {
+        "type": "string",
+        "enum": [
+          "user",
+          "budget",
+          "restart",
+          "error"
+        ],
+        "title": "StopReason",
+        "description": "Penyebab sesi berhenti (D2 stop_reason). paused: user, budget, restart; failed: error."
       },
       "SuiteCreate": {
         "properties": {

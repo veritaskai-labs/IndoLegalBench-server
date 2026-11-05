@@ -42,6 +42,11 @@ cryptography==44.0.0
 # ini setiap login di image Docker gagal 500.
 httpx==0.28.1
 
+# Penghitung token lokal untuk perkiraan biaya (SCRUM-244). Encoding
+# cl100k_base, tanpa panggilan ke penyedia. Dipin langsung karena dipakai
+# saat ringkasan sesi, bukan hanya saat pengembangan.
+tiktoken==0.12.0
+
 # Ekspor audit log ke PDF (PBI-18 AC6). Lisensi BSD, tanpa browser atau
 # dependency sistem, jadi image Docker tidak perlu paket tambahan.
 reportlab==5.0.1

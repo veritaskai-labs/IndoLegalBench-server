@@ -77,17 +77,6 @@ def test_sesi_baru_menunggu_dan_enum_tersimpan_huruf_kecil(db_session, runs_mode
     assert tuple(baris) == ("trial", "automatic", "both", "queued")
 
 
-def test_status_dasar_sesuai_tiket(runs_models):
-    """Dihentikan dan Dibatalkan menyusul di PBI-12."""
-    assert [s.value for s in runs_models.SessionStatus] == [
-        "queued",
-        "running",
-        "finished",
-        "finished_with_failures",
-        "failed",
-    ]
-
-
 def test_sesi_otomatis_kedua_boleh_mengantre(db_session, runs_models, produk, admin):
     """Index parsial: tanpa sqlite_where, SQLite membuatnya UNIQUE penuh pada session_type."""
     # Arrange

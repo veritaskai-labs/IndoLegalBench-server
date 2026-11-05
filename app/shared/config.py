@@ -71,6 +71,8 @@ class Settings(BaseSettings):
     cost_safety_margin_percent: Decimal = Field(default=Decimal("20"), ge=0)
     # Kunci "provider_type:model_name", nilai USD per 1 juta token output.
     cost_model_prices: dict[str, Annotated[Decimal, Field(ge=0)]] = {}
+    # Peta terpisah, kunci yang sama, nilai USD per 1 juta token input (SCRUM-244).
+    cost_model_input_prices: dict[str, Annotated[Decimal, Field(ge=0)]] = {}
     cost_usd_idr_fallback_rate: Decimal | None = Field(default=None, gt=0)
     # Aturan perkiraan biaya saat belum ada riwayat pengukuran masih TBA (PBI-11 AC5).
     # Tanpa nilai bawaan: kosong berarti 500 untuk produk yang belum punya riwayat.

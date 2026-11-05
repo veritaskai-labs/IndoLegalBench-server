@@ -25,6 +25,8 @@ from app.modules.runs.dependencies import (
 )
 from app.modules.runs.schemas import (
     ProgressResponse,
+    SessionAcceptRequest,
+    SessionAcceptResponse,
     SessionArchiveResponse,
     SessionDetail,
     SessionListItem,
@@ -34,6 +36,7 @@ from app.modules.runs.schemas import (
     SummaryResponse,
 )
 from app.modules.runs.service import ProgressService, StartSessionService, SummaryService
+from app.modules.runs.session_accept import accept_session, clear_acceptance
 from app.modules.runs.session_archive import archive_session
 from app.modules.runs.session_detail import SessionDetailService
 from app.modules.runs.session_list import SessionListService
@@ -49,6 +52,8 @@ _session_list_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
 # Peran yang melihat daftar boleh merapikannya. Developer AI hanya sesi miliknya
 # (D10 kontrol sesi), dicek di session_archive.
 _archive_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
+# PBI-12 AC9: hanya Admin yang menerima sesi apa adanya atau menghapus tandanya.
+_accept_roles = require_roles(Role.ADMIN)
 
 router = APIRouter(prefix="/measurements", tags=["measurements"])
 
@@ -189,6 +194,57 @@ def archive(
         actor_role=user.role,
         now=datetime.now(UTC),
     )
+
+
+_RESPONS_TERIMA = {
+    403: {"model": ErrorBody, "description": "Hanya Admin (`FORBIDDEN`)."},
+    404: {"model": ErrorBody, "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."},
+}
+
+
+@router.patch(
+    "/{session_id}/accept",
+    response_model=SessionAcceptResponse,
+    summary="Terima apa adanya: sesi dengan kegagalan dianggap selesai sepenuhnya",
+    responses={
+        **_RESPONS_TERIMA,
+        409: {
+            "model": ErrorBody,
+            "description": (
+                "Sesi bukan Selesai dengan kegagalan (`SESSION_NOT_ACCEPTABLE`), atau sudah "
+                "diterima (`ALREADY_ACCEPTED`)."
+            ),
+        },
+        422: {"model": ErrorBody, "description": "Alasan kosong (`REASON_REQUIRED`)."},
+    },
+)
+def accept(
+    session_id: uuid.UUID,
+    payload: SessionAcceptRequest,
+    user: CurrentUser = Depends(_accept_roles),
+    db: Session = Depends(get_db),
+) -> SessionAcceptResponse:
+    return accept_session(
+        db,
+        session_id,
+        reason=payload.reason,
+        accepted_by=uuid.UUID(str(user.user_id)),
+        now=datetime.now(UTC),
+    )
+
+
+@router.delete(
+    "/{session_id}/accept",
+    response_model=SessionAcceptResponse,
+    summary="Hapus tanda terima apa adanya; sesi bisa dicoba ulang lagi",
+    responses={
+        **_RESPONS_TERIMA,
+        409: {"model": ErrorBody, "description": "Sesi belum diterima (`NOT_ACCEPTED`)."},
+    },
+    dependencies=[Depends(_accept_roles)],
+)
+def clear_accept(session_id: uuid.UUID, db: Session = Depends(get_db)) -> SessionAcceptResponse:
+    return clear_acceptance(db, session_id)
 
 
 # Tanpa endpoint duplikasi sesi (PBI-11 AC1): setiap sesi dibuat lewat Mulai.
