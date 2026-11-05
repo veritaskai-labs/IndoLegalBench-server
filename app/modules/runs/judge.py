@@ -54,6 +54,13 @@ def _prompt(lead: str, inputs: JudgeInputs) -> str:
 
 
 @dataclass(frozen=True)
+class JudgePrices:
+    usd_per_million_input_tokens: Decimal | None
+    usd_per_million_output_tokens: Decimal | None
+    usd_idr_rate: Decimal
+
+
+@dataclass(frozen=True)
 class CriterionJudgement:
     criterion: str
     met: bool
@@ -72,6 +79,7 @@ class JudgeRow:
     reason_id: str | None = None
     error: str | None = None
     failure_kind: str | None = None
+    cost_idr: Decimal | None = None
 
 
 @dataclass
@@ -84,8 +92,10 @@ def run_judge(
     inputs: JudgeInputs,
     *,
     repetitions: int,
+    prices: object = None,
     writer: MemoryJudgeWriter | None = None,
 ) -> MemoryJudgeWriter:
+    del prices
     if repetitions < 1:
         raise ValueError("repetitions must be at least 1")
     store = writer if writer is not None else MemoryJudgeWriter()
