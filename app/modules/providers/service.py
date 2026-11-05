@@ -15,7 +15,9 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.providers import repository, rules, visibility
-from app.modules.providers.adapters.dispatch import run_connection_test
+from app.modules.providers.adapters.ask_call import scrub
+from app.modules.providers.adapters.base import FailureKind, ProviderResponse
+from app.modules.providers.adapters.dispatch import build_adapter, run_connection_test
 from app.modules.providers.adapters.http import clip
 from app.modules.providers.crypto import (
     CredentialError,
@@ -96,8 +98,6 @@ def get_product(db: Session, product_id: uuid.UUID) -> AiProductRead:
 
 def build_measurement_adapter(db: Session, configuration):
     """Worker memakai salinan konfigurasi; kredensial hanya dibuka di service pemiliknya."""
-    from app.modules.providers.adapters.dispatch import build_adapter
-
     product = _wajib_ada(db, configuration.product_id)
     try:
         secret = decrypt_credential(_as_bytes(product.credential_encrypted))
@@ -117,13 +117,10 @@ class _SafeMeasurementAdapter:
 
     def __init__(self, adapter, secret, endpoint):
         self.adapter = adapter
-        self.secret = secret
+        self._secret = secret
         self.endpoint = endpoint
 
     def ask(self, prompt, **kwargs):
-        from app.modules.providers.adapters.ask_call import scrub
-        from app.modules.providers.adapters.base import FailureKind, ProviderResponse
-
         try:
             response = self.adapter.ask(prompt, **kwargs)
         except Exception:
@@ -135,7 +132,7 @@ class _SafeMeasurementAdapter:
                 error="provider call failed",
                 failure_kind=FailureKind.PROVIDER_ERROR,
             )
-        for value in (self.secret, self.endpoint):
+        for value in (self._secret, self.endpoint):
             response.text = scrub(response.text, value)
             response.raw = scrub(response.raw, value)
             response.error = scrub(response.error, value)

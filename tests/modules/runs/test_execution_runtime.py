@@ -210,15 +210,17 @@ def test_execution_uses_frozen_parameters_and_stops_on_budget(siap):
     )
 
 
-def test_persistence_error_does_not_automatically_repeat_paid_call(siap, monkeypatch):
+def test_persistence_error_does_not_automatically_repeat_paid_call(siap, monkeypatch, caplog):
     from app.modules.runs.execution_store import TableSessionStore
 
     session_id = start(siap)
     provider = Provider()
     run = runner(siap, provider)
 
+    caplog.set_level("ERROR")
+
     def broken(*_):
-        raise RuntimeError("simulated database write failure")
+        raise RuntimeError("secret-token https://private.example")
 
     monkeypatch.setattr(TableSessionStore, "save_attempt", broken)
     with pytest.raises(RuntimeError):
@@ -230,6 +232,11 @@ def test_persistence_error_does_not_automatically_repeat_paid_call(siap, monkeyp
         run()
     assert len(provider.calls) == 1
     assert siap.db.get(MeasurementSession, session_id).status == "running"
+    failures = [record for record in caplog.records if str(session_id) in record.getMessage()]
+    assert len(failures) == 2
+    assert all(record.levelname == "ERROR" for record in failures)
+    assert "RuntimeError" in caplog.text
+    assert "secret-token" not in caplog.text and "private.example" not in caplog.text
 
 
 def test_control_change_after_call_prevents_next_dispatch(siap):
@@ -439,7 +446,7 @@ def test_observed_model_version_and_other_copy_fields_stay_immutable(siap):
         assert error.value.orig.sqlstate == "42501"
 
 
-def test_process_boot_waits_for_recovery_instead_of_auto_resuming(siap):
+def test_process_boot_waits_for_recovery_instead_of_auto_resuming(siap, caplog):
     import threading
     from contextlib import nullcontext
     from unittest.mock import Mock
@@ -452,6 +459,10 @@ def test_process_boot_waits_for_recovery_instead_of_auto_resuming(siap):
     stop.wait = Mock(side_effect=lambda _: stop.set())
     wait_for_recovery(stop, factory=lambda: nullcontext(siap.db))
     stop.wait.assert_called_once_with(5)
+    assert any(
+        record.levelname == "ERROR" and str(session_id) in record.getMessage()
+        for record in caplog.records
+    )
     assert siap.db.get(MeasurementSession, session_id).status == "running"
     assert siap.db.scalar(select(func.count()).select_from(CallLog)) == 0
 
@@ -602,7 +613,7 @@ def test_cancel_during_last_call_is_not_overwritten_by_completion(siap):
     )
 
 
-def test_missing_rate_after_partial_result_does_not_invent_fatal_midrun_status(siap):
+def test_missing_rate_after_partial_result_does_not_invent_fatal_midrun_status(siap, caplog):
     from datetime import UTC, datetime
 
     from app.modules.runs.execution import run_once
@@ -628,6 +639,10 @@ def test_missing_rate_after_partial_result_does_not_invent_fatal_midrun_status(s
         )
     assert len(provider.calls) == 1
     assert siap.db.get(MeasurementSession, session_id).status == "running"
+    failures = [record for record in caplog.records if str(session_id) in record.getMessage()]
+    assert len(failures) == 1
+    assert failures[0].levelname == "ERROR"
+    assert "InternalError" in failures[0].getMessage()
 
 
 def test_budget_increase_allows_resume_without_changing_frozen_token_prices(siap):
@@ -654,3 +669,30 @@ def test_budget_increase_allows_resume_without_changing_frozen_token_prices(siap
     assert len(provider.calls) == 9
     assert siap.db.get(MeasurementSession, session_id).status == "finished"
     assert set(siap.db.scalars(select(CallLog.cost_idr))) == {Decimal("4.80")}
+
+
+def test_copy_version_flush_has_persisted_attempt_evidence(siap):
+    from sqlalchemy import event
+
+    session_id = start(siap)
+    previous = siap.db.autoflush
+    siap.db.autoflush = False  # Match the production session factory.
+
+    def check_evidence(db, *_):
+        for row in db.dirty:
+            if isinstance(row, SessionProductCopy) and row.model_version_at_start:
+                evidence = db.connection().scalar(
+                    select(Attempt.id).where(
+                        Attempt.session_id == row.session_id,
+                        Attempt.model_version == row.model_version_at_start,
+                    )
+                )
+                assert evidence is not None, "copy version must have already-flushed evidence"
+
+    event.listen(siap.db, "before_flush", check_evidence)
+    try:
+        assert runner(siap, Provider())()
+        assert siap.db.get(MeasurementSession, session_id).status == "finished"
+    finally:
+        event.remove(siap.db, "before_flush", check_evidence)
+        siap.db.autoflush = previous

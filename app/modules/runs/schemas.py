@@ -19,7 +19,7 @@ from app.modules.cases.models import SplitTag
 from app.modules.cases.schemas import VersionSections
 
 # Satu enum status sesi untuk tabel (#89) dan kontrak API, supaya keduanya tidak menyimpang.
-from app.modules.runs.models import AttemptStatus, SessionStatus
+from app.modules.runs.models import AttemptStatus, SessionStatus, StopReason
 
 # PBI-11 AC3: satu angka pengulangan untuk seluruh pengukuran.
 MIN_REPEATS = 1
@@ -248,6 +248,19 @@ class SessionDetail(SessionListItem):
     started_at: datetime | None
     finished_at: datetime | None
     archived_at: datetime | None = Field(description="Terisi bila sesi sudah diarsipkan")
+    # PBI-12 AC8, AC9 (SCRUM-214): dibaca ulang supaya FE bisa memulihkan kendali
+    # setelah muat ulang atau saat Admin lain membuka sesi.
+    stopped_at: datetime | None = Field(
+        description="Waktu sesi berhenti (jeda, anggaran, restart, error). null selama berjalan"
+    )
+    stop_reason: StopReason | None = Field(
+        description="Penyebab berhenti: user, budget, restart (paused) atau error (failed)"
+    )
+    accepted_as_is_at: datetime | None = Field(
+        description="Waktu Admin menandai terima apa adanya. null bila tidak tertanda"
+    )
+    accepted_as_is_by: uuid.UUID | None = Field(description="Admin yang menerima sesi")
+    accepted_as_is_reason: str | None = Field(description="Alasan tertulis terima apa adanya")
     cases: list[SessionCaseResult] = Field(
         description="Kosong selama sesi antre, karena snapshot dibuat saat sesi mulai"
     )

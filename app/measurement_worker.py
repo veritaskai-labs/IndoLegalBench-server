@@ -4,11 +4,8 @@ import logging
 import signal
 import threading
 
-from sqlalchemy import select
-
 from app import main as application  # noqa: F401 - register all ORM modules before queries
-from app.modules.runs.execution import run_once, worker_lease
-from app.modules.runs.models import MeasurementSession, SessionStatus, SessionType
+from app.modules.runs.execution import find_running_session, run_once, worker_lease
 from app.shared.database import get_session_factory
 
 logger = logging.getLogger(__name__)
@@ -24,15 +21,10 @@ def wait_for_recovery(stop: threading.Event, *, factory=None) -> None:
                 # The supervisor may restart it; startup recovery is checked again then.
                 stop.set()
                 return
-            running = db.scalar(
-                select(MeasurementSession.id).where(
-                    MeasurementSession.status == SessionStatus.RUNNING,
-                    MeasurementSession.session_type == SessionType.AUTOMATIC,
-                )
-            )
+            running = find_running_session(db)
             if running is None:
                 return
-        logger.error("Measurement worker waiting for startup recovery (SCRUM-217)")
+        logger.error("Measurement session %s waiting for startup recovery (SCRUM-217)", running)
         stop.wait(5)
 
 
