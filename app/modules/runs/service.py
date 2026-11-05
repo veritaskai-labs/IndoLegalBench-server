@@ -264,6 +264,8 @@ class ProgressService:
     Semua yang berubah-ubah masuk lewat port, jadi service ini tidak
     mengenal tabel maupun HTTP. Dirancang untuk di-poll tiap beberapa
     detik: satu agregasi sesi, satu produk, satu angka pemakaian bulan ini.
+    Waktu sekarang juga masuk lewat clock, supaya perkiraan sisa waktu tidak
+    bergantung pada kolom yang kebetulan ada di baris sesi.
     """
 
     def __init__(
@@ -272,10 +274,12 @@ class ProgressService:
         sessions: SessionProgressPort,
         products: ProductPort,
         spend: SpendPort,
+        clock: Callable[[], datetime],
     ) -> None:
         self._sessions = sessions
         self._products = products
         self._spend = spend
+        self._clock = clock
 
     def read(self, measurement_id: uuid.UUID) -> ProgressResponse:
         """Hitungan sesi menjadi angka yang dibaca layar progres."""
@@ -301,7 +305,9 @@ class ProgressService:
             completed_calls=hitungan.completed_calls,
             failed_calls=hitungan.failed_calls,
             started_at=hitungan.started_at,
-            now=hitungan.updated_at,
+            # Baris sesi tidak ikut diperbarui tiap panggilan, jadi waktu berjalan
+            # dihitung dari jam sekarang, bukan dari updated_at (review #94).
+            now=self._clock(),
             running_cost_idr=hitungan.running_cost_idr,
             monthly_budget_idr=produk.monthly_budget_idr,
             spent_this_month_idr=self._spend.spent_this_month_idr(produk.id),

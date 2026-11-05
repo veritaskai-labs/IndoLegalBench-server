@@ -80,11 +80,13 @@ def _service(
     hitungan: SessionProgress | None,
     produk: ProductInfo | None,
     terpakai: Decimal = Decimal("120000.00"),
+    sekarang: datetime = _SEKARANG,
 ) -> ProgressService:
     return ProgressService(
         sessions=_SessionsFake(hitungan),
         products=_ProductsFake(produk),
         spend=_SpendFake(terpakai),
+        clock=lambda: sekarang,
     )
 
 
@@ -161,6 +163,7 @@ def test_anggaran_belum_disetel_jadi_error_internal():
         service.read(_SESI)
 
     assert exc.value.code == "BUDGET_NOT_CONFIGURED"
+
 
 def test_sisa_waktu_dihitung_dari_jam_sekarang_bukan_dari_updated_at():
     """Baris sesi tidak ikut diperbarui tiap panggilan, jadi updated_at bisa tertinggal jauh."""

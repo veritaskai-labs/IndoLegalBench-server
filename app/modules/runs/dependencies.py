@@ -85,6 +85,7 @@ def get_progress_service(db: Session = Depends(get_db)) -> ProgressService:
         sessions=SessionProgressAdapter(db),
         products=ProductAdapter(db),
         spend=CallLogSpend(db),
+        clock=lambda: datetime.now(UTC),
     )
 
 

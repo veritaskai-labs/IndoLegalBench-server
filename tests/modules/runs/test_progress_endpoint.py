@@ -64,6 +64,7 @@ def service_palsu():
         sessions=_SessionsFake(),
         products=_ProductsFake(),
         spend=_SpendFake(),
+        clock=lambda: _SEKARANG,
     )
     yield
     app.dependency_overrides.pop(dependencies.get_progress_service, None)
