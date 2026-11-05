@@ -26,7 +26,13 @@ from sqlalchemy.exc import IntegrityError
 
 from app.modules.auth.models import User
 from app.modules.runs import repository, session_retry
-from app.modules.runs.models import Attempt, AttemptStatus, MeasurementSession, SessionStatus
+from app.modules.runs.models import (
+    Attempt,
+    AttemptStatus,
+    MeasurementSession,
+    SessionStatus,
+    SessionType,
+)
 from app.modules.runs.schemas import SessionRetryRequest
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
 from app.shared.security import Role
@@ -334,3 +340,38 @@ def test_galat_database_lain_tidak_disembunyikan_dan_dibatalkan(db_session, sesi
     with pytest.raises(IntegrityError):
         _ulang(db_session, sesi, all_failed=True)
     assert _status(db_session, sesi.id) == sebelum
+
+
+def test_sesi_yang_diarsipkan_tidak_bisa_dicoba_ulang(db_session, sesi):
+    """Negatif: sesi arsip tidak boleh running lagi (CHECK #91); 409, bukan galat 500."""
+    # Arrange
+    sesi.archived_at = JAM
+    sesi.archived_by = sesi.created_by
+    db_session.commit()
+    sebelum = _status(db_session, sesi.id)
+
+    # Act + Assert
+    with pytest.raises(ConflictError) as galat:
+        _ulang(db_session, sesi, all_failed=True)
+    assert galat.value.code == "SESSION_ARCHIVED"
+    assert _status(db_session, sesi.id) == sebelum
+
+
+def test_sesi_manual_tidak_bisa_dicoba_ulang(db_session, produk, pembuat):
+    """Negatif: coba ulang memanggil produk lewat runner otomatis; sesi manual ditolak 409."""
+    # Arrange
+    manual = _sesi(
+        db_session,
+        produk,
+        pembuat,
+        session_type=SessionType.MANUAL,
+        status=SessionStatus.FINISHED_WITH_FAILURES,
+    )
+    _mulai(db_session, manual, [_OK, _GAGAL])
+    sebelum = _status(db_session, manual.id)
+
+    # Act + Assert
+    with pytest.raises(ConflictError) as galat:
+        _ulang(db_session, manual, all_failed=True)
+    assert galat.value.code == "SESSION_NOT_AUTOMATIC"
+    assert _status(db_session, manual.id) == sebelum

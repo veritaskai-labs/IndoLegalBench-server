@@ -355,3 +355,87 @@ def test_peran_lain_tidak_melihat_detail_teknis(as_role, sesi_gagal, peran):
 
     # Assert
     assert response.status_code == 403
+
+
+def _jalankan_lagi(db_session, sesi: MeasurementSession, status: SessionStatus) -> None:
+    sesi.status = status
+    db_session.commit()
+
+
+@pytest.mark.parametrize("status", [SessionStatus.RUNNING, SessionStatus.QUEUED])
+def test_developer_ai_tidak_melihat_respons_mentah_sesi_yang_belum_berakhir(
+    as_role, db_session, sesi_gagal, status
+):
+    """Negatif: D10 seperti detail sesi (#91), hasil sesi yang belum berakhir hanya untuk Admin.
+
+    raw_response memuat jawaban mentah penyedia, dan coba ulang membuat sesi running
+    lagi, jadi kasus dev pun disamarkan sampai sesi berakhir (review #99).
+    """
+    # Arrange
+    sesi, gagal_dev, _ = sesi_gagal
+    _jalankan_lagi(db_session, sesi, status)
+
+    # Act
+    response = as_role(Role.DEVELOPER_AI).get(_calls(sesi.id, gagal_dev.id))
+
+    # Assert
+    assert response.status_code == 200
+    body = response.json()
+    assert body["masked"] is True
+    for upaya in body["calls"]:
+        assert upaya["raw_response"] is None
+        assert upaya["error_summary"] is None
+        assert upaya["failure_kind"] == "no_response"
+    assert "overloaded" not in response.text
+
+
+def test_admin_tetap_melihat_respons_mentah_sesi_yang_berjalan(as_role, db_session, sesi_gagal):
+    """Positif: aturan sesi belum berakhir hanya untuk Developer AI; Admin memantau penuh."""
+    # Arrange
+    sesi, gagal_dev, _ = sesi_gagal
+    _jalankan_lagi(db_session, sesi, SessionStatus.RUNNING)
+
+    # Act
+    body = as_role(Role.ADMIN).get(_calls(sesi.id, gagal_dev.id)).json()
+
+    # Assert
+    assert body["masked"] is False
+    assert body["calls"][0]["raw_response"]["error"] == RAW_PENYEDIA["error"]
+
+
+@pytest.mark.parametrize("sections", [{"case_code": "UJI-X"}, {"split_tag": "lain"}])
+def test_developer_ai_tidak_melihat_kasus_dengan_tag_tidak_dikenal(
+    as_role, db_session, produk, pembuat, sections
+):
+    """Edge: penyamaran fail-closed, hanya kasus dev yang terbuka untuk Developer AI (review #99)."""
+    # Arrange
+    sesi = _sesi(db_session, produk, pembuat, status=SessionStatus.FINISHED_WITH_FAILURES)
+    snapshot = CaseSnapshot(session_id=sesi.id)
+    db_session.add(snapshot)
+    db_session.flush()
+    item = CaseSnapshotItem(
+        snapshot_id=snapshot.id,
+        case_id=uuid.uuid4(),
+        case_version_id=uuid.uuid4(),
+        body={"version_no": 1, "sections": sections},
+    )
+    db_session.add(item)
+    db_session.flush()
+    attempt = Attempt(
+        session_id=sesi.id,
+        snapshot_item_id=item.id,
+        repetition_no=1,
+        source=AttemptSource.AUTOMATIC,
+        status=AttemptStatus.TECHNICAL_FAILURE,
+    )
+    db_session.add(attempt)
+    db_session.flush()
+    _upaya(db_session, attempt, sesi, 1)
+    db_session.commit()
+
+    # Act
+    body = as_role(Role.DEVELOPER_AI).get(_calls(sesi.id, attempt.id)).json()
+
+    # Assert
+    assert body["masked"] is True
+    assert body["calls"][0]["raw_response"] is None
