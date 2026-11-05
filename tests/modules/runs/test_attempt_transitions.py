@@ -57,7 +57,6 @@ def test_running_ke_pending_diizinkan_untuk_pemulihan_restart(aturan):
     aturan.ensure_attempt_transition(AttemptStatus.RUNNING, AttemptStatus.PENDING)
 
 
-
 @pytest.mark.parametrize(("asal", "tujuan", "sah"), PASANGAN)
 def test_penjaga_menolak_pasangan_di_luar_tabel(aturan, asal, tujuan, sah):
     """Negatif: pasangan di luar tabel ditolak 409 INVALID_ATTEMPT_TRANSITION beserta detailnya."""
