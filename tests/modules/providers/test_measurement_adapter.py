@@ -28,7 +28,7 @@ def test_adapter_uses_frozen_settings_and_scrubs_response(monkeypatch):
             assert kwargs == {
                 "base_url": config.base_url,
                 "model_name": "frozen-model",
-                "api_key": "secret-token",
+                "api_key": "secret-token",  # pragma: allowlist secret — synthetic scrub-test value
             }
 
         def ask(self, prompt, **kwargs):
