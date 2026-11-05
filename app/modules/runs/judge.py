@@ -1,6 +1,6 @@
 """Penilai LLM. SCRUM-224. Pesan user untuk kualitas dan format."""
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 _QUALITY_LEAD = (
     "Score the quality of the provider answer against each criterion. "
@@ -47,3 +47,26 @@ def _prompt(lead: str, inputs: JudgeInputs) -> str:
         f"{_REPLY_RULES}"
     )
     return f"{lead}\n\n{body}"
+
+
+@dataclass(frozen=True)
+class JudgeRow:
+    kind: str
+    repetition: int
+    prompt: str
+
+
+@dataclass
+class MemoryJudgeWriter:
+    rows: list[JudgeRow] = field(default_factory=list)
+
+
+def run_judge(
+    asker: object,
+    inputs: JudgeInputs,
+    *,
+    repetitions: int,
+    writer: MemoryJudgeWriter | None = None,
+) -> MemoryJudgeWriter:
+    del asker, inputs, repetitions
+    return writer if writer is not None else MemoryJudgeWriter()
