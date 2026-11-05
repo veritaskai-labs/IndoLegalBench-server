@@ -271,6 +271,38 @@ def test_preflight_allows_activity_header_for_configured_origin(client):
     assert response.headers.get("access-control-allow-headers") == ACTIVITY_HEADER
 
 
+def test_cors_exposes_session_deadline_headers_to_frontend_origin(client, db_session):
+    complete_login(client, db_session, AUTHOR_SUB)
+    response = client.get("/me", headers={"Origin": "http://localhost:3000"})
+
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") == "http://localhost:3000"
+    assert response.headers.get("access-control-allow-credentials") == "true"
+    exposed = {
+        part.strip().lower()
+        for part in response.headers.get("access-control-expose-headers", "").split(",")
+        if part.strip()
+    }
+    assert {
+        IDLE_TIMEOUT_HEADER,
+        IDLE_DEADLINE_HEADER,
+        ABSOLUTE_EXPIRES_HEADER,
+    } <= exposed
+    assert response.headers.get(IDLE_TIMEOUT_HEADER)
+    assert response.headers.get(IDLE_DEADLINE_HEADER)
+    assert response.headers.get(ABSOLUTE_EXPIRES_HEADER)
+
+
+def test_cors_withholds_allow_origin_from_foreign_origin(client, db_session):
+    # Starlette attaches Access-Control-Expose-Headers on every response.
+    # Without Access-Control-Allow-Origin the browser still cannot read them.
+    complete_login(client, db_session, AUTHOR_SUB)
+    response = client.get("/me", headers={"Origin": "https://evil.example"})
+
+    assert response.status_code == 200
+    assert response.headers.get("access-control-allow-origin") is None
+
+
 def test_preflight_rejects_foreign_origin(client):
     response = client.options(
         "/me",
