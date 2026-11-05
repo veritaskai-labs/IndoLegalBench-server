@@ -173,6 +173,9 @@ class SessionListRepository:
             accepted_as_is_at=session.accepted_as_is_at,
             accepted_as_is_by=session.accepted_as_is_by,
             accepted_as_is_reason=session.accepted_as_is_reason,
+            resumed_after_long_pause=session.resumed_after_long_pause,
+            model_version_unverified=session.model_version_unverified,
+            resume_error_code=session.resume_error_code,
             cases=self._cases(session_id),
         )
 
@@ -353,10 +356,11 @@ def _kolom_waktu(
     target: SessionStatus, at: datetime, stop_reason: StopReason | None
 ) -> dict[str, object]:
     """Kolom waktu yang ikut berubah bersama status (D2)."""
-    if target is SessionStatus.RUNNING:
-        # Coba ulang dan Lanjutkan: sesi belum selesai lagi, jadi waktu selesai lama dibuang
-        # (catatan Roben #97). Selesai berikutnya mengisi waktu yang baru.
-        return {"stopped_at": None, "stop_reason": None, "finished_at": None}
+    if target in (SessionStatus.RUNNING, SessionStatus.QUEUED):
+        reopened: dict[str, object] = {"stopped_at": None, "stop_reason": None, "finished_at": None}
+        if target is SessionStatus.QUEUED:
+            reopened["queued_at"] = at
+        return reopened
     kolom: dict[str, object] = {}
     if target in _SELESAI:
         kolom["finished_at"] = at

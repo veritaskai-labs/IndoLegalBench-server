@@ -132,6 +132,9 @@ class _SafeMeasurementAdapter:
                 error="provider call failed",
                 failure_kind=FailureKind.PROVIDER_ERROR,
             )
+        # Adapters may fall back to a configured alias; only the response is version evidence.
+        observed = response.raw.get("model")
+        response.model_version = observed if isinstance(observed, str) and observed.strip() else ""
         for value in (self._secret, self.endpoint):
             response.text = scrub(response.text, value)
             response.raw = scrub(response.raw, value)

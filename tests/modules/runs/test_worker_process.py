@@ -78,3 +78,21 @@ def test_module_entrypoint_exits_without_dispatch_when_already_stopping(monkeypa
     monkeypatch.setattr(signal, "signal", lambda *_: None)
     monkeypatch.delitem(sys.modules, "app.measurement_worker")
     runpy.run_module("app.measurement_worker", run_name="__main__")
+
+
+def test_serve_runs_liveness_check_when_idle():
+    stop = threading.Event()
+    stop.wait = Mock(side_effect=lambda _: stop.set())
+    dispatch = Mock(return_value=False)
+    liveness_check = Mock()
+    mock_db = Mock()
+
+    measurement_worker.serve(
+        stop,
+        factory=lambda: nullcontext(mock_db),
+        dispatch=dispatch,
+        liveness_check=liveness_check,
+    )
+
+    liveness_check.assert_called_once_with(mock_db)
+    stop.wait.assert_called_once_with(5)
