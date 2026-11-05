@@ -1,7 +1,8 @@
 """Port yang dipakai endpoint progres (PBI-12 AC5, SCRUM-215).
 
-Tabel sesi dan upaya (SCRUM-205) belum ada di staging, jadi service
-progres hanya berbicara lewat port ini. Implementasi nyata menyusul.
+Service progres hanya berbicara lewat port ini, jadi ia tidak mengenal
+tabel maupun HTTP. Implementasi nyatanya SessionProgressAdapter.
+
 Sisa anggaran memakai SpendPort milik ringkasan, supaya satu produk
 punya satu sumber angka pemakaian.
 """
@@ -18,7 +19,9 @@ class SessionProgress:
     """Hitungan satu sesi hasil agregasi, bukan baris tabelnya.
 
     completed_calls termasuk yang gagal. updated_at adalah waktu angka ini
-    dihitung, yang ditampilkan sebagai "terakhir diperbarui" (AC5).
+    terakhir berubah, yaitu panggilan terakhir yang tercatat, ditampilkan
+    sebagai "terakhir diperbarui" (AC5). Bukan waktu hitungan ini dibuat:
+    sesi yang diam harus terlihat diam.
     """
 
     product_id: uuid.UUID
