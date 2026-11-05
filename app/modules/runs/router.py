@@ -6,7 +6,7 @@ Router hanya menerjemahkan HTTP ke pemanggilan service. Tidak ada
 logika bisnis dan tidak ada query database di file ini.
 
 Prefix /measurements mengikuti tiket SCRUM-206 (POST /measurements/summary).
-TODO(PBI-12, PBI-13): jeda, batal, dan penilaian sesi menyusul.
+TODO(PBI-13): penilaian sesi menyusul.
 """
 
 import uuid
@@ -38,6 +38,7 @@ from app.modules.runs.schemas import (
 from app.modules.runs.service import ProgressService, StartSessionService, SummaryService
 from app.modules.runs.session_accept import accept_session, clear_acceptance
 from app.modules.runs.session_archive import archive_session
+from app.modules.runs.session_control_router import router as control_router
 from app.modules.runs.session_detail import SessionDetailService
 from app.modules.runs.session_list import SessionListService
 from app.shared.database import get_db
@@ -56,6 +57,7 @@ _archive_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
 _accept_roles = require_roles(Role.ADMIN)
 
 router = APIRouter(prefix="/measurements", tags=["measurements"])
+router.include_router(control_router)
 
 _RESPONS_RINGKASAN = {
     404: {
