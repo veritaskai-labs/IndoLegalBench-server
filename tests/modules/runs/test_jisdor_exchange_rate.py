@@ -208,6 +208,27 @@ def test_layanan_gagal_dan_cadangan_kosong_adalah_kesalahan_konfigurasi_500():
     assert galat.value.code == "EXCHANGE_RATE_NOT_CONFIGURED"
 
 
+def test_kurs_terakhir_tanpa_batas_umur_diganti_setelah_refresh_berhasil():
+    server = _Server(
+        _ok("16250.5"),
+        httpx.Response(503),
+        httpx.Response(503),
+        _ok("16300"),
+    )
+    hari = _Hari(HARI_INI)
+    adapter = _adapter(server, hari=hari, cadangan=None)
+    assert adapter.usd_idr() == Decimal("16250.5")
+
+    for days in (1, 365):
+        hari.hari = HARI_INI + timedelta(days=days)
+        assert adapter.usd_idr() == Decimal("16250.5")
+
+    # A failed refresh must not suppress another attempt, even on the same day.
+    assert adapter.usd_idr() == Decimal("16300")
+    assert adapter.usd_idr() == Decimal("16300")
+    assert len(server.requests) == 4
+
+
 def test_key_kosong_tidak_memanggil_layanan_dan_memakai_cadangan():
     # Arrange
     server = _Server(_ok(16250.5))
