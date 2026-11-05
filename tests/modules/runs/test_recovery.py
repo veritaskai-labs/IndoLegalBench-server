@@ -163,10 +163,15 @@ def test_recover_after_restart_marks_running_session_as_paused(
     assert _as_utc(baris.stopped_at) == WAKTU_RESTART
 
 
-def test_recover_after_restart_resets_running_attempt_to_pending(
+def test_recover_after_restart_leaves_running_attempt_uncertain(
     db_session, produk_otomatis, admin_user
 ):
-    """Positif: attempt RUNNING yang terputus saat restart dikembalikan ke PENDING (D5 langkah 41)."""
+    """Positif: attempt RUNNING yang terputus saat restart dibiarkan RUNNING (uncertain).
+
+    Sesuai MEASUREMENT_WORKER.md: attempt yang sedang berjalan saat crash tidak di-reset
+    ke pending agar tidak memicu panggilan berulang yang berpotensi berbayar saat resume.
+    Rekonsiliasi attempt diserahkan ke kontrol resume (SCRUM-216).
+    """
     # Arrange
     sesi = _buat_sesi(db_session, produk_otomatis, admin_user, status=SessionStatus.RUNNING)
     attempts = _tambah_snapshot_dan_attempts(
@@ -184,9 +189,9 @@ def test_recover_after_restart_resets_running_attempt_to_pending(
     att_succeeded = db_session.get(Attempt, attempts[0].id)
     att_interrupted = db_session.get(Attempt, attempts[1].id)
 
-    # Attempt pertama tetap succeeded, attempt kedua di-reset ke pending
+    # Attempt pertama tetap succeeded, attempt kedua tetap running (uncertain)
     assert att_succeeded.status == AttemptStatus.SUCCEEDED
-    assert att_interrupted.status == AttemptStatus.PENDING
+    assert att_interrupted.status == AttemptStatus.RUNNING
 
 
 def test_recover_after_restart_preserves_technical_failures_and_pending_attempts(
@@ -299,8 +304,8 @@ def test_check_worker_liveness_marks_stale_session_as_paused(
     assert baris.status == SessionStatus.PAUSED
     assert baris.stop_reason == StopReason.RESTART
     assert _as_utc(baris.stopped_at) == sekarang
-    # Attempt yang sedang running di-reset ke pending
-    assert db_session.get(Attempt, attempts[0].id).status == AttemptStatus.PENDING
+    # Attempt yang sedang running dibiarkan running (uncertain)
+    assert db_session.get(Attempt, attempts[0].id).status == AttemptStatus.RUNNING
 
 
 def test_check_worker_liveness_leaves_active_session_running(
@@ -428,9 +433,9 @@ async def test_lifespan_startup_hook_recovers_running_sessions(
     assert baris.stop_reason == StopReason.RESTART
     assert baris.stopped_at is not None
 
-    # Attempt running di-reset ke pending
+    # Attempt running dibiarkan running (uncertain)
     attempt = db_session.scalar(select(Attempt).where(Attempt.session_id == sesi_id))
-    assert attempt.status == AttemptStatus.PENDING
+    assert attempt.status == AttemptStatus.RUNNING
 
 
 @pytest.mark.asyncio

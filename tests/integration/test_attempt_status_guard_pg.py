@@ -44,12 +44,6 @@ MIGRASI = (
     / "versions"
     / "e7a41c2b9d53_attempt_status_guard.py"
 )
-MIGRASI_217 = (
-    Path(__file__).resolve().parents[2]
-    / "migrations"
-    / "versions"
-    / "63745ac5e515_allow_running_to_pending_attempt_.py"
-)
 
 pytestmark = [
     pytest.mark.postgres,
@@ -60,7 +54,6 @@ SAH = {
     ("pending", "running"),
     ("running", "succeeded"),
     ("running", "technical_failure"),
-    ("running", "pending"),
     ("technical_failure", "pending"),
 }
 PASANGAN = [
@@ -142,14 +135,6 @@ def _jalankan(conn, arah: str) -> None:
         getattr(modul, arah)()
 
 
-def _jalankan_217(conn, arah: str) -> None:
-    spec = importlib.util.spec_from_file_location("migrasi_217_attempt", MIGRASI_217)
-    modul = importlib.util.module_from_spec(spec)
-    spec.loader.exec_module(modul)
-    with Operations.context(MigrationContext.configure(conn)):
-        getattr(modul, arah)()
-
-
 @pytest.mark.parametrize(("asal", "tujuan"), PASANGAN)
 def test_database_menegakkan_tabel_d4_untuk_percobaan_otomatis(conn, percobaan, asal, tujuan):
     """Positif/Negatif: empat pasangan D4 diterima, delapan lainnya ditolak check_violation."""
@@ -203,9 +188,9 @@ def test_percobaan_manual_belum_diatur(conn, percobaan):
 
 
 def test_salinan_tabel_di_migrasi_sama_dengan_aturan_aplikasi():
-    """Edge: migrasi 217 menyimpan salinan beku; saat dibuat isinya sama dengan tabel aplikasi."""
+    """Edge: migrasi menyimpan salinan beku; saat dibuat isinya sama dengan tabel aplikasi."""
     # Arrange
-    spec = importlib.util.spec_from_file_location("migrasi_217_attempt_tabel", MIGRASI_217)
+    spec = importlib.util.spec_from_file_location("migrasi_214_attempt_tabel", MIGRASI)
     modul = importlib.util.module_from_spec(spec)
     spec.loader.exec_module(modul)
     aturan = importlib.import_module("app.modules.runs.attempt_transitions")
@@ -219,21 +204,6 @@ def test_salinan_tabel_di_migrasi_sama_dengan_aturan_aplikasi():
 
     # Assert
     assert set(modul.ALLOWED) == dari_aplikasi == SAH
-
-
-def test_turun_revisi_217_menolak_kembali_running_ke_pending(conn, percobaan):
-    """Positif: downgrade 217 mengembalikan trigger lama yang menolak running -> pending."""
-    percobaan_id = percobaan("running")
-
-    # Act
-    _jalankan_217(conn, "downgrade")
-    sqlstate = sqlstate_penolakan(conn, UBAH_STATUS, {"status": "pending", "id": percobaan_id})
-
-    # Assert
-    assert sqlstate == CHECK_VIOLATION
-
-    # Cleanup: kembalikan upgrade 217
-    _jalankan_217(conn, "upgrade")
 
 
 def test_turun_revisi_melepas_penjaga_naik_lagi_memasangnya(conn, percobaan):

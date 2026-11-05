@@ -128,9 +128,9 @@ def test_recover_after_restart_on_postgresql(pg_session):
     assert sesi.stop_reason == StopReason.RESTART
     assert sesi.stopped_at == WAKTU_RESTART
 
-    # Attempt running di-reset ke pending
+    # Attempt running dibiarkan running (uncertain) untuk rekonsiliasi SCRUM-216
     att = pg_session.get(Attempt, attempt_id)
-    assert att.status == AttemptStatus.PENDING
+    assert att.status == AttemptStatus.RUNNING
 
 
 def test_check_worker_liveness_on_postgresql(pg_session):
@@ -166,4 +166,4 @@ def test_check_worker_liveness_on_postgresql(pg_session):
     sesi = pg_session.get(MeasurementSession, session_id)
     assert sesi.status == SessionStatus.PAUSED
     assert sesi.stop_reason == StopReason.RESTART
-    assert pg_session.get(Attempt, attempt_id).status == AttemptStatus.PENDING
+    assert pg_session.get(Attempt, attempt_id).status == AttemptStatus.RUNNING
