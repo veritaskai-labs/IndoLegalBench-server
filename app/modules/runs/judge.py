@@ -95,7 +95,14 @@ def run_judge(
             ("format", format_prompt(inputs)),
         ):
             response = asker.ask(prompt)
-            criteria = parse_reply(response.text)
+            failed = response.error is not None or response.failure_kind is not None
+            criteria = () if failed else parse_reply(response.text)
+            invalid = not failed and not criteria
+            error = response.error
+            failure_kind = response.failure_kind
+            if invalid:
+                error = "invalid_judge_reply"
+                failure_kind = "invalid_response"
             explanation, reason_id = _summary(criteria)
             store.rows.append(
                 JudgeRow(
@@ -103,9 +110,11 @@ def run_judge(
                     repetition=repetition,
                     prompt=prompt,
                     criteria=criteria,
-                    score=_score(criteria) if criteria else None,
+                    score=None if failed or invalid else _score(criteria),
                     explanation=explanation,
                     reason_id=reason_id,
+                    error=error,
+                    failure_kind=failure_kind,
                 )
             )
     return store
