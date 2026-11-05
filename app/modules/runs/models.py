@@ -34,6 +34,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    false,
     func,
     text,
 )
@@ -362,6 +363,12 @@ class CallLog(Base):
     """
 
     __tablename__ = "call_logs"
+    __table_args__ = (
+        # D2: upaya ke-n per attempt (1 = awal). Coba ulang menambah upaya, bukan
+        # menimpanya, dan dua dispatch tidak bisa sama-sama upaya yang sama (SCRUM-218).
+        CheckConstraint("try_no >= 1", name="ck_call_logs_try_no"),
+        UniqueConstraint("attempt_id", "try_no", name="uq_call_logs_attempt_try"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     attempt_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
@@ -377,3 +384,9 @@ class CallLog(Base):
     result: Mapped[str] = mapped_column(String(64), nullable=False)
     failure_kind: Mapped[str | None] = mapped_column(String(64), nullable=True)
     raw: Mapped[dict] = mapped_column(JSON, nullable=False)
+    try_no: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=1, server_default=text("1")
+    )
+    is_manual_retry: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )

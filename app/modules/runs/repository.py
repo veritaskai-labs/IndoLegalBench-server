@@ -262,6 +262,7 @@ class SessionListRepository:
         ):
             attempts[attempt.snapshot_item_id].append(
                 AttemptRow(
+                    id=attempt.id,
                     repetition_no=attempt.repetition_no,
                     status=AttemptStatus(attempt.status),
                     answer_text=attempt.answer_text,
@@ -328,6 +329,18 @@ class CallLogRepository:
     def add(self, row: CallLog) -> None:
         self._db.add(row)
         self._db.flush()
+
+    def next_try_no(self, attempt_id: uuid.UUID) -> int:
+        """Nomor upaya berikutnya untuk attempt ini (D2 try_no, 1 = awal).
+
+        Baca lalu tulis ini aman karena satu attempt hanya dipanggil satu dispatcher:
+        lease advisory worker dan klaim attempt running sebelum panggilan (#98).
+        UNIQUE (attempt_id, try_no) tetap menolak bila asumsi itu suatu saat dilanggar.
+        """
+        terakhir = self._db.scalar(
+            select(func.max(CallLog.try_no)).where(CallLog.attempt_id == attempt_id)
+        )
+        return (terakhir or 0) + 1
 
     def sum_cost_since(self, product_id: uuid.UUID, start: datetime) -> Decimal:
         total = self._db.scalar(
@@ -530,6 +543,71 @@ class SessionStatusRepository:
                 code="SESSION_ACCEPTED",
             )
         raise invalid_transition(status, target)
+
+
+def attempt_statuses(db: Session, session_id: uuid.UUID) -> dict[uuid.UUID, AttemptStatus]:
+    """Status setiap percobaan sesi, urut kasus lalu nomor pengulangan (SCRUM-218)."""
+    rows = db.execute(
+        select(Attempt.id, Attempt.status)
+        .where(Attempt.session_id == session_id)
+        .order_by(Attempt.snapshot_item_id, Attempt.repetition_no)
+    )
+    return dict(rows.all())
+
+
+def session_status(db: Session, session_id: uuid.UUID) -> SessionStatus | None:
+    return db.scalar(select(MeasurementSession.status).where(MeasurementSession.id == session_id))
+
+
+def attempt_with_calls(
+    db: Session, session_id: uuid.UUID, attempt_id: uuid.UUID
+) -> tuple[Attempt, dict, list[CallLog]] | None:
+    """Percobaan sesi ini, body item snapshot-nya, dan semua upayanya urut try_no."""
+    baris = db.execute(
+        select(Attempt, CaseSnapshotItem.body)
+        .join(CaseSnapshotItem, CaseSnapshotItem.id == Attempt.snapshot_item_id)
+        .where(Attempt.id == attempt_id, Attempt.session_id == session_id)
+    ).first()
+    if baris is None:
+        return None
+    attempt, body = baris
+    calls = list(
+        db.scalars(select(CallLog).where(CallLog.attempt_id == attempt_id).order_by(CallLog.try_no))
+    )
+    return attempt, body, calls
+
+
+def reopen_for_retry(
+    db: Session, session_id: uuid.UUID, attempt_ids: Sequence[uuid.UUID], *, at: datetime
+) -> None:
+    """Satu transaksi: percobaan gagal kembali pending dan sesi berjalan lagi (PBI-12 AC3, D4).
+
+    Status sesi lewat change_status (SCRUM-214). Bila sesi otomatis lain sedang
+    running, partial index #89 menolak dan percobaan ikut dibatalkan.
+    """
+    try:
+        db.execute(
+            update(Attempt)
+            .where(
+                Attempt.session_id == session_id,
+                Attempt.id.in_(attempt_ids),
+                Attempt.status == AttemptStatus.TECHNICAL_FAILURE,
+            )
+            .values(status=AttemptStatus.PENDING)
+            .execution_options(synchronize_session=False)
+        )
+        SessionStatusRepository(db).change_status(
+            session_id, SessionStatus.RUNNING, at=at, commit=False
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if _sesi_lain_running(exc):
+            raise ConflictError(
+                "Masih ada pengukuran otomatis lain yang berjalan. Coba ulang setelah selesai.",
+                code="ANOTHER_SESSION_RUNNING",
+            ) from exc
+        raise
 
 
 class SessionQueueRepository:

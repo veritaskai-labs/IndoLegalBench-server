@@ -12,7 +12,7 @@ from decimal import Decimal
 from enum import StrEnum
 from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.modules.cases.models import SplitTag
 
@@ -172,9 +172,76 @@ class SessionAcceptResponse(BaseModel):
     accepted_as_is_reason: str | None
 
 
+class SessionRetryRequest(BaseModel):
+    """Coba ulang yang gagal (PBI-12 AC3): per kasus lewat attempt_ids, atau semua (D4)."""
+
+    attempt_ids: list[uuid.UUID] | None = Field(
+        default=None, description="Percobaan gagal yang dicentang. Kosongkan bila all_failed"
+    )
+    all_failed: bool = Field(
+        default=False, description="true untuk mencoba ulang semua percobaan yang gagal"
+    )
+
+    @model_validator(mode="after")
+    def _tepat_satu_pilihan(self) -> "SessionRetryRequest":
+        if bool(self.attempt_ids) == self.all_failed:
+            raise ValueError("Pilih attempt_ids atau all_failed, tepat salah satu.")
+        return self
+
+
+class SessionRetryResponse(BaseModel):
+    """Sesi berjalan lagi; runner hanya memanggil ulang percobaan yang dibuka."""
+
+    id: uuid.UUID
+    status: SessionStatus
+    retried_attempt_ids: list[uuid.UUID] = Field(
+        description="Percobaan yang kembali pending, urut kasus lalu nomor pengulangan"
+    )
+
+
+class CallAttemptLog(BaseModel):
+    """Satu upaya panggilan di call_logs, untuk tombol "lihat detail teknis" (D5 langkah 33-38)."""
+
+    try_no: int = Field(description="Upaya ke-n pada percobaan ini, 1 = panggilan awal")
+    is_manual_retry: bool = Field(description="true untuk upaya dari Coba ulang atau Lanjutkan")
+    started_at: datetime
+    ended_at: datetime
+    duration_ms: int
+    result: str = Field(description="ok, atau jenis kegagalan teknis")
+    failure_kind: str | None
+    model_version: str
+    error_summary: str | None = Field(
+        description="Ringkasan galat dari worker. null bila berhasil atau disamarkan"
+    )
+    raw_response: dict | None = Field(
+        description="Respons asli penyedia sebagai bukti. null bila disamarkan"
+    )
+
+
+class AttemptCalls(BaseModel):
+    """Riwayat upaya satu percobaan, urut try_no (PBI-12 AC3)."""
+
+    attempt_id: uuid.UUID
+    repetition_no: int
+    status: AttemptStatus
+    masked: bool = Field(
+        description=(
+            "true bila Developer AI membuka kasus selain dev atau sesi yang belum berakhir: "
+            "hanya jenis kegagalan dan waktu"
+        )
+    )
+    calls: list[CallAttemptLog]
+
+
 class AttemptResult(BaseModel):
     """Satu percobaan: jawaban mentah apa adanya dari produk (PBI-11 AC8)."""
 
+    id: uuid.UUID = Field(
+        description=(
+            "id percobaan untuk coba ulang per kasus (attempt_ids) dan detail teknis. "
+            "Tetap ada di kasus yang disamarkan karena tidak memuat isi kasus"
+        )
+    )
     repetition_no: int
     status: AttemptStatus
     answer_text: str | None = Field(

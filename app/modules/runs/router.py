@@ -16,6 +16,7 @@ from fastapi import APIRouter, Depends, status
 from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
+from app.modules.runs.attempt_calls import attempt_calls
 from app.modules.runs.dependencies import (
     get_progress_service,
     get_session_detail_service,
@@ -24,12 +25,15 @@ from app.modules.runs.dependencies import (
     get_summary_service,
 )
 from app.modules.runs.schemas import (
+    AttemptCalls,
     ProgressResponse,
     SessionAcceptRequest,
     SessionAcceptResponse,
     SessionArchiveResponse,
     SessionDetail,
     SessionListItem,
+    SessionRetryRequest,
+    SessionRetryResponse,
     StartRequest,
     StartResponse,
     SummaryRequest,
@@ -41,6 +45,7 @@ from app.modules.runs.session_archive import archive_session
 from app.modules.runs.session_control_router import router as control_router
 from app.modules.runs.session_detail import SessionDetailService
 from app.modules.runs.session_list import SessionListService
+from app.modules.runs.session_retry import retry_failed_attempts
 from app.shared.database import get_db
 from app.shared.security import CurrentUser, Role, require_roles
 
@@ -55,6 +60,8 @@ _session_list_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
 _archive_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
 # PBI-12 AC9: hanya Admin yang menerima sesi apa adanya atau menghapus tandanya.
 _accept_roles = require_roles(Role.ADMIN)
+# PBI-12 AC3, D10 kontrol sesi: Developer AI hanya sesi miliknya, dicek di session_retry.
+_retry_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
 
 router = APIRouter(prefix="/measurements", tags=["measurements"])
 router.include_router(control_router)
@@ -247,6 +254,79 @@ def accept(
 )
 def clear_accept(session_id: uuid.UUID, db: Session = Depends(get_db)) -> SessionAcceptResponse:
     return clear_acceptance(db, session_id)
+
+
+@router.post(
+    "/{session_id}/retry",
+    response_model=SessionRetryResponse,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Coba ulang percobaan yang gagal; sesi berjalan lagi dan runner memanggil ulang",
+    responses={
+        403: {
+            "model": ErrorBody,
+            "description": (
+                "Peran tidak berwenang (`FORBIDDEN`), atau Developer AI mencoba ulang sesi "
+                "buatan orang lain (`NOT_YOUR_SESSION`)."
+            ),
+        },
+        404: {"model": ErrorBody, "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."},
+        409: {
+            "model": ErrorBody,
+            "description": (
+                "Sesi diarsipkan (`SESSION_ARCHIVED`), manual (`SESSION_NOT_AUTOMATIC`), "
+                "bukan Selesai dengan kegagalan (`SESSION_NOT_RETRYABLE`), sudah diterima "
+                "apa adanya (`SESSION_ACCEPTED`), atau sesi otomatis lain sedang berjalan "
+                "(`ANOTHER_SESSION_RUNNING`)."
+            ),
+        },
+        422: {
+            "model": ErrorBody,
+            "description": (
+                "Pilih `attempt_ids` atau `all_failed`. Percobaan yang bukan gagal teknis di "
+                "sesi ini (`ATTEMPT_NOT_RETRYABLE`, berisi `attempt_ids`), atau tidak ada yang "
+                "gagal (`NO_FAILED_ATTEMPTS`)."
+            ),
+        },
+    },
+)
+def retry(
+    session_id: uuid.UUID,
+    payload: SessionRetryRequest,
+    user: CurrentUser = Depends(_retry_roles),
+    db: Session = Depends(get_db),
+) -> SessionRetryResponse:
+    return retry_failed_attempts(
+        db,
+        session_id,
+        payload,
+        actor_id=uuid.UUID(str(user.user_id)),
+        actor_role=user.role,
+        now=datetime.now(UTC),
+    )
+
+
+@router.get(
+    "/{session_id}/attempts/{attempt_id}/calls",
+    response_model=AttemptCalls,
+    summary="Detail teknis setiap upaya panggilan satu percobaan (lihat detail teknis)",
+    responses={
+        404: {
+            "model": ErrorBody,
+            "description": (
+                "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`), atau percobaan bukan milik "
+                "sesi ini (`ATTEMPT_NOT_FOUND`)."
+            ),
+        },
+    },
+)
+def get_attempt_calls(
+    session_id: uuid.UUID,
+    attempt_id: uuid.UUID,
+    user: CurrentUser = Depends(_session_list_roles),
+    db: Session = Depends(get_db),
+) -> AttemptCalls:
+    """Developer AI hanya melihat detail lengkap kasus dev pada sesi yang sudah berakhir."""
+    return attempt_calls(db, session_id, attempt_id, viewer_role=user.role)
 
 
 # Tanpa endpoint duplikasi sesi (PBI-11 AC1): setiap sesi dibuat lewat Mulai.
