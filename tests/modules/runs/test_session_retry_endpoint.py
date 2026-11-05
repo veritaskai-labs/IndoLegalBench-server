@@ -439,3 +439,60 @@ def test_developer_ai_tidak_melihat_kasus_dengan_tag_tidak_dikenal(
     # Assert
     assert body["masked"] is True
     assert body["calls"][0]["raw_response"] is None
+
+
+def _percobaan_di_detail(client, session_id: uuid.UUID) -> list[dict]:
+    """Semua percobaan dari GET /measurements/{id}, seperti yang dibaca FE."""
+    detail = client.get(f"/measurements/{session_id}").json()
+    return [percobaan for kasus in detail["cases"] for percobaan in kasus["attempts"]]
+
+
+def test_id_percobaan_dari_detail_dipakai_untuk_coba_ulang_per_kasus(as_role, sesi_gagal):
+    """Positif: FE SCRUM-219/220 mencentang percobaan dari detail sesi, bukan hanya all_failed."""
+    # Arrange
+    sesi, gagal_dev, _ = sesi_gagal
+    client = as_role(Role.ADMIN)
+    pilihan = next(
+        percobaan["id"]
+        for percobaan in _percobaan_di_detail(client, sesi.id)
+        if percobaan["id"] == str(gagal_dev.id)
+    )
+
+    # Act
+    response = client.post(_retry(sesi.id), json={"attempt_ids": [pilihan]})
+
+    # Assert
+    assert response.status_code == 202
+    assert response.json()["retried_attempt_ids"] == [str(gagal_dev.id)]
+
+
+def test_kasus_test_yang_disamarkan_tetap_membawa_id_percobaan(as_role, db_session, produk):
+    """Edge: Developer AI tetap butuh id untuk coba ulang dan detail teknis; isinya tetap tertutup.
+
+    id percobaan hanya UUID, tidak memuat isi kasus, jadi aman ikut keluar di kasus test.
+    """
+    # Arrange
+    client = as_role(Role.DEVELOPER_AI)
+    # Pembuat sesi = pengguna yang login lewat as_role (USER_ID_QA).
+    sesi, _, gagal_test = _sesi_gagal(db_session, produk, SimpleNamespace(id=USER_ID_QA))
+
+    # Act
+    detail = client.get(f"/measurements/{sesi.id}").json()
+
+    # Assert
+    test = next(kasus for kasus in detail["cases"] if kasus["masked"])
+    assert test["attempts"][0]["id"] == str(gagal_test.id)
+    assert test["attempts"][0]["answer_text"] is None
+    calls = client.get(_calls(sesi.id, test["attempts"][0]["id"]))
+    assert calls.status_code == 200
+    assert calls.json()["masked"] is True
+
+
+def test_id_percobaan_tercatat_di_kontrak(client):
+    """Positif: FE membangkitkan tipe dari OpenAPI, jadi id wajib ada dan bertipe UUID."""
+    # Act
+    skema = client.get("/openapi.json").json()["components"]["schemas"]["AttemptResult"]
+
+    # Assert
+    assert "id" in skema["required"]
+    assert skema["properties"]["id"]["format"] == "uuid"

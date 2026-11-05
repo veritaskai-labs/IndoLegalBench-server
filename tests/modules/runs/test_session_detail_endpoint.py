@@ -17,7 +17,7 @@ import uuid
 from datetime import UTC, datetime
 
 import pytest
-from sqlalchemy import event
+from sqlalchemy import event, select
 
 from app.modules.auth.models import User
 from app.modules.cases.sections import snapshot_body
@@ -132,7 +132,7 @@ def _per_kode(cases: list[dict]) -> dict:
     return {item["case_code"]: item for item in cases}
 
 
-def test_admin_melihat_jawaban_mentah_per_percobaan(as_role, sesi_campuran, produk):
+def test_admin_melihat_jawaban_mentah_per_percobaan(as_role, db_session, sesi_campuran, produk):
     """Positif: kolom daftar ikut, lalu setiap kasus dengan percobaannya berurutan."""
     # Act
     response = as_role(Role.ADMIN).get(_url(sesi_campuran.id))
@@ -154,14 +154,22 @@ def test_admin_melihat_jawaban_mentah_per_percobaan(as_role, sesi_campuran, prod
     assert dev["question"] == "Pertanyaan dev"
     assert dev["split_tag"] == "dev"
     assert dev["masked"] is False
+    # id percobaan dipakai FE untuk coba ulang per kasus dan detail teknis (SCRUM-218).
+    id_dev = db_session.scalars(
+        select(Attempt.id)
+        .where(Attempt.snapshot_item_id == uuid.UUID(dev["snapshot_item_id"]))
+        .order_by(Attempt.repetition_no)
+    ).all()
     assert dev["attempts"] == [
         {
+            "id": str(id_dev[0]),
             "repetition_no": 1,
             "status": "succeeded",
             "answer_text": "Jawaban dev 1",
             "model_version": "model-uji-2026",
         },
         {
+            "id": str(id_dev[1]),
             "repetition_no": 2,
             "status": "technical_failure",
             "answer_text": None,
