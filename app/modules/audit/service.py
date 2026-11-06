@@ -25,6 +25,7 @@ from app.modules.audit.repository import SearchCriteria
 from app.modules.audit.schemas import AuditLogFilter, AuditLogRead
 from app.modules.auth import service as auth_service
 from app.modules.cases import service as cases_service
+from app.modules.grading import service as grading_service
 from app.modules.providers import service as providers_service
 from app.modules.reviews import service as review_service
 from app.modules.runs import service as runs_service
@@ -260,6 +261,9 @@ def _label_objek(
         AuditEntityType.USER: user_names,
         AuditEntityType.MEASUREMENT_SESSION: runs_service.session_labels(
             db, _ids(kunci, AuditEntityType.MEASUREMENT_SESSION)
+        ),
+        AuditEntityType.RUBRIC_VERSION: grading_service.rubric_labels(
+            db, _ids(kunci, AuditEntityType.RUBRIC_VERSION)
         ),
     }
 

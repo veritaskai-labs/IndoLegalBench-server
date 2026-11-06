@@ -5859,7 +5859,8 @@
           "ai_product",
           "user",
           "call_log",
-          "measurement_session"
+          "measurement_session",
+          "rubric_version"
         ],
         "title": "AuditEntityType",
         "description": "Jenis objek yang dicatat, sesuai katalog event D6a."

@@ -100,6 +100,16 @@ def get_version(db: Session, version_id: uuid.UUID) -> RubricVersionRead:
     )
 
 
+def rubric_labels(db: Session, version_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Label versi untuk kolom Objek audit log (PBI-18 F-06), misalnya "Rubrik v2"."""
+    if not version_ids:
+        return {}
+    return {
+        version_id: f"Rubrik v{nomor}"
+        for version_id, nomor in repository.version_numbers(db, version_ids).items()
+    }
+
+
 def _isi(
     version_id: uuid.UUID, payload: RubricVersionCreate
 ) -> tuple[list[RubricAspect], list[RubricLevel], list[RubricLevelDescriptor]]:

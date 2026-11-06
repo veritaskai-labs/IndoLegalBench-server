@@ -83,3 +83,10 @@ def descriptors_of(db: Session, level_ids: list[uuid.UUID]) -> list[RubricLevelD
         RubricLevelDescriptor.rubric_level_id.in_(level_ids)
     )
     return list(db.scalars(query))
+
+
+def version_numbers(db: Session, version_ids: set[uuid.UUID]) -> dict[uuid.UUID, int]:
+    query = sa.select(RubricVersion.id, RubricVersion.version_no).where(
+        RubricVersion.id.in_(version_ids)
+    )
+    return dict(db.execute(query).tuples().all())
