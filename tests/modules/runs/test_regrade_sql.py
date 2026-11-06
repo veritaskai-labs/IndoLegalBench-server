@@ -207,18 +207,19 @@ def test_successful_judgement_saves_score_and_criteria():
 def test_invalid_judgement_rejected(changes, message):
     db = MagicMock()
 
-    with patch(
-        "app.modules.grading.regrade_sql._running_result",
-        return_value=SimpleNamespace(id=uuid.uuid4()),
+    with (
+        patch(
+            "app.modules.grading.regrade_sql._running_result",
+            return_value=SimpleNamespace(id=uuid.uuid4()),
+        ),
+        pytest.raises(ValueError, match=message),
     ):
-        with pytest.raises(ValueError, match=message):
-            append_sql_judgement(
-                db,
-                uuid.uuid4(),
-                _outcome(**changes),
-            )
-
-    db.add.assert_not_called()
+        append_sql_judgement(
+            db,
+            uuid.uuid4(),
+            _outcome(**changes),
+        )
+        db.add.assert_not_called()
 
 
 def test_failed_judge_records_failure():
