@@ -143,10 +143,7 @@ def test_kasus_belum_dinilai_tetap_dihitung():
     kasus = build_case_scores(daftar, {})
     pecahan = category_breakdown(kasus)
 
-    assert [
-        (bagian.category, bagian.case_count)
-        for bagian in pecahan
-    ] == [
+    assert [(bagian.category, bagian.case_count) for bagian in pecahan] == [
         ("ketenagakerjaan", 1),
         (LAIN_LAIN, 1),
     ]

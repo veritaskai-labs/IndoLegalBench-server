@@ -110,9 +110,7 @@ def test_item_sesi_terbaca_apa_adanya(db_session, sesi, snapshot):
     assert body["sections"]["split_tag"] == "dev"
 
 
-def test_item_sesi_lain_tidak_ikut_terbawa(
-    db_session, produk, admin, sesi, snapshot
-):
+def test_item_sesi_lain_tidak_ikut_terbawa(db_session, produk, admin, sesi, snapshot):
     _item(
         db_session,
         snapshot,
@@ -136,9 +134,7 @@ def test_item_sesi_lain_tidak_ikut_terbawa(
 
     hasil = repository.snapshot_case_items(db_session, sesi.id)
 
-    assert [body["sections"]["case_code"] for _, body in hasil] == [
-        "PJK-001"
-    ]
+    assert [body["sections"]["case_code"] for _, body in hasil] == ["PJK-001"]
 
 
 def test_urutannya_tetap_antar_pembacaan(db_session, sesi, snapshot):
@@ -154,15 +150,11 @@ def test_urutannya_tetap_antar_pembacaan(db_session, sesi, snapshot):
     pertama = repository.snapshot_case_items(db_session, sesi.id)
     kedua = repository.snapshot_case_items(db_session, sesi.id)
 
-    assert [item_id for item_id, _ in pertama] == [
-        item_id for item_id, _ in kedua
-    ]
+    assert [item_id for item_id, _ in pertama] == [item_id for item_id, _ in kedua]
     assert len(pertama) == 4
 
 
-def test_sesi_tanpa_snapshot_tidak_punya_item(
-    db_session, produk, admin
-):
+def test_sesi_tanpa_snapshot_tidak_punya_item(db_session, produk, admin):
     sesi_baru = _sesi(db_session, produk, admin, "Belum jalan")
 
     hasil = repository.snapshot_case_items(db_session, sesi_baru.id)
