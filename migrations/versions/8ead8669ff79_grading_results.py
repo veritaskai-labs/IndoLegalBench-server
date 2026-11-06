@@ -8,8 +8,8 @@ results. The version must have been activated, because a draft can still gain
 aspects. The first run of a session is initial, later ones are regrade; an
 advisory lock per session keeps two concurrent first runs from both passing.
 A re-grade never deletes the old run, only is_latest moves (client No. 68 A,
-one latest run per session). Only status, finished_at and is_latest may
-change; status goes queued -> running -> finished/failed (queued -> failed for
+one latest run per session). A new run starts queued and not latest. Only
+status, finished_at and is_latest may change; status goes queued -> running -> finished/failed (queued -> failed for
 a run that never starts) and a finished or failed run is closed.
 judge_provider_id stays a uuid without FK until SCRUM-258 adds judge_providers.
 
@@ -101,6 +101,10 @@ _GUARD_RUN = """
                 USING ERRCODE = 'insufficient_privilege';
         END IF;
         IF TG_OP = 'INSERT' THEN
+            IF NEW.status <> 'queued' OR NEW.is_latest THEN
+                RAISE EXCEPTION 'a new grading run starts queued and not latest'
+                    USING ERRCODE = 'insufficient_privilege';
+            END IF;
             SELECT locked_at INTO version_locked_at
                 FROM rubric_versions WHERE id = NEW.rubric_version_id;
             IF FOUND AND version_locked_at IS NULL THEN
