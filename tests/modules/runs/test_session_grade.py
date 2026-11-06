@@ -44,6 +44,8 @@ from app.modules.runs.session_grade import (
     CaseGradeInput,
     DbGradingStore,
     MemoryGradingStore,
+    _is_judge_failure,
+    _load_call_logs_metadata,
     aggregate_case_scores,
     apply_visibility_mask,
     check_technical_disruption,
@@ -1050,3 +1052,13 @@ def test_edge_cases_and_error_handling(db_session, produk, pembuat):
     sesi_ungraded = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
     with pytest.raises(NotFoundError, match="Hasil penilaian belum tersedia"):
         get_session_results(db_session, sesi_ungraded.id, viewer_role=Role.ADMIN)
+
+    # 10. Helper branch coverage: empty legal ref, non-digit article, empty logs, None failure
+    assert score_deterministic_citations(
+        "jawaban 40/2007", [{"number": "40", "year": "2007", "article": "pasal tanpa nomor"}]
+    ) == Decimal("1.00")
+    assert score_deterministic_citations(
+        "jawaban", [{"number": "", "year": "", "article": "pasal 1"}]
+    ) == Decimal("0.00")
+    assert _is_judge_failure(None) is False
+    assert _load_call_logs_metadata(db_session, []) == ({}, {})
