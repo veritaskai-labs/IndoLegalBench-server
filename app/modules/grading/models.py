@@ -14,7 +14,7 @@ versi tidak bisa diubah atau dihapus, versi terkunci (locked_at) sejak pertama k
 aktif, dan isi rubrik hanya bisa di-INSERT ke versi yang belum terkunci.
 
 grading_runs, grading_results, reason_codes, dan grading_result_reasons dibuat migrasi
-8ead8669ff79. Run mengunci versi rubrik yang dipakai; hasil hanya di-INSERT; tidak ada
+8ead8669ff79; llm_judge_results dan llm_criterion_results dibuat migrasi 57f872b138f0. Run mengunci versi rubrik yang dipakai; hasil hanya di-INSERT; tidak ada
 kolom skor gabungan (AC1). Aturan perpindahan status run ada di trigger migrasi itu.
 Model di sini harus sama dengan kedua migrasi.
 """
@@ -84,6 +84,18 @@ class DetFormula(StrEnum):
 
     RECALL = "recall"
     PRECISION = "precision"
+
+
+class JudgeKind(StrEnum):
+    """Jenis penilaian LLM per pengulangan (#108). Tidak ada jenis jebakan (AC4)."""
+
+    QUALITY = "quality"
+    FORMAT = "format"
+
+
+class JudgeStatus(StrEnum):
+    SUCCEEDED = "succeeded"
+    FAILED = "failed"
 
 
 def _enum_values(members) -> list[str]:
@@ -350,4 +362,101 @@ class GradingResultReason(Base):
     )
     reason_code: Mapped[str] = mapped_column(
         String(64), ForeignKey("reason_codes.code"), primary_key=True
+    )
+
+
+_JUDGE_STATUS = (
+    "(status = 'succeeded' AND criteria_met IS NOT NULL AND criteria_total IS NOT NULL "
+    "AND criteria_score IS NOT NULL AND failure_kind IS NULL AND error IS NULL) OR "
+    "(status = 'failed' AND failure_kind IS NOT NULL AND criteria_met IS NULL "
+    "AND criteria_total IS NULL AND criteria_score IS NULL AND rubric_level IS NULL)"
+)
+
+
+class LlmJudgeResult(Base):
+    """Satu panggilan penilai LLM: satu pengulangan, satu jenis (#108 JudgeRow, K3)."""
+
+    __tablename__ = "llm_judge_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "grading_result_id", "judge_run_no", "kind", name="uq_llm_judge_results_run_kind"
+        ),
+        CheckConstraint("judge_run_no BETWEEN 1 AND 5", name="ck_llm_judge_results_judge_run_no"),
+        CheckConstraint(sql_not_blank("prompt"), name="ck_llm_judge_results_prompt"),
+        CheckConstraint(
+            "criteria_met BETWEEN 0 AND criteria_total", name="ck_llm_judge_results_criteria"
+        ),
+        CheckConstraint(
+            "criteria_score IS NULL OR criteria_score BETWEEN 0 AND 1",
+            name="ck_llm_judge_results_criteria_score",
+        ),
+        CheckConstraint(
+            "rubric_level IS NULL OR (rubric_level BETWEEN 0 AND 5 AND kind = 'quality')",
+            name="ck_llm_judge_results_rubric_level",
+        ),
+        CheckConstraint(_JUDGE_STATUS, name="ck_llm_judge_results_status"),
+        CheckConstraint(
+            "coalesce(input_tokens, 0) >= 0 AND coalesce(output_tokens, 0) >= 0",
+            name="ck_llm_judge_results_tokens",
+        ),
+        CheckConstraint("cost_idr IS NULL OR cost_idr >= 0", name="ck_llm_judge_results_cost"),
+        CheckConstraint(
+            "usd_idr_rate IS NULL OR usd_idr_rate > 0", name="ck_llm_judge_results_rate"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    grading_result_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("grading_results.id"), nullable=False
+    )
+    judge_run_no: Mapped[int] = mapped_column(SmallInteger, nullable=False)
+    kind: Mapped[JudgeKind] = mapped_column(_enum(JudgeKind, "llm_judge_kind_enum"), nullable=False)
+    status: Mapped[JudgeStatus] = mapped_column(
+        _enum(JudgeStatus, "llm_judge_status_enum"), nullable=False
+    )
+    prompt: Mapped[str] = mapped_column(Text, nullable=False)
+    criteria_met: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    criteria_total: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    # "Skor LLM" di tabel hasil (keputusan PO K2): proporsi kriteria terpenuhi, dua digit.
+    criteria_score: Mapped[Decimal | None] = mapped_column(Numeric(3, 2), nullable=True)
+    # Skor rubrik 0–5, hanya di baris quality; butuh keluaran penilai baru (K1).
+    rubric_level: Mapped[int | None] = mapped_column(SmallInteger, nullable=True)
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    error: Mapped[str | None] = mapped_column(Text, nullable=True)
+    failure_kind: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cost_idr: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    usd_idr_rate: Mapped[Decimal | None] = mapped_column(Numeric(18, 4), nullable=True)
+    model_version: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    raw_response: Mapped[dict | None] = mapped_column(_JSONB, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
+    )
+
+
+class LlmCriterionResult(Base):
+    """Satu kriteria jawaban dari snapshot (must_contain, must_not_contain, kesimpulan)."""
+
+    __tablename__ = "llm_criterion_results"
+    __table_args__ = (
+        UniqueConstraint(
+            "llm_judge_result_id", "criterion_key", name="uq_llm_criterion_results_key"
+        ),
+        CheckConstraint(sql_not_blank("criterion_text"), name="ck_llm_criterion_results_text"),
+        CheckConstraint(
+            "reason_code IS NULL OR NOT is_met", name="ck_llm_criterion_results_reason_unmet"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    llm_judge_result_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("llm_judge_results.id"), nullable=False
+    )
+    criterion_key: Mapped[str] = mapped_column(String(64), nullable=False)
+    criterion_text: Mapped[str] = mapped_column(Text, nullable=False)
+    is_met: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    explanation: Mapped[str | None] = mapped_column(Text, nullable=True)
+    reason_code: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("reason_codes.code"), nullable=True
     )

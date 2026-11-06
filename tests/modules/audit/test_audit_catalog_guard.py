@@ -51,6 +51,8 @@ PENGECUALIAN = {
     "grading_results": "SCRUM-222: hasil mesin, hanya INSERT (trigger), bukan aksi pengguna",
     "grading_result_reasons": "SCRUM-222: tautan hasil mesin, hanya INSERT (trigger)",
     "reason_codes": "SCRUM-222: hanya migrasi yang menulis (seed usulan); tracker saat ada API",
+    "llm_judge_results": "SCRUM-222: hasil mesin, hanya INSERT (trigger); biaya ada di baris ini",
+    "llm_criterion_results": "SCRUM-222: hasil mesin, hanya INSERT (trigger)",
 }
 
 
