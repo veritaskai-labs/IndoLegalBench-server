@@ -1,4 +1,3 @@
-
 """Regression tests for the updated SCRUM-225 scoring contract."""
 
 import uuid
