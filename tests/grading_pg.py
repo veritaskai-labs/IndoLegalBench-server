@@ -11,6 +11,8 @@ from decimal import Decimal
 
 from sqlalchemy import Connection, text
 
+from tests.measurement_pg import buat_item_snapshot
+
 ASPEK_SINTETIS = ("Dimensi A", "Dimensi B", "Dimensi C")
 
 
@@ -118,4 +120,122 @@ def aktifkan(conn: Connection, versi_id: uuid.UUID, aktif: bool = True) -> None:
     conn.execute(
         text("UPDATE rubric_versions SET is_active = :aktif WHERE id = :id"),
         {"aktif": aktif, "id": versi_id},
+    )
+
+
+def buat_versi_aktif(conn: Connection, admin_id: uuid.UUID, **ubah) -> uuid.UUID:
+    versi_id = buat_rubrik_lengkap(conn, admin_id, **ubah)
+    aktifkan(conn, versi_id)
+    return versi_id
+
+
+def buat_percobaan(conn: Connection, sesi_id: uuid.UUID, admin_id: uuid.UUID) -> uuid.UUID:
+    """Satu percobaan otomatis untuk satu kasus baru di snapshot sesi."""
+    item_id = buat_item_snapshot(conn, sesi_id, admin_id)
+    return conn.execute(
+        text(
+            "INSERT INTO attempts (id, session_id, snapshot_item_id, repetition_no, source) "
+            "VALUES (:id, :sesi, :item, 1, 'automatic') RETURNING id"
+        ),
+        {"id": uuid.uuid4(), "sesi": sesi_id, "item": item_id},
+    ).scalar_one()
+
+
+def buat_run(
+    conn: Connection,
+    sesi_id: uuid.UUID,
+    versi_id: uuid.UUID,
+    admin_id: uuid.UUID,
+    **ubah,
+) -> uuid.UUID:
+    nilai = {
+        "id": uuid.uuid4(),
+        "session_id": sesi_id,
+        "rubric_version_id": versi_id,
+        "judge_provider_id": None,
+        "kind": "initial",
+        "triggered_by": admin_id,
+    } | ubah
+    conn.execute(
+        text(
+            "INSERT INTO grading_runs (id, session_id, rubric_version_id, judge_provider_id, kind, "
+            "triggered_by) VALUES (:id, :session_id, :rubric_version_id, :judge_provider_id, "
+            "CAST(:kind AS grading_run_kind_enum), :triggered_by)"
+        ),
+        nilai,
+    )
+    return nilai["id"]
+
+
+def ubah_run(conn: Connection, run_id: uuid.UUID, **kolom) -> None:
+    """UPDATE grading_runs; status di-cast ke enum-nya."""
+    bagian = [
+        f"{nama} = CAST(:{nama} AS grading_run_status_enum)"
+        if nama == "status"
+        else f"{nama} = :{nama}"
+        for nama in kolom
+    ]
+    conn.execute(
+        text(f"UPDATE grading_runs SET {', '.join(bagian)} WHERE id = :id"), {"id": run_id} | kolom
+    )
+
+
+def jalankan_run(conn: Connection, run_id: uuid.UUID) -> None:
+    ubah_run(conn, run_id, status="running")
+
+
+def selesaikan_run(conn: Connection, run_id: uuid.UUID, status: str = "finished") -> None:
+    jalankan_run(conn, run_id)
+    conn.execute(
+        text(
+            "UPDATE grading_runs SET status = CAST(:status AS grading_run_status_enum), "
+            "finished_at = now() WHERE id = :id"
+        ),
+        {"id": run_id, "status": status},
+    )
+
+
+HASIL_DET = {
+    "is_technical_disruption": False,
+    "det_score": Decimal("0.75"),
+    "det_regulation_matches": '[{"reference": "UU 1/2023", "matched": true}]',
+    "det_article_matches": '[{"reference": "Pasal 1", "matched": false}]',
+    "det_ungradable_refs": "[]",
+    "det_all_chained_cited": True,
+    "det_reference_total": 4,
+    "det_reference_correct": 3,
+    "det_extracted_total": 5,
+    "det_extracted_correct": 3,
+    "det_formula": "recall",
+}
+
+HASIL_GANGGUAN = dict.fromkeys(HASIL_DET) | {"is_technical_disruption": True}
+
+_KOLOM_HASIL = ", ".join(HASIL_DET)
+_NILAI_HASIL = ", ".join(
+    f"CAST(:{kolom} AS jsonb)" if kolom.endswith(("_matches", "_refs")) else f":{kolom}"
+    for kolom in HASIL_DET
+)
+
+
+def buat_hasil(conn: Connection, run_id: uuid.UUID, percobaan_id: uuid.UUID, **ubah) -> uuid.UUID:
+    """Hasil deterministik satu percobaan; ubah menimpa kolom HASIL_DET."""
+    hasil_id = uuid.uuid4()
+    conn.execute(
+        text(
+            f"INSERT INTO grading_results (id, grading_run_id, attempt_id, {_KOLOM_HASIL}) "
+            f"VALUES (:id, :run, :percobaan, {_NILAI_HASIL})"
+        ),
+        {"id": hasil_id, "run": run_id, "percobaan": percobaan_id} | HASIL_DET | ubah,
+    )
+    return hasil_id
+
+
+def beri_alasan(conn: Connection, hasil_id: uuid.UUID, kode: str) -> None:
+    conn.execute(
+        text(
+            "INSERT INTO grading_result_reasons (grading_result_id, reason_code) "
+            "VALUES (:hasil, :kode)"
+        ),
+        {"hasil": hasil_id, "kode": kode},
     )
