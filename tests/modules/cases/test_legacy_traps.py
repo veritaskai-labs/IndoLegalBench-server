@@ -52,12 +52,15 @@ def test_respons_kasus_tidak_lagi_punya_traps(model):
     assert "trap_count" not in model.model_fields
 
 
-def test_openapi_menandai_traps_request_deprecated_dan_menghapus_schema_trap(as_role):
+def test_openapi_tidak_lagi_memuat_traps_sama_sekali(as_role):
+    # Arrange
     client = as_role(Role.CONTRIBUTOR)
 
+    # Act
     spec = client.get("/openapi.json").json()["components"]["schemas"]
 
-    assert spec["CaseWrite"]["properties"]["traps"]["deprecated"] is True
+    # Assert: FE tidak melihat traps, dan generator zod tidak menerima kata kunci baru
+    assert "traps" not in spec["CaseWrite"]["properties"]
     assert "Trap" not in spec
     assert "traps" not in spec["CaseRead"]["properties"]
     assert "trap_count" not in spec["CaseCompleteness"]["properties"]

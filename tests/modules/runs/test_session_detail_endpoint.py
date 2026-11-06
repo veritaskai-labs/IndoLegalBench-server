@@ -236,7 +236,6 @@ def test_detail_memuat_semua_bagian_snapshot(as_role, sesi_campuran):
         "split_tag": "dev",
         "legal_refs": [],
         "answer_criteria": {"catatan": "kriteria sintetis"},
-        "traps": [{"catatan": "jebakan sintetis"}],
     }
 
 
