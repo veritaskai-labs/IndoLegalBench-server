@@ -15,8 +15,8 @@ from decimal import Decimal
 from types import MappingProxyType
 
 import pytest
-from app.modules.runs.regrade import RegradeService
 
+from app.modules.runs.regrade import RegradeService
 from app.modules.runs.score_aggregation import (
     RUBRIC_V1,
     GradingResult,
