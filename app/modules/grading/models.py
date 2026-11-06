@@ -385,6 +385,8 @@ class LlmJudgeResult(Base):
         UniqueConstraint(
             "grading_result_id", "judge_run_no", "kind", name="uq_llm_judge_results_run_kind"
         ),
+        # Satu panggilan penilai per pengulangan (klien No. 62); sesi punya 1–5 pengulangan
+        # (ck_measurement_sessions_repetitions). Ubah keduanya bersamaan.
         CheckConstraint("judge_run_no BETWEEN 1 AND 5", name="ck_llm_judge_results_judge_run_no"),
         CheckConstraint(sql_not_blank("prompt"), name="ck_llm_judge_results_prompt"),
         CheckConstraint(

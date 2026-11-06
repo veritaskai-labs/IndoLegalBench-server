@@ -137,6 +137,8 @@ def upgrade() -> None:
         sa.UniqueConstraint(
             "grading_result_id", "judge_run_no", "kind", name="uq_llm_judge_results_run_kind"
         ),
+        # The judge runs once per repetition (client No. 62), and a session has 1 to 5
+        # repetitions (ck_measurement_sessions_repetitions, 16014b26f0bf). Change both together.
         sa.CheckConstraint(
             "judge_run_no BETWEEN 1 AND 5", name="ck_llm_judge_results_judge_run_no"
         ),
