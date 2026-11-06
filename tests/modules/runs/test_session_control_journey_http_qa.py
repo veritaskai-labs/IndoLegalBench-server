@@ -81,6 +81,7 @@ def test_batalkan_menyimpan_hasil_dan_tidak_layak_laporan_sampai_selesai_lagi(si
     dibatalkan = baca_detail(siap, sesi_id)
     panggilan_sebelum = len(provider.calls)
     jalankan()  # worker tidak boleh mengambil sesi yang dibatalkan
+    tanpa_tombol = len(provider.calls) - panggilan_sebelum
     sesudah_worker = baca_detail(siap, sesi_id)
     lanjut = admin.post(f"{URL}/{sesi_id}/resume")
     provider.on_call = None
@@ -91,6 +92,7 @@ def test_batalkan_menyimpan_hasil_dan_tidak_layak_laporan_sampai_selesai_lagi(si
     assert dibatalkan["status"] == "cancelled"
     assert dibatalkan["report_eligible"] is False
     assert status_percobaan(dibatalkan).count("succeeded") == 1
+    assert tanpa_tombol == 0
     assert len(provider.calls) - panggilan_sebelum == TOTAL - 1
     assert sesudah_worker["status"] == "cancelled"
     assert lanjut.status_code == 202
@@ -126,8 +128,15 @@ def test_jeda_lalu_batalkan_tetap_menyimpan_hasil_tanpa_notifikasi_selesai(siap)
     )
 
 
-@pytest.mark.parametrize("aksi", ["pause", "cancel", "resume"])
-def test_sesi_selesai_tidak_bisa_dikontrol_lewat_api(siap, aksi):
+@pytest.mark.parametrize(
+    ("aksi", "kode"),
+    [
+        ("pause", "INVALID_TRANSITION"),
+        ("cancel", "INVALID_TRANSITION"),
+        ("resume", "SESSION_NOT_RESUMABLE"),
+    ],
+)
+def test_sesi_selesai_tidak_bisa_dikontrol_lewat_api(siap, aksi, kode):
     """Negatif: AC9, transisi tidak valid dari Selesai ditolak 409 dan status tidak berubah."""
     # Arrange
     sesi_id, provider, jalankan = berhenti_di_panggilan_pertama(siap, "pause")
@@ -141,7 +150,7 @@ def test_sesi_selesai_tidak_bisa_dikontrol_lewat_api(siap, aksi):
 
     # Assert
     assert response.status_code == 409
-    assert response.json()["code"] in {"INVALID_TRANSITION", "SESSION_NOT_RESUMABLE"}
+    assert response.json()["code"] == kode
     assert baca_detail(siap, sesi_id)["status"] == "finished"
 
 

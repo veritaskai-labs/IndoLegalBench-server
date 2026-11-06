@@ -12,9 +12,12 @@ import uuid
 import pytest
 from sqlalchemy import func, select
 
+from app.modules.providers.adapters.ask_call import transport_failure
+from app.modules.providers.adapters.base import FailureKind
 from app.modules.providers.adapters.params import ASK_TIMEOUT_SECONDS
 from app.modules.runs.models import Attempt, CallLog
 from app.shared.security import Role
+from tests.modules.cases.test_cases import ADMIN_LAIN
 from tests.modules.runs.session_qa import (
     URL,
     baca_detail,
@@ -113,7 +116,7 @@ def test_terima_apa_adanya_menyimpan_alasan_pelaku_dan_waktu_lalu_menutup_coba_u
     assert terima.status_code == 200
     assert detail["status"] == "finished_with_failures"
     assert detail["accepted_as_is_reason"] == "Gangguan penyedia, hasil cukup"
-    assert detail["accepted_as_is_by"] is not None
+    assert detail["accepted_as_is_by"] == str(ADMIN_LAIN)
     assert detail["accepted_as_is_at"] is not None
     assert detail["report_eligible"] is True
     assert coba_ulang.status_code == 409
@@ -138,8 +141,8 @@ def test_terima_apa_adanya_tanpa_alasan_ditolak_422(siap, body):
 
 
 @pytest.mark.parametrize("role", [Role.CONTRIBUTOR, Role.VIEWER, Role.DEVELOPER_AI])
-def test_non_admin_tidak_bisa_menerima_atau_mencoba_ulang_sesi_dengan_kegagalan(siap, role):
-    """Negatif: AC9, non-Admin mendapat 403 untuk terima apa adanya dan sesi tidak berubah."""
+def test_non_admin_tidak_bisa_menerima_apa_adanya_sesi_dengan_kegagalan(siap, role):
+    """Negatif: AC9, hanya Admin yang boleh menerima apa adanya; selain itu 403 FORBIDDEN."""
     # Arrange
     sesi_id, _ = _selesai_dengan_satu_gagal(siap)
 
@@ -148,11 +151,12 @@ def test_non_admin_tidak_bisa_menerima_atau_mencoba_ulang_sesi_dengan_kegagalan(
 
     # Assert
     assert terima.status_code == 403
+    assert terima.json()["code"] == "FORBIDDEN"
     assert baca_detail(siap, sesi_id)["accepted_as_is_at"] is None
 
 
-def test_timeout_panggilan_dicatat_gagal_teknis_dan_tidak_dicoba_ulang_otomatis(siap):
-    """Edge: AC2, worker memberi batas 240 detik; timeout jadi kegagalan teknis tanpa coba ulang."""
+def test_timeout_panggilan_dicatat_gagal_teknis_no_response_dan_tidak_dicoba_ulang(siap):
+    """Edge: AC2, worker memberi batas 240 detik; timeout jadi no_response tanpa coba ulang."""
     # Arrange
     sesi_id = start(siap)
     provider = Provider()
@@ -162,7 +166,8 @@ def test_timeout_panggilan_dicatat_gagal_teknis_dan_tidak_dicoba_ulang_otomatis(
         if provider.calls:
             return asli(prompt, **kwargs)
         provider.calls.append((prompt, kwargs))
-        raise TimeoutError("read timeout after 240 seconds")
+        # yang dikembalikan adapter nyata saat httpx timeout (adapters/http.py)
+        return transport_failure(None, "connection timed out", 0, "")
 
     provider.ask = timeout_di_panggilan_pertama
 
@@ -177,3 +182,6 @@ def test_timeout_panggilan_dicatat_gagal_teknis_dan_tidak_dicoba_ulang_otomatis(
     assert detail["status"] == "finished_with_failures"
     assert sorted(status_percobaan(detail)) == ["succeeded"] * (TOTAL - 1) + ["technical_failure"]
     assert detail["report_eligible"] is False
+    assert siap.db.scalars(
+        select(CallLog.failure_kind).where(CallLog.failure_kind.is_not(None))
+    ).all() == [str(FailureKind.NO_RESPONSE)]

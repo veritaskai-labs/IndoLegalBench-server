@@ -57,13 +57,18 @@ def test_restart_saat_berjalan_menghentikan_sesi_dan_tidak_lanjut_sendiri(siap):
 
 
 def test_restart_saat_panggilan_berjalan_tidak_mengirim_ulang_panggilan_berbayar(siap):
-    """Edge: AC8, percobaan yang tidak jelas nasibnya tidak dikirim ulang; lanjutkan ditolak 409."""
+    """Edge: AC8, percobaan yang tidak jelas nasibnya tidak dikirim ulang; lanjutkan ditolak 409.
+
+    Percobaan menggantung sengaja tanpa baris call_logs agar hanya status RUNNING yang
+    diuji. Crash nyata di tengah panggilan biasanya meninggalkan satu baris call_logs;
+    tiket tindak lanjut pemulihan perlu menangani kedua bentuk itu.
+    """
     # Arrange
     sesi_id, provider, jalankan = berhenti_di_panggilan_pertama(siap, "pause")
     menggantung = siap.db.scalar(
-        select(Attempt).where(
-            Attempt.session_id == sesi_id, Attempt.status == AttemptStatus.PENDING
-        )
+        select(Attempt)
+        .where(Attempt.session_id == sesi_id, Attempt.status == AttemptStatus.PENDING)
+        .order_by(Attempt.id)
     )
     menggantung.status = AttemptStatus.RUNNING  # panggilan sedang terbang saat server mati
     siap.db.commit()
