@@ -17,6 +17,7 @@ from sqlalchemy.orm import Session
 from app.modules.auth import service as auth_service
 from app.modules.cases import (
     completeness,
+    legacy_payload,
     legal_ref_preview,
     repository,
     sections,
@@ -558,7 +559,6 @@ def _review_copy(
         },
         legal_refs=_legal_refs_read(version, katalog),
         answer_criteria=isi.get("answer_criteria") or {},
-        traps=isi.get("traps") or [],
     )
 
 
@@ -720,10 +720,10 @@ def _write_version(
         "category": payload.identity.category,
         "legal_refs": data["legal_refs"],
         "answer_criteria": data["answer_criteria"],
-        "traps": data["traps"],
         "completeness": validation.completeness(data),
     }
     legal_refs_service.replace_for_version(db, version.id, data["legal_refs"])
+    legacy_payload.warn_if_traps_sent(payload, case_id=case.id)
 
 
 def _to_read(
@@ -749,7 +749,6 @@ def _to_read(
         },
         legal_refs=_legal_refs_read(versi, katalog),
         answer_criteria=isi.get("answer_criteria") or {},
-        traps=isi.get("traps") or [],
         split_tag=versi.split_tag,
         status=versi.status,
         # None pada objek Case yang belum di-flush; default kolomnya false.
