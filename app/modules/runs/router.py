@@ -26,11 +26,13 @@ from app.modules.runs.dependencies import (
 )
 from app.modules.runs.schemas import (
     AttemptCalls,
+    GradeSessionRequest,
     ProgressResponse,
     SessionAcceptRequest,
     SessionAcceptResponse,
     SessionArchiveResponse,
     SessionDetail,
+    SessionGradingResponse,
     SessionListItem,
     SessionRetryRequest,
     SessionRetryResponse,
@@ -44,10 +46,11 @@ from app.modules.runs.session_accept import accept_session, clear_acceptance
 from app.modules.runs.session_archive import archive_session
 from app.modules.runs.session_control_router import router as control_router
 from app.modules.runs.session_detail import SessionDetailService
+from app.modules.runs.session_grade import get_session_results, grade_session
 from app.modules.runs.session_list import SessionListService
 from app.modules.runs.session_retry import retry_failed_attempts
 from app.shared.database import get_db
-from app.shared.security import CurrentUser, Role, require_roles
+from app.shared.security import CurrentUser, Role, get_current_user, require_roles
 
 # Admin dan Developer AI boleh membuat pengukuran (PBI-11 user story).
 _summary_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
@@ -343,3 +346,101 @@ def start(
     service: StartSessionService = Depends(get_start_service),
 ) -> StartResponse:
     return service.start(payload, created_by=uuid.UUID(str(user.user_id)))
+
+
+_RESPONS_GRADE = {
+    403: {
+        "model": ErrorBody,
+        "description": "Hanya Admin yang dapat memicu penilaian (`FORBIDDEN`).",
+    },
+    404: {
+        "model": ErrorBody,
+        "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+    },
+    409: {
+        "model": ErrorBody,
+        "description": (
+            "Sesi diarsipkan (`SESSION_ARCHIVED`) atau sesi dalam antrean belum "
+            "bisa dinilai (`SESSION_NOT_GRADABLE`)."
+        ),
+    },
+}
+
+_RESPONS_RESULTS = {
+    403: {
+        "model": ErrorBody,
+        "description": (
+            "Hasil sesi yang masih berjalan hanya dapat dilihat Admin (`FORBIDDEN`), "
+            "atau peran tidak berwenang (`FORBIDDEN`)."
+        ),
+    },
+    404: {
+        "model": ErrorBody,
+        "description": (
+            "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`) atau hasil penilaian "
+            "belum tersedia (`GRADING_NOT_FOUND`)."
+        ),
+    },
+}
+
+
+@router.post(
+    "/{session_id}/grade",
+    response_model=SessionGradingResponse,
+    summary="Memicu penilaian manual untuk sesi pengukuran (Admin)",
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+    responses=_RESPONS_GRADE,
+)
+def trigger_grade_endpoint(
+    session_id: uuid.UUID,
+    payload: GradeSessionRequest | None = None,
+    user: CurrentUser = Depends(require_roles(Role.ADMIN)),
+    db: Session = Depends(get_db),
+) -> SessionGradingResponse:
+    """Admin memicu penilaian manual untuk sesi otomatis atau manual (PBI-14 AC6, AC7)."""
+    return grade_session(
+        db,
+        session_id,
+        payload,
+        actor_id=uuid.UUID(str(user.user_id)),
+        actor_role=user.role,
+        now=datetime.now(UTC),
+    )
+
+
+@router.get(
+    "/{session_id}/results",
+    response_model=SessionGradingResponse,
+    summary="Hasil penilaian sesi pengukuran dengan perincian skor per kasus dan agregat",
+    responses=_RESPONS_RESULTS,
+)
+def get_results_endpoint(
+    session_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> SessionGradingResponse:
+    """Hasil sesi berjalan hanya untuk Admin. Sesi selesai untuk Admin dan Viewer. Developer AI mendapat kasus test tersamar (PBI-14 AC8, PBI-11 AC9)."""
+    return get_session_results(
+        db,
+        session_id,
+        viewer_role=user.role,
+    )
+
+
+@router.get(
+    "/{session_id}/grade",
+    response_model=SessionGradingResponse,
+    summary="Alias untuk hasil penilaian sesi pengukuran (GET /measurements/{id}/results)",
+    responses=_RESPONS_RESULTS,
+    include_in_schema=False,
+)
+def get_grade_alias_endpoint(
+    session_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> SessionGradingResponse:
+    return get_session_results(
+        db,
+        session_id,
+        viewer_role=user.role,
+    )

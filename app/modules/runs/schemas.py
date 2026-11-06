@@ -374,3 +374,107 @@ class SessionResumeResponse(BaseModel):
     status: SessionStatus
     resumed_after_long_pause: bool
     model_version_unverified: bool
+
+
+# PBI-14 SCRUM-226: Penilaian, pemicu manual, penanganan gangguan teknis & visibilitas hasil.
+
+
+class ScorePair(BaseModel):
+    """Pasangan skor deterministik dan penilai LLM (PBI-14, SCRUM-225)."""
+
+    deterministic: Decimal | None = Field(
+        default=None, description="Skor jalur deterministik (0.00-1.00 atau skala rubrik)"
+    )
+    judge: Decimal | None = Field(
+        default=None, description="Skor jalur penilai LLM (skala 0.00-5.00)"
+    )
+
+
+class ThreeScores(BaseModel):
+    """Tiga skor terpisah yang diminta PBI-11 AC9: dev, test, dan gabungan."""
+
+    dev: ScorePair = Field(description="Skor kasus dev")
+    test: ScorePair = Field(description="Skor kasus test (agregat)")
+    combined: ScorePair = Field(description="Skor gabungan seluruh kasus")
+
+
+class CategoryScore(BaseModel):
+    """Pecahan skor per kategori kasus (PBI-14 AC10)."""
+
+    category: str = Field(description="Nama kategori, atau 'Lain-lain' bila kosong")
+    case_count: int = Field(description="Jumlah kasus dalam kategori ini")
+    scores: ScorePair = Field(description="Rata-rata skor kategori")
+
+
+class GradeSessionRequest(BaseModel):
+    """Pemicu penilaian manual oleh Admin (PBI-14 AC6, AC7)."""
+
+    rubric_version: str | None = Field(
+        default=None,
+        description="Versi rubrik yang dipilih Admin. Bila kosong, memakai versi aktif (default 'v1').",
+    )
+
+
+class AttemptGradeResult(BaseModel):
+    """Hasil penilaian satu percobaan."""
+
+    attempt_id: uuid.UUID = Field(description="ID percobaan")
+    repetition_no: int = Field(description="Nomor pengulangan (1-5)")
+    status: AttemptStatus = Field(description="Status percobaan")
+    is_technical_disruption: bool = Field(
+        description="True bila jawaban kosong, AI menolak, atau judge error (AC4)"
+    )
+    score: ScorePair | None = Field(
+        default=None,
+        description="Skor percobaan desimal 2 digit. null bila gangguan teknis atau disamarkan",
+    )
+    answer_text: str | None = Field(
+        default=None,
+        description="Jawaban mentah. null bila disamarkan untuk Developer AI pada kasus test",
+    )
+
+
+class CaseGradeResult(BaseModel):
+    """Hasil penilaian satu kasus per baris tabel (AC8)."""
+
+    snapshot_item_id: uuid.UUID
+    case_id: uuid.UUID
+    case_code: str
+    title: str
+    split_tag: SplitTag | None = None
+    category: str | None = None
+    question: str | None = Field(
+        default=None, description="null bila disamarkan untuk Developer AI pada kasus test"
+    )
+    masked: bool = Field(
+        default=False, description="true untuk kasus test yang dilihat Developer AI"
+    )
+    scores: ScorePair | None = Field(
+        default=None,
+        description="Rata-rata skor percobaan kasus. null bila disamarkan untuk Developer AI pada kasus test",
+    )
+    attempts: list[AttemptGradeResult] = Field(default_factory=list)
+
+
+class SessionGradingResponse(BaseModel):
+    """Hasil penilaian sesi pengukuran (PBI-14 AC3, AC6, AC7, AC8)."""
+
+    grading_run_id: uuid.UUID
+    session_id: uuid.UUID
+    rubric_version: str = Field(description="Versi rubrik yang digunakan (mis. 'v1')")
+    kind: Literal["initial", "regrade"] = Field(
+        description="initial untuk penilaian pertama, regrade untuk nilai ulang"
+    )
+    status: str = Field(description="completed bila sudah selesai dinilai")
+    triggered_by: uuid.UUID = Field(description="Admin yang memicu penilaian")
+    triggered_at: datetime = Field(description="Waktu pemicuan penilaian")
+    is_latest: bool = Field(
+        default=True, description="True bila merupakan hasil penilaian terbaru untuk sesi ini"
+    )
+    scores: ThreeScores = Field(description="Tiga skor terpisah: dev, test, dan gabungan")
+    category_scores: list[CategoryScore] = Field(
+        default_factory=list, description="Pecahan skor per kategori kasus"
+    )
+    cases: list[CaseGradeResult] = Field(
+        default_factory=list, description="Daftar kasus beserta hasil penilaian per percobaan"
+    )
