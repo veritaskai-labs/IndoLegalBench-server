@@ -7,7 +7,8 @@ rubric_aspects with nullable weights (all NULL, or all filled and totalling
 
 Every grading result will point to the version it was graded with, so a
 version never changes once written. On PostgreSQL:
-- the only allowed UPDATE of rubric_versions is flipping is_active; DELETE and
+- a new version starts inactive and unlocked, so activation always goes through
+  the UPDATE checks; the only allowed UPDATE is flipping is_active; DELETE and
   TRUNCATE are refused;
 - activating a version needs at least one aspect and one level and a valid
   weight set, and stamps locked_at the first time;
@@ -52,6 +53,13 @@ _GUARD_VERSION = """
         IF TG_OP IN ('DELETE', 'TRUNCATE') THEN
             RAISE EXCEPTION 'rubric versions cannot be deleted'
                 USING ERRCODE = 'insufficient_privilege';
+        END IF;
+        IF TG_OP = 'INSERT' THEN
+            IF NEW.is_active OR NEW.locked_at IS NOT NULL THEN
+                RAISE EXCEPTION 'a new rubric version starts inactive; activate it with UPDATE'
+                    USING ERRCODE = 'insufficient_privilege';
+            END IF;
+            RETURN NEW;
         END IF;
         IF NEW.is_active = OLD.is_active
            OR (to_jsonb(NEW) - 'is_active' - 'locked_at')
@@ -224,7 +232,7 @@ def upgrade() -> None:
         op.execute(
             """
             CREATE TRIGGER rubric_versions_guard_change
-            BEFORE UPDATE OR DELETE ON rubric_versions
+            BEFORE INSERT OR UPDATE OR DELETE ON rubric_versions
             FOR EACH ROW EXECUTE FUNCTION rubric_versions_guard_change()
             """
         )
