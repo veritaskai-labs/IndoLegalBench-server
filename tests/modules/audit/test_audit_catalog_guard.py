@@ -4,11 +4,30 @@ Listener audit hanya mencatat tabel yang terdaftar di TRACKERS. Tabel baru
 tidak ikut tercatat dengan sendirinya: suite_snapshots (PBI-8) lolos tanpa
 audit karena tidak ada yang mendaftarkannya. Test ini memaksa setiap tabel
 model punya tracker, atau tercantum di PENGECUALIAN beserta alasannya.
+
+Model dimuat dari setiap app/modules/*/models.py, bukan lewat app.main. Modul yang
+belum punya router (grading di SCRUM-222) tidak diimpor app.main, sehingga tabelnya
+dulu tidak terlihat oleh penjaga ini dan lolos tanpa tracker maupun alasan.
 """
 
-import app.main  # noqa: F401  memuat semua model supaya metadata lengkap
+import importlib
+import importlib.util
+import pkgutil
+
+import app.modules
 from app.modules.audit.trackers import tracker_for
 from app.shared.database import Base
+
+
+def _muat_semua_model() -> None:
+    """Impor models.py setiap modul supaya Base.metadata memuat semua tabel."""
+    for modul in pkgutil.iter_modules(app.modules.__path__):
+        nama = f"app.modules.{modul.name}.models"
+        if importlib.util.find_spec(nama) is not None:
+            importlib.import_module(nama)
+
+
+_muat_semua_model()
 
 # Tabel yang sengaja tidak dicatat. Tambah di sini hanya dengan alasan.
 PENGECUALIAN = {
@@ -24,6 +43,16 @@ PENGECUALIAN = {
     "case_snapshots": "SCRUM-205: hanya INSERT, UPDATE dan DELETE ditolak trigger",
     "case_snapshot_items": "SCRUM-205: hanya INSERT; isinya salinan versi kasus yang sudah dicatat",
     "attempts": "SCRUM-205: jawaban mentah permanen (trigger); bukti panggilan di call_logs (SCRUM-209)",
+    "rubric_versions": "SCRUM-222: tracker dibuat di PR B bersama POST /rubrics, satu-satunya penulis",
+    "rubric_aspects": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
+    "rubric_levels": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
+    "rubric_level_descriptors": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
+    "grading_runs": "SCRUM-222: belum ada penulis; tracker ditentukan SCRUM-226 (tombol Nilai)",
+    "grading_results": "SCRUM-222: hasil mesin, hanya INSERT (trigger), bukan aksi pengguna",
+    "grading_result_reasons": "SCRUM-222: tautan hasil mesin, hanya INSERT (trigger)",
+    "reason_codes": "SCRUM-222: hanya migrasi yang menulis (seed usulan); tracker saat ada API",
+    "llm_judge_results": "SCRUM-222: hasil mesin, hanya INSERT (trigger); biaya ada di baris ini",
+    "llm_criterion_results": "SCRUM-222: hasil mesin, hanya INSERT (trigger)",
 }
 
 
