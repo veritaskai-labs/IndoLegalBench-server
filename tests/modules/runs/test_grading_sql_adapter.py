@@ -1,4 +1,3 @@
-
 """SCRUM-225: real grading tables and read-time score reports."""
 
 import uuid
@@ -16,6 +15,8 @@ from app.modules.grading.models import (
     JudgeKind,
     JudgeStatus,
     LlmJudgeResult,
+)
+from app.modules.grading.models import (
     RubricVersion as DbRubricVersion,
 )
 from app.modules.grading.service import (
@@ -227,9 +228,7 @@ def test_publish_regrade_keeps_old_rows(db_session, grading_data):
     db_session.add(new_run)
     db_session.flush()
 
-    new_result = make_result(
-        db_session, new_run.id, attempt.id, "1.00"
-    )
+    new_result = make_result(db_session, new_run.id, attempt.id, "1.00")
     make_judge(db_session, new_result.id, JudgeKind.QUALITY, 4)
     make_judge(db_session, new_result.id, JudgeKind.FORMAT, 3)
 
@@ -252,9 +251,7 @@ def test_publish_regrade_keeps_old_rows(db_session, grading_data):
     assert current.format[attempt.id] == Decimal("0.75")
 
 
-def test_incomplete_regrade_cannot_be_published(
-    db_session, grading_data
-):
+def test_incomplete_regrade_cannot_be_published(db_session, grading_data):
     session, _, user, rubric, old_run = grading_data
 
     new_run = GradingRun(
