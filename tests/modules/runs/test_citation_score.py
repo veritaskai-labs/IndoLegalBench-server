@@ -184,7 +184,7 @@ def test_sitasi_yang_diulang_dihitung_sekali():
     assert (hasil.extracted_correct, hasil.extracted_total) == (1, 1)
 
 
-def test_skor_dua_digit_dibulatkan_setengah_ke_atas():
+def test_skor_berbentuk_decimal_dua_digit():
     """Edge: AC3, 2 dari 3 acuan = 0.67, Decimal dua digit, bukan '2 dari 3' atau persen."""
     # Arrange
     acuan = [_nama("uu", "1", 2001), _nama("uu", "2", 2002), _nama("uu", "3", 2003)]
@@ -194,6 +194,18 @@ def test_skor_dua_digit_dibulatkan_setengah_ke_atas():
 
     # Assert
     assert hasil.score == Decimal("0.67")
+
+
+def test_nilai_tepat_setengah_dibulatkan_ke_atas():
+    """Edge: AC3, 1 dari 8 = 0.125 menjadi 0.13 (half-up), bukan 0.12 (half-even)."""
+    # Arrange
+    acuan = [_nama("uu", str(nomor), 2000 + nomor) for nomor in range(1, 9)]
+
+    # Act
+    hasil = _nilai("Lihat UU 1/2001.", acuan)
+
+    # Assert
+    assert hasil.score == Decimal("0.13")
 
 
 def test_teks_bebas_tidak_bisa_dinilai_dan_tidak_masuk_penyebut():
@@ -287,3 +299,26 @@ def test_jenis_yang_tidak_ada_di_daftar_ditulis_dengan_kodenya():
 
     # Assert
     assert hasil.ungradable_refs == ("jenis_lama 7",)
+
+
+def test_singkatan_yang_dipakai_dua_jenis_selalu_jatuh_ke_jenis_yang_sama():
+    """Edge: AC1 reproducible, singkatan ganda dipetakan ke code terkecil apa pun urutan daftarnya.
+
+    Seed 2026-10-16 belum punya singkatan ganda; test ini menjaga bila nanti ada.
+    """
+    # Arrange
+    badan_a = TypeName("Peraturan Badan A", "PB")
+    badan_b = TypeName("Peraturan Badan B", "PB")
+    acuan = [_nama("badan_a", "3", 2020)]
+
+    # Act
+    hasil = [
+        citation_score.CitationScorer(jenis).score("Lihat PB 3/2020.", acuan).score
+        for jenis in (
+            {"badan_a": badan_a, "badan_b": badan_b},
+            {"badan_b": badan_b, "badan_a": badan_a},
+        )
+    ]
+
+    # Assert
+    assert hasil == [Decimal("1.00"), Decimal("1.00")]

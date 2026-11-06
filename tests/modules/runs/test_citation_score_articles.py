@@ -16,6 +16,7 @@ Contoh hukum: KTK-001 dan AC10 (tests/legal_refs.py), sisanya sintetis.
 Label: Positif = dinilai benar, Negatif = dinilai salah, Edge = batas perilaku.
 """
 
+import time
 from decimal import Decimal
 
 import pytest
@@ -96,6 +97,30 @@ def test_daftar_nomor_setelah_satu_kata_pasal_ikut_dikaitkan():
     assert hasil.score == Decimal("1.00")
 
 
+def test_daftar_pasal_dengan_koma_sebelum_dan_terbaca_semua():
+    """Positif: 'Pasal 156, 157, dan 158 UU 13/2003'; PUEBI memberi koma sebelum 'dan'."""
+    # Act
+    hasil = _nilai(
+        "Lihat Pasal 156, 157, dan 158 UU 13/2003.",
+        [rujukan(link("uu", "13", 2003, "158"))],
+    )
+
+    # Assert
+    assert hasil.score == Decimal("1.00")
+
+
+def test_daftar_pasal_dengan_koma_sebelum_dan_tidak_jatuh_ke_peraturan_sebelumnya():
+    """Negatif: Pasal 157 di daftar itu milik UU 13/2003, bukan UU 6/2023 yang disebut lebih dulu."""
+    # Arrange
+    jawaban = "UU 6/2023 mengubah banyak hal. Pasal 156, 157, dan 158 UU 13/2003 tetap."
+
+    # Act
+    hasil = _nilai(jawaban, [rujukan(link("uu", "6", 2023, "157"))])
+
+    # Assert
+    assert hasil.score == Decimal("0.00")
+
+
 def test_pasal_dikaitkan_ke_peraturan_yang_disebut_sebelumnya():
     """Positif: peraturan disebut dulu, pasalnya di kalimat berikut."""
     # Arrange
@@ -131,6 +156,37 @@ def test_pasal_sebelum_kalimat_lain_tidak_dikaitkan_ke_peraturan_berikutnya():
 
     # Assert
     assert _pasal(hasil) == [("uu", "13", 2003, "156", False)]
+
+
+@pytest.mark.parametrize(("spasi", "dikaitkan"), [(80, True), (81, False)])
+def test_sela_frasa_paling_panjang_80_karakter(spasi, dikaitkan):
+    """Edge: sela lebih dari 80 karakter bukan satu frasa rujukan, walau isinya hanya spasi."""
+    # Act
+    hasil = _nilai("Pasal 156" + " " * spasi + "UU 13/2003.", [rujukan_ktk_001()])
+
+    # Assert
+    assert _pasal(hasil) == [("uu", "13", 2003, "156", dikaitkan)]
+
+
+@pytest.mark.parametrize(
+    "jawaban",
+    [
+        # Baris tabel markdown dengan spasi pengisi.
+        "Pasal 5" + " " * 24 + "| UU 13/2003",
+        # Sela 80 karakter berisi ayat berulang.
+        "Pasal 5 " + "ayat 1 " * 11 + "| UU 13/2003",
+    ],
+)
+def test_sela_panjang_yang_bukan_frasa_tetap_cepat(jawaban):
+    """Edge: sela yang gagal cocok tidak membuat penilai macet karena backtracking regex."""
+    # Arrange
+    mulai = time.perf_counter()
+
+    # Act
+    _nilai(jawaban, [rujukan_ktk_001()])
+
+    # Assert
+    assert time.perf_counter() - mulai < 0.5
 
 
 def test_kata_di_atas_bukan_nomor_pasal_romawi():
