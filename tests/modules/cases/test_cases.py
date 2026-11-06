@@ -574,14 +574,14 @@ def test_completeness_kasus_lengkap(as_role):
     assert body["ready_for_review"] is True
     assert body["missing"] == []
     assert body["pct"] == 100
-    assert body["trap_count"] >= 1
+    assert "trap_count" not in body
     assert body["legal_ref_count"] >= 1
 
 
-def test_completeness_tanpa_jebakan_lengkap(as_role):
+def test_completeness_kasus_legacy_dengan_jebakan_tetap_lengkap(as_role):
     client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
-    case_id = _buat(client, suite_id, traps=[]).json()["id"]
+    case_id = _buat(client, suite_id).json()["id"]
 
     body = client.get(f"/cases/{case_id}/completeness").json()
 
@@ -589,7 +589,7 @@ def test_completeness_tanpa_jebakan_lengkap(as_role):
     assert body["is_complete"] is True
     assert body["ready_for_review"] is True
     assert body["missing"] == []
-    assert body["trap_count"] == 0
+    assert "trap_count" not in body
 
 
 def test_completeness_kasus_tidak_dikenal(as_role):
