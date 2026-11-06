@@ -239,3 +239,82 @@ def beri_alasan(conn: Connection, hasil_id: uuid.UUID, kode: str) -> None:
         ),
         {"hasil": hasil_id, "kode": kode},
     )
+
+
+BARIS_JURI = {
+    "judge_run_no": 1,
+    "kind": "quality",
+    "status": "succeeded",
+    "prompt": "Prompt kualitas sintetis.",
+    "criteria_met": 3,
+    "criteria_total": 4,
+    "criteria_score": Decimal("0.75"),
+    "rubric_level": None,
+    "explanation": "Penjelasan sintetis.",
+    "error": None,
+    "failure_kind": None,
+    "input_tokens": 1200,
+    "output_tokens": 300,
+    "cost_idr": Decimal("85.50"),
+    "usd_idr_rate": Decimal("16250.0000"),
+    "model_version": "model-sintetis-1",
+    "raw_response": '{"text": "jawaban penilai sintetis"}',
+}
+
+JURI_GAGAL = BARIS_JURI | {
+    "status": "failed",
+    "criteria_met": None,
+    "criteria_total": None,
+    "criteria_score": None,
+    "explanation": None,
+    "error": "invalid_judge_reply",
+    "failure_kind": "invalid_response",
+}
+
+_ENUM_JURI = {"kind": "llm_judge_kind_enum", "status": "llm_judge_status_enum"}
+_KOLOM_JURI = ", ".join(BARIS_JURI)
+_NILAI_JURI = ", ".join(
+    f"CAST(:{kolom} AS {_ENUM_JURI[kolom]})"
+    if kolom in _ENUM_JURI
+    else "CAST(:raw_response AS jsonb)"
+    if kolom == "raw_response"
+    else f":{kolom}"
+    for kolom in BARIS_JURI
+)
+
+
+def buat_baris_juri(conn: Connection, hasil_id: uuid.UUID, **ubah) -> uuid.UUID:
+    """Satu baris penilai LLM (#108 JudgeRow); ubah menimpa kolom BARIS_JURI."""
+    baris_id = uuid.uuid4()
+    conn.execute(
+        text(
+            f"INSERT INTO llm_judge_results (id, grading_result_id, {_KOLOM_JURI}) "
+            f"VALUES (:id, :hasil, {_NILAI_JURI})"
+        ),
+        {"id": baris_id, "hasil": hasil_id} | BARIS_JURI | ubah,
+    )
+    return baris_id
+
+
+def buat_kriteria(
+    conn: Connection,
+    baris_id: uuid.UUID,
+    kunci: str = "must_contain:0",
+    terpenuhi: bool = True,
+    kode: str | None = None,
+) -> None:
+    """Satu kriteria (#108 CriterionJudgement); kunci mengikuti answer_criteria snapshot."""
+    conn.execute(
+        text(
+            "INSERT INTO llm_criterion_results (id, llm_judge_result_id, criterion_key, "
+            "criterion_text, is_met, explanation, reason_code) VALUES (:id, :baris, :kunci, "
+            "'Kriteria sintetis.', :terpenuhi, 'Penjelasan kriteria sintetis.', :kode)"
+        ),
+        {
+            "id": uuid.uuid4(),
+            "baris": baris_id,
+            "kunci": kunci,
+            "terpenuhi": terpenuhi,
+            "kode": kode,
+        },
+    )
