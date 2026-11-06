@@ -179,6 +179,44 @@ def test_run_berakhir_selesai_atau_gagal(conn, sesi_id, versi_id, admin_id, akhi
 # --- grading_runs: negatif ------------------------------------------------------
 
 
+@pytest.mark.parametrize(
+    ("status", "terbaru", "selesai"),
+    [
+        ("running", False, False),
+        ("finished", False, True),
+        ("failed", False, True),
+        ("queued", True, False),
+    ],
+    ids=["langsung-berjalan", "langsung-selesai", "langsung-gagal", "langsung-terbaru"],
+)
+def test_run_baru_wajib_mulai_dari_antrean(
+    conn, sesi_id, versi_id, admin_id, status, terbaru, selesai
+):
+    """Review Kak Aileen #111 (non-blocking): INSERT tidak boleh melompati status queued.
+
+    finished_at ikut diisi untuk status akhir supaya CHECK ck_grading_runs_finished_at
+    lolos, jadi yang menolak memang aturan run baru, bukan CHECK itu.
+    """
+    sqlstate = sqlstate_penolakan(
+        conn,
+        "INSERT INTO grading_runs (id, session_id, rubric_version_id, kind, triggered_by, "
+        "status, is_latest, finished_at) VALUES (:id, :sesi, :versi, 'initial', :admin, "
+        "CAST(:status AS grading_run_status_enum), :terbaru, "
+        "CASE WHEN :selesai THEN now() END)",
+        {
+            "id": uuid.uuid4(),
+            "sesi": sesi_id,
+            "versi": versi_id,
+            "admin": admin_id,
+            "status": status,
+            "terbaru": terbaru,
+            "selesai": selesai,
+        },
+    )
+
+    assert sqlstate == INSUFFICIENT_PRIVILEGE
+
+
 def test_run_dengan_versi_yang_belum_pernah_aktif_ditolak(conn, sesi_id, admin_id):
     """Isi versi draf masih bisa bertambah, jadi belum boleh dipakai menilai."""
     draf = buat_rubrik_lengkap(conn, admin_id)
