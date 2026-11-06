@@ -15,8 +15,10 @@ Setiap tes diberi label di docstring-nya:
 """
 
 import uuid
+from types import SimpleNamespace
 
 import pytest
+from sqlalchemy.exc import IntegrityError
 
 from app.modules.auth.models import User
 from app.modules.grading import repository, rubric_rules, service
@@ -133,6 +135,55 @@ def test_bentrok_nomor_versi_menjadi_409_dan_versi_aktif_tetap(db_session, admin
     assert info.value.code == service.RUBRIC_VERSION_CONFLICT
     assert _jumlah_versi(db_session) == 1
     assert service.get_version(db_session, pertama.id).is_active is True
+
+
+def _gagal_tulis(pesan: str, constraint: str | None = None):
+    """add_and_flush palsu yang gagal seperti driver database dengan pesan tertentu."""
+    asal = Exception(pesan)
+    asal.diag = SimpleNamespace(constraint_name=constraint)
+
+    def tulis(db, rows):
+        raise IntegrityError("INSERT ...", {}, asal)
+
+    return tulis
+
+
+@pytest.mark.parametrize(
+    ("pesan", "constraint"),
+    [
+        ("duplicate key", "rubric_versions_version_no_key"),
+        ("duplicate key", "uq_rubric_versions_one_active"),
+        ("UNIQUE constraint failed: rubric_versions.is_active", None),
+    ],
+    ids=["pg-nomor-versi", "pg-satu-aktif", "sqlite-satu-aktif"],
+)
+def test_hanya_bentrok_versi_yang_menjadi_409(db_session, admin, monkeypatch, pesan, constraint):
+    """Positif: review Kak Aileen #112, 409 hanya untuk constraint bentrok antar-POST."""
+    monkeypatch.setattr(repository, "add_and_flush", _gagal_tulis(pesan, constraint))
+
+    with pytest.raises(ConflictError):
+        _buat(db_session, admin)
+
+
+@pytest.mark.parametrize(
+    ("pesan", "constraint"),
+    [
+        ("insert or update violates foreign key", "rubric_versions_created_by_fkey"),
+        ("FOREIGN KEY constraint failed", None),
+        ("new row violates check constraint", "ck_rubric_versions_prompt_quality"),
+    ],
+    ids=["pg-fk", "sqlite-fk", "pg-check"],
+)
+def test_pelanggaran_lain_tidak_disamarkan_sebagai_409(
+    db_session, admin, monkeypatch, pesan, constraint
+):
+    """Negatif: FK atau CHECK yang gagal adalah bug, bukan "muat ulang"; tetap di-rollback."""
+    monkeypatch.setattr(repository, "add_and_flush", _gagal_tulis(pesan, constraint))
+
+    with pytest.raises(IntegrityError):
+        _buat(db_session, admin)
+
+    assert _jumlah_versi(db_session) == 0
 
 
 # --- Membaca versi --------------------------------------------------------------

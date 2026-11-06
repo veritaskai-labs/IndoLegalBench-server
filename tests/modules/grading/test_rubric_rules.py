@@ -352,3 +352,47 @@ def test_skor_ganda_dilaporkan_sebelum_aturan_lulus():
     masalah = _masalah(levels=_level((4, True), (4, True)))
 
     assert masalah.code == rubric_rules.DUPLICATE_LEVEL_SCORE
+
+
+# --- Batas panjang teks (review Kak Aileen #112, non-blocking) ----------------------
+# Teks bebas masuk database dan ikut dikirim ke penilai LLM, jadi panjangnya dibatasi.
+
+
+def _isi_aspek(**isian) -> list[dict]:
+    aspek = _aspek(None)
+    aspek[0].update(isian)
+    return aspek
+
+
+def _isi_deskriptor(teks: str) -> list[dict]:
+    lulus = LULUS_GAGAL[0] | {"descriptors": [{"aspect_name": "Dimensi 1", "descriptor": teks}]}
+    return [lulus, LULUS_GAGAL[1]]
+
+
+@pytest.mark.parametrize(
+    ("ubah", "lokasi"),
+    [
+        ({"judge_prompt_quality": "x" * 10_001}, ("judge_prompt_quality",)),
+        ({"judge_prompt_format": "x" * 10_001}, ("judge_prompt_format",)),
+        ({"aspects": _isi_aspek(definition="x" * 2_001)}, ("aspects", 0, "definition")),
+        (
+            {"aspects": _aspek(None), "levels": _isi_deskriptor("x" * 2_001)},
+            ("levels", 0, "descriptors", 0, "descriptor"),
+        ),
+    ],
+    ids=["prompt-kualitas", "prompt-format", "definisi", "deskriptor"],
+)
+def test_teks_melebihi_batas_ditolak_schema(ubah, lokasi):
+    assert lokasi in _galat_schema(**ubah)
+
+
+def test_teks_tepat_di_batas_diterima():
+    """Edge: tepat 10.000 karakter untuk prompt, 2.000 untuk definisi dan deskriptor."""
+    versi = _versi(
+        judge_prompt_quality="x" * 10_000,
+        judge_prompt_format="x" * 10_000,
+        aspects=_isi_aspek(definition="x" * 2_000),
+        levels=_isi_deskriptor("x" * 2_000),
+    )
+
+    assert rubric_rules.rubric_problem(versi) is None
