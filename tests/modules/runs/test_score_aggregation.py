@@ -1,4 +1,3 @@
-
 """Agregasi skor percobaan, kasus, dan produk. PBI-14 AC3, AC7, PBI-11 AC9. SCRUM-225.
 
 Yang dijaga di sini:
