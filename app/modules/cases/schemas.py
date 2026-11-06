@@ -328,7 +328,6 @@ class CaseCompleteness(BaseModel):
     ready_for_review: bool
     pct: int = Field(ge=0, le=100)
     missing: list[CompletenessIssue]
-    trap_count: int
     legal_ref_count: int
 
 

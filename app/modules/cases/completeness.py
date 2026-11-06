@@ -66,7 +66,6 @@ def evaluate(data: dict[str, Any]) -> dict[str, Any]:
     """Hitung kelengkapan dari body kasus, siap disimpan ke kolom JSONB."""
     identitas = data.get("identity") if isinstance(data.get("identity"), dict) else {}
     legal_ref_count = _count_refs(data.get("legal_refs"))
-    trap_count = _count_traps(data.get("traps"))
 
     terisi = {
         "identity.title": bool(_text(identitas.get("title"))),
@@ -84,7 +83,6 @@ def evaluate(data: dict[str, Any]) -> dict[str, Any]:
         "is_complete": is_complete,
         "ready_for_review": is_complete,
         "missing": missing,
-        "trap_count": trap_count,
         "legal_ref_count": legal_ref_count,
         # Dipakai daftar kasus lewat CaseSummary.completeness_pct.
         "pct": round((len(_BAGIAN) - len(missing)) * 100 / len(_BAGIAN)),
@@ -126,7 +124,6 @@ def row_data(case: Any, versi: Any, legal_refs: list[dict[str, Any]]) -> dict[st
         "identity": {"title": isi.get("title"), "question": isi.get("question")},
         "legal_refs": legal_refs,
         "answer_criteria": isi.get("answer_criteria") or {},
-        "traps": isi.get("traps") or [],
         "split_tag": str(tag) if tag else None,
     }
 
@@ -183,13 +180,6 @@ def _count_refs(legal_refs: Any) -> int:
     if not isinstance(legal_refs, list):
         return 0
     return sum(1 for rujukan in legal_refs if missing_in_ref(rujukan) is None)
-
-
-def _count_traps(traps: Any) -> int:
-    """Jebakan baru dihitung kalau deskripsinya terisi."""
-    if not isinstance(traps, list):
-        return 0
-    return sum(1 for item in traps if isinstance(item, dict) and _text(item.get("description")))
 
 
 def _has_answer_criteria(nilai: Any) -> bool:
