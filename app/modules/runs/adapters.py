@@ -206,6 +206,7 @@ class NameAdapter:
     def user_names(self, user_ids: set[uuid.UUID]) -> Mapping[uuid.UUID, str]:
         return auth_service.user_names(self._db, user_ids)
 
+
 class SnapshotCaseAdapter:
     """Identitas kasus dari snapshot untuk agregasi skor."""
 
@@ -215,7 +216,5 @@ class SnapshotCaseAdapter:
     def case_facts(self, session_id: uuid.UUID) -> tuple[CaseFacts, ...]:
         return tuple(
             case_facts_from_body(item_id, body)
-            for item_id, body in repository.snapshot_case_items(
-                self._db, session_id
-            )
+            for item_id, body in repository.snapshot_case_items(self._db, session_id)
         )
