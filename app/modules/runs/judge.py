@@ -100,6 +100,7 @@ def run_judge(
     if repetitions < 1:
         raise ValueError("repetitions must be at least 1")
     store = writer if writer is not None else MemoryJudgeWriter()
+    expected = _criterion_names(inputs.criteria)
     for repetition in range(1, repetitions + 1):
         for kind, prompt in (
             ("quality", quality_prompt(inputs)),
@@ -112,6 +113,7 @@ def run_judge(
                     repetition=repetition,
                     prompt=prompt,
                     prices=prices,
+                    expected=expected,
                 )
             )
     return store
@@ -124,22 +126,25 @@ def _row(
     repetition: int,
     prompt: str,
     prices: JudgePrices | None,
+    expected: tuple[str, ...],
 ) -> JudgeRow:
     failed = response.error is not None or response.failure_kind is not None
-    criteria = () if failed else parse_reply(response.text)
+    parsed = () if failed else parse_reply(response.text)
+    aligned = None if failed else _align(expected, parsed)
     error = response.error
     failure_kind = response.failure_kind
-    if _unreadable(failed, criteria):
+    if _rejected(failed, aligned):
         error = "invalid_judge_reply"
         failure_kind = "invalid_response"
         failed = True
+    criteria = aligned if aligned is not None else ()
     explanation, reason_id = _summary(criteria)
     return JudgeRow(
         kind=kind,
         repetition=repetition,
         prompt=prompt,
         criteria=criteria,
-        score=None if failed else _score(criteria),
+        score=None if failed else _score(criteria, len(expected)),
         explanation=explanation,
         reason_id=reason_id,
         error=error,
@@ -148,8 +153,27 @@ def _row(
     )
 
 
-def _unreadable(failed: bool, criteria: tuple[CriterionJudgement, ...]) -> bool:
-    return not failed and not criteria
+def _rejected(failed: bool, aligned: tuple[CriterionJudgement, ...] | None) -> bool:
+    return not failed and aligned is None
+
+
+def _criterion_names(criteria: str) -> tuple[str, ...]:
+    return tuple(line.strip() for line in criteria.splitlines() if line.strip())
+
+
+def _align(
+    expected: tuple[str, ...], found: tuple[CriterionJudgement, ...]
+) -> tuple[CriterionJudgement, ...] | None:
+    if not expected:
+        return None
+    by_name: dict[str, CriterionJudgement] = {}
+    for item in found:
+        if item.criterion in by_name or item.criterion not in expected:
+            return None
+        by_name[item.criterion] = item
+    if len(by_name) != len(expected):
+        return None
+    return tuple(by_name[name] for name in expected)
 
 
 @dataclass
@@ -174,20 +198,28 @@ def parse_reply(text: str) -> tuple[CriterionJudgement, ...]:
 
 
 def _read_line(cursor: _ReplyCursor, found: list[CriterionJudgement], line: str) -> None:
-    criterion = _labeled(line, "CRITERION")
+    plain = line.replace("*", "").strip()
+    criterion = _labeled(plain, "CRITERION")
     if criterion is not None:
         _close_block(cursor, found)
         cursor.criterion = criterion
         return
     if cursor.criterion is None:
         return
-    met = _labeled(line, "MET")
+    met = _labeled(plain, "MET")
     if met is not None:
-        cursor.met = met.lower()
+        cursor.met = _met_token(met)
         return
-    explanation = _labeled(line, "EXPLANATION")
+    explanation = _labeled(plain, "EXPLANATION")
     if explanation is not None:
         cursor.explanation = explanation or None
+
+
+def _met_token(raw: str) -> str:
+    token = raw.strip()
+    while token and token[-1] in ".,;:!?":
+        token = token[:-1].strip()
+    return token.lower()
 
 
 def _close_block(cursor: _ReplyCursor, found: list[CriterionJudgement]) -> None:
@@ -221,9 +253,9 @@ def _summary(criteria: Sequence[CriterionJudgement]) -> tuple[str | None, str | 
     return (" ".join(sentences) if sentences else None), _UNMET_REASON
 
 
-def _score(criteria: Sequence[CriterionJudgement]) -> Decimal:
+def _score(criteria: Sequence[CriterionJudgement], total: int) -> Decimal:
     met = sum(1 for item in criteria if item.met)
-    ratio = Decimal(met) / Decimal(len(criteria))
+    ratio = Decimal(met) / Decimal(total)
     return ratio.quantize(_SCORE_QUANTUM, rounding=ROUND_HALF_UP)
 
 
