@@ -673,7 +673,7 @@ def _author(user_id: uuid.UUID, names: dict[uuid.UUID, str]) -> ActorRead:
 
 
 def _section_values(version: CaseVersion, katalog: legal_refs_service.TypeCatalog) -> dict:
-    """The eight sections for one version, including its stored case_code.
+    """The seven sections for one version, including its stored case_code.
 
     Citations are read like every other endpoint, so a Sprint 1 citation saved
     again in the PBI-21 shape compares equal to its old self.

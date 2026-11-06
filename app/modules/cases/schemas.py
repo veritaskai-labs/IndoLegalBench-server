@@ -340,7 +340,7 @@ class VersionSummary(BaseModel):
 
 
 class VersionSections(BaseModel):
-    """One version split into the eight SCRUM-137 sections.
+    """One version split into the seven SCRUM-137 sections.
 
     The dotted names are the API keys. See app/modules/cases/sections.py.
     """
@@ -357,7 +357,7 @@ class VersionSections(BaseModel):
 
 
 class VersionSide(BaseModel):
-    """One side of a compare. sections uses the eight section names."""
+    """One side of a compare. sections uses the seven section names."""
 
     version_no: int
     status: CaseStatus
