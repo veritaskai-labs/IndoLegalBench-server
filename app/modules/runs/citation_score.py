@@ -1,21 +1,28 @@
-"""Jalur deterministik penilaian: ketepatan rujukan peraturan. PBI-14 AC1, AC2.
+"""Jalur deterministik penilaian: ketepatan rujukan peraturan dan pasal. PBI-14 AC1, AC2.
 
 D7 langkah "Ekstrak rujukan peraturan dari jawaban" lalu "Cocokkan": rujukan
-acuan adalah legal_refs kasus di snapshot (bentuk PBI-21), dan sebuah rujukan
-benar bila jenis, nomor, dan tahunnya sama. Tidak ada daftar sinonim; jenis
+acuan adalah legal_refs kasus di snapshot (bentuk PBI-21), dan sebuah peraturan
+cocok bila jenis, nomor, dan tahunnya sama. Tidak ada daftar sinonim; jenis
 dikenali dari label dan singkatan regulation_types saja, jadi 'UU 40/2007' dan
 'Undang-Undang Nomor 40 Tahun 2007' sama, sedangkan 'UU Perseroan Terbatas'
 tanpa nomor dan tahun tidak terbaca sebagai rujukan.
 
+Pasal: acuan "Pasal 156" terpenuhi bila jawaban menyebut Pasal 156 untuk peraturan
+itu, termasuk "Pasal 156 ayat (1)"; pasal tambahan tidak dihukum. Ayat, angka, dan
+huruf acuan tidak diperiksa. Rujukan berangkai (jo./jis.) dinilai satu kesatuan:
+benar hanya bila semua link-nya benar.
+
 Hasilnya mengikuti kolom D6 grading_results: det_regulation_matches
-[{jenis, nomor, tahun, cocok}] dan det_score. Tabelnya milik SCRUM-222, jadi
-modul ini murni dan tidak membaca database.
+[{jenis, nomor, tahun, cocok}], det_article_matches [{pasal acuan, disebut}],
+det_all_chained_cited, dan det_score. Tabelnya milik SCRUM-222, jadi modul ini
+murni dan tidak membaca database.
 
 Rumus klien "total extracted sitasi / total real sitasi benar" masih TBA (AC1).
-Default-nya recall (acuan yang disebut benar / acuan yang bisa dinilai) karena
-AC2 tidak menghukum rujukan tambahan; presisi tersedia bila klien memilihnya.
-Rujukan teks bebas dan link lama tanpa tahun tidak punya tiga unsur itu, jadi
-dicatat sebagai tidak bisa dinilai dan tidak masuk penyebut.
+Default-nya recall (rujukan acuan yang benar / rujukan acuan yang bisa dinilai)
+karena AC2 tidak menghukum rujukan tambahan; presisi (peraturan terekstrak yang
+ada di acuan / peraturan terekstrak) tersedia bila klien memilihnya. Rujukan teks
+bebas dan link lama tanpa tahun tidak punya tiga unsur itu, jadi dicatat sebagai
+tidak bisa dinilai dan tidak masuk penyebut.
 """
 
 import re
@@ -31,6 +38,23 @@ _DUA_DIGIT = Decimal("0.01")
 # Spasi dan tanda hubung dianggap sama: "Undang-Undang", "Undang Undang", "undang-undang".
 _PEMISAH = r"[\s\-]+"
 _EKOR_NOMOR = ".,;:)/-"
+_PENGHUBUNG = {"jo": "jo.", "jis": "jis."}
+
+# Nomor pasal: angka dengan huruf sisipan (27A) atau romawi kapital (Pasal II UU 6/2023).
+# Romawi tidak dibaca tanpa membedakan huruf, supaya "pasal di atas" bukan Pasal DI.
+_NOMOR_PASAL = r"(?:\d+[A-Za-z]?|[IVXLCDM]+)(?!\w)"
+_POLA_PASAL = re.compile(
+    rf"(?<!\w)[Pp]asal\s+(?P<daftar>{_NOMOR_PASAL}"
+    rf"(?:\s*(?:,|\bdan\b|\bserta\b|\batau\b)\s*{_NOMOR_PASAL})*)"
+)
+# Teks yang boleh ada di antara pasal dan peraturannya dalam satu frasa rujukan:
+# "Pasal 54 ayat 1 huruf d UU ...", "Pasal 1266 dan Pasal 1267 ...", "Pasal 156 dari UU ...".
+_SELA_FRASA = re.compile(
+    r"(?:\s+|,|\(|\)|\b(?:dan|serta|atau|dari|dalam|pada)\b|\bayat\s*\(?\s*\w+\s*\)?"
+    r"|\bhuruf\s+\w+\b|\bangka\s+\w+\b|\bpasal\s+\w+\b)*",
+    re.IGNORECASE,
+)
+_SELA_MAKS = 80
 
 
 class ScoreFormula(StrEnum):
@@ -51,11 +75,25 @@ class RegulationMatch:
 
 
 @dataclass(frozen=True)
+class ArticleMatch:
+    """Satu pasal acuan dan apakah jawaban menyebutnya untuk peraturannya (D6 det_article_matches)."""
+
+    regulation_type: str
+    number: str
+    year: int
+    pasal: str
+    cited: bool
+
+
+@dataclass(frozen=True)
 class CitationScore:
     formula: ScoreFormula
     # None bila kasus tidak punya rujukan acuan yang bisa dinilai.
     score: Decimal | None
     regulation_matches: tuple[RegulationMatch, ...]
+    article_matches: tuple[ArticleMatch, ...]
+    # None bila tidak ada rujukan berangkai, supaya tidak tampil sebagai "semua disebut".
+    all_chained_cited: bool | None
     reference_correct: int
     reference_total: int
     extracted_correct: int
@@ -65,6 +103,22 @@ class CitationScore:
 
 # (jenis, nomor ternormalisasi, tahun)
 _Kunci = tuple[str, str, int | None]
+
+
+@dataclass(frozen=True)
+class _Sebutan:
+    """Satu peraturan yang disebut jawaban, dengan letaknya untuk mengaitkan pasal."""
+
+    kunci: _Kunci
+    mulai: int
+    akhir: int
+
+
+@dataclass(frozen=True)
+class _Link:
+    kunci: _Kunci
+    number: str
+    pasal: str | None
 
 
 class CitationScorer:
@@ -81,28 +135,51 @@ class CitationScorer:
         nama = sorted(self._code_per_nama, key=lambda kunci: (-len(kunci), kunci))
         pilihan = "|".join(_PEMISAH.join(map(re.escape, kunci.split(" "))) for kunci in nama)
         self._pola = re.compile(
-            rf"(?<!\w)(?P<jenis>{pilihan})(?:{_PEMISAH}Republik{_PEMISAH}Indonesia)?\s+"
+            rf"(?<!\w)(?P<jenis>{pilihan})(?:{_PEMISAH}Republik{_PEMISAH}Indonesia)?"
+            # Singkatan dalam kurung: "Undang-Undang (UU) Nomor 8 Tahun 1999".
+            r"(?:\s*\([^()\n]{1,20}\))?\s+"
             r"(?:(?:Nomor|No\.?)\s*(?P<nomor_kata>[0-9A-Za-z][\w./\-]*)|(?P<nomor>\d[\w./\-]*))"
             r"(?:\s+Tahun\s+(?P<tahun>\d{4}))?",
             re.IGNORECASE,
         )
 
     def score(self, jawaban: str, acuan: Sequence[Mapping[str, Any]]) -> CitationScore:
-        terekstrak = self._ekstrak(jawaban)
-        unit, tidak_dinilai = self._unit_acuan(acuan)
+        sebutan = self._sebutan(jawaban)
+        # Sitasi unik sesuai urutan kemunculan; menyebut ulang tidak menambah hitungan.
+        terekstrak = list(dict.fromkeys(item.kunci for item in sebutan))
         disebut = {kunci for kunci in terekstrak if kunci[2] is not None}
+        pasal_disebut = _pasal_disebut(jawaban, sebutan)
+        unit, tidak_dinilai = self._unit_acuan(acuan)
 
-        matches: dict[_Kunci, RegulationMatch] = {}
-        for kunci, nomor in unit.values():
-            matches.setdefault(kunci, RegulationMatch(kunci[0], nomor, kunci[2], kunci in disebut))
-        acuan_benar = sum(kunci in disebut for kunci, _ in unit.values())
-        regulasi_acuan = {kunci for kunci, _ in unit.values()}
-        ekstrak_benar = sum(kunci in regulasi_acuan for kunci in terekstrak)
+        def benar(link: _Link) -> bool:
+            if link.kunci not in disebut:
+                return False
+            return link.pasal is None or (link.kunci, _kunci_pasal(link.pasal)) in pasal_disebut
+
+        regulasi: dict[_Kunci, RegulationMatch] = {}
+        pasal: dict[tuple[_Kunci, str], ArticleMatch] = {}
+        for links in unit:
+            for link in links:
+                kunci, tahun = link.kunci, link.kunci[2]
+                regulasi.setdefault(
+                    kunci, RegulationMatch(kunci[0], link.number, tahun, kunci in disebut)
+                )
+                if link.pasal is not None:
+                    pasal.setdefault(
+                        (kunci, _kunci_pasal(link.pasal)),
+                        ArticleMatch(kunci[0], link.number, tahun, link.pasal, benar(link)),
+                    )
+        hasil_unit = [all(benar(link) for link in links) for links in unit]
+        rangkaian = [ok for links, ok in zip(unit, hasil_unit, strict=True) if len(links) > 1]
+        acuan_benar = sum(hasil_unit)
+        ekstrak_benar = sum(kunci in regulasi for kunci in terekstrak)
 
         return CitationScore(
             formula=self._formula,
             score=self._skor(acuan_benar, len(unit), ekstrak_benar, len(terekstrak)),
-            regulation_matches=tuple(matches.values()),
+            regulation_matches=tuple(regulasi.values()),
+            article_matches=tuple(pasal.values()),
+            all_chained_cited=all(rangkaian) if rangkaian else None,
             reference_correct=acuan_benar,
             reference_total=len(unit),
             extracted_correct=ekstrak_benar,
@@ -110,37 +187,44 @@ class CitationScorer:
             ungradable_refs=tuple(tidak_dinilai),
         )
 
-    def _ekstrak(self, jawaban: str) -> list[_Kunci]:
-        """Sitasi unik sesuai urutan kemunculan; menyebut ulang tidak menambah hitungan."""
-        hasil: dict[_Kunci, None] = {}
+    def _sebutan(self, jawaban: str) -> list[_Sebutan]:
+        hasil: list[_Sebutan] = []
         for temuan in self._pola.finditer(jawaban):
             code = self._code_per_nama[_kunci_nama(temuan["jenis"])]
             nomor = (temuan["nomor_kata"] or temuan["nomor"]).rstrip(_EKOR_NOMOR)
             tahun = int(temuan["tahun"]) if temuan["tahun"] else _tahun_di_nomor(nomor)
-            hasil.setdefault((code, _kunci_nomor(nomor, tahun), tahun), None)
-        return list(hasil)
+            kunci = (code, _kunci_nomor(nomor, tahun), tahun)
+            hasil.append(_Sebutan(kunci, temuan.start(), temuan.end()))
+        return hasil
 
     def _unit_acuan(
         self, acuan: Sequence[Mapping[str, Any]]
-    ) -> tuple[dict[tuple[_Kunci, str | None], tuple[_Kunci, str]], list[str]]:
-        """Satu unit per link acuan (peraturan + pasal), dan teks rujukan yang tidak bisa dinilai."""
-        unit: dict[tuple[_Kunci, str | None], tuple[_Kunci, str]] = {}
+    ) -> tuple[list[tuple[_Link, ...]], list[str]]:
+        """Satu unit per rujukan acuan (rangkaian = satu unit), dan teks yang tidak bisa dinilai."""
+        unit: dict[tuple[_Link, ...], None] = {}
         tidak_dinilai: list[str] = []
         for rujukan in acuan:
+            links = rujukan.get("links") or []
             if rujukan.get("kind") != "structured":
                 tidak_dinilai.append(rujukan.get("free_text") or "")
-                continue
-            for link in rujukan.get("links") or []:
-                tahun = link.get("year")
-                if tahun is None:
-                    # Link Sprint 1 boleh tanpa tahun (PBI-21 AC9): tiga aturan dasar tidak berlaku.
-                    tidak_dinilai.append(
-                        f"{self._nama_jenis(link['regulation_type'])} {link['number']}"
-                    )
-                    continue
-                kunci = (link["regulation_type"], _kunci_nomor(link["number"], tahun), tahun)
-                unit.setdefault((kunci, link.get("pasal")), (kunci, link["number"]))
-        return unit, tidak_dinilai
+            elif any(link.get("year") is None for link in links):
+                # Link Sprint 1 boleh tanpa tahun (PBI-21 AC9): tiga aturan dasar tidak berlaku.
+                tidak_dinilai.append(self._tulis(links))
+            else:
+                unit.setdefault(tuple(_link(link) for link in links), None)
+        return list(unit), tidak_dinilai
+
+    def _tulis(self, links: Sequence[Mapping[str, Any]]) -> str:
+        """Teks singkat rujukan yang tidak bisa dinilai, untuk ditampilkan apa adanya."""
+        bagian: list[str] = []
+        for link in links:
+            if link.get("connector") in _PENGHUBUNG:
+                bagian.append(_PENGHUBUNG[link["connector"]])
+            if link.get("pasal"):
+                bagian.append(f"Pasal {link['pasal']}")
+            nama = f"{self._nama_jenis(link['regulation_type'])} {link['number']}"
+            bagian.append(f"{nama}/{link['year']}" if link.get("year") else nama)
+        return " ".join(bagian)
 
     def _nama_jenis(self, code: str) -> str:
         nama = self._jenis.get(code)
@@ -162,8 +246,48 @@ class CitationScorer:
         return (Decimal(pembilang) / Decimal(penyebut)).quantize(_DUA_DIGIT, ROUND_HALF_UP)
 
 
+def _pasal_disebut(jawaban: str, sebutan: Sequence[_Sebutan]) -> set[tuple[_Kunci, str]]:
+    """Pasal yang disebut beserta peraturannya.
+
+    Pasal dikaitkan ke peraturan yang langsung menyusul dalam satu frasa rujukan
+    ("Pasal 156 ayat (1) UU 13/2003"). Bila tidak ada, ke peraturan terakhir yang
+    disebut sebelumnya ("Pasal 486 undang-undang yang sama"). Pasal tanpa peraturan
+    sama sekali, mis. "Pasal 1320 KUHPerdata" di awal jawaban, tidak dikaitkan.
+    """
+    hasil: set[tuple[_Kunci, str]] = set()
+    for temuan in _POLA_PASAL.finditer(jawaban):
+        target = _peraturan_pasal(jawaban, sebutan, temuan.start(), temuan.end())
+        if target is None:
+            continue
+        for nomor in re.findall(_NOMOR_PASAL, temuan["daftar"]):
+            hasil.add((target, _kunci_pasal(nomor)))
+    return hasil
+
+
+def _peraturan_pasal(
+    jawaban: str, sebutan: Sequence[_Sebutan], mulai: int, akhir: int
+) -> _Kunci | None:
+    berikut = next((item for item in sebutan if item.mulai >= akhir), None)
+    if berikut is not None:
+        sela = jawaban[akhir : berikut.mulai]
+        if len(sela) <= _SELA_MAKS and _SELA_FRASA.fullmatch(sela):
+            return berikut.kunci
+    sebelum = [item for item in sebutan if item.akhir <= mulai]
+    return sebelum[-1].kunci if sebelum else None
+
+
+def _link(link: Mapping[str, Any]) -> _Link:
+    tahun = link["year"]
+    kunci = (link["regulation_type"], _kunci_nomor(link["number"], tahun), tahun)
+    return _Link(kunci, link["number"], link.get("pasal"))
+
+
 def _kunci_nama(teks: str) -> str:
     return " ".join(re.split(_PEMISAH, teks.strip())).casefold()
+
+
+def _kunci_pasal(pasal: str) -> str:
+    return "".join(pasal.split()).casefold()
 
 
 def _code_per_nama(jenis: Mapping[str, TypeName]) -> dict[str, str]:
