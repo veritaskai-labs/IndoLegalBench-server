@@ -20,6 +20,7 @@ from app.modules.runs.call_log import month_start
 from app.modules.runs.progress_ports import SessionProgress
 from app.modules.runs.repository import CallLogRepository
 from app.modules.runs.session_ports import ProductCopy, SnapshotItem
+from app.modules.runs.snapshot_cases import CaseFacts, case_facts_from_body
 from app.modules.runs.summary_ports import ProductInfo
 from app.modules.suites import service as suites_service
 from app.shared.exceptions import NotFoundError, ValidationError
@@ -204,3 +205,17 @@ class NameAdapter:
 
     def user_names(self, user_ids: set[uuid.UUID]) -> Mapping[uuid.UUID, str]:
         return auth_service.user_names(self._db, user_ids)
+
+class SnapshotCaseAdapter:
+    """Identitas kasus dari snapshot untuk agregasi skor."""
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def case_facts(self, session_id: uuid.UUID) -> tuple[CaseFacts, ...]:
+        return tuple(
+            case_facts_from_body(item_id, body)
+            for item_id, body in repository.snapshot_case_items(
+                self._db, session_id
+            )
+        )
