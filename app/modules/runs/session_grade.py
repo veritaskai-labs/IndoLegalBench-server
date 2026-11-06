@@ -315,9 +315,7 @@ def score_judge_criteria(
         return None
 
     text_lower = answer_text.lower()
-    met_count = sum(
-        1 for item in crit_items if item.lower() in text_lower or len(item.split()) <= 2
-    )
+    met_count = sum(1 for item in crit_items if item.lower() in text_lower)
     prop = Decimal(met_count) / Decimal(len(crit_items))
     score = prop * Decimal("5.00")
     return round_two_digits(score)

@@ -986,6 +986,14 @@ def test_edge_cases_and_error_handling(db_session, produk, pembuat):
         "jawaban di sini kriteria pertama harus dipenuhi sepenuhnya", [crit_a, crit_b]
     ) == Decimal("2.50")
     assert score_judge_criteria("jawaban", {"catatan": ""}) is None
+    assert score_judge_criteria(
+        "jawaban acak tanpa kata kunci",
+        {"items": ["singkat", "dua kata"]},
+    ) == Decimal("0.00")
+    assert score_judge_criteria(
+        "jawaban memuat kata singkat di sini",
+        {"items": ["singkat", "dua kata"]},
+    ) == Decimal("2.50")
 
     # 4. MemoryGradingStore get_latest_grading_run
     mem_store = MemoryGradingStore()
