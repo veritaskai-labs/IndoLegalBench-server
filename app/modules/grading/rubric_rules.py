@@ -5,7 +5,7 @@ salah menjadi 422 dengan code dan path field yang jelas. Trigger PostgreSQL migr
 ac845acfa98d memeriksa aturan yang sama sebagai pengaman terakhir.
 
 Masalah dilaporkan satu per satu, dari yang paling atas di form: data penyetuju, lalu
-aspek, lalu level. Nama dibandingkan tanpa membedakan huruf besar dan kecil.
+aspek, lalu level (skor ganda, lalu lulus dan tidak lulus, lalu deskriptor). Nama dibandingkan tanpa membedakan huruf besar dan kecil.
 """
 
 from collections.abc import Callable, Iterable
@@ -21,6 +21,9 @@ WEIGHTS_NOT_100 = "RUBRIC_WEIGHTS_NOT_100"
 DUPLICATE_LEVEL_SCORE = "RUBRIC_DUPLICATE_LEVEL_SCORE"
 UNKNOWN_DESCRIPTOR_ASPECT = "RUBRIC_UNKNOWN_DESCRIPTOR_ASPECT"
 DUPLICATE_DESCRIPTOR = "RUBRIC_DUPLICATE_DESCRIPTOR"
+LEVELS_WITHOUT_PASSING = "RUBRIC_LEVELS_WITHOUT_PASSING"
+LEVELS_WITHOUT_FAILING = "RUBRIC_LEVELS_WITHOUT_FAILING"
+PASSING_BELOW_FAILING = "RUBRIC_PASSING_BELOW_FAILING"
 
 _TOTAL_BOBOT = Decimal(100)
 
@@ -39,6 +42,7 @@ def rubric_problem(version: RubricVersionCreate) -> RubricProblem | None:
         _aspect_names,
         _weights,
         _level_scores,
+        _passing_levels,
         _descriptors,
     )
     for check in checks:
@@ -113,6 +117,31 @@ def _level_scores(version: RubricVersionCreate) -> RubricProblem | None:
         _level_field(posisi, "score"),
         "Skor level sudah dipakai di versi ini.",
     )
+
+
+def _passing_levels(version: RubricVersionCreate) -> RubricProblem | None:
+    """Versi langsung aktif dan terkunci (review #112): rubrik harus bisa meluluskan dan
+    menggagalkan, dan skor lulus selalu di atas semua skor gagal (klien No. 48: 4–5 lulus).
+    """
+    skor_lulus = [level.score for level in version.levels if level.is_passing]
+    skor_gagal = [level.score for level in version.levels if not level.is_passing]
+    if not skor_lulus:
+        return RubricProblem(
+            LEVELS_WITHOUT_PASSING, "levels", "Tandai minimal satu level sebagai lulus."
+        )
+    if not skor_gagal:
+        return RubricProblem(
+            LEVELS_WITHOUT_FAILING, "levels", "Sisakan minimal satu level yang tidak lulus."
+        )
+    gagal_tertinggi = max(skor_gagal)
+    for nomor_level, level in enumerate(version.levels):
+        if level.is_passing and level.score < gagal_tertinggi:
+            return RubricProblem(
+                PASSING_BELOW_FAILING,
+                _level_field(nomor_level, "is_passing"),
+                "Level lulus tidak boleh memiliki skor di bawah level yang tidak lulus.",
+            )
+    return None
 
 
 def _descriptors(version: RubricVersionCreate) -> RubricProblem | None:

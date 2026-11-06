@@ -231,7 +231,7 @@ def test_deskriptor_untuk_aspek_yang_tidak_ada_ditolak():
         "descriptors": [{"aspect_name": "Dimensi Z", "descriptor": "Teks."}],
     }
 
-    masalah = _masalah(levels=[level])
+    masalah = _masalah(levels=[level, LULUS_GAGAL[1]])
 
     assert (masalah.code, masalah.field) == (
         rubric_rules.UNKNOWN_DESCRIPTOR_ASPECT,
@@ -250,7 +250,7 @@ def test_dua_deskriptor_untuk_aspek_yang_sama_di_satu_level_ditolak():
         ],
     }
 
-    masalah = _masalah(levels=[level])
+    masalah = _masalah(levels=[level, LULUS_GAGAL[1]])
 
     assert (masalah.code, masalah.field) == (
         rubric_rules.DUPLICATE_DESCRIPTOR,
