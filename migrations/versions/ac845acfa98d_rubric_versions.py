@@ -13,8 +13,10 @@ version never changes once written. On PostgreSQL:
 - activating a version needs at least one aspect and one level and a valid
   weight set, and stamps locked_at the first time;
 - aspects, levels and descriptors are INSERT-only, and only into a version that
-  has never been active. The insert trigger takes FOR SHARE on the version row,
-  so it waits for a concurrent activation and then sees locked_at;
+  has never been active. The insert trigger takes FOR SHARE on the version row
+  without filtering on locked_at, so an INSERT waits for an uncommitted
+  activation and then sees locked_at, and an activation waits for an
+  uncommitted INSERT and then counts it;
 - a descriptor's level and aspect must belong to the same version.
 A partial unique index keeps one active version.
 
@@ -94,6 +96,7 @@ _GUARD_CONTENT = """
     DECLARE
         version_id uuid;
         aspect_version_id uuid;
+        version_locked_at timestamptz;
     BEGIN
         IF TG_OP <> 'INSERT' THEN
             RAISE EXCEPTION '% is insert-only, create a new rubric version', TG_TABLE_NAME
@@ -111,8 +114,10 @@ _GUARD_CONTENT = """
         ELSE
             version_id := NEW.rubric_version_id;
         END IF;
-        PERFORM 1 FROM rubric_versions WHERE id = version_id AND locked_at IS NOT NULL FOR SHARE;
-        IF FOUND THEN
+        -- Lock the row whatever its state: a filter on locked_at would skip a row whose
+        -- activation is still uncommitted, so neither side would wait for the other.
+        SELECT locked_at INTO version_locked_at FROM rubric_versions WHERE id = version_id FOR SHARE;
+        IF version_locked_at IS NOT NULL THEN
             RAISE EXCEPTION 'rubric version is locked, create a new version'
                 USING ERRCODE = 'insufficient_privilege';
         END IF;
