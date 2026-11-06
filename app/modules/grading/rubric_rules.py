@@ -48,6 +48,11 @@ def rubric_problem(version: RubricVersionCreate) -> RubricProblem | None:
     return None
 
 
+def _level_field(nomor_level: int, sisa: str) -> str:
+    """Path field di dalam satu level, misalnya levels.0.descriptors.1.aspect_name."""
+    return f"levels.{nomor_level}.{sisa}"
+
+
 def _kunci(nama: str) -> str:
     return nama.casefold()
 
@@ -105,7 +110,7 @@ def _level_scores(version: RubricVersionCreate) -> RubricProblem | None:
         return None
     return RubricProblem(
         DUPLICATE_LEVEL_SCORE,
-        f"levels.{posisi}.score",
+        _level_field(posisi, "score"),
         "Skor level sudah dipakai di versi ini.",
     )
 
@@ -118,14 +123,14 @@ def _descriptors(version: RubricVersionCreate) -> RubricProblem | None:
             if kunci not in dikenal:
                 return RubricProblem(
                     UNKNOWN_DESCRIPTOR_ASPECT,
-                    f"levels.{nomor_level}.descriptors.{nomor}.aspect_name",
+                    _level_field(nomor_level, f"descriptors.{nomor}.aspect_name"),
                     "Deskriptor merujuk dimensi yang tidak ada di versi ini.",
                 )
         ganda = _ganda_pertama(nama)
         if ganda is not None:
             return RubricProblem(
                 DUPLICATE_DESCRIPTOR,
-                f"levels.{nomor_level}.descriptors.{ganda}.aspect_name",
+                _level_field(nomor_level, f"descriptors.{ganda}.aspect_name"),
                 "Dimensi ini sudah punya deskriptor di level yang sama.",
             )
     return None

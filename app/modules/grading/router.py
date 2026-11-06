@@ -31,19 +31,19 @@ router = APIRouter(
     dependencies=[Depends(_admin_only)],
 )
 
-_TIDAK_ADA = {
-    404: {"model": ErrorBody, "description": "Versi rubrik tidak ada (`RUBRIC_VERSION_NOT_FOUND`)."}
-}
+
+def _galat(keterangan: str) -> dict:
+    """Satu respons galat di kontrak OpenAPI, semua memakai bentuk ErrorBody."""
+    return {"model": ErrorBody, "description": keterangan}
+
+
+_TIDAK_ADA = {404: _galat("Versi rubrik tidak ada (`RUBRIC_VERSION_NOT_FOUND`).")}
 _BUAT = {
-    409: {
-        "model": ErrorBody,
-        "description": "Versi lain baru saja disimpan (`RUBRIC_VERSION_CONFLICT`); muat ulang.",
-    },
-    422: {
-        "model": ErrorBody,
-        "description": "Isi melanggar aturan rubrik (`RUBRIC_*`, dengan `field`), "
-        "atau detail Pydantic untuk batas per field.",
-    },
+    409: _galat("Versi lain baru saja disimpan (`RUBRIC_VERSION_CONFLICT`); muat ulang."),
+    422: _galat(
+        "Isi melanggar aturan rubrik (`RUBRIC_*`, dengan `field`), "
+        "atau detail Pydantic untuk batas per field."
+    ),
 }
 
 
