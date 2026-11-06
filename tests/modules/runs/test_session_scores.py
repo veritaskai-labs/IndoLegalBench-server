@@ -1,4 +1,3 @@
-
 """SCRUM-225: latest attempt grades through case and product aggregation."""
 
 import uuid
