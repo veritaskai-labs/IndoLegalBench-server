@@ -23,6 +23,9 @@ MAX_ASPECTS = 20
 MAX_LEVELS = 6
 _PANJANG_NAMA = 200
 _PANJANG_LABEL = 100
+# Teks bebas masuk database dan ikut dikirim ke penilai LLM (review #112).
+_PANJANG_PROMPT = 10_000
+_PANJANG_TEKS = 2_000
 
 
 def _teks_wajib(value: str) -> str:
@@ -48,14 +51,14 @@ class RubricAspectIn(_Body):
     name: TeksWajib = Field(max_length=_PANJANG_NAMA)
     grader_path: GraderPath
     weight: Decimal | None = Field(default=None, gt=0, le=100, max_digits=5, decimal_places=2)
-    definition: TeksWajib
+    definition: TeksWajib = Field(max_length=_PANJANG_TEKS)
 
 
 class RubricDescriptorIn(_Body):
     """Deskriptor satu level untuk satu dimensi, dirujuk lewat nama dimensinya."""
 
     aspect_name: TeksWajib = Field(max_length=_PANJANG_NAMA)
-    descriptor: TeksWajib
+    descriptor: TeksWajib = Field(max_length=_PANJANG_TEKS)
 
 
 class RubricLevelIn(_Body):
@@ -71,8 +74,8 @@ class RubricVersionCreate(_Body):
     """Isi lengkap versi rubrik baru. Prompt penilai ikut versi (K4), hanya untuk Admin."""
 
     effective_date: date
-    judge_prompt_quality: TeksWajib
-    judge_prompt_format: TeksWajib
+    judge_prompt_quality: TeksWajib = Field(max_length=_PANJANG_PROMPT)
+    judge_prompt_format: TeksWajib = Field(max_length=_PANJANG_PROMPT)
     # K10: penyetuju dari tim hukum klien bukan akun aplikasi, jadi teks bebas.
     approved_by_name: TeksWajib | None = Field(default=None, max_length=_PANJANG_NAMA)
     approved_at: date | None = None

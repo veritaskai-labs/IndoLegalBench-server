@@ -36,6 +36,11 @@ from app.shared.exceptions import ConflictError, NotFoundError, ValidationError
 RUBRIC_VERSION_CONFLICT = "RUBRIC_VERSION_CONFLICT"
 RUBRIC_VERSION_NOT_FOUND = "RUBRIC_VERSION_NOT_FOUND"
 
+# Constraint yang hanya bisa gagal karena POST lain menyimpan versi lebih dulu. PostgreSQL
+# memberi namanya lewat diag; SQLite hanya menulis kolomnya di pesan.
+_CONSTRAINT_BENTROK = frozenset({"rubric_versions_version_no_key", "uq_rubric_versions_one_active"})
+_PESAN_BENTROK_SQLITE = ("rubric_versions.version_no", "rubric_versions.is_active")
+
 
 def create_version(
     db: Session, payload: RubricVersionCreate, *, created_by: uuid.UUID
@@ -63,8 +68,9 @@ def create_version(
         db.commit()
     except IntegrityError as exc:
         db.rollback()
-        # Isi sudah lolos rubric_rules dan id baru dibuat di sini, jadi yang tersisa hanya
-        # UNIQUE version_no atau satu-versi-aktif: POST lain menyimpan versi lebih dulu.
+        if not _bentrok_versi(exc):
+            # FK atau CHECK yang gagal adalah bug, jangan disamarkan sebagai "muat ulang".
+            raise
         raise ConflictError(
             "Versi rubrik lain baru saja disimpan. Muat ulang halaman lalu coba lagi.",
             code=RUBRIC_VERSION_CONFLICT,
@@ -108,6 +114,14 @@ def rubric_labels(db: Session, version_ids: set[uuid.UUID]) -> dict[uuid.UUID, s
         version_id: f"Rubrik v{nomor}"
         for version_id, nomor in repository.version_numbers(db, version_ids).items()
     }
+
+
+def _bentrok_versi(exc: IntegrityError) -> bool:
+    """True kalau yang dilanggar UNIQUE version_no atau index satu-versi-aktif."""
+    diag = getattr(exc.orig, "diag", None)
+    if getattr(diag, "constraint_name", None) in _CONSTRAINT_BENTROK:
+        return True
+    return any(pesan in str(exc.orig) for pesan in _PESAN_BENTROK_SQLITE)
 
 
 def _isi(

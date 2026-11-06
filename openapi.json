@@ -8400,6 +8400,7 @@
           },
           "definition": {
             "type": "string",
+            "maxLength": 2000,
             "title": "Definition"
           }
         },
@@ -8468,6 +8469,7 @@
           },
           "descriptor": {
             "type": "string",
+            "maxLength": 2000,
             "title": "Descriptor"
           }
         },
@@ -8585,10 +8587,12 @@
           },
           "judge_prompt_quality": {
             "type": "string",
+            "maxLength": 10000,
             "title": "Judge Prompt Quality"
           },
           "judge_prompt_format": {
             "type": "string",
+            "maxLength": 10000,
             "title": "Judge Prompt Format"
           },
           "approved_by_name": {
