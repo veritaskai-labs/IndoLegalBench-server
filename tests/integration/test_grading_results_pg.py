@@ -493,6 +493,19 @@ def test_kode_alasan_tak_dikenal_ditolak(conn, run_id, percobaan_id):
     assert sqlstate == FOREIGN_KEY_VIOLATION
 
 
+def test_kode_alasan_jalur_llm_pada_hasil_deterministik_ditolak(conn, run_id, percobaan_id):
+    """Review Kak Aileen #111 (blocking 2): katalog terpisah per jalur (AC5).
+
+    grading_result_reasons menautkan alasan ke hasil deterministik; alasan LLM ada di
+    llm_criterion_results. criterion_unmet (jalur llm) tidak boleh masuk ke sini.
+    """
+    hasil = buat_hasil(conn, run_id, percobaan_id)
+
+    sqlstate = galat(conn, lambda: beri_alasan(conn, hasil, "criterion_unmet")).sqlstate
+
+    assert sqlstate == CHECK_VIOLATION
+
+
 def test_kode_alasan_nonaktif_tidak_bisa_dipakai(conn, run_id, percobaan_id):
     hasil = buat_hasil(conn, run_id, percobaan_id)
     conn.execute(text("UPDATE reason_codes SET is_active = false WHERE code = 'article_not_cited'"))
