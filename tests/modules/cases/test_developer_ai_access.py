@@ -271,6 +271,9 @@ _DIBUKA = {
     ("GET", "/measurements/{session_id}/attempts/{attempt_id}/calls"),
     # PBI-12 AC6 (SCRUM-215): Developer AI memantau angka progres sesi.
     ("GET", "/measurements/{measurement_id}/progress"),
+    # PBI-14 AC8, D10 (SCRUM-226): Developer AI melihat hasil penilaian sesi selesai.
+    # Isi kasus test disamarkan, diuji di test_session_grade.py.
+    ("GET", "/measurements/{session_id}/results"),
 }
 # Jalur tanpa penjaga peran: login, profil sendiri, dan lonceng notifikasi.
 _TANPA_PERAN = ("/health", "/auth/", "/notifications")
