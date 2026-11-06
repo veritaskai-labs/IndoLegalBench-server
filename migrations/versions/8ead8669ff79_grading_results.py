@@ -21,7 +21,8 @@ run that is not closed, and the attempt must belong to the run's session.
 
 reason_codes / grading_result_reasons (AC5): the client has not sent its list
 yet, so four neutral codes are seeded with is_proposed = true. A link is
-INSERT-only and needs an active code.
+INSERT-only and needs an active deterministic-path code; LLM reasons are
+stored per criterion (57f872b138f0).
 
 The downgrade is refused while any grading run exists.
 
@@ -150,9 +151,11 @@ _GUARD_RESULT = """
                 USING ERRCODE = 'insufficient_privilege';
         END IF;
         IF TG_TABLE_NAME = 'grading_result_reasons' THEN
-            PERFORM 1 FROM reason_codes WHERE code = NEW.reason_code AND NOT is_active;
+            -- Result-level reasons are deterministic; LLM reasons sit on llm_criterion_results.
+            PERFORM 1 FROM reason_codes
+                WHERE code = NEW.reason_code AND (NOT is_active OR grader_path <> 'deterministic');
             IF FOUND THEN
-                RAISE EXCEPTION 'reason code % is inactive', NEW.reason_code
+                RAISE EXCEPTION 'reason code % is not an active deterministic reason', NEW.reason_code
                     USING ERRCODE = 'check_violation';
             END IF;
             SELECT r.status::text INTO run_status
