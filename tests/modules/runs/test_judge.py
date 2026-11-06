@@ -25,6 +25,16 @@ _INPUTS = JudgeInputs(
 )
 
 
+def _kasus(*kriteria: str, traps: str | None = _INPUTS.traps) -> JudgeInputs:
+    return JudgeInputs(
+        criteria="\n".join(kriteria),
+        ground_truth=_INPUTS.ground_truth,
+        question=_INPUTS.question,
+        provider_answer=_INPUTS.provider_answer,
+        traps=traps,
+    )
+
+
 def test_pesan_user_tanpa_system_prompt():
     """Negatif: instruksi tinggal di pesan user, tanpa peran system."""
     prompt = quality_prompt(_INPUTS)
@@ -97,10 +107,10 @@ def _reply(*pairs: tuple[str, bool], explanation: str = "Kriteria tidak terpenuh
 def test_skor_proporsional_dan_alasan_placeholder():
     """Positif: 3 dari 4 menjadi 0.75, semua terpenuhi menjadi 1.00."""
     sebagian = _reply(("a", True), ("b", True), ("c", True), ("d", False))
-    penuh = _reply(("a", True), ("b", True))
+    penuh = _reply(("a", True), ("b", True), ("c", True), ("d", True))
     judge = _ScriptedJudge([_ok(sebagian), _ok(penuh)])
 
-    hasil = run_judge(judge, _INPUTS, repetitions=1)
+    hasil = run_judge(judge, _kasus("a", "b", "c", "d"), repetitions=1)
 
     baris = hasil.rows[0]
     assert baris.score == Decimal("0.75")
@@ -118,7 +128,7 @@ def test_penjelasan_hanya_saat_kriteria_tidak_terpenuhi():
     teks = "CRITERION: menyebut pasal\nMET: yes\nEXPLANATION: tidak dipakai"
     judge = _ScriptedJudge([_ok(teks), _ok(_reply(("a", True)))])
 
-    hasil = run_judge(judge, _INPUTS, repetitions=1)
+    hasil = run_judge(judge, _kasus("menyebut pasal"), repetitions=1)
 
     assert hasil.rows[0].criteria[0].met is True
     assert hasil.rows[0].criteria[0].explanation is None
@@ -132,19 +142,14 @@ def test_skor_dibulatkan_dua_desimal():
         [_ok(_reply(("a", True), ("b", True), ("c", False))), _ok(_reply(("a", True)))]
     )
 
-    hasil = run_judge(judge, _INPUTS, repetitions=1)
+    hasil = run_judge(judge, _kasus("a", "b", "c"), repetitions=1)
 
     assert hasil.rows[0].score == Decimal("0.67")
 
 
 def test_jebakan_tidak_mengubah_prompt_maupun_skor():
     """Negatif: isi jebakan tidak masuk pesan dan tidak mengubah skor."""
-    tanpa = JudgeInputs(
-        criteria=_INPUTS.criteria,
-        ground_truth=_INPUTS.ground_truth,
-        question=_INPUTS.question,
-        provider_answer=_INPUTS.provider_answer,
-    )
+    tanpa = _kasus("a", "b", traps=None)
 
     def _jawaban() -> list[ProviderResponse]:
         return [
@@ -152,7 +157,7 @@ def test_jebakan_tidak_mengubah_prompt_maupun_skor():
             _ok(_reply(("a", True), ("b", False))),
         ]
 
-    pertama = run_judge(_ScriptedJudge(_jawaban()), _INPUTS, repetitions=1)
+    pertama = run_judge(_ScriptedJudge(_jawaban()), _kasus("a", "b"), repetitions=1)
     kedua = run_judge(_ScriptedJudge(_jawaban()), tanpa, repetitions=1)
 
     assert pertama.rows[0].prompt == kedua.rows[0].prompt
@@ -178,6 +183,44 @@ def test_panggilan_gagal_tanpa_skor():
     assert hasil.rows[0].failure_kind == "provider_error"
     assert hasil.rows[0].score is None
     assert hasil.rows[0].criteria == ()
+
+
+def test_kriteria_kasus_adalah_penyebut_dan_balasan_parsial_tidak_sah():
+    """Negatif: hilang, ganda, atau asing tidak berskor. Penyebut bukan jumlah blok."""
+    kasus = _kasus("a", "b", "c", "d")
+
+    def nilai(teks: str):
+        judge = _ScriptedJudge([_ok(teks), _ok("bukan penilaian")])
+        return run_judge(judge, kasus, repetitions=1).rows[0]
+
+    hilang = nilai(_reply(("a", True), ("b", True)))
+    assert hilang.score is None
+    assert hilang.error == "invalid_judge_reply"
+    assert hilang.failure_kind == "invalid_response"
+    assert hilang.criteria == ()
+
+    ganda = nilai(_reply(("a", True), ("a", True), ("b", False), ("c", True), ("d", False)))
+    assert ganda.score is None
+    assert ganda.error == "invalid_judge_reply"
+
+    asing = nilai(_reply(("a", True), ("b", False), ("c", True), ("z", False)))
+    assert asing.score is None
+    assert asing.error == "invalid_judge_reply"
+
+
+def test_met_dengan_tanda_baca_dan_bintang_tetap_dihitung():
+    """Edge: MET Yes. dan **MET:** tidak dibuang, lalu dihitung pada kriteria kasus."""
+    teks = "CRITERION: a\nMET: Yes.\nCRITERION: b\n**MET:** no\nEXPLANATION: tidak lengkap"
+    judge = _ScriptedJudge([_ok(teks), _ok("bukan penilaian")])
+
+    baris = run_judge(judge, _kasus("a", "b"), repetitions=1).rows[0]
+
+    assert baris.error is None
+    assert baris.score == Decimal("0.50")
+    assert baris.criteria[0].criterion == "a"
+    assert baris.criteria[0].met is True
+    assert baris.criteria[1].met is False
+    assert baris.criteria[1].explanation == "tidak lengkap"
 
 
 def test_balasan_tanpa_kriteria_tidak_sah():
