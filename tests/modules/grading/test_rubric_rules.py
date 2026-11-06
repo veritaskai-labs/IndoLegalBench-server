@@ -16,7 +16,7 @@ from pydantic import ValidationError
 
 from app.modules.grading import rubric_rules
 from app.modules.grading.schemas import RubricVersionCreate
-from tests.modules.grading.rubric_payload import DIMENSI, body_rubrik
+from tests.modules.grading.rubric_payload import DIMENSI, LULUS_GAGAL, body_rubrik
 
 
 def _versi(**ubah) -> RubricVersionCreate:
@@ -76,14 +76,14 @@ def test_penyetuju_teks_bebas_dan_tanggal_diterima():
 )
 def test_bobot_terisi_semua_dengan_total_100_diterima(bobot):
     """Positif dan edge: bobot boleh diisi asal semua terisi dan totalnya tepat 100."""
-    versi = _versi(aspects=_aspek(*bobot), levels=[{"score": 5, "label": "L", "is_passing": True}])
+    versi = _versi(aspects=_aspek(*bobot), levels=LULUS_GAGAL)
 
     assert rubric_rules.rubric_problem(versi) is None
 
 
 def test_level_tanpa_deskriptor_diterima():
     """Edge: deskriptor opsional, isi rubrik bisa menyusul (TBA klien)."""
-    versi = _versi(levels=[{"score": 4, "label": "Cukup", "is_passing": True}])
+    versi = _versi(levels=LULUS_GAGAL)
 
     assert versi.levels[0].descriptors == []
     assert rubric_rules.rubric_problem(versi) is None
@@ -200,9 +200,7 @@ def _masalah(**ubah) -> rubric_rules.RubricProblem | None:
 )
 def test_bobot_campur_kosong_atau_tidak_total_100_ditolak(bobot, kode):
     """Negatif: K1, bobot semua kosong atau semua terisi dengan total 100."""
-    masalah = _masalah(
-        aspects=_aspek(*bobot), levels=[{"score": 5, "label": "L", "is_passing": True}]
-    )
+    masalah = _masalah(aspects=_aspek(*bobot), levels=LULUS_GAGAL)
 
     assert (masalah.code, masalah.field) == (kode, "aspects")
 
@@ -212,7 +210,7 @@ def test_nama_aspek_ganda_ditolak_tanpa_membedakan_huruf(nama_kedua):
     aspek = _aspek(None, None)
     aspek[1]["name"] = nama_kedua
 
-    masalah = _masalah(aspects=aspek, levels=[{"score": 5, "label": "L", "is_passing": True}])
+    masalah = _masalah(aspects=aspek, levels=LULUS_GAGAL)
 
     assert (masalah.code, masalah.field) == (rubric_rules.DUPLICATE_ASPECT_NAME, "aspects.1.name")
 
@@ -285,3 +283,72 @@ def test_setiap_masalah_punya_pesan_bahasa_indonesia():
     masalah = _masalah(approved_at="2026-10-27")
 
     assert masalah.message.strip()
+
+
+# --- Level lulus dan tidak lulus (review Kak Aileen #112, blocking 2) ---------------
+# Versi baru langsung aktif dan terkunci, jadi rubrik yang tidak bisa meluluskan atau
+# tidak bisa menggagalkan jawaban akan menilai semua jawaban sampai versi baru dibuat.
+
+
+def _level(*pasangan) -> list[dict]:
+    return [{"score": s, "label": f"L{s}", "is_passing": lulus} for s, lulus in pasangan]
+
+
+@pytest.mark.parametrize(
+    "level",
+    [
+        _level((5, True), (4, True), (0, False)),
+        _level((5, True), (0, False)),
+        _level((1, True), (0, False)),
+        _level((0, False), (5, True)),
+    ],
+    ids=["lulus-4-5", "lulus-5-saja", "batas-terendah", "urutan-body-bebas"],
+)
+def test_level_lulus_di_atas_semua_level_gagal_diterima(level):
+    """Positif dan edge: skor lulus selalu di atas skor gagal; urutan di body bebas."""
+    assert _masalah(levels=level) is None
+
+
+@pytest.mark.parametrize(
+    ("level", "kode"),
+    [
+        (_level((3, False), (0, False)), rubric_rules.LEVELS_WITHOUT_PASSING),
+        (_level((5, True), (4, True)), rubric_rules.LEVELS_WITHOUT_FAILING),
+        (
+            _level(
+                (5, True),
+            ),
+            rubric_rules.LEVELS_WITHOUT_FAILING,
+        ),
+    ],
+    ids=["tanpa-lulus", "tanpa-gagal", "satu-level"],
+)
+def test_rubrik_tanpa_level_lulus_atau_tanpa_level_gagal_ditolak(level, kode):
+    masalah = _masalah(levels=level)
+
+    assert (masalah.code, masalah.field) == (kode, "levels")
+
+
+@pytest.mark.parametrize(
+    ("level", "posisi"),
+    [
+        (_level((5, False), (4, True), (0, False)), 1),
+        (_level((5, True), (3, True), (4, False), (0, False)), 1),
+    ],
+    ids=["gagal-di-atas-lulus", "lulus-di-bawah-gagal"],
+)
+def test_level_lulus_di_bawah_level_gagal_ditolak(level, posisi):
+    """Negatif: lulus tidak boleh punya skor di bawah level yang gagal."""
+    masalah = _masalah(levels=level)
+
+    assert (masalah.code, masalah.field) == (
+        rubric_rules.PASSING_BELOW_FAILING,
+        f"levels.{posisi}.is_passing",
+    )
+
+
+def test_skor_ganda_dilaporkan_sebelum_aturan_lulus():
+    """Edge: masalah skor ganda lebih spesifik, jadi dilaporkan lebih dulu."""
+    masalah = _masalah(levels=_level((4, True), (4, True)))
+
+    assert masalah.code == rubric_rules.DUPLICATE_LEVEL_SCORE

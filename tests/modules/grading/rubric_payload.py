@@ -10,6 +10,12 @@ from typing import Any
 
 DIMENSI = ("Dimensi A", "Dimensi B", "Dimensi C")
 
+# Rubrik terkecil yang sah: satu level lulus dan satu level tidak lulus (review #112).
+LULUS_GAGAL = [
+    {"score": 5, "label": "Lulus", "is_passing": True},
+    {"score": 0, "label": "Tidak lulus", "is_passing": False},
+]
+
 
 def body_rubrik(**ubah: Any) -> dict[str, Any]:
     body: dict[str, Any] = {

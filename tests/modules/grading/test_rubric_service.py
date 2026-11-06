@@ -23,7 +23,7 @@ from app.modules.grading import repository, rubric_rules, service
 from app.modules.grading.models import RubricVersion
 from app.modules.grading.schemas import RubricVersionCreate
 from app.shared.exceptions import ConflictError, NotFoundError, ValidationError
-from tests.modules.grading.rubric_payload import DIMENSI, body_rubrik
+from tests.modules.grading.rubric_payload import DIMENSI, LULUS_GAGAL, body_rubrik
 
 ADMIN_ID = uuid.UUID("00000000-0000-0000-0000-000000000222")
 
@@ -96,7 +96,7 @@ def test_bobot_dan_penyetuju_tersimpan(db_session, admin):
         db_session,
         admin,
         aspects=aspek,
-        levels=[{"score": 5, "label": "Lulus", "is_passing": True}],
+        levels=LULUS_GAGAL,
         approved_by_name="Penyetuju Sintetis",
         approved_at="2026-10-27",
     )
@@ -150,13 +150,13 @@ def test_daftar_versi_terbaru_di_atas_dengan_pembuat_dan_jumlah_isi(db_session, 
         db_session,
         admin,
         aspects=body_rubrik()["aspects"][:1],
-        levels=[{"score": 5, "label": "L", "is_passing": True}],
+        levels=LULUS_GAGAL,
     )
 
     daftar = service.list_versions(db_session)
 
     assert [(v.version_no, v.is_active) for v in daftar] == [(2, True), (1, False)]
-    assert [(v.aspect_count, v.level_count) for v in daftar] == [(1, 1), (3, 6)]
+    assert [(v.aspect_count, v.level_count) for v in daftar] == [(1, 2), (3, 6)]
     assert {v.created_by_name for v in daftar} == {"Admin Rubrik"}
 
 
