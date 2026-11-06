@@ -8,7 +8,8 @@ field ada di sini supaya ikut ke kontrak dan validasi client; aturan antar-field
 rubric_rules. version_no dan is_active tidak ada di body: server yang menentukan.
 """
 
-from datetime import date
+import uuid
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Annotated
 
@@ -77,3 +78,54 @@ class RubricVersionCreate(_Body):
     approved_at: date | None = None
     aspects: list[RubricAspectIn] = Field(min_length=1, max_length=MAX_ASPECTS)
     levels: list[RubricLevelIn] = Field(min_length=1, max_length=MAX_LEVELS)
+
+
+class RubricVersionSummary(BaseModel):
+    """Satu baris daftar versi (SCRUM-228): nomor, tanggal, pembuat, penyetuju."""
+
+    id: uuid.UUID
+    version_no: int
+    effective_date: date
+    is_active: bool
+    created_by: uuid.UUID
+    # None kalau akun pembuat sudah tidak ada.
+    created_by_name: str | None
+    created_at: datetime
+    approved_by_name: str | None
+    approved_at: date | None
+    aspect_count: int
+    level_count: int
+
+
+class RubricAspectRead(BaseModel):
+    id: uuid.UUID
+    name: str
+    grader_path: GraderPath
+    weight: Decimal | None
+    definition: str
+    sort_order: int
+
+
+class RubricDescriptorRead(BaseModel):
+    aspect_id: uuid.UUID
+    aspect_name: str
+    descriptor: str
+
+
+class RubricLevelRead(BaseModel):
+    id: uuid.UUID
+    score: int
+    label: str
+    is_passing: bool
+    descriptors: list[RubricDescriptorRead]
+
+
+class RubricVersionRead(RubricVersionSummary):
+    """Isi lengkap satu versi. Berisi prompt penilai, jadi hanya untuk Admin (K4, K7)."""
+
+    locked_at: datetime | None
+    judge_prompt_quality: str
+    judge_prompt_format: str
+    # Urut sort_order; level urut skor tertinggi dulu; deskriptor urut aspeknya.
+    aspects: list[RubricAspectRead]
+    levels: list[RubricLevelRead]
