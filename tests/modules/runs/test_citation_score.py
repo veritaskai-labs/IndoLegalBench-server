@@ -74,6 +74,8 @@ def _nilai(
         "Perseroan tunduk pada Undang-Undang Republik Indonesia Nomor 40 Tahun 2007.",
         "perseroan tunduk pada undang-undang nomor 40 tahun 2007.",
         "Perseroan tunduk pada Undang Undang 40 Tahun 2007.",
+        # Singkatan dalam kurung, bentuk yang lazim di jawaban hukum.
+        "Perseroan tunduk pada Undang-Undang (UU) Nomor 40 Tahun 2007.",
     ],
 )
 def test_penulisan_singkat_dan_lengkap_sama_benarnya(jawaban):
