@@ -60,7 +60,6 @@ RUBRIC_V1 = RubricVersion(
 
 @dataclass(frozen=True)
 class ScorePair:
-
     deterministic: Decimal | None
     judge: Decimal | None
 
@@ -171,8 +170,7 @@ def mean_score(scores: Iterable[Decimal | None]) -> Decimal | None:
 
 
 def repetition_score(attempt_scores: Iterable[Decimal | None]) -> Decimal | None:
-    """Angka satu kasus dari beberapa pengulangan: rata-rata skor percobaan.
-    """
+    """Angka satu kasus dari beberapa pengulangan: rata-rata skor percobaan."""
     return mean_score(attempt_scores)
 
 
