@@ -350,3 +350,26 @@ def test_jalur_penilai_di_luar_enum_ditolak(conn, admin_id):
     ).sqlstate
 
     assert sqlstate == INVALID_TEXT_REPRESENTATION
+
+
+@pytest.mark.parametrize(
+    ("aktif", "terkunci"),
+    [(True, True), (False, True), (True, False)],
+    ids=["aktif-dan-terkunci", "terkunci-saja", "aktif-saja"],
+)
+def test_versi_baru_tidak_bisa_langsung_aktif_atau_terkunci(conn, admin_id, aktif, terkunci):
+    """Aktivasi hanya lewat UPDATE, supaya cek aspek, level, dan bobot tidak bisa dilewati.
+
+    Tanpa aturan ini, INSERT dengan is_active dan locked_at yang diisi sendiri membuat
+    versi aktif yang kosong: isinya pun tidak bisa ditambah lagi karena sudah terkunci.
+    """
+    sqlstate = sqlstate_penolakan(
+        conn,
+        "INSERT INTO rubric_versions (id, version_no, effective_date, is_active, locked_at, "
+        "judge_prompt_quality, judge_prompt_format, created_by) VALUES (:id, 1, '2026-10-27', "
+        ":aktif, CASE WHEN :terkunci THEN now() END, 'Prompt kualitas sintetis.', "
+        "'Prompt format sintetis.', :admin)",
+        {"id": uuid.uuid4(), "aktif": aktif, "terkunci": terkunci, "admin": admin_id},
+    )
+
+    assert sqlstate == INSUFFICIENT_PRIVILEGE
