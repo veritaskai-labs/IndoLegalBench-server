@@ -222,7 +222,9 @@ def test_jawaban_yang_sama_ditulis_ulang_tetap_diterima(conn, sesi_id, item_id):
 
 @pytest.mark.parametrize(
     "perintah",
-    ["DELETE FROM attempts WHERE id = :id", "TRUNCATE attempts"],
+    # CASCADE: sejak grading_results (SCRUM-222) merujuk attempts, TRUNCATE tanpa CASCADE
+    # sudah ditolak PostgreSQL (0A000) sebelum trigger sempat berjalan.
+    ["DELETE FROM attempts WHERE id = :id", "TRUNCATE attempts CASCADE"],
     ids=["delete", "truncate"],
 )
 def test_percobaan_tidak_bisa_dihapus(conn, sesi_id, item_id, perintah):
