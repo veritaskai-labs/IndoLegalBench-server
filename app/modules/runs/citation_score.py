@@ -23,6 +23,11 @@ karena AC2 tidak menghukum rujukan tambahan; presisi (peraturan terekstrak yang
 ada di acuan / peraturan terekstrak) tersedia bila klien memilihnya. Rujukan teks
 bebas dan link lama tanpa tahun tidak punya tiga unsur itu, jadi dicatat sebagai
 tidak bisa dinilai dan tidak masuk penyebut.
+
+Batas yang diketahui: "PASAL 156" dengan huruf kapital semua tidak terbaca (huruf
+besar dipakai untuk membedakan nomor romawi); "UU No. 13 Th. 2003" terbaca tanpa
+tahun, jadi tidak cocok; nama populer di antara pasal dan peraturannya ("Pasal 156
+UU Ketenagakerjaan (UU 13/2003)") membuat pasal itu tidak dikaitkan ke UU 13/2003.
 """
 
 import re
@@ -45,12 +50,16 @@ _PENGHUBUNG = {"jo": "jo.", "jis": "jis."}
 _NOMOR_PASAL = r"(?:\d+[A-Za-z]?|[IVXLCDM]+)(?!\w)"
 _POLA_PASAL = re.compile(
     rf"(?<!\w)[Pp]asal\s+(?P<daftar>{_NOMOR_PASAL}"
-    rf"(?:\s*(?:,|\bdan\b|\bserta\b|\batau\b)\s*{_NOMOR_PASAL})*)"
+    # Koma boleh diikuti kata sambung: "Pasal 156, 157, dan 158" (koma sebelum 'dan', PUEBI).
+    rf"(?:\s*(?:,(?:\s*(?:dan|serta|atau)\b)?|\bdan\b|\bserta\b|\batau\b)\s*{_NOMOR_PASAL})*)"
 )
 # Teks yang boleh ada di antara pasal dan peraturannya dalam satu frasa rujukan:
-# "Pasal 54 ayat 1 huruf d UU ...", "Pasal 1266 dan Pasal 1267 ...", "Pasal 156 dari UU ...".
+# "Pasal 54 ayat 1 huruf d UU ...", "Pasal 155 dan Pasal 156 ...", "Pasal 156 dari UU ...".
+# Tiap spasi hanya bisa dibaca satu cara (satu \s per ulangan, ayat tanpa \s* di ujung):
+# \s+ atau \s* yang tumpang tindih di dalam (...)* membuat sela yang gagal cocok, mis.
+# baris tabel markdown, dicoba 2^n cara dan penilai macet.
 _SELA_FRASA = re.compile(
-    r"(?:\s+|,|\(|\)|\b(?:dan|serta|atau|dari|dalam|pada)\b|\bayat\s*\(?\s*\w+\s*\)?"
+    r"(?:\s|,|\(|\)|\b(?:dan|serta|atau|dari|dalam|pada)\b|\bayat\s*(?:\(\s*\w+\s*\)|\w+)"
     r"|\bhuruf\s+\w+\b|\bangka\s+\w+\b|\bpasal\s+\w+\b)*",
     re.IGNORECASE,
 )
