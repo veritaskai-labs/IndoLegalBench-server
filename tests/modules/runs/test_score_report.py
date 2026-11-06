@@ -1,4 +1,3 @@
-
 """SCRUM-225: aggregate scores without importing SCRUM-222 models."""
 
 import uuid
@@ -140,10 +139,10 @@ def test_foreign_grades_are_rejected():
             "app.modules.runs.score_report.repository.session_attempt_items",
             return_value=[],
         ),
+        pytest.raises(ValueError, match="outside this session"),
     ):
-        with pytest.raises(ValueError, match="outside this session"):
-            read_session_report(
-                object(),
-                session_id,
-                FakeGradingReader(session_id, scores),
-            )
+        read_session_report(
+            object(),
+            session_id,
+            FakeGradingReader(session_id, scores),
+        )

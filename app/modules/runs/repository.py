@@ -813,3 +813,16 @@ def snapshot_case_items(db: Session, session_id: uuid.UUID) -> list[tuple[uuid.U
         .order_by(CaseSnapshotItem.id)
     ).all()
     return [(item_id, body or {}) for item_id, body in baris]
+
+
+def session_attempt_items(
+    db: Session,
+    session_id: uuid.UUID,
+) -> list[tuple[uuid.UUID, uuid.UUID]]:
+    """Map attempt IDs to frozen case snapshot item IDs."""
+    rows = db.execute(
+        select(Attempt.id, Attempt.snapshot_item_id)
+        .where(Attempt.session_id == session_id)
+        .order_by(Attempt.snapshot_item_id, Attempt.repetition_no, Attempt.id)
+    ).all()
+    return list(rows)
