@@ -14,6 +14,8 @@ Panah D4 (Bagian A) yang diizinkan:
 - finished_with_failures -> running (coba ulang yang gagal, PBI-12 AC3).
 - paused -> running dan cancelled -> running (Lanjutkan, PBI-12 AC8). Penjaga versi
   model dan batas hari ada di SCRUM-216, bukan di matriks ini.
+- SCRUM-216: paused -> cancelled; cancelled -> queued untuk sesi yang belum
+  pernah disiapkan. Keduanya disetujui pengguna pada 5 November 2026.
 
 Nama status mengikuti enum di staging (finished, finished_with_failures), bukan label
 D4 (completed, completed_with_failures).
@@ -56,6 +58,8 @@ _D4 = {
     ("finished_with_failures", "running"),
     ("paused", "running"),
     ("cancelled", "running"),
+    ("paused", "cancelled"),
+    ("cancelled", "queued"),
 }
 
 _SEMUA_PASANGAN = list(itertools.product(_STATUS, repeat=2))

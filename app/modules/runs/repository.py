@@ -14,7 +14,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import exists, func, null, select, update
+from sqlalchemy import Row, exists, func, null, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -47,10 +47,79 @@ from app.modules.runs.session_ports import (
 from app.modules.runs.session_transitions import invalid_transition, sources_of
 from app.shared.exceptions import ConflictError, NotFoundError, ValidationError
 
+# Panggilan yang sudah diproses dan tidak diulang lagi (PBI-12 AC5).
+_ATTEMPT_SELESAI = (
+    AttemptStatus.SUCCEEDED,
+    AttemptStatus.TECHNICAL_FAILURE,
+)
+
 
 def product_has_sessions(db: Session, product_id: uuid.UUID) -> bool:
     """Sesi yang diarsipkan tetap terhitung: datanya tidak pernah dihapus (AC10)."""
     return bool(db.scalar(select(exists().where(MeasurementSession.product_id == product_id))))
+
+
+def session_progress(db: Session, measurement_id: uuid.UUID) -> Row | None:
+    """Angka satu sesi untuk layar progres, atau None bila sesinya tidak ada.
+
+    Dihitung lewat subquery supaya satu panggilan database cukup: endpoint ini
+    di-poll tiap beberapa detik. Biaya dijumlahkan lewat attempt_id, bukan lewat
+    call_logs.product_id, karena yang diminta biaya sesi ini saja.
+    """
+    jumlah_attempt = (
+        select(func.count())
+        .select_from(Attempt)
+        .where(Attempt.session_id == MeasurementSession.id)
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
+    jumlah_selesai = (
+        select(func.count())
+        .select_from(Attempt)
+        .where(
+            Attempt.session_id == MeasurementSession.id,
+            Attempt.status.in_(_ATTEMPT_SELESAI),
+        )
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
+    jumlah_gagal = (
+        select(func.count())
+        .select_from(Attempt)
+        .where(
+            Attempt.session_id == MeasurementSession.id,
+            Attempt.status == AttemptStatus.TECHNICAL_FAILURE,
+        )
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
+    biaya = (
+        select(func.coalesce(func.sum(CallLog.cost_idr), 0))
+        .select_from(CallLog)
+        .join(Attempt, Attempt.id == CallLog.attempt_id)
+        .where(Attempt.session_id == MeasurementSession.id)
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
+    aktivitas_terakhir = (
+        select(func.max(Attempt.updated_at))
+        .select_from(Attempt)
+        .where(Attempt.session_id == MeasurementSession.id)
+        .correlate(MeasurementSession)
+        .scalar_subquery()
+    )
+    return db.execute(
+        select(
+            MeasurementSession.product_id,
+            MeasurementSession.started_at,
+            MeasurementSession.updated_at,
+            jumlah_attempt.label("total_calls"),
+            jumlah_selesai.label("completed_calls"),
+            jumlah_gagal.label("failed_calls"),
+            biaya.label("running_cost_idr"),
+            aktivitas_terakhir.label("last_attempt_at"),
+        ).where(MeasurementSession.id == measurement_id)
+    ).one_or_none()
 
 
 def count_sessions_by_product(
@@ -173,6 +242,9 @@ class SessionListRepository:
             accepted_as_is_at=session.accepted_as_is_at,
             accepted_as_is_by=session.accepted_as_is_by,
             accepted_as_is_reason=session.accepted_as_is_reason,
+            resumed_after_long_pause=session.resumed_after_long_pause,
+            model_version_unverified=session.model_version_unverified,
+            resume_error_code=session.resume_error_code,
             cases=self._cases(session_id),
         )
 
@@ -190,6 +262,7 @@ class SessionListRepository:
         ):
             attempts[attempt.snapshot_item_id].append(
                 AttemptRow(
+                    id=attempt.id,
                     repetition_no=attempt.repetition_no,
                     status=AttemptStatus(attempt.status),
                     answer_text=attempt.answer_text,
@@ -256,6 +329,18 @@ class CallLogRepository:
     def add(self, row: CallLog) -> None:
         self._db.add(row)
         self._db.flush()
+
+    def next_try_no(self, attempt_id: uuid.UUID) -> int:
+        """Nomor upaya berikutnya untuk attempt ini (D2 try_no, 1 = awal).
+
+        Baca lalu tulis ini aman karena satu attempt hanya dipanggil satu dispatcher:
+        lease advisory worker dan klaim attempt running sebelum panggilan (#98).
+        UNIQUE (attempt_id, try_no) tetap menolak bila asumsi itu suatu saat dilanggar.
+        """
+        terakhir = self._db.scalar(
+            select(func.max(CallLog.try_no)).where(CallLog.attempt_id == attempt_id)
+        )
+        return (terakhir or 0) + 1
 
     def sum_cost_since(self, product_id: uuid.UUID, start: datetime) -> Decimal:
         total = self._db.scalar(
@@ -331,8 +416,12 @@ _ANTREAN_OTOMATIS = (
 )
 
 
-_SELESAI = frozenset(
-    {SessionStatus.FINISHED, SessionStatus.FINISHED_WITH_FAILURES, SessionStatus.FAILED}
+_SESSION_SELESAI = frozenset(
+    {
+        SessionStatus.FINISHED,
+        SessionStatus.FINISHED_WITH_FAILURES,
+        SessionStatus.FAILED,
+    }
 )
 
 
@@ -340,12 +429,13 @@ def _kolom_waktu(
     target: SessionStatus, at: datetime, stop_reason: StopReason | None
 ) -> dict[str, object]:
     """Kolom waktu yang ikut berubah bersama status (D2)."""
-    if target is SessionStatus.RUNNING:
-        # Coba ulang dan Lanjutkan: sesi belum selesai lagi, jadi waktu selesai lama dibuang
-        # (catatan Roben #97). Selesai berikutnya mengisi waktu yang baru.
-        return {"stopped_at": None, "stop_reason": None, "finished_at": None}
+    if target in (SessionStatus.RUNNING, SessionStatus.QUEUED):
+        reopened: dict[str, object] = {"stopped_at": None, "stop_reason": None, "finished_at": None}
+        if target is SessionStatus.QUEUED:
+            reopened["queued_at"] = at
+        return reopened
     kolom: dict[str, object] = {}
-    if target in _SELESAI:
+    if target in _SESSION_SELESAI:
         kolom["finished_at"] = at
     if stop_reason is not None:
         kolom["stopped_at"] = at
@@ -453,6 +543,71 @@ class SessionStatusRepository:
                 code="SESSION_ACCEPTED",
             )
         raise invalid_transition(status, target)
+
+
+def attempt_statuses(db: Session, session_id: uuid.UUID) -> dict[uuid.UUID, AttemptStatus]:
+    """Status setiap percobaan sesi, urut kasus lalu nomor pengulangan (SCRUM-218)."""
+    rows = db.execute(
+        select(Attempt.id, Attempt.status)
+        .where(Attempt.session_id == session_id)
+        .order_by(Attempt.snapshot_item_id, Attempt.repetition_no)
+    )
+    return dict(rows.all())
+
+
+def session_status(db: Session, session_id: uuid.UUID) -> SessionStatus | None:
+    return db.scalar(select(MeasurementSession.status).where(MeasurementSession.id == session_id))
+
+
+def attempt_with_calls(
+    db: Session, session_id: uuid.UUID, attempt_id: uuid.UUID
+) -> tuple[Attempt, dict, list[CallLog]] | None:
+    """Percobaan sesi ini, body item snapshot-nya, dan semua upayanya urut try_no."""
+    baris = db.execute(
+        select(Attempt, CaseSnapshotItem.body)
+        .join(CaseSnapshotItem, CaseSnapshotItem.id == Attempt.snapshot_item_id)
+        .where(Attempt.id == attempt_id, Attempt.session_id == session_id)
+    ).first()
+    if baris is None:
+        return None
+    attempt, body = baris
+    calls = list(
+        db.scalars(select(CallLog).where(CallLog.attempt_id == attempt_id).order_by(CallLog.try_no))
+    )
+    return attempt, body, calls
+
+
+def reopen_for_retry(
+    db: Session, session_id: uuid.UUID, attempt_ids: Sequence[uuid.UUID], *, at: datetime
+) -> None:
+    """Satu transaksi: percobaan gagal kembali pending dan sesi berjalan lagi (PBI-12 AC3, D4).
+
+    Status sesi lewat change_status (SCRUM-214). Bila sesi otomatis lain sedang
+    running, partial index #89 menolak dan percobaan ikut dibatalkan.
+    """
+    try:
+        db.execute(
+            update(Attempt)
+            .where(
+                Attempt.session_id == session_id,
+                Attempt.id.in_(attempt_ids),
+                Attempt.status == AttemptStatus.TECHNICAL_FAILURE,
+            )
+            .values(status=AttemptStatus.PENDING)
+            .execution_options(synchronize_session=False)
+        )
+        SessionStatusRepository(db).change_status(
+            session_id, SessionStatus.RUNNING, at=at, commit=False
+        )
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if _sesi_lain_running(exc):
+            raise ConflictError(
+                "Masih ada pengukuran otomatis lain yang berjalan. Coba ulang setelah selesai.",
+                code="ANOTHER_SESSION_RUNNING",
+            ) from exc
+        raise
 
 
 class SessionQueueRepository:

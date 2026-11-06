@@ -62,6 +62,10 @@ class Settings(BaseSettings):
     # klien (TBA). Opsional sampai ada keputusan; nyalakan lewat env bila wajib.
     ai_product_access_note_required: bool = False
 
+    # PBI-12: keputusan PO melalui Roben, 5 Nov. Jeda > batas hanya diberi penanda.
+    resume_long_stop_days: int = Field(default=7, ge=0)
+    measurement_dev_ai_controls_enabled: bool = False
+
     # PBI-18 AC7: koneksi role ilb_retention, khusus job retensi. Bukan DATABASE_URL:
     # role aplikasi tidak pernah boleh menghapus audit log.
     audit_retention_database_url: str = ""

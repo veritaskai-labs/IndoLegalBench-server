@@ -21,6 +21,7 @@ from enum import StrEnum
 
 from sqlalchemy import (
     JSON,
+    Boolean,
     CheckConstraint,
     DateTime,
     Enum,
@@ -33,6 +34,7 @@ from sqlalchemy import (
     Text,
     UniqueConstraint,
     Uuid,
+    false,
     func,
     text,
 )
@@ -87,7 +89,7 @@ class SessionStatus(StrEnum):
 
 
 class StopReason(StrEnum):
-    """Penyebab sesi berhenti (D2 stop_reason). paused: user, budget, restart; failed: error."""
+    """paused: user, budget, restart, atau error versi setelah resume; failed: error persiapan."""
 
     USER = "user"
     BUDGET = "budget"
@@ -200,6 +202,16 @@ class MeasurementSession(Base):
     stop_reason: Mapped[StopReason | None] = mapped_column(
         _enum(StopReason, "measurement_stop_reason_enum"), nullable=True
     )
+    resumed_after_long_pause: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    model_version_unverified: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    resume_version_check_pending: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=text("false")
+    )
+    resume_error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
     archived_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     archived_by: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey(_USER_FK), nullable=True
@@ -351,6 +363,12 @@ class CallLog(Base):
     """
 
     __tablename__ = "call_logs"
+    __table_args__ = (
+        # D2: upaya ke-n per attempt (1 = awal). Coba ulang menambah upaya, bukan
+        # menimpanya, dan dua dispatch tidak bisa sama-sama upaya yang sama (SCRUM-218).
+        CheckConstraint("try_no >= 1", name="ck_call_logs_try_no"),
+        UniqueConstraint("attempt_id", "try_no", name="uq_call_logs_attempt_try"),
+    )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid, primary_key=True, default=uuid.uuid4)
     attempt_id: Mapped[uuid.UUID] = mapped_column(Uuid, nullable=False)
@@ -366,3 +384,9 @@ class CallLog(Base):
     result: Mapped[str] = mapped_column(String(64), nullable=False)
     failure_kind: Mapped[str | None] = mapped_column(String(64), nullable=True)
     raw: Mapped[dict] = mapped_column(JSON, nullable=False)
+    try_no: Mapped[int] = mapped_column(
+        SmallInteger, nullable=False, default=1, server_default=text("1")
+    )
+    is_manual_retry: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default=false()
+    )

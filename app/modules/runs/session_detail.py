@@ -29,6 +29,7 @@ from app.shared.security import Role
 
 @dataclass(frozen=True)
 class AttemptRow:
+    id: uuid.UUID
     repetition_no: int
     status: AttemptStatus
     answer_text: str | None
@@ -58,6 +59,9 @@ class SessionDetailRow:
     accepted_as_is_by: uuid.UUID | None
     accepted_as_is_reason: str | None
     cases: list[CaseRow]
+    resumed_after_long_pause: bool = False
+    model_version_unverified: bool = False
+    resume_error_code: str | None = None
 
 
 class SessionDetailStore(Protocol):
@@ -99,6 +103,9 @@ class SessionDetailService:
             accepted_as_is_at=row.accepted_as_is_at,
             accepted_as_is_by=row.accepted_as_is_by,
             accepted_as_is_reason=row.accepted_as_is_reason,
+            resumed_after_long_pause=row.resumed_after_long_pause,
+            model_version_unverified=row.model_version_unverified,
+            resume_error_code=row.resume_error_code,
             report_eligible=is_report_eligible(
                 summary.status, accepted_as_is_at=row.accepted_as_is_at
             ),
@@ -122,6 +129,8 @@ def _case(case: CaseRow, *, hide_test: bool, hide_answers: bool) -> SessionCaseR
         sections=None if masked else VersionSections.model_validate(sections),
         attempts=[
             AttemptResult(
+                # Tidak disamarkan: FE perlu id untuk coba ulang per kasus (SCRUM-218).
+                id=attempt.id,
                 repetition_no=attempt.repetition_no,
                 status=attempt.status,
                 answer_text=None if masked or hide_answers else attempt.answer_text,

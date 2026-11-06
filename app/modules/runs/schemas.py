@@ -10,8 +10,9 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import Literal
 
-from pydantic import BaseModel, Field, field_validator
+from pydantic import BaseModel, Field, field_validator, model_validator
 
 from app.modules.cases.models import SplitTag
 
@@ -89,6 +90,31 @@ class SummaryResponse(BaseModel):
     remaining_budget_idr: Decimal = Field(description="Sisa anggaran bulan ini untuk produk")
 
 
+class ProgressResponse(BaseModel):
+    """Angka layar progres yang di-poll tiap beberapa detik (PBI-12 AC5, AC6).
+
+    Tidak memuat jumlah coba ulang yang sedang berjalan dan tidak memuat
+    penanda produk bermasalah (AC5). Uang dikirim sebagai string.
+    """
+
+    completed_calls: int = Field(description="Panggilan selesai, termasuk yang gagal")
+    total_calls: int = Field(description="Kasus kali pengulangan")
+    percent_complete: Decimal = Field(description="Persen selesai, satu desimal")
+    failed_calls: int = Field(description="Panggilan selesai yang gagal")
+    percent_failed: Decimal = Field(
+        description="Persen gagal dari panggilan yang sudah selesai, satu desimal"
+    )
+    remaining_seconds: int | None = Field(
+        description="Perkiraan sisa waktu dalam detik, null sebelum ada panggilan selesai"
+    )
+    running_cost_idr: Decimal = Field(description="Biaya berjalan dalam rupiah")
+    remaining_budget_idr: Decimal = Field(description="Sisa anggaran bulan ini untuk produk")
+    started_at: datetime | None = Field(
+        description="Waktu sesi mulai berjalan, null selama sesi masih antre"
+    )
+    updated_at: datetime = Field(description="Waktu angka ini terakhir diperbarui")
+
+
 class SessionProgressRead(BaseModel):
     """Progres "X dari N" di daftar sesi (PBI-11 AC10)."""
 
@@ -146,9 +172,76 @@ class SessionAcceptResponse(BaseModel):
     accepted_as_is_reason: str | None
 
 
+class SessionRetryRequest(BaseModel):
+    """Coba ulang yang gagal (PBI-12 AC3): per kasus lewat attempt_ids, atau semua (D4)."""
+
+    attempt_ids: list[uuid.UUID] | None = Field(
+        default=None, description="Percobaan gagal yang dicentang. Kosongkan bila all_failed"
+    )
+    all_failed: bool = Field(
+        default=False, description="true untuk mencoba ulang semua percobaan yang gagal"
+    )
+
+    @model_validator(mode="after")
+    def _tepat_satu_pilihan(self) -> "SessionRetryRequest":
+        if bool(self.attempt_ids) == self.all_failed:
+            raise ValueError("Pilih attempt_ids atau all_failed, tepat salah satu.")
+        return self
+
+
+class SessionRetryResponse(BaseModel):
+    """Sesi berjalan lagi; runner hanya memanggil ulang percobaan yang dibuka."""
+
+    id: uuid.UUID
+    status: SessionStatus
+    retried_attempt_ids: list[uuid.UUID] = Field(
+        description="Percobaan yang kembali pending, urut kasus lalu nomor pengulangan"
+    )
+
+
+class CallAttemptLog(BaseModel):
+    """Satu upaya panggilan di call_logs, untuk tombol "lihat detail teknis" (D5 langkah 33-38)."""
+
+    try_no: int = Field(description="Upaya ke-n pada percobaan ini, 1 = panggilan awal")
+    is_manual_retry: bool = Field(description="true untuk upaya dari Coba ulang atau Lanjutkan")
+    started_at: datetime
+    ended_at: datetime
+    duration_ms: int
+    result: str = Field(description="ok, atau jenis kegagalan teknis")
+    failure_kind: str | None
+    model_version: str
+    error_summary: str | None = Field(
+        description="Ringkasan galat dari worker. null bila berhasil atau disamarkan"
+    )
+    raw_response: dict | None = Field(
+        description="Respons asli penyedia sebagai bukti. null bila disamarkan"
+    )
+
+
+class AttemptCalls(BaseModel):
+    """Riwayat upaya satu percobaan, urut try_no (PBI-12 AC3)."""
+
+    attempt_id: uuid.UUID
+    repetition_no: int
+    status: AttemptStatus
+    masked: bool = Field(
+        description=(
+            "true bila Developer AI membuka kasus selain dev atau sesi yang belum berakhir: "
+            "hanya jenis kegagalan dan waktu"
+        )
+    )
+    calls: list[CallAttemptLog]
+
+
 class AttemptResult(BaseModel):
     """Satu percobaan: jawaban mentah apa adanya dari produk (PBI-11 AC8)."""
 
+    id: uuid.UUID = Field(
+        description=(
+            "id percobaan untuk coba ulang per kasus (attempt_ids) dan detail teknis. "
+            "Tetap ada di kasus yang disamarkan karena tidak memuat isi kasus"
+        )
+    )
     repetition_no: int
     status: AttemptStatus
     answer_text: str | None = Field(
@@ -197,13 +290,20 @@ class SessionDetail(SessionListItem):
         description="Waktu sesi berhenti (jeda, anggaran, restart, error). null selama berjalan"
     )
     stop_reason: StopReason | None = Field(
-        description="Penyebab berhenti: user, budget, restart (paused) atau error (failed)"
+        description="Penyebab berhenti: user, budget, restart; error untuk persiapan gagal atau versi berubah setelah resume"
     )
     accepted_as_is_at: datetime | None = Field(
         description="Waktu Admin menandai terima apa adanya. null bila tidak tertanda"
     )
     accepted_as_is_by: uuid.UUID | None = Field(description="Admin yang menerima sesi")
     accepted_as_is_reason: str | None = Field(description="Alasan tertulis terima apa adanya")
+    resumed_after_long_pause: bool = Field(
+        default=False, description="Pernah dilanjutkan setelah jeda melebihi batas konfigurasi"
+    )
+    model_version_unverified: bool = Field(
+        default=False, description="Pernah dilanjutkan tanpa bukti versi terverifikasi"
+    )
+    resume_error_code: Literal["MODEL_VERSION_CHANGED"] | None = None
     report_eligible: bool = Field(
         description=(
             "Boleh jadi dasar laporan (D4): finished, atau finished_with_failures yang "
@@ -250,3 +350,27 @@ class StartResponse(BaseModel):
     status: SessionStatus = Field(description="Selalu queued: worker yang menjalankan saat giliran")
     # Nama D2 (keputusan PO di #89): antrean FIFO diurutkan dengan queued_at.
     queued_at: datetime = Field(description="Waktu masuk antrean; yang lebih awal jalan lebih dulu")
+
+
+class SessionControlResponse(BaseModel):
+    """Kontrol diterima (202); call aktif masih boleh menyelesaikan persistence."""
+
+    id: uuid.UUID
+    status: SessionStatus
+    stopped_at: datetime
+    stop_reason: StopReason
+
+
+class SessionResumeRequest(BaseModel):
+    """Konfirmasi eksplisit Admin bila pernah sukses tetapi provider belum memberi versi."""
+
+    confirm_unverified_version: bool = Field(default=False, strict=True)
+
+
+class SessionResumeResponse(BaseModel):
+    """202: worker yang sama melanjutkan pending; cancellation sebelum mulai masuk queued."""
+
+    id: uuid.UUID
+    status: SessionStatus
+    resumed_after_long_pause: bool
+    model_version_unverified: bool

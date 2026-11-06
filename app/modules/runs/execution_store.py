@@ -19,8 +19,10 @@ from app.modules.runs.models import (
     MeasurementSession,
     SessionProductCopy,
     SessionStatus,
+    StopReason,
 )
 from app.modules.runs.ports import AttemptRecord, SessionStore
+from app.modules.runs.recovery import record_heartbeat
 from app.modules.runs.repository import SessionStatusRepository
 from app.modules.runs.session_notice import notify_session_ended
 
@@ -85,11 +87,13 @@ class TableSessionStore(SessionStore):
         self.db.commit()
         if claimed != 1:
             raise ExecutionInterrupted
+        record_heartbeat(self.db, self.session_id)
         return row.id
 
     def save_attempt(self, record: AttemptRecord) -> None:
         if record.session_id != self.session_id or record.attempt_id is None:
             raise ValueError("attempt is not claimed")
+        session = self._session()
         row = self.db.scalars(
             select(Attempt).where(
                 Attempt.id == record.attempt_id,
@@ -109,19 +113,35 @@ class TableSessionStore(SessionStore):
         copy = self.db.scalar(
             select(SessionProductCopy).where(SessionProductCopy.session_id == self.session_id)
         )
+        self._verify_resumed_response(session, copy.model_version_at_start, record.model_version)
         if copy.model_version_at_start is None and record.model_version:
             copy.model_version_at_start = record.model_version
         self.db.flush()
+
+    def _verify_resumed_response(self, session, baseline, observed):
+        if not session.resume_version_check_pending:
+            return
+        if not observed:
+            session.model_version_unverified = True
+            return
+        session.resume_version_check_pending = False
+        if baseline and observed != baseline:
+            # The HTTP 202 is already sent; persist the conflict for GET and future resume.
+            session.resume_error_code = "MODEL_VERSION_CHANGED"
+            if session.status == SessionStatus.RUNNING:
+                SessionStatusRepository(self.db).change_status(
+                    self.session_id,
+                    SessionStatus.PAUSED,
+                    at=datetime.now(UTC),
+                    stop_reason=StopReason.ERROR,
+                    commit=False,
+                )
 
     def update_progress(self, session_id: uuid.UUID, *, completed: int, failed: int) -> None:
         # Counters are derived from attempts by the list/progress APIs, never duplicated here.
         if session_id != self.session_id:
             raise ValueError(_WRONG_SESSION)
-        self.db.execute(
-            update(MeasurementSession)
-            .where(MeasurementSession.id == session_id)
-            .values(updated_at=datetime.now(UTC))
-        )
+        record_heartbeat(self.db, session_id)
 
     def commit_attempt(self) -> None:
         self.db.commit()
