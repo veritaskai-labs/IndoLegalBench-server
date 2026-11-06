@@ -12,6 +12,7 @@ import uuid
 import pytest
 from sqlalchemy import func, select
 
+from app.modules.providers.adapters.params import ASK_TIMEOUT_SECONDS
 from app.modules.runs.models import Attempt, CallLog
 from app.shared.security import Role
 from tests.modules.runs.session_qa import (
@@ -148,3 +149,31 @@ def test_non_admin_tidak_bisa_menerima_atau_mencoba_ulang_sesi_dengan_kegagalan(
     # Assert
     assert terima.status_code == 403
     assert baca_detail(siap, sesi_id)["accepted_as_is_at"] is None
+
+
+def test_timeout_panggilan_dicatat_gagal_teknis_dan_tidak_dicoba_ulang_otomatis(siap):
+    """Edge: AC2, worker memberi batas 240 detik; timeout jadi kegagalan teknis tanpa coba ulang."""
+    # Arrange
+    sesi_id = start(siap)
+    provider = Provider()
+    asli = provider.ask
+
+    def timeout_di_panggilan_pertama(prompt, **kwargs):
+        if provider.calls:
+            return asli(prompt, **kwargs)
+        provider.calls.append((prompt, kwargs))
+        raise TimeoutError("read timeout after 240 seconds")
+
+    provider.ask = timeout_di_panggilan_pertama
+
+    # Act
+    assert runner(siap, provider)() is True
+    detail = baca_detail(siap, sesi_id)
+
+    # Assert
+    assert ASK_TIMEOUT_SECONDS == 240.0
+    assert {kwargs["timeout"] for _, kwargs in provider.calls} == {ASK_TIMEOUT_SECONDS}
+    assert len(provider.calls) == TOTAL
+    assert detail["status"] == "finished_with_failures"
+    assert sorted(status_percobaan(detail)) == ["succeeded"] * (TOTAL - 1) + ["technical_failure"]
+    assert detail["report_eligible"] is False
