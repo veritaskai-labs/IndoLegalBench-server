@@ -47,6 +47,10 @@ PENGECUALIAN = {
     "rubric_aspects": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
     "rubric_levels": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
     "rubric_level_descriptors": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
+    "grading_runs": "SCRUM-222: belum ada penulis; tracker ditentukan SCRUM-226 (tombol Nilai)",
+    "grading_results": "SCRUM-222: hasil mesin, hanya INSERT (trigger), bukan aksi pengguna",
+    "grading_result_reasons": "SCRUM-222: tautan hasil mesin, hanya INSERT (trigger)",
+    "reason_codes": "SCRUM-222: hanya migrasi yang menulis (seed usulan); tracker saat ada API",
 }
 
 
