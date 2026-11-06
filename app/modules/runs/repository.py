@@ -802,3 +802,13 @@ def _product_copy_row(session_id: uuid.UUID, product: ProductCopy) -> SessionPro
         price_output_usd_per_mtok=product.price_output_usd_per_mtok,
         monthly_budget_idr=product.monthly_budget_idr,
     )
+
+def snapshot_case_items(db: Session, session_id: uuid.UUID) -> list[tuple[uuid.UUID, dict]]:
+    """Id dan body tiap item snapshot sesi, urut id supaya hasilnya stabil (PBI-14 AC10)."""
+    baris = db.execute(
+        select(CaseSnapshotItem.id, CaseSnapshotItem.body)
+        .join(CaseSnapshot, CaseSnapshot.id == CaseSnapshotItem.snapshot_id)
+        .where(CaseSnapshot.session_id == session_id)
+        .order_by(CaseSnapshotItem.id)
+    ).all()
+    return [(item_id, body or {}) for item_id, body in baris]
