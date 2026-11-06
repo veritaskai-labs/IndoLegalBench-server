@@ -54,6 +54,10 @@ from app.shared.text import sql_not_blank
 # JSONB on PostgreSQL, plain JSON on SQLite so the tests keep running.
 _JSONB = JSON().with_variant(JSONB(), "postgresql")
 _VERSION_FK = "rubric_versions.id"
+_VERSION_COLUMN = "rubric_version_id"
+# Partial unique index: satu baris bertanda per kelompok. Sama untuk PostgreSQL dan SQLite.
+_ONLY_ACTIVE = text("is_active")
+_ONLY_LATEST = text("is_latest")
 
 
 class GraderPath(StrEnum):
@@ -127,8 +131,8 @@ class RubricVersion(Base):
             "uq_rubric_versions_one_active",
             "is_active",
             unique=True,
-            postgresql_where=text("is_active"),
-            sqlite_where=text("is_active"),
+            postgresql_where=_ONLY_ACTIVE,
+            sqlite_where=_ONLY_ACTIVE,
         ),
     )
 
@@ -155,8 +159,8 @@ class RubricVersion(Base):
 class RubricAspect(Base):
     __tablename__ = "rubric_aspects"
     __table_args__ = (
-        UniqueConstraint("rubric_version_id", "name", name="uq_rubric_aspects_version_name"),
-        UniqueConstraint("rubric_version_id", "sort_order", name="uq_rubric_aspects_version_order"),
+        UniqueConstraint(_VERSION_COLUMN, "name", name="uq_rubric_aspects_version_name"),
+        UniqueConstraint(_VERSION_COLUMN, "sort_order", name="uq_rubric_aspects_version_order"),
         CheckConstraint(sql_not_blank("name"), name="ck_rubric_aspects_name"),
         CheckConstraint(sql_not_blank("definition"), name="ck_rubric_aspects_definition"),
         CheckConstraint(
@@ -181,7 +185,7 @@ class RubricAspect(Base):
 class RubricLevel(Base):
     __tablename__ = "rubric_levels"
     __table_args__ = (
-        UniqueConstraint("rubric_version_id", "score", name="uq_rubric_levels_version_score"),
+        UniqueConstraint(_VERSION_COLUMN, "score", name="uq_rubric_levels_version_score"),
         CheckConstraint("score BETWEEN 0 AND 5", name="ck_rubric_levels_score"),
         CheckConstraint(sql_not_blank("label"), name="ck_rubric_levels_label"),
     )
@@ -250,8 +254,8 @@ class GradingRun(Base):
             "uq_grading_runs_one_latest",
             "session_id",
             unique=True,
-            postgresql_where=text("is_latest"),
-            sqlite_where=text("is_latest"),
+            postgresql_where=_ONLY_LATEST,
+            sqlite_where=_ONLY_LATEST,
         ),
     )
 
