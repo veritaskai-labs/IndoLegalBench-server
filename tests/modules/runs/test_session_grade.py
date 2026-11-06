@@ -49,11 +49,16 @@ from app.modules.runs.session_grade import (
     check_technical_disruption,
     compute_category_scores,
     ensure_session_gradable,
+    get_session_results,
+    grade_session,
     grade_session_data,
     is_ai_refusal,
     is_empty_answer,
+    round_two_digits,
+    score_deterministic_citations,
+    score_judge_criteria,
 )
-from app.shared.exceptions import ConflictError, ForbiddenError
+from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.shared.security import Role
 from tests.modules.providers.test_product_lists import _otomatis
 from tests.modules.runs.test_session_list_endpoint import _sesi
@@ -951,3 +956,97 @@ def test_grade_session_commits_trigger_and_timestamp_audit_record(
     )
     assert audit_entry.after is not None
     assert audit_entry.after["session_id"] == str(sesi.id)
+
+
+def test_edge_cases_and_error_handling(db_session, produk, pembuat):
+    """Pengujian cabang dan penanganan error untuk mencapai 100% coverage."""
+    # 1. round_two_digits(None)
+    assert round_two_digits(None) is None
+
+    # 2. score_deterministic_citations edge cases
+    assert score_deterministic_citations("", [{"number": "40"}]) is None
+    assert score_deterministic_citations(None, [{"number": "40"}]) is None
+    assert score_deterministic_citations(
+        "Sesuai UU 40 tentang perseroan", [{"number": "40"}]
+    ) == Decimal("1.00")
+
+    # 3. score_judge_criteria formatting branches
+    crit_a = "kriteria pertama harus dipenuhi sepenuhnya"
+    crit_b = "kriteria kedua harus dipenuhi sepenuhnya"
+    assert score_judge_criteria(
+        "jawaban di sini kriteria pertama harus dipenuhi sepenuhnya",
+        {"items": [crit_a, crit_b]},
+    ) == Decimal("2.50")
+    assert score_judge_criteria(
+        "kriteria pertama harus dipenuhi sepenuhnya", {"kriteria": [crit_a]}
+    ) == Decimal("5.00")
+    assert score_judge_criteria(
+        "jawaban di sini kriteria pertama harus dipenuhi sepenuhnya", [crit_a, crit_b]
+    ) == Decimal("2.50")
+    assert score_judge_criteria("jawaban", {"catatan": ""}) is None
+
+    # 4. MemoryGradingStore get_latest_grading_run
+    mem_store = MemoryGradingStore()
+    dummy_id = uuid.uuid4()
+    assert mem_store.get_latest_grading_run(dummy_id) is None
+    run1 = SessionGradingResponse(
+        grading_run_id=uuid.uuid4(),
+        session_id=dummy_id,
+        rubric_version="v1",
+        kind="initial",
+        status="completed",
+        triggered_by=pembuat.id,
+        triggered_at=datetime.now(UTC),
+        is_latest=True,
+        scores=ThreeScores(dev=ScorePair(), test=ScorePair(), combined=ScorePair()),
+        category_scores=[],
+        cases=[],
+    )
+    mem_store.save_grading_run(run1)
+    assert mem_store.get_latest_grading_run(dummy_id) == run1
+
+    # 5. DbGradingStore invalid audit log and fallback
+    log_invalid = AuditLog(
+        occurred_at=datetime.now(UTC),
+        actor_user_id=pembuat.id,
+        actor_role=Role.ADMIN.value,
+        action="measurement_session.graded",
+        entity_type="measurement_session",
+        entity_id=dummy_id,
+        after={"rubric_version": 123},  # Invalid model payload to trigger except
+        reason="test",
+    )
+    db_session.add(log_invalid)
+    db_session.commit()
+    db_store = DbGradingStore(db_session)
+    runs = db_store.get_grading_runs(dummy_id)
+    assert runs == []
+    assert db_store.get_latest_grading_run(dummy_id) is None
+
+    # MemoryGradingStore latest search
+    mem_store2 = MemoryGradingStore()
+    run_old = run1.model_copy(update={"is_latest": False})
+    run_new = run1.model_copy(update={"is_latest": True, "grading_run_id": uuid.uuid4()})
+    mem_store2.save_grading_run(run_old)
+    mem_store2.save_grading_run(run_new)
+    assert mem_store2.get_latest_grading_run(dummy_id) == run_new
+
+    # 6. apply_visibility_mask unknown role
+    with pytest.raises(ForbiddenError, match="Peran Anda tidak berwenang"):
+        apply_visibility_mask(
+            run1, viewer_role="UNKNOWN_ROLE", session_status=SessionStatus.FINISHED
+        )
+
+    # 7. grade_session actor_role != Role.ADMIN
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    with pytest.raises(ForbiddenError, match="Hanya Admin"):
+        grade_session(db_session, sesi.id, actor_id=pembuat.id, actor_role=Role.VIEWER)
+
+    # 8. get_session_results MEASUREMENT_NOT_FOUND
+    with pytest.raises(NotFoundError, match="Pengukuran tidak ditemukan"):
+        get_session_results(db_session, uuid.uuid4(), viewer_role=Role.ADMIN)
+
+    # 9. get_session_results GRADING_NOT_FOUND (session exists but has never been graded)
+    sesi_ungraded = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    with pytest.raises(NotFoundError, match="Hasil penilaian belum tersedia"):
+        get_session_results(db_session, sesi_ungraded.id, viewer_role=Role.ADMIN)
