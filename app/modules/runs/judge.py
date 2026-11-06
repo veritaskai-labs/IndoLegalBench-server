@@ -105,66 +105,112 @@ def run_judge(
             ("quality", quality_prompt(inputs)),
             ("format", format_prompt(inputs)),
         ):
-            response = asker.ask(prompt)
-            failed = response.error is not None or response.failure_kind is not None
-            criteria = () if failed else parse_reply(response.text)
-            invalid = not failed and not criteria
-            error = response.error
-            failure_kind = response.failure_kind
-            if invalid:
-                error = "invalid_judge_reply"
-                failure_kind = "invalid_response"
-            explanation, reason_id = _summary(criteria)
             store.rows.append(
-                JudgeRow(
+                _row(
+                    asker.ask(prompt),
                     kind=kind,
                     repetition=repetition,
                     prompt=prompt,
-                    criteria=criteria,
-                    score=None if failed or invalid else _score(criteria),
-                    explanation=explanation,
-                    reason_id=reason_id,
-                    error=error,
-                    failure_kind=failure_kind,
-                    cost_idr=_cost(response, prices),
+                    prices=prices,
                 )
             )
     return store
 
 
-def parse_reply(text: str) -> tuple[CriterionJudgement, ...]:
-    found: list[CriterionJudgement] = []
+def _row(
+    response: object,
+    *,
+    kind: str,
+    repetition: int,
+    prompt: str,
+    prices: JudgePrices | None,
+) -> JudgeRow:
+    failed = response.error is not None or response.failure_kind is not None
+    criteria = () if failed else parse_reply(response.text)
+    error = response.error
+    failure_kind = response.failure_kind
+    if _unreadable(failed, criteria):
+        error = "invalid_judge_reply"
+        failure_kind = "invalid_response"
+        failed = True
+    explanation, reason_id = _summary(criteria)
+    return JudgeRow(
+        kind=kind,
+        repetition=repetition,
+        prompt=prompt,
+        criteria=criteria,
+        score=None if failed else _score(criteria),
+        explanation=explanation,
+        reason_id=reason_id,
+        error=error,
+        failure_kind=failure_kind,
+        cost_idr=_cost(response, prices),
+    )
+
+
+def _unreadable(failed: bool, criteria: tuple[CriterionJudgement, ...]) -> bool:
+    return not failed and not criteria
+
+
+@dataclass
+class _ReplyCursor:
     criterion: str | None = None
     met: str | None = None
     explanation: str | None = None
 
-    def close() -> None:
-        nonlocal criterion, met, explanation
-        if criterion is not None and met in ("yes", "no"):
-            unmet = met == "no"
-            found.append(
-                CriterionJudgement(
-                    criterion=criterion,
-                    met=not unmet,
-                    explanation=explanation if unmet else None,
-                    reason_id=_UNMET_REASON if unmet else None,
-                )
-            )
-        criterion = None
-        met = None
-        explanation = None
+    def clear(self) -> None:
+        self.criterion = None
+        self.met = None
+        self.explanation = None
 
+
+def parse_reply(text: str) -> tuple[CriterionJudgement, ...]:
+    found: list[CriterionJudgement] = []
+    cursor = _ReplyCursor()
     for raw_line in text.splitlines():
-        line = raw_line.strip()
-        if line.upper().startswith("CRITERION:"):
-            close()
-            criterion = line.split(":", 1)[1].strip()
-        elif criterion is not None and line.upper().startswith("MET:"):
-            met = line.split(":", 1)[1].strip().lower()
-        elif criterion is not None and line.upper().startswith("EXPLANATION:"):
-            explanation = line.split(":", 1)[1].strip() or None
-    close()
+        _read_line(cursor, found, raw_line.strip())
+    _close_block(cursor, found)
     return tuple(found)
+
+
+def _read_line(cursor: _ReplyCursor, found: list[CriterionJudgement], line: str) -> None:
+    criterion = _labeled(line, "CRITERION")
+    if criterion is not None:
+        _close_block(cursor, found)
+        cursor.criterion = criterion
+        return
+    if cursor.criterion is None:
+        return
+    met = _labeled(line, "MET")
+    if met is not None:
+        cursor.met = met.lower()
+        return
+    explanation = _labeled(line, "EXPLANATION")
+    if explanation is not None:
+        cursor.explanation = explanation or None
+
+
+def _close_block(cursor: _ReplyCursor, found: list[CriterionJudgement]) -> None:
+    met = cursor.met
+    if cursor.criterion is None or met not in ("yes", "no"):
+        cursor.clear()
+        return
+    unmet = met == "no"
+    found.append(
+        CriterionJudgement(
+            criterion=cursor.criterion,
+            met=not unmet,
+            explanation=cursor.explanation if unmet else None,
+            reason_id=_UNMET_REASON if unmet else None,
+        )
+    )
+    cursor.clear()
+
+
+def _labeled(line: str, label: str) -> str | None:
+    if line.upper().startswith(f"{label}:"):
+        return line.split(":", 1)[1].strip()
+    return None
 
 
 def _summary(criteria: Sequence[CriterionJudgement]) -> tuple[str | None, str | None]:
