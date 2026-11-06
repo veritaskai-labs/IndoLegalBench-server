@@ -4,11 +4,30 @@ Listener audit hanya mencatat tabel yang terdaftar di TRACKERS. Tabel baru
 tidak ikut tercatat dengan sendirinya: suite_snapshots (PBI-8) lolos tanpa
 audit karena tidak ada yang mendaftarkannya. Test ini memaksa setiap tabel
 model punya tracker, atau tercantum di PENGECUALIAN beserta alasannya.
+
+Model dimuat dari setiap app/modules/*/models.py, bukan lewat app.main. Modul yang
+belum punya router (grading di SCRUM-222) tidak diimpor app.main, sehingga tabelnya
+dulu tidak terlihat oleh penjaga ini dan lolos tanpa tracker maupun alasan.
 """
 
-import app.main  # noqa: F401  memuat semua model supaya metadata lengkap
+import importlib
+import importlib.util
+import pkgutil
+
+import app.modules
 from app.modules.audit.trackers import tracker_for
 from app.shared.database import Base
+
+
+def _muat_semua_model() -> None:
+    """Impor models.py setiap modul supaya Base.metadata memuat semua tabel."""
+    for modul in pkgutil.iter_modules(app.modules.__path__):
+        nama = f"app.modules.{modul.name}.models"
+        if importlib.util.find_spec(nama) is not None:
+            importlib.import_module(nama)
+
+
+_muat_semua_model()
 
 # Tabel yang sengaja tidak dicatat. Tambah di sini hanya dengan alasan.
 PENGECUALIAN = {
