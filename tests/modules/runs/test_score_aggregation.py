@@ -15,6 +15,7 @@ Yang dijaga di sini:
 import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
+from types import MappingProxyType
 
 import pytest
 
@@ -466,3 +467,21 @@ def test_percobaan_yang_sudah_dinilai_ulang_tidak_terdaftar_lagi():
 
     # Act / Assert
     assert needs_regrade(daftar) == ()
+
+
+def test_attempt_score_menolak_rubrik_tanpa_bobot():
+    """Negatif: rubrik dengan total bobot nol tidak bisa dipakai menghitung rata-rata."""
+    rubrik_kosong = RubricVersion(
+        version="rusak",
+        max_aspect_score=Decimal(5),
+        weights=MappingProxyType(dict.fromkeys(RubricAspect, Decimal(0))),
+    )
+    with pytest.raises(ValueError, match="total bobot rubrik harus lebih dari nol"):
+        attempt_score(dict.fromkeys(RubricAspect, Decimal(4)), rubric=rubrik_kosong)
+
+
+@pytest.mark.parametrize(("met", "total"), [(-1, 4), (2, -4)])
+def test_criteria_score_menolak_jumlah_negatif(met: int, total: int):
+    """Negatif: jumlah kriteria negatif ditolak, baik yang terpenuhi maupun totalnya."""
+    with pytest.raises(ValueError, match="jumlah kriteria tidak boleh negatif"):
+        criteria_score(met, total)

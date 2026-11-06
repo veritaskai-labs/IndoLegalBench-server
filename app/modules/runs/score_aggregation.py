@@ -45,6 +45,9 @@ class RubricVersion:
     weights: Mapping[RubricAspect, Decimal]
 
 
+# Rubrik v1 tidak mencantumkan bobot per aspek, ketiganya dihitung sama rata.
+# Bobotnya nanti pindah ke tabel rubric_aspects (SCRUM-222); konstanta ini
+# jadi sumber sementara supaya agregasi bisa diuji lebih dulu.
 RUBRIC_V1 = RubricVersion(
     version="v1",
     max_aspect_score=Decimal(5),
