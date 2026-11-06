@@ -44,12 +44,6 @@ def _badan(**ubah) -> dict:
             "must_not_contain": [],
             "expected_conclusion": "tidak sah",
         },
-        "traps": [
-            {
-                "description": "Mencampur upah dan pesangon",
-                "expected_model_behavior": "menolak",
-            }
-        ],
         "split_tag": "dev",
     }
     badan.update(ubah)
@@ -281,7 +275,6 @@ def test_draft_boleh_belum_lengkap(as_role):
         client,
         suite_id,
         answer_criteria={"must_contain": [], "must_not_contain": []},
-        traps=[],
     )
 
     assert response.status_code == 201
@@ -322,7 +315,7 @@ def test_daftar_menghitung_ulang_completeness(as_role, db_session):
     client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
-    case_id = _buat(client, suite_id, traps=[]).json()["id"]
+    case_id = _buat(client, suite_id).json()["id"]
 
     kasus = db_session.get(Case, uuid.UUID(case_id))
     assert kasus is not None
