@@ -15,6 +15,7 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import DBAPIError
 
+from tests.judge_pg import buat_penilai
 from tests.measurement_pg import (
     CHECK_VIOLATION,
     FOREIGN_KEY_VIOLATION,
@@ -466,14 +467,19 @@ _IDENTITAS_BARU = {
     "repetitions": "1",
     "session_type": "CAST('manual' AS measurement_session_type_enum)",
     "product_id": ":produk_lain",
-    "judge_provider_id": "gen_random_uuid()",
+    "judge_provider_id": ":penilai_lain",
 }
 
 
 def _ubah_identitas(conn, sesi_id, kolom, admin_id) -> None:
     conn.execute(
         text(f"UPDATE measurement_sessions SET {kolom} = {_IDENTITAS_BARU[kolom]} WHERE id = :id"),
-        {"id": sesi_id, "produk_lain": buat_produk(conn, admin_id)},
+        {
+            "id": sesi_id,
+            "produk_lain": buat_produk(conn, admin_id),
+            # SCRUM-258: penilai harus ada di judge_providers (FK), bukan uuid bebas.
+            "penilai_lain": buat_penilai(conn, admin_id) if kolom == "judge_provider_id" else None,
+        },
     )
 
 
@@ -558,8 +564,8 @@ def test_sesi_baru_belum_punya_waktu_antrean(conn, produk_id, admin_id):
 
 
 def test_sesi_baru_boleh_belum_punya_penilai(conn, produk_id, admin_id):
-    """AC1: penilai LLM dipilih saat membuat sesi, tetapi tabel penilai milik PBI-14
-    belum ada, jadi kolomnya boleh kosong dan belum ber-FK (review #89)."""
+    """AC1: penilai LLM dipilih saat membuat sesi, tetapi kolomnya tetap boleh kosong
+    selama form belum punya dropdown penilai (keputusan PO 7 Nov, SCRUM-258)."""
     sesi_id = _sesi(conn, produk_id, admin_id)
 
     penilai = conn.execute(
