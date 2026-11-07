@@ -221,6 +221,24 @@ def test_nama_bentrok_yang_lolos_cek_awal_tetap_409(admin, monkeypatch):
     assert response.json()["code"] == "JUDGE_PROVIDER_NAME_TAKEN"
 
 
+def test_pelanggaran_constraint_lain_tidak_disamarkan_jadi_409(db_session, encryption_key):
+    """Negatif: hanya unik nama yang menjadi 409; FK atau CHECK lain tetap terlihat sebagai
+    galat (tidak menutupi bug sebagai "nama sudah dipakai")."""
+    from sqlalchemy.exc import IntegrityError
+
+    from app.modules.providers import judge_repository, judge_service
+    from app.modules.providers.judge_schemas import JudgeProviderCreate
+
+    def gagal_fk(db, judge):
+        raise IntegrityError("INSERT", {}, Exception("violates fk_judge_providers_created_by"))
+
+    payload = JudgeProviderCreate(**_payload())
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(judge_repository, "create", gagal_fk)
+        with pytest.raises(IntegrityError):
+            judge_service.create_judge(db_session, payload, created_by=uuid.uuid4())
+
+
 def test_tanpa_kunci_enkripsi_ditolak_tanpa_menyimpan(client, db_session, monkeypatch):
     """Negatif: kunci enkripsi kosong; tidak pernah menyimpan plaintext."""
     monkeypatch.setenv("CREDENTIAL_ENCRYPTION_KEY", "")
