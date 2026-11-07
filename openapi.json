@@ -8671,7 +8671,7 @@
               }
             ],
             "title": "Judge Provider Id",
-            "description": "Provider penilai (LLM judge) yang dipilih; kosong sampai PBI-14"
+            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Boleh kosong; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
           }
         },
         "type": "object",

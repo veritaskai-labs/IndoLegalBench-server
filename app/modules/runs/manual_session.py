@@ -13,8 +13,9 @@ import uuid
 
 from app.modules.runs.models import SessionStatus
 from app.modules.runs.schemas import ManualStartRequest, ManualStartResponse
-from app.modules.runs.service import items_for_filter
+from app.modules.runs.service import ensure_judge_available, items_for_filter
 from app.modules.runs.session_ports import (
+    JudgeLock,
     ManualSessionStore,
     NewSession,
     ProductCopySource,
@@ -38,7 +39,9 @@ class ManualSessionService:
         products: ProductCopySource,
         product_lock: ProductLock,
         suites: SuiteGuard,
+        judge_lock: JudgeLock,
     ) -> None:
+        self._judge_lock = judge_lock
         self._sessions = sessions
         self._snapshots = snapshots
         self._products = products
@@ -62,6 +65,8 @@ class ManualSessionService:
                 "Tidak ada kasus yang disetujui dan bertag sesuai pilihan di suite ini.",
                 code="NO_ELIGIBLE_CASES",
             )
+        # SCRUM-258: id penilai yang tidak dikenal jadi 422, bukan 500 dari FK.
+        ensure_judge_available(self._judge_lock, request.judge_provider_id)
         session_id = self._sessions.create_manual(
             NewSession(
                 label=request.label,

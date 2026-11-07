@@ -129,6 +129,7 @@ def get_manual_session_service(db: Session = Depends(get_db)) -> ManualSessionSe
         products=ProductCopyAdapter(db),
         product_lock=ProductLockAdapter(db),
         suites=SuiteGuardAdapter(db),
+        judge_lock=JudgeLockAdapter(db),
     )
 
 

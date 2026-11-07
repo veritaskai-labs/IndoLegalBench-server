@@ -373,16 +373,7 @@ class StartSessionService:
         # INSERT sesi, supaya ganti jenis yang bersamaan tidak meloloskan sesi (D1 C6).
         if self._product_lock.lock_measurement_type(request.product_id) != "automatic":
             raise ValidationError(_PESAN_PRODUK_MANUAL, code="PRODUCT_NOT_AUTOMATIC")
-        # SCRUM-258: penilai dikunci dan dibaca ulang di transaksi yang sama, seperti produk,
-        # supaya penilai yang dinonaktifkan bersamaan tidak tersimpan di sesi. Kosong tetap
-        # boleh sampai form punya dropdown penilai (keputusan PO K2, 7 Nov).
-        judge_id = request.judge_provider_id
-        if judge_id is not None and not self._judge_lock.lock_available(judge_id):
-            raise ValidationError(
-                _PESAN_PENILAI_TIDAK_ADA,
-                code="JUDGE_PROVIDER_NOT_AVAILABLE",
-                field="judge_provider_id",
-            )
+        ensure_judge_available(self._judge_lock, request.judge_provider_id)
         queued = self._sessions.create_queued(
             NewSession(
                 label=request.label,
@@ -396,6 +387,19 @@ class StartSessionService:
             )
         )
         return StartResponse(session_id=queued.id, status=queued.status, queued_at=queued.queued_at)
+
+
+def ensure_judge_available(judge_lock: JudgeLock, judge_id: uuid.UUID | None) -> None:
+    """Penilai yang dipilih harus ada dan aktif; dipakai sesi otomatis dan manual (SCRUM-258).
+
+    Penilai dikunci dan dibaca ulang di transaksi yang sama dengan INSERT sesi, seperti
+    produk, supaya penilai yang dinonaktifkan bersamaan tidak tersimpan. Kosong tetap
+    boleh sampai form punya dropdown penilai (keputusan PO K2, 7 Nov).
+    """
+    if judge_id is not None and not judge_lock.lock_available(judge_id):
+        raise ValidationError(
+            _PESAN_PENILAI_TIDAK_ADA, code="JUDGE_PROVIDER_NOT_AVAILABLE", field="judge_provider_id"
+        )
 
 
 def _sekarang() -> datetime:
