@@ -606,6 +606,11 @@ def attempt_with_calls(
     return attempt, body, calls
 
 
+def case_completion(db: Session, session_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[int, int]]:
+    """Stub red SCRUM-265: diisi di commit green."""
+    raise NotImplementedError
+
+
 def reopen_for_retry(
     db: Session, session_id: uuid.UUID, attempt_ids: Sequence[uuid.UUID], *, at: datetime
 ) -> None:
