@@ -405,6 +405,23 @@ class Attempt(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
+    # SCRUM-231: metadata jawaban manual
+    filled_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(_USER_FK),
+        nullable=True,
+    )
+    platform_refused: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
+    )
+    manual_note: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
 
 class CallLog(Base):
     """Satu baris per upaya.
@@ -440,4 +457,56 @@ class CallLog(Base):
     )
     is_manual_retry: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
+    )
+
+
+class AnswerHistory(Base):
+    """Riwayat jawaban manual sebelum ditimpa."""
+
+    __tablename__ = "answer_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    attempt_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("attempts.id"),
+        nullable=False,
+        index=True,
+    )
+    answer_md: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    filled_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(_USER_FK),
+        nullable=True,
+    )
+    filled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    obtained_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    platform_refused: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+    )
+    note: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    overwritten_by: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(_USER_FK),
+        nullable=False,
+    )
+    overwritten_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
     )
