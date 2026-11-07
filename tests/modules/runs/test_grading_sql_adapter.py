@@ -19,7 +19,7 @@ from app.modules.grading.models import (
 from app.modules.grading.models import (
     RubricVersion as DbRubricVersion,
 )
-from app.modules.grading.service import (
+from app.modules.grading.run_service import (
     active_rubric_version_no,
     publish_latest_run,
     read_latest_grades,

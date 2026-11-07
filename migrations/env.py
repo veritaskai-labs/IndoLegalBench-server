@@ -6,8 +6,6 @@ lupa, Alembic tidak akan melihat tabel itu dan autogenerate akan
 menghasilkan migration yang salah (menganggap tabelnya harus dihapus).
 """
 
-import logging
-import sys
 from logging.config import fileConfig
 
 from alembic import context
@@ -32,19 +30,7 @@ from app.shared.database import Base
 config = context.config
 
 if config.config_file_name is not None:
-    if not logging.getLogger().handlers:
-        fileConfig(config.config_file_name)
-    else:
-        migration_logger = logging.getLogger("alembic.runtime.migration")
-
-        if not any(
-            getattr(handler, "_ilb_alembic_stderr", False) for handler in migration_logger.handlers
-        ):
-            handler = logging.StreamHandler(sys.__stderr__)
-            handler.setLevel(logging.WARNING)
-            handler.setFormatter(logging.Formatter("%(levelname)s [%(name)s] %(message)s"))
-            handler._ilb_alembic_stderr = True
-            migration_logger.addHandler(handler)
+    fileConfig(config.config_file_name)
 
 # URL database diambil dari settings, bukan dari alembic.ini,
 # supaya kredensial tidak pernah masuk ke repo.

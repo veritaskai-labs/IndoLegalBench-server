@@ -22,7 +22,7 @@ from app.modules.grading.regrade_sql import (
     mark_sql_regrade_failed,
     start_sql_regrade,
 )
-from app.modules.grading.service import (
+from app.modules.grading.run_service import (
     read_latest_grades,
     read_run_history,
 )

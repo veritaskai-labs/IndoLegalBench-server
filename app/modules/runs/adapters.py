@@ -14,13 +14,13 @@ from sqlalchemy.orm import Session
 
 from app.modules.auth import service as auth_service
 from app.modules.cases import service as cases_service
-from app.modules.grading import service as grading_service
+from app.modules.grading import run_service as grading_service
 from app.modules.providers import service as providers_service
 from app.modules.runs import repository
 from app.modules.runs.call_log import month_start
+from app.modules.runs.grading_ports import GradeScoreSnapshot
 from app.modules.runs.progress_ports import SessionProgress
 from app.modules.runs.repository import CallLogRepository
-from app.modules.runs.score_aggregation import RubricVersion as ScoreRubricVersion
 from app.modules.runs.session_ports import ProductCopy, SnapshotItem
 from app.modules.runs.snapshot_cases import CaseFacts, case_facts_from_body
 from app.modules.runs.summary_ports import ProductInfo
@@ -229,10 +229,6 @@ class SqlGradingReader:
         self._db = db
 
     def latest(self, session_id: uuid.UUID):
-        # Local import avoids a circular dependency:
-        # score_report imports SnapshotCaseAdapter from this module.
-        from app.modules.runs.score_report import GradeScoreSnapshot
-
         stored = grading_service.read_latest_grades(self._db, session_id)
 
         return GradeScoreSnapshot(
@@ -242,14 +238,3 @@ class SqlGradingReader:
             quality=stored.quality,
             format=stored.format,
         )
-
-
-class ActiveRubricAdapter:
-    """Provide the active rubric to RegradeService."""
-
-    def __init__(self, db: Session) -> None:
-        self._db = db
-
-    def latest(self) -> ScoreRubricVersion:
-        version = grading_service.active_rubric_version_no(self._db)
-        return ScoreRubricVersion(version=f"v{version}")

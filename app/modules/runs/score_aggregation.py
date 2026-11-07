@@ -68,12 +68,21 @@ class GradingRecord:
     is_latest: bool
 
 
-def mean_score(scores: Iterable[Decimal | None]) -> Decimal | None:
+def raw_mean_score(scores: Iterable[Decimal | None]) -> Decimal | None:
+    """Unrounded intermediate average; never feed display-rounded values into roll-ups."""
     values = [score for score in scores if score is not None]
     if not values:
         return None
+    return sum(values, Decimal(0)) / Decimal(len(values))
 
-    return (sum(values, Decimal(0)) / Decimal(len(values))).quantize(_CENT, rounding=ROUND_HALF_UP)
+
+def round_score(value: Decimal | None) -> Decimal | None:
+    """Round only when exposing an individual score to the caller."""
+    return value.quantize(_CENT, rounding=ROUND_HALF_UP) if value is not None else None
+
+
+def mean_score(scores: Iterable[Decimal | None]) -> Decimal | None:
+    return round_score(raw_mean_score(scores))
 
 
 def repetition_score(attempt_scores: Iterable[Decimal | None]) -> Decimal | None:

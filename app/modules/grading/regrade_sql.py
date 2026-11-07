@@ -20,7 +20,7 @@ from app.modules.grading.models import (
     LlmJudgeResult,
     RubricVersion,
 )
-from app.modules.grading.service import (
+from app.modules.grading.run_service import (
     assert_run_complete,
     publish_latest_run,
 )

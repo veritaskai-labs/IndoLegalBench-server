@@ -89,3 +89,27 @@ def test_missing_scores_are_none_not_zero():
 
     assert result.totals.combined.judge is None
     assert result.totals.combined.deterministic is None
+
+
+def test_no_repeated_rounding_between_repetitions_and_product():
+    case_a, case_b = uuid.uuid4(), uuid.uuid4()
+    a1, a2, b1 = uuid.uuid4(), uuid.uuid4(), uuid.uuid4()
+    facts = [
+        CaseFacts(case_a, "A", SplitTag.DEV, None),
+        CaseFacts(case_b, "B", SplitTag.DEV, None),
+    ]
+    attempts = [AttemptCase(a1, case_a), AttemptCase(a2, case_a), AttemptCase(b1, case_b)]
+    grades = [
+        grade(a1, GradePath.DETERMINISTIC, "0.66"),
+        grade(a2, GradePath.DETERMINISTIC, "0.67"),
+        grade(b1, GradePath.DETERMINISTIC, "0.00"),
+    ]
+    from app.modules.runs.session_scores import aggregate_attempt_maps
+
+    historical = aggregate_session_scores(facts, attempts, grades)
+    mapped = aggregate_attempt_maps(
+        facts, attempts, {a1: Decimal("0.66"), a2: Decimal("0.67"), b1: Decimal("0")}, {}
+    )
+    assert historical == mapped
+    assert historical.cases[0].scores.deterministic == Decimal("0.67")
+    assert historical.totals.combined.deterministic == Decimal("0.33")
