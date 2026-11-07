@@ -492,7 +492,9 @@ class MeasurementSessionTracker(Tracker):
     def updated(self, row: Any, changes: dict[str, Change]) -> list[AuditEvent]:
         events = []
         if "archived_at" in changes:
-            events.append(self._field_event(row, "archived", "archived_at", changes["archived_at"]))
+            arsip = changes["archived_at"]
+            verb = "archived" if arsip.new is not None else "unarchived"
+            events.append(self._field_event(row, verb, "archived_at", arsip))
         if "accepted_as_is_at" in changes:
             events.append(self._acceptance_event(row, changes))
         return events

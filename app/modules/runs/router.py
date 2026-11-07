@@ -34,6 +34,7 @@ from app.modules.runs.schemas import (
     SessionListItem,
     SessionRetryRequest,
     SessionRetryResponse,
+    SessionUnarchiveResponse,
     StartRequest,
     StartResponse,
     SummaryRequest,
@@ -46,6 +47,7 @@ from app.modules.runs.session_control_router import router as control_router
 from app.modules.runs.session_detail import SessionDetailService
 from app.modules.runs.session_list import SessionListService
 from app.modules.runs.session_retry import retry_failed_attempts
+from app.modules.runs.session_unarchive import unarchive_session
 from app.shared.database import get_db
 from app.shared.security import CurrentUser, Role, require_roles
 
@@ -65,6 +67,9 @@ _retry_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
 
 router = APIRouter(prefix="/measurements", tags=["measurements"])
 router.include_router(control_router)
+
+# Deskripsi 404 yang sama di semua route yang membaca satu sesi.
+_SESI_TIDAK_ADA = "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."
 
 _RESPONS_RINGKASAN = {
     404: {
@@ -140,22 +145,21 @@ def read_progress(
 @router.get(
     "",
     response_model=list[SessionListItem],
-    summary="Daftar sesi pengukuran yang belum diarsipkan, terbaru di atas",
+    summary="Daftar sesi pengukuran, terbaru di atas. archived=true menampilkan sesi arsip",
     dependencies=[Depends(_session_list_roles)],
 )
 def list_sessions(
+    archived: bool = False,
     service: SessionListService = Depends(get_session_list_service),
 ) -> list[SessionListItem]:
-    return service.list()
+    return service.list(archived=archived)
 
 
 @router.get(
     "/{session_id}",
     response_model=SessionDetail,
     summary="Detail sesi dengan jawaban mentah per kasus dan percobaan",
-    responses={
-        404: {"model": ErrorBody, "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."}
-    },
+    responses={404: {"model": ErrorBody, "description": _SESI_TIDAK_ADA}},
 )
 def get_session(
     session_id: uuid.UUID,
@@ -174,7 +178,7 @@ _RESPONS_ARSIP = {
             "buatan orang lain (`NOT_YOUR_SESSION`)."
         ),
     },
-    404: {"model": ErrorBody, "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."},
+    404: {"model": ErrorBody, "description": _SESI_TIDAK_ADA},
     409: {
         "model": ErrorBody,
         "description": (
@@ -205,9 +209,41 @@ def archive(
     )
 
 
+_RESPONS_UNARCHIVE = {
+    403: {
+        "model": ErrorBody,
+        "description": (
+            "Peran tidak berwenang (`FORBIDDEN`), atau Developer AI memulihkan sesi "
+            "buatan orang lain (`NOT_YOUR_SESSION`)."
+        ),
+    },
+    404: {"model": ErrorBody, "description": _SESI_TIDAK_ADA},
+    409: {"model": ErrorBody, "description": "Sesi belum diarsipkan (`SESSION_NOT_ARCHIVED`)."},
+}
+
+
+@router.patch(
+    "/{session_id}/unarchive",
+    response_model=SessionUnarchiveResponse,
+    summary="Kembalikan sesi dari arsip ke daftar utama tanpa mengubah status",
+    responses=_RESPONS_UNARCHIVE,
+)
+def unarchive(
+    session_id: uuid.UUID,
+    user: CurrentUser = Depends(_archive_roles),
+    db: Session = Depends(get_db),
+) -> SessionUnarchiveResponse:
+    return unarchive_session(
+        db,
+        session_id,
+        actor_id=uuid.UUID(str(user.user_id)),
+        actor_role=user.role,
+    )
+
+
 _RESPONS_TERIMA = {
     403: {"model": ErrorBody, "description": "Hanya Admin (`FORBIDDEN`)."},
-    404: {"model": ErrorBody, "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."},
+    404: {"model": ErrorBody, "description": _SESI_TIDAK_ADA},
 }
 
 
@@ -269,7 +305,7 @@ def clear_accept(session_id: uuid.UUID, db: Session = Depends(get_db)) -> Sessio
                 "buatan orang lain (`NOT_YOUR_SESSION`)."
             ),
         },
-        404: {"model": ErrorBody, "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."},
+        404: {"model": ErrorBody, "description": _SESI_TIDAK_ADA},
         409: {
             "model": ErrorBody,
             "description": (
