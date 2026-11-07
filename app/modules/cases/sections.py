@@ -1,4 +1,4 @@
-"""The eight sections SCRUM-137 compares.
+"""The seven sections SCRUM-137 compares.
 
 Option 1, chosen for this ticket. A changed section is one of:
 
@@ -9,7 +9,10 @@ Option 1, chosen for this ticket. A changed section is one of:
 - split_tag
 - legal_refs
 - answer_criteria
-- traps
+
+Traps were an eighth section until SCRUM-256. The client dropped them (PBI-14
+AC4), so they are neither compared nor copied into new snapshots. Older
+versions and snapshots keep their traps in stored JSON, unread.
 
 `category` is the optional case-identity label, for example "ketenagakerjaan".
 It is not a citation field. `legal_refs` stays one section so a later
@@ -35,7 +38,6 @@ SECTIONS = (
     "split_tag",
     "legal_refs",
     "answer_criteria",
-    "traps",
 )
 
 
@@ -46,7 +48,7 @@ def sections_from(
     content: dict | None,
     legal_refs: list[dict[str, Any]],
 ) -> dict[str, Any]:
-    """Map one version onto the eight section names.
+    """Map one version onto the seven section names.
 
     legal_refs is passed in already read in the PBI-21 shape with its
     display_text (SCRUM-160), because the stored content of an older version
@@ -61,7 +63,6 @@ def sections_from(
         "split_tag": split_tag,
         "legal_refs": legal_refs,
         "answer_criteria": stored.get("answer_criteria") or {},
-        "traps": stored.get("traps") or [],
     }
 
 

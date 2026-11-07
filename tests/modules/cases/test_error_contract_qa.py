@@ -79,10 +79,6 @@ class TestBentukBadanError:
                 "judul kepanjangan",
                 {"identity": {"title": "j" * 301, "question": "Sah?", "category": None}},
             ),
-            (
-                "jebakan tanpa deskripsi",
-                {"traps": [{"description": "", "expected_model_behavior": None}]},
-            ),
         ],
     )
     def test_setiap_penolakan_memakai_kunci_yang_dibaca_frontend(self, as_role, nama, ubah):
@@ -139,17 +135,6 @@ class TestBentukBadanError:
         field = respons.json()["field"]
         assert field == "identity.title"
         assert POLA_FIELD.match(field), f"jalur {field!r} di luar format yang dikenal editor"
-
-    def test_jalur_pada_daftar_jebakan_menunjuk_barisnya(self, as_role):
-        client = as_role(Role.CONTRIBUTOR)
-        suite_id = _suite(client, "Ketenagakerjaan QA")
-
-        respons = client.post(
-            f"/suites/{suite_id}/cases",
-            json=_badan(traps=[{"description": "", "expected_model_behavior": None}]),
-        )
-
-        assert respons.json()["field"] == "traps[0].description"
 
 
 class TestKodeYangDicabangkanFrontend:
