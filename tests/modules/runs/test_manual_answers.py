@@ -9,16 +9,18 @@ from sqlalchemy import select
 from app.modules.runs.models import AnswerHistory, Attempt
 from app.shared.security import Role
 from tests.modules.runs.test_manual_session_detail import _sesi_manual
-from tests.modules.runs.test_manual_session_endpoint import siap_manual as manual_setup
+
+pytest_plugins = ("tests.modules.runs.test_manual_session_endpoint",)
 
 
 @pytest.fixture
-def manual(manual_setup):
-    session_id = _sesi_manual(manual_setup, repeat_count=1)
-    attempts = manual_setup.db.scalars(
+def manual(siap_manual):
+    session_id = _sesi_manual(siap_manual, repeat_count=1)
+    attempts = siap_manual.db.scalars(
         select(Attempt).where(Attempt.session_id == session_id).order_by(Attempt.id)
     ).all()
-    return manual_setup, session_id, attempts
+
+    return siap_manual, session_id, attempts
 
 
 def path(session_id):
@@ -78,6 +80,7 @@ def test_platform_refused_tanpa_teks_diperbolehkan(manual):
             attempts[0],
             answer_md=None,
             platform_refused=True,
+            note="Platform menolak menjawab",
         ),
     )
 
@@ -181,3 +184,63 @@ def test_role_tidak_diizinkan(manual, role):
     )
 
     assert response.status_code == 403
+
+
+@pytest.mark.parametrize("note", [None, "", " \t\n"])
+def test_refusal_must_include_note(manual, note):
+    ctx, session_id, attempts = manual
+
+    response = ctx.sebagai(Role.ADMIN).put(
+        path(session_id),
+        json=payload(
+            attempts[0],
+            answer_md=None,
+            platform_refused=True,
+            note=note,
+        ),
+    )
+
+    assert response.status_code == 422, response.text
+
+
+def test_save_recomputes_progress_and_date_range(manual):
+    ctx, session_id, attempts = manual
+    client = ctx.sebagai(Role.ADMIN)
+
+    dates = [
+        "2026-11-05T12:00:00+07:00",
+        "2026-11-07T09:00:00+07:00",
+        "2026-11-06T10:00:00+07:00",
+    ]
+
+    assert len(attempts) == len(dates)
+
+    for i, attempt in enumerate(attempts):
+        response = client.put(
+            path(session_id),
+            json=payload(attempt, obtained_at=dates[i]),
+        )
+
+        assert response.status_code == 200, response.text
+
+        status = "complete" if i == len(attempts) - 1 else "partially_filled"
+
+        assert response.json()["session_status"] == status
+
+        detail_response = client.get(f"/manual-measurements/{session_id}")
+
+        assert detail_response.status_code == 200
+        detail = detail_response.json()
+
+        assert detail["status"] == status
+        assert detail["filled_answers"] == i + 1
+
+    assert (
+        datetime.fromisoformat(detail["answer_date_from"]).timestamp()
+        == datetime.fromisoformat(dates[0]).timestamp()
+    )
+
+    assert (
+        datetime.fromisoformat(detail["answer_date_to"]).timestamp()
+        == datetime.fromisoformat(dates[1]).timestamp()
+    )

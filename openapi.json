@@ -4180,7 +4180,7 @@
             }
           },
           "422": {
-            "description": "Jawaban kosong atau percobaan tidak valid.",
+            "description": "Jawaban atau catatan penolakan kosong, atau percobaan tidak valid.",
             "content": {
               "application/json": {
                 "schema": {
@@ -8680,7 +8680,8 @@
                 "type": "null"
               }
             ],
-            "title": "Note"
+            "title": "Note",
+            "description": "Required nonblank when platform_refused is true"
           },
           "requires_confirmation": {
             "type": "boolean",

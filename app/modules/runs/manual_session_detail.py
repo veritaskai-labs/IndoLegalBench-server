@@ -9,6 +9,7 @@ filter "belum terisi" hanya menyaring kartu yang dikirim.
 import uuid
 from collections import defaultdict
 from collections.abc import Sequence
+from datetime import UTC, datetime
 
 from app.modules.runs.manual_session_rules import date_range_exceeds
 from app.modules.runs.schemas import (
@@ -21,6 +22,13 @@ from app.modules.runs.schemas import (
 from app.modules.runs.session_ports import ManualAttemptRow, ManualCaseRow, ManualSessionRow
 
 
+def _as_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
 def build_manual_detail(
     row: ManualSessionRow,
     cases: Sequence[ManualCaseRow],
@@ -29,6 +37,8 @@ def build_manual_detail(
     unfilled_only: bool,
     warning_days: int | None,
 ) -> ManualSessionDetail:
+    date_from = _as_utc(row.answer_date_from)
+    date_to = _as_utc(row.answer_date_to)
     slots = _slots_per_case(attempts)
     cards = sorted(
         (_card(case, slots[case.snapshot_item_id]) for case in cases),
@@ -47,11 +57,9 @@ def build_manual_detail(
         repetitions=row.repetitions,
         filled_answers=sum(attempt.filled for attempt in attempts),
         total_answers=len(attempts),
-        answer_date_from=row.answer_date_from,
-        answer_date_to=row.answer_date_to,
-        date_range_warning=date_range_exceeds(
-            row.answer_date_from, row.answer_date_to, limit_days=warning_days
-        ),
+        answer_date_from=date_from,
+        answer_date_to=date_to,
+        date_range_warning=date_range_exceeds(date_from, date_to, limit_days=warning_days),
         created_by=row.created_by,
         created_at=row.created_at,
         finalized_at=row.finalized_at,

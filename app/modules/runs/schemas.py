@@ -491,7 +491,10 @@ class ManualAnswerSaveRequest(BaseModel):
     answer_md: str | None = None
     obtained_at: datetime | None = None
     platform_refused: bool = Field(default=False, strict=True)
-    note: str | None = None
+    note: str | None = Field(
+        default=None,
+        description="Required nonblank when platform_refused is true",
+    )
     requires_confirmation: bool = Field(default=False, strict=True)
 
     @field_validator("obtained_at")
@@ -506,6 +509,8 @@ class ManualAnswerSaveRequest(BaseModel):
     def validate_answer(self):
         if not self.platform_refused and (self.answer_md is None or not self.answer_md.strip()):
             raise ValueError("answer_md must contain text unless platform_refused is true")
+        if self.platform_refused and (self.note is None or not self.note.strip()):
+            raise ValueError("note must contain text when platform_refused is true")
         return self
 
 

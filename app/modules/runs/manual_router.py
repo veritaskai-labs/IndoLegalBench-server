@@ -139,7 +139,7 @@ def read_manual_session(
         },
         422: {
             "model": ErrorBody,
-            "description": "Jawaban kosong atau percobaan tidak valid.",
+            "description": ("Jawaban atau catatan penolakan kosong, atau percobaan tidak valid."),
         },
     },
 )
