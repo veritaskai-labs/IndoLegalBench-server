@@ -125,7 +125,7 @@ def read_manual_session(
     unfilled: bool = Query(
         default=False, description="Filter 'belum terisi': hanya kasus yang masih kosong"
     ),
-    _user: CurrentUser = Depends(_viewers),
+    user: CurrentUser = Depends(_viewers),
     service: ManualSessionStatusService = Depends(get_manual_status_service),
     settings: Settings = Depends(get_settings),
 ) -> ManualSessionDetail:
@@ -133,6 +133,8 @@ def read_manual_session(
         session_id,
         unfilled_only=unfilled,
         warning_days=settings.manual_answer_date_warning_days,
+        role=user.role,
+        evidence_visibility=settings.manual_evidence_visibility,
     )
 
 

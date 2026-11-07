@@ -9776,9 +9776,16 @@
             "title": "Filled At"
           },
           "evidence_count": {
-            "type": "integer",
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Evidence Count",
-            "description": "Jumlah bukti jawaban ini, maks 3 (AC7)",
+            "description": "Jumlah bukti jawaban ini, maks 3 (AC7). null bila peran Anda tidak boleh melihat bukti (MANUAL_EVIDENCE_VISIBILITY)",
             "default": 0
           }
         },

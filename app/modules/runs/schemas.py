@@ -444,7 +444,13 @@ class ManualAttemptSlot(BaseModel):
     note: str | None = None
     filled_by: uuid.UUID | None = None
     filled_at: UtcDateTime | None = None
-    evidence_count: int = Field(default=0, description="Jumlah bukti jawaban ini, maks 3 (AC7)")
+    evidence_count: int | None = Field(
+        default=0,
+        description=(
+            "Jumlah bukti jawaban ini, maks 3 (AC7). null bila peran Anda tidak boleh melihat "
+            "bukti (MANUAL_EVIDENCE_VISIBILITY)"
+        ),
+    )
 
 
 class ManualCaseProgress(BaseModel):
