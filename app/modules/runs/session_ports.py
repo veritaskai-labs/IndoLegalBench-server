@@ -76,6 +76,10 @@ class ProductCopy:
     price_input_usd_per_mtok: Decimal | None
     price_output_usd_per_mtok: Decimal | None
     monthly_budget_idr: Decimal | None
+    # Produk manual (PBI-23 AC3, sesi manual PBI-22): penyedia dan situs tempat tim legal
+    # bertanya. Kosong untuk produk otomatis.
+    vendor_name: str | None = None
+    site_url: str | None = None
 
 
 class SessionQueueStore(Protocol):
@@ -126,4 +130,17 @@ class SnapshotSource(Protocol):
 class ProductCopySource(Protocol):
     def copy(self, product_id: uuid.UUID) -> ProductCopy:
         """Data produk saat ini, tanpa kredensial."""
+        raise NotImplementedError
+
+
+class ManualSessionStore(Protocol):
+    def create_manual(
+        self, new: NewSession, *, items: Sequence[SnapshotItem], product: ProductCopy
+    ) -> uuid.UUID:
+        """Sesi manual Belum terisi + suite + snapshot + salinan produk + percobaan kosong.
+
+        Satu transaksi, di session database yang sama dengan kunci produk (kontrak #90).
+        Percobaan dibuat untuk setiap kasus x percobaan, supaya progres "X dari N" dan
+        status D8 dihitung dari baris yang sama (PBI-22 AC8).
+        """
         raise NotImplementedError
