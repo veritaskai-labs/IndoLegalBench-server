@@ -7,7 +7,7 @@ TODO(PBI-11, PBI-12, PBI-13): definisikan schema sesuai kontrak.
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
 from typing import Literal
@@ -22,8 +22,6 @@ from app.modules.cases.schemas import VersionSections
 # Satu enum status sesi untuk tabel (#89) dan kontrak API, supaya keduanya tidak menyimpang.
 from app.modules.runs.models import AttemptSource, AttemptStatus, SessionStatus, StopReason
 from app.shared.text import strip_blank
-
-from datetime import UTC, datetime
 
 # PBI-11 AC3: satu angka pengulangan untuk seluruh pengukuran.
 MIN_REPEATS = 1
@@ -484,6 +482,7 @@ class SessionResumeResponse(BaseModel):
     resumed_after_long_pause: bool
     model_version_unverified: bool
 
+
 class ManualAnswerSaveRequest(BaseModel):
     """Request menyimpan jawaban manual."""
 
@@ -497,9 +496,7 @@ class ManualAnswerSaveRequest(BaseModel):
 
     @field_validator("obtained_at")
     @classmethod
-    def validate_obtained_at(
-        cls, value: datetime | None
-    ) -> datetime | None:
+    def validate_obtained_at(cls, value: datetime | None) -> datetime | None:
         if value is not None and value.utcoffset() is None:
             raise ValueError("obtained_at must include a timezone")
 
@@ -507,11 +504,8 @@ class ManualAnswerSaveRequest(BaseModel):
 
     @model_validator(mode="after")
     def validate_answer(self):
-        if not self.platform_refused:
-            if self.answer_md is None or not self.answer_md.strip():
-                raise ValueError(
-                    "answer_md must contain text unless platform_refused is true"
-                )
+        if not self.platform_refused and (self.answer_md is None or not self.answer_md.strip()):
+            raise ValueError("answer_md must contain text unless platform_refused is true")
         return self
 
 

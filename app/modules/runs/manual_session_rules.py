@@ -89,10 +89,7 @@ def answer_date_range(
         if value is None:
             continue
 
-        if value.tzinfo is None:
-            value = value.replace(tzinfo=UTC)
-        else:
-            value = value.astimezone(UTC)
+        value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
 
         dates.append(value)
 

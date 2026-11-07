@@ -1,4 +1,3 @@
-
 """TDD untuk penyimpanan jawaban manual SCRUM-231."""
 
 import uuid
@@ -10,18 +9,16 @@ from sqlalchemy import select
 from app.modules.runs.models import AnswerHistory, Attempt
 from app.shared.security import Role
 from tests.modules.runs.test_manual_session_detail import _sesi_manual
-from tests.modules.runs.test_manual_session_endpoint import siap_manual  # noqa: F401
+from tests.modules.runs.test_manual_session_endpoint import siap_manual as manual_setup
 
 
 @pytest.fixture
-def manual(siap_manual):
-    session_id = _sesi_manual(siap_manual, repeat_count=1)
-    attempts = siap_manual.db.scalars(
-        select(Attempt)
-        .where(Attempt.session_id == session_id)
-        .order_by(Attempt.id)
+def manual(manual_setup):
+    session_id = _sesi_manual(manual_setup, repeat_count=1)
+    attempts = manual_setup.db.scalars(
+        select(Attempt).where(Attempt.session_id == session_id).order_by(Attempt.id)
     ).all()
-    return siap_manual, session_id, attempts
+    return manual_setup, session_id, attempts
 
 
 def path(session_id):
@@ -119,9 +116,7 @@ def test_overwrite_harus_dikonfirmasi_dan_disimpan_di_history(manual):
     assert history[0].answer_md == "Jawaban lama"
     assert history[0].overwritten_by is not None
 
-    response = client.get(
-        f"{path(session_id)}/{attempt.snapshot_item_id}/1/history"
-    )
+    response = client.get(f"{path(session_id)}/{attempt.snapshot_item_id}/1/history")
     assert response.status_code == 200
     assert response.json()[0]["answer_md"] == "Jawaban lama"
 
