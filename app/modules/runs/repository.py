@@ -267,6 +267,8 @@ class SessionListRepository:
                     status=AttemptStatus(attempt.status),
                     answer_text=attempt.answer_text,
                     model_version=attempt.model_version,
+                    started_at=attempt.started_at,
+                    finished_at=attempt.finished_at,
                 )
             )
         return [

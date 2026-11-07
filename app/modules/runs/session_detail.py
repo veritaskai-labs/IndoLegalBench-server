@@ -34,6 +34,8 @@ class AttemptRow:
     status: AttemptStatus
     answer_text: str | None
     model_version: str | None
+    started_at: datetime | None = None
+    finished_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -135,6 +137,9 @@ def _case(case: CaseRow, *, hide_test: bool, hide_answers: bool) -> SessionCaseR
                 status=attempt.status,
                 answer_text=None if masked or hide_answers else attempt.answer_text,
                 model_version=attempt.model_version,
+                # Waktu tidak memuat isi kasus, jadi tidak ikut disamarkan.
+                started_at=attempt.started_at,
+                finished_at=attempt.finished_at,
             )
             for attempt in case.attempts
         ],
