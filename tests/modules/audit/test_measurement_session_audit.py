@@ -131,3 +131,32 @@ def test_halaman_audit_menampilkan_label_sesi(as_role, db_session):
     (item,) = response.json()["items"]
     assert item["action"] == "measurement_session.archived"
     assert item["entity_label"] == "Run November"
+
+
+def test_unarchive_dicatat_sebagai_measurement_session_unarchived():
+    """Positif: archived_at kembali null menjadi event unarchived, bukan archived."""
+    # Arrange
+    tracker = tracker_for("measurement_sessions")
+
+    # Act
+    (event,) = tracker.updated(_baris(), {"archived_at": Change(WAKTU_ARSIP, None)})
+
+    # Assert
+    assert event.action == "measurement_session.unarchived"
+    assert event.entity_id == SESI_ID
+    assert event.before == {"archived_at": WAKTU_ARSIP.isoformat()}
+    assert event.after == {"archived_at": None}
+
+
+def test_arsip_ulang_setelah_unarchive_tetap_dicatat_archived():
+    """Edge: siklus arsip lagi memakai waktu baru dan kembali menjadi event archived."""
+    # Arrange
+    tracker = tracker_for("measurement_sessions")
+    waktu_baru = datetime(2026, 11, 5, 9, 0, tzinfo=UTC)
+
+    # Act
+    (event,) = tracker.updated(_baris(), {"archived_at": Change(None, waktu_baru)})
+
+    # Assert
+    assert event.action == "measurement_session.archived"
+    assert event.after == {"archived_at": waktu_baru.isoformat()}
