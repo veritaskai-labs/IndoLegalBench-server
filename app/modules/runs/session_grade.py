@@ -39,6 +39,7 @@ from app.modules.legal_refs.seed import load_regulation_types
 from app.modules.legal_refs.service import TypeName
 from app.modules.providers import service as providers_service
 from app.modules.runs.citation_score import CitationScorer
+from app.modules.runs.manual_grade_gate import ManualGradeGate
 from app.modules.runs.models import (
     Attempt,
     AttemptSource,
@@ -49,6 +50,7 @@ from app.modules.runs.models import (
     MeasurementSession,
     SessionStatus,
 )
+from app.modules.runs.repository import ManualSessionRepository
 from app.modules.runs.schemas import (
     AttemptGradeResult,
     CaseGradeResult,
@@ -1766,7 +1768,13 @@ def grade_session(
     if session is None:
         raise NotFoundError("Pengukuran tidak ditemukan.", code="MEASUREMENT_NOT_FOUND")
 
-    ensure_session_gradable(session)
+    # PBI-22 AC9 (SCRUM-233): sesi manual memakai prasyarat D7 (409 NOT_COMPLETE) dan arsip
+    # dari gate; sesi otomatis tetap aturan D4. Gate tidak mengunci selama judge berjalan.
+    gate = ManualGradeGate(ManualSessionRepository(db))
+    if gate.before_grading(session_id) is None:
+        ensure_session_gradable(session)
+    # Satu waktu untuk hasil penilaian dan status Dinilai (review Elision #121).
+    now = now or datetime.now(UTC)
 
     grading_store = store or DbGradingStore(db)
     cases = _load_case_grade_inputs(db, session_id)
@@ -1795,6 +1803,8 @@ def grade_session(
         grading_store.save_grading_run(response, cases_input=cases)
     else:
         grading_store.save_grading_run(response)
+    # D8: Lengkap -> Dinilai di transaksi yang sama dengan hasilnya; sesi otomatis tidak berubah.
+    gate.after_grading(session_id, now=now)
     db.commit()
     return response
 

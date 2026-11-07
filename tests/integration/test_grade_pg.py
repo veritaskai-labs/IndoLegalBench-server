@@ -59,7 +59,9 @@ def pg():
 def _setup_pg_grade_session(conn, extra_disrupted: bool = False):
     admin_id = buat_admin(conn)
     product_id = buat_produk(conn, admin_id)
-    session_id = buat_sesi(conn, product_id, admin_id)
+    # Sesi otomatis: status D4 'finished' di bawah hanya sah untuk sesi otomatis; sesi manual
+    # berstatus D4 ditolak ManualGradeGate (review #116, wiring review Elision #121).
+    session_id = buat_sesi(conn, product_id, admin_id, session_type="automatic")
     buat_versi_aktif(conn, admin_id)
 
     body_data = {
