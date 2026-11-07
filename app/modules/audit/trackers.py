@@ -544,8 +544,9 @@ class AttemptTracker(Tracker):
     """Jawaban manual disimpan atau ditimpa. PBI-22 AC9 (SCRUM-233), D9 answer_saved/overwritten.
 
     Dicatat di sesinya (entity measurement_session), seperti snapshot suite dicatat di
-    suitenya: yang ditelusuri Admin adalah sesi, dan percobaan mana ada di after. Hanya
-    filled_at yang dipantau, karena SCRUM-231 selalu menulisnya ulang setiap simpan.
+    suitenya: yang ditelusuri Admin adalah sesi, dan percobaan mana ada di after. Semua
+    kolom jawaban dipantau, bukan hanya filled_at (review Elision #121): isi yang berubah
+    tanpa filled_at baru tetap tercatat sebagai timpa. Simpan pertama = filled_at dari NULL.
 
     Isi jawaban dan catatan penolakan tidak disalin: versi lama utuh di answer_history.
     Jawaban otomatis tidak dicatat di sini; buktinya call_logs (SCRUM-209).
@@ -553,20 +554,29 @@ class AttemptTracker(Tracker):
 
     entity_type = AuditEntityType.MEASUREMENT_SESSION
     prefix = "measurement_session"
-    fields = ("filled_at",)
+    fields = (
+        "filled_at",
+        "filled_by",
+        "answer_text",
+        "manual_note",
+        "platform_refused",
+        "answered_at_platform",
+    )
 
     def created(self, row: Any) -> list[AuditEvent]:
         # Percobaan kosong dibuat bersama snapshot saat sesi dibuat; belum ada jawaban.
         return []
 
     def updated(self, row: Any, changes: dict[str, Change]) -> list[AuditEvent]:
-        filled = changes.get("filled_at")
-        if filled is None or filled.new is None or _json(row.source) != "manual":
+        # Tanpa filled_at belum ada jawaban; trigger SCRUM-231 tidak pernah mengosongkannya.
+        if row.filled_at is None or _json(row.source) != "manual":
             return []
-        if filled.old is None:
+        filled = changes.get("filled_at")
+        if filled is not None and filled.old is None:
             verb, before = "answer_saved", None
         else:
-            verb, before = "answer_overwritten", {"filled_at": _json(filled.old)}
+            old = row.filled_at if filled is None else filled.old
+            verb, before = "answer_overwritten", {"filled_at": _json(old)}
         after = {
             "attempt_id": str(row.id),
             "snapshot_item_id": str(row.snapshot_item_id),
@@ -575,7 +585,7 @@ class AttemptTracker(Tracker):
             "platform_refused": bool(row.platform_refused),
             "answered_at_platform": _json(row.answered_at_platform),
             "filled_by": _json(row.filled_by),
-            "filled_at": _json(filled.new),
+            "filled_at": _json(row.filled_at),
         }
         return [
             AuditEvent(
