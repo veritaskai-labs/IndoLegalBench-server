@@ -70,14 +70,22 @@ def _setup_pg_grade_session(conn, extra_disrupted: bool = False):
     if extra_disrupted:
         disrupt_att_id = buat_percobaan(conn, session_id, admin_id)
         conn.execute(
+            text("UPDATE attempts SET status = 'running' WHERE id = :id"),
+            {"id": disrupt_att_id},
+        )
+        conn.execute(
             text(
-                "UPDATE attempts SET status = 'failed', failure_kind = 'platform_refused', "
+                "UPDATE attempts SET status = 'technical_failure', failure_kind = 'platform_refused', "
                 "answer_text = 'Maaf, saya tidak dapat menjawab pertanyaan ini.' "
                 "WHERE id = :id"
             ),
             {"id": disrupt_att_id},
         )
 
+    conn.execute(
+        text("UPDATE attempts SET status = 'running' WHERE id = :id"),
+        {"id": attempt_id},
+    )
     conn.execute(
         text(
             "UPDATE attempts SET status = 'succeeded', "
