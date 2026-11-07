@@ -4126,6 +4126,74 @@
         }
       }
     },
+    "/measurements/{session_id}/grading-runs": {
+      "get": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Riwayat penilaian sesi pengukuran, terbaru di atas (Admin)",
+        "description": "Semua penilaian sesi ini, termasuk hasil lama sebelum nilai ulang (PBI-14 AC7).",
+        "operationId": "list_grading_runs_endpoint_measurements__session_id__grading_runs_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GradingRunSummary"
+                  },
+                  "title": "Response List Grading Runs Endpoint Measurements  Session Id  Grading Runs Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya Admin yang dapat melihat riwayat penilaian (`FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/measurements/{session_id}/results": {
       "get": {
         "tags": [
@@ -4384,6 +4452,145 @@
           },
           "404": {
             "description": "Sesi manual tidak ditemukan (`MANUAL_SESSION_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/manual-measurements/{session_id}/answers": {
+      "put": {
+        "tags": [
+          "manual-measurements"
+        ],
+        "summary": "Simpan atau timpa jawaban manual",
+        "operationId": "put_manual_answer_manual_measurements__session_id__answers_put",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ManualAnswerSaveRequest"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualAnswerResponse"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Konfirmasi overwrite diperlukan atau sesi sudah selesai.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Jawaban atau catatan penolakan kosong, atau percobaan tidak valid.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/manual-measurements/{session_id}/answers/{snapshot_item_id}/{attempt_no}/history": {
+      "get": {
+        "tags": [
+          "manual-measurements"
+        ],
+        "summary": "Riwayat perubahan jawaban manual",
+        "operationId": "get_manual_answer_history_manual_measurements__session_id__answers__snapshot_item_id___attempt_no__history_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "snapshot_item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Snapshot Item Id"
+            }
+          },
+          {
+            "name": "attempt_no",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Attempt No"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/ManualAnswerHistoryEntry"
+                  },
+                  "title": "Response Get Manual Answer History Manual Measurements  Session Id  Answers  Snapshot Item Id   Attempt No  History Get"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sesi manual tidak ditemukan (`MANUAL_SESSION_NOT_FOUND`) atau jawaban tidak ada (`MANUAL_ANSWER_NOT_FOUND`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -8069,6 +8276,68 @@
         "title": "GraderPath",
         "description": "Jalur penilaian satu dimensi rubrik (D6): deterministik atau LLM judge."
       },
+      "GradingRunSummary": {
+        "properties": {
+          "grading_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Grading Run Id"
+          },
+          "rubric_version": {
+            "type": "string",
+            "title": "Rubric Version",
+            "description": "Versi rubrik yang digunakan (mis. 'v1')"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "initial",
+              "regrade"
+            ],
+            "title": "Kind",
+            "description": "initial untuk penilaian pertama, regrade untuk nilai ulang"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "completed bila sudah selesai dinilai"
+          },
+          "triggered_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Triggered By",
+            "description": "Admin yang memicu penilaian"
+          },
+          "triggered_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Triggered At",
+            "description": "Waktu pemicuan penilaian"
+          },
+          "is_latest": {
+            "type": "boolean",
+            "title": "Is Latest",
+            "description": "True bila ini hasil penilaian terbaru sesi tersebut"
+          },
+          "scores": {
+            "$ref": "#/components/schemas/ThreeScores",
+            "description": "Tiga skor terpisah: dev, test, dan gabungan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "grading_run_id",
+          "rubric_version",
+          "kind",
+          "status",
+          "triggered_by",
+          "triggered_at",
+          "is_latest",
+          "scores"
+        ],
+        "title": "GradingRunSummary",
+        "description": "Satu baris riwayat penilaian sesi, tanpa rincian kasus (PBI-14 AC7)."
+      },
       "HTTPValidationError": {
         "properties": {
           "detail": {
@@ -8908,6 +9177,250 @@
         "title": "LegalRefWrite",
         "description": "One citation as the editor sends it. Links are in chain order."
       },
+      "ManualAnswerHistoryEntry": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id"
+          },
+          "answer_md": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Md"
+          },
+          "filled_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filled By"
+          },
+          "filled_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Filled At"
+          },
+          "obtained_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Obtained At"
+          },
+          "platform_refused": {
+            "type": "boolean",
+            "title": "Platform Refused"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "overwritten_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Overwritten By"
+          },
+          "overwritten_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Overwritten At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "attempt_id",
+          "answer_md",
+          "filled_by",
+          "filled_at",
+          "obtained_at",
+          "platform_refused",
+          "note",
+          "overwritten_by",
+          "overwritten_at"
+        ],
+        "title": "ManualAnswerHistoryEntry"
+      },
+      "ManualAnswerResponse": {
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id"
+          },
+          "snapshot_item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Snapshot Item Id"
+          },
+          "attempt_no": {
+            "type": "integer",
+            "title": "Attempt No"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AttemptSource"
+          },
+          "answer_md": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Md"
+          },
+          "obtained_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Obtained At"
+          },
+          "platform_refused": {
+            "type": "boolean",
+            "title": "Platform Refused"
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "filled_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Filled By"
+          },
+          "filled_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Filled At"
+          },
+          "session_status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "attempt_id",
+          "snapshot_item_id",
+          "attempt_no",
+          "source",
+          "answer_md",
+          "obtained_at",
+          "platform_refused",
+          "note",
+          "filled_by",
+          "filled_at",
+          "session_status"
+        ],
+        "title": "ManualAnswerResponse"
+      },
+      "ManualAnswerSaveRequest": {
+        "properties": {
+          "snapshot_item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Snapshot Item Id"
+          },
+          "attempt_no": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 1.0,
+            "title": "Attempt No",
+            "description": "Nomor percobaan, harus masuk jumlah pengulangan sesi"
+          },
+          "answer_md": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Md",
+            "description": "Jawaban markdown apa adanya, tanpa batas panjang (AC4)"
+          },
+          "obtained_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Obtained At",
+            "description": "Kapan jawaban diperoleh dari platform; kosong berarti sekarang (AC7)"
+          },
+          "platform_refused": {
+            "type": "boolean",
+            "title": "Platform Refused",
+            "default": false
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note",
+            "description": "Wajib berisi teks bila platform_refused true (AC6)"
+          },
+          "confirm": {
+            "type": "boolean",
+            "title": "Confirm",
+            "description": "Wajib true untuk menimpa jawaban yang sudah ada. Tanpa itu jawabannya 409 CONFIRMATION_REQUIRED (AC5).",
+            "default": false
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot_item_id",
+          "attempt_no"
+        ],
+        "title": "ManualAnswerSaveRequest",
+        "description": "Simpan atau timpa satu jawaban manual (AC4 sampai AC7).\n\nBatas atas attempt_no di sini hanya pagar global PBI-11. Apakah nomornya\nmasuk jumlah pengulangan sesi diperiksa saat penyimpanan, karena jumlah itu\nmilik sesi, bukan milik kontrak."
+      },
       "ManualAttemptSlot": {
         "properties": {
           "attempt_id": {
@@ -8935,7 +9448,61 @@
               }
             ],
             "title": "Answered At Platform",
-            "description": "Kapan jawaban diperoleh dari platform (AC7)"
+            "description": "Kapan jawaban diperoleh dari platform, ISO 8601 UTC (AC7)"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AttemptSource"
+          },
+          "answer_md": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Md"
+          },
+          "platform_refused": {
+            "type": "boolean",
+            "title": "Platform Refused",
+            "default": false
+          },
+          "note": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Note"
+          },
+          "filled_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filled By"
+          },
+          "filled_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Filled At"
           }
         },
         "type": "object",
@@ -8943,7 +9510,8 @@
           "attempt_id",
           "repetition_no",
           "filled",
-          "answered_at_platform"
+          "answered_at_platform",
+          "source"
         ],
         "title": "ManualAttemptSlot",
         "description": "Satu kotak jawaban (Percobaan n) di kartu kasus sesi manual (PBI-22 AC4)."

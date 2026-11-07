@@ -430,9 +430,15 @@ class ManualAttemptSlot(BaseModel):
     attempt_id: uuid.UUID
     repetition_no: int
     filled: bool = Field(description="Teks jawaban atau 'Platform menolak menjawab' tersimpan")
-    answered_at_platform: datetime | None = Field(
-        description="Kapan jawaban diperoleh dari platform (AC7)"
+    answered_at_platform: UtcDateTime | None = Field(
+        description="Kapan jawaban diperoleh dari platform, ISO 8601 UTC (AC7)"
     )
+    source: AttemptSource
+    answer_md: str | None = None
+    platform_refused: bool = False
+    note: str | None = None
+    filled_by: uuid.UUID | None = None
+    filled_at: UtcDateTime | None = None
 
 
 class ManualCaseProgress(BaseModel):
@@ -463,8 +469,8 @@ class ManualSessionDetail(BaseModel):
     repetitions: int = Field(description="Percobaan per kasus (AC12, penanda PBI-15)")
     filled_answers: int = Field(description="X pada 'X dari N jawaban terisi', seluruh sesi")
     total_answers: int = Field(description="N: kasus x percobaan")
-    answer_date_from: datetime | None
-    answer_date_to: datetime | None
+    answer_date_from: UtcDateTime | None
+    answer_date_to: UtcDateTime | None
     date_range_warning: bool = Field(
         description="Rentang tanggal jawaban melebihi batas hari (AC13; batas TBA, bawaan mati)"
     )
@@ -508,6 +514,88 @@ class SessionResumeResponse(BaseModel):
     status: SessionStatus
     resumed_after_long_pause: bool
     model_version_unverified: bool
+
+
+class ManualAnswerSaveRequest(BaseModel):
+    """Simpan atau timpa satu jawaban manual (AC4 sampai AC7).
+
+    Batas atas attempt_no di sini hanya pagar global PBI-11. Apakah nomornya
+    masuk jumlah pengulangan sesi diperiksa saat penyimpanan, karena jumlah itu
+    milik sesi, bukan milik kontrak.
+    """
+
+    snapshot_item_id: uuid.UUID
+    attempt_no: int = Field(
+        ge=MIN_REPEATS,
+        le=MAX_REPEATS,
+        description="Nomor percobaan, harus masuk jumlah pengulangan sesi",
+    )
+    answer_md: str | None = Field(
+        default=None,
+        description="Jawaban markdown apa adanya, tanpa batas panjang (AC4)",
+    )
+    obtained_at: datetime | None = Field(
+        default=None,
+        description="Kapan jawaban diperoleh dari platform; kosong berarti sekarang (AC7)",
+    )
+    platform_refused: bool = Field(default=False, strict=True)
+    note: str | None = Field(
+        default=None,
+        description="Wajib berisi teks bila platform_refused true (AC6)",
+    )
+    confirm: bool = Field(
+        default=False,
+        strict=True,
+        description=(
+            "Wajib true untuk menimpa jawaban yang sudah ada. Tanpa itu jawabannya 409 "
+            "CONFIRMATION_REQUIRED (AC5)."
+        ),
+    )
+
+    @field_validator("obtained_at")
+    @classmethod
+    def validate_obtained_at(cls, value: datetime | None) -> datetime | None:
+        """Tolak waktu tanpa zona, lalu simpan dalam UTC."""
+        if value is not None and value.utcoffset() is None:
+            raise ValueError("obtained_at harus menyertakan zona waktu")
+
+        return value.astimezone(UTC) if value is not None else None
+
+    @model_validator(mode="after")
+    def validate_answer(self):
+        """Jawaban kosong ditolak, kecuali platform menolak menjawab dan ada catatan (AC6)."""
+        if not self.platform_refused and (self.answer_md is None or not self.answer_md.strip()):
+            raise ValueError("answer_md harus berisi teks kecuali platform_refused true")
+        if self.platform_refused and (self.note is None or not self.note.strip()):
+            raise ValueError("note harus berisi teks bila platform_refused true")
+        return self
+
+
+class ManualAnswerResponse(BaseModel):
+    attempt_id: uuid.UUID
+    snapshot_item_id: uuid.UUID
+    attempt_no: int
+    source: AttemptSource
+    answer_md: str | None
+    obtained_at: UtcDateTime
+    platform_refused: bool
+    note: str | None
+    filled_by: uuid.UUID
+    filled_at: UtcDateTime
+    session_status: SessionStatus
+
+
+class ManualAnswerHistoryEntry(BaseModel):
+    id: uuid.UUID
+    attempt_id: uuid.UUID
+    answer_md: str | None
+    filled_by: uuid.UUID | None
+    filled_at: UtcDateTime
+    obtained_at: UtcDateTime | None
+    platform_refused: bool
+    note: str | None
+    overwritten_by: uuid.UUID
+    overwritten_at: UtcDateTime
 
 
 # PBI-14 SCRUM-226: Penilaian, pemicu manual, penanganan gangguan teknis & visibilitas hasil.
@@ -634,6 +722,21 @@ class SessionGradingResponse(BaseModel):
     cases: list[CaseGradeResult] = Field(
         default_factory=list, description="Daftar kasus beserta hasil penilaian per percobaan"
     )
+
+
+class GradingRunSummary(BaseModel):
+    """Satu baris riwayat penilaian sesi, tanpa rincian kasus (PBI-14 AC7)."""
+
+    grading_run_id: uuid.UUID
+    rubric_version: str = Field(description="Versi rubrik yang digunakan (mis. 'v1')")
+    kind: Literal["initial", "regrade"] = Field(
+        description="initial untuk penilaian pertama, regrade untuk nilai ulang"
+    )
+    status: str = Field(description="completed bila sudah selesai dinilai")
+    triggered_by: uuid.UUID = Field(description="Admin yang memicu penilaian")
+    triggered_at: datetime = Field(description="Waktu pemicuan penilaian")
+    is_latest: bool = Field(description="True bila ini hasil penilaian terbaru sesi tersebut")
+    scores: ThreeScores = Field(description="Tiga skor terpisah: dev, test, dan gabungan")
 
 
 class GradedSessionListItem(BaseModel):
