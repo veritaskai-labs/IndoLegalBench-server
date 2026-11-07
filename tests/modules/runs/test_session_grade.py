@@ -34,6 +34,7 @@ from app.modules.runs.models import (
     SessionStatus,
 )
 from app.modules.runs.schemas import (
+    AttemptGradeResult,
     CaseGradeResult,
     CategoryScore,
     ScorePair,
@@ -1691,8 +1692,16 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
     assert loaded_data[test_att_id]["format_score"] == Decimal("0.90")
     assert loaded_data[test_att_id]["judge_error"] == "timeout"
 
-    # 9. _save_format_judge_record
+    # 9. _save_format_judge_record and _save_quality_judge_record
     store._save_format_judge_record(gr.id, "CASE-01", 2, Decimal("0.85"))
+    att_qual_empty = AttemptGradeResult(
+        attempt_id=test_att_id,
+        repetition_no=1,
+        status=AttemptStatus.SUCCEEDED,
+        is_technical_disruption=False,
+        criteria=[],
+    )
+    store._save_quality_judge_record(gr.id, att_qual_empty, "CASE-01", 2, Decimal("4.00"))
 
     # 10. _apply_judge_row_to_attempt dengan kind format
     mock_fmt_row = MagicMock()

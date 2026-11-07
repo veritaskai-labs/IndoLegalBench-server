@@ -66,6 +66,8 @@ from app.shared.security import Role
 _DUA_DIGIT = Decimal("0.01")
 LAIN_LAIN = "Lain-lain"
 DEFAULT_RUBRIC_VERSION = "v1"
+ACTION_MEASUREMENT_SESSION_GRADED = "measurement_session.graded"
+ACTION_MEASUREMENT_SESSION_REGRADED = "measurement_session.regraded"
 _MAX_REFUSAL_LENGTH = 250
 
 _REFUSAL_PHRASES = (
@@ -389,6 +391,72 @@ def _extract_criteria_items(
     return [], [], None
 
 
+def _evaluate_contain_criteria(
+    items: list[str], text_lower: str
+) -> tuple[list[dict[str, Any]], list[str], list[str]]:
+    c_list: list[dict[str, Any]] = []
+    exps: list[str] = []
+    reasons: list[str] = []
+    for idx, item in enumerate(items):
+        is_met = item.lower() in text_lower
+        exp = None if is_met else f"Tidak memuat: {item}"
+        reason = None if is_met else "unmet"
+        c_list.append(
+            {
+                "key": f"must_contain_{idx + 1}",
+                "text": item,
+                "is_met": is_met,
+                "explanation": exp,
+                "reason_code": reason,
+            }
+        )
+        if not is_met:
+            exps.append(exp)
+            reasons.append(reason)
+    return c_list, exps, reasons
+
+
+def _evaluate_not_contain_criteria(
+    items: list[str], text_lower: str
+) -> tuple[list[dict[str, Any]], list[str], list[str]]:
+    c_list: list[dict[str, Any]] = []
+    exps: list[str] = []
+    reasons: list[str] = []
+    for idx, item in enumerate(items):
+        is_met = item.lower() not in text_lower
+        exp = None if is_met else f"Memuat teks yang dilarang: {item}"
+        reason = None if is_met else "unmet"
+        c_list.append(
+            {
+                "key": f"must_not_contain_{idx + 1}",
+                "text": f"Tidak memuat: {item}",
+                "is_met": is_met,
+                "explanation": exp,
+                "reason_code": reason,
+            }
+        )
+        if not is_met:
+            exps.append(exp)
+            reasons.append(reason)
+    return c_list, exps, reasons
+
+
+def _evaluate_conclusion_criterion(
+    conclusion: str, text_lower: str
+) -> tuple[dict[str, Any], str | None, str | None]:
+    is_met = conclusion.lower() in text_lower
+    exp = None if is_met else f"Kesimpulan tidak memuat: {conclusion}"
+    reason = None if is_met else "unmet"
+    crit = {
+        "key": "expected_conclusion",
+        "text": f"Kesimpulan: {conclusion}",
+        "is_met": is_met,
+        "explanation": exp,
+        "reason_code": reason,
+    }
+    return crit, exp, reason
+
+
 def evaluate_criteria_details(
     answer_text: str | None,
     criteria: dict[str, Any] | Sequence[Any] | None,
@@ -407,60 +475,18 @@ def evaluate_criteria_details(
         return None
 
     text_lower = answer_text.lower()
-    criteria_list: list[dict[str, Any]] = []
-    unmet_exps: list[str] = []
-    reasons: list[str] = []
-
-    for idx, item in enumerate(must_contain):
-        is_met = item.lower() in text_lower
-        exp = None if is_met else f"Tidak memuat: {item}"
-        reason = None if is_met else "unmet"
-        criteria_list.append(
-            {
-                "key": f"must_contain_{idx + 1}",
-                "text": item,
-                "is_met": is_met,
-                "explanation": exp,
-                "reason_code": reason,
-            }
-        )
-        if not is_met:
-            unmet_exps.append(exp)
-            reasons.append(reason)
-
-    for idx, item in enumerate(must_not_contain):
-        is_met = item.lower() not in text_lower
-        exp = None if is_met else f"Memuat teks yang dilarang: {item}"
-        reason = None if is_met else "unmet"
-        criteria_list.append(
-            {
-                "key": f"must_not_contain_{idx + 1}",
-                "text": f"Tidak memuat: {item}",
-                "is_met": is_met,
-                "explanation": exp,
-                "reason_code": reason,
-            }
-        )
-        if not is_met:
-            unmet_exps.append(exp)
-            reasons.append(reason)
+    c_list1, exps1, r1 = _evaluate_contain_criteria(must_contain, text_lower)
+    c_list2, exps2, r2 = _evaluate_not_contain_criteria(must_not_contain, text_lower)
+    criteria_list = c_list1 + c_list2
+    unmet_exps = exps1 + exps2
+    reasons = r1 + r2
 
     if conclusion:
-        is_met = conclusion.lower() in text_lower
-        exp = None if is_met else f"Kesimpulan tidak memuat: {conclusion}"
-        reason = None if is_met else "unmet"
-        criteria_list.append(
-            {
-                "key": "expected_conclusion",
-                "text": f"Kesimpulan: {conclusion}",
-                "is_met": is_met,
-                "explanation": exp,
-                "reason_code": reason,
-            }
-        )
-        if not is_met:
-            unmet_exps.append(exp)
-            reasons.append(reason)
+        c_concl, exp_concl, r_concl = _evaluate_conclusion_criterion(conclusion, text_lower)
+        criteria_list.append(c_concl)
+        if exp_concl:
+            unmet_exps.append(exp_concl)
+            reasons.append(r_concl)
 
     met_count = sum(1 for c in criteria_list if c["is_met"])
     score = round_two_digits(Decimal(met_count) / Decimal(total_count))
@@ -593,7 +619,9 @@ class DbGradingStore:
             .where(
                 AuditLog.entity_type == AuditEntityType.MEASUREMENT_SESSION,
                 AuditLog.entity_id == session_id,
-                AuditLog.action.in_(("measurement_session.graded", "measurement_session.regraded")),
+                AuditLog.action.in_(
+                    (ACTION_MEASUREMENT_SESSION_GRADED, ACTION_MEASUREMENT_SESSION_REGRADED)
+                ),
             )
             .order_by(AuditLog.occurred_at.asc(), AuditLog.id.asc())
         ).all()
@@ -641,6 +669,83 @@ class DbGradingStore:
             self.db.flush()
         return rubric_ver.id
 
+    def _deactivate_previous_latest_runs(self, session_id: uuid.UUID) -> None:
+        from app.modules.grading.models import GradingRun
+
+        old_latest_runs = self.db.scalars(
+            select(GradingRun).where(
+                GradingRun.session_id == session_id,
+                GradingRun.is_latest,
+            )
+        ).all()
+        for old_run in old_latest_runs:
+            old_run.is_latest = False
+        self.db.flush()
+
+    def _create_grading_result_row(
+        self,
+        run_id: uuid.UUID,
+        att: AttemptGradeResult,
+        norm_refs: list[dict[str, Any]],
+        scorer: CitationScorer,
+    ) -> Any:
+        from app.modules.grading.models import GradingResult
+
+        if att.is_technical_disruption:
+            return GradingResult(
+                id=uuid.uuid4(),
+                grading_run_id=run_id,
+                attempt_id=att.attempt_id,
+                is_technical_disruption=True,
+                det_score=None,
+                det_regulation_matches=null(),
+                det_article_matches=null(),
+                det_ungradable_refs=null(),
+                det_all_chained_cited=None,
+                det_reference_total=None,
+                det_reference_correct=None,
+                det_extracted_total=None,
+                det_extracted_correct=None,
+                det_formula=None,
+            )
+        c_score = scorer.score(att.answer_text or "", norm_refs)
+        formula_val = (
+            c_score.formula.value if hasattr(c_score.formula, "value") else str(c_score.formula)
+        )
+        return GradingResult(
+            id=uuid.uuid4(),
+            grading_run_id=run_id,
+            attempt_id=att.attempt_id,
+            is_technical_disruption=False,
+            det_score=c_score.score,
+            det_regulation_matches=[m.__dict__ for m in c_score.regulation_matches],
+            det_article_matches=[m.__dict__ for m in c_score.article_matches],
+            det_ungradable_refs=list(c_score.ungradable_refs),
+            det_all_chained_cited=c_score.all_chained_cited,
+            det_reference_total=c_score.reference_total,
+            det_reference_correct=c_score.reference_correct,
+            det_extracted_total=c_score.extracted_total,
+            det_extracted_correct=c_score.extracted_correct,
+            det_formula=formula_val,
+        )
+
+    def _save_case_results(
+        self,
+        run_id: uuid.UUID,
+        cases: Sequence[CaseGradeResult],
+        case_inputs: Sequence[CaseGradeInput] | None,
+        scorer: CitationScorer,
+    ) -> None:
+        case_input_by_item_id = {c.snapshot_item_id: c for c in (case_inputs or [])}
+        for case in cases:
+            case_in = case_input_by_item_id.get(case.snapshot_item_id)
+            norm_refs = normalize_legal_refs(case_in.legal_refs) if case_in else []
+            for att in case.attempts:
+                g_result = self._create_grading_result_row(run_id, att, norm_refs, scorer)
+                self.db.add(g_result)
+                self.db.flush()
+                self._save_llm_judge_records(g_result.id, att, case.case_code)
+
     def save_grading_run(
         self,
         run: SessionGradingResponse,
@@ -648,7 +753,6 @@ class DbGradingStore:
     ) -> None:
         from app.modules.audit.models import AuditEntityType, AuditLog
         from app.modules.grading.models import (
-            GradingResult,
             GradingRun,
             GradingRunKind,
             GradingRunStatus,
@@ -657,15 +761,7 @@ class DbGradingStore:
         rubric_version_id = self._resolve_db_rubric_version_id(run.rubric_version, run.triggered_by)
 
         if run.is_latest:
-            old_latest_runs = self.db.scalars(
-                select(GradingRun).where(
-                    GradingRun.session_id == run.session_id,
-                    GradingRun.is_latest,
-                )
-            ).all()
-            for old_run in old_latest_runs:
-                old_run.is_latest = False
-            self.db.flush()
+            self._deactivate_previous_latest_runs(run.session_id)
 
         session = self.db.get(MeasurementSession, run.session_id)
         judge_provider_id = session.judge_provider_id if session else None
@@ -687,59 +783,12 @@ class DbGradingStore:
 
         catalog = _get_jenis_catalog(self.db)
         scorer = CitationScorer(catalog)
-        case_input_by_item_id = {c.snapshot_item_id: c for c in (cases_input or [])}
-
-        for case in run.cases:
-            case_in = case_input_by_item_id.get(case.snapshot_item_id)
-            norm_refs = normalize_legal_refs(case_in.legal_refs) if case_in else []
-            for att in case.attempts:
-                if att.is_technical_disruption:
-                    g_result = GradingResult(
-                        id=uuid.uuid4(),
-                        grading_run_id=run.grading_run_id,
-                        attempt_id=att.attempt_id,
-                        is_technical_disruption=True,
-                        det_score=None,
-                        det_regulation_matches=null(),
-                        det_article_matches=null(),
-                        det_ungradable_refs=null(),
-                        det_all_chained_cited=None,
-                        det_reference_total=None,
-                        det_reference_correct=None,
-                        det_extracted_total=None,
-                        det_extracted_correct=None,
-                        det_formula=None,
-                    )
-                else:
-                    c_score = scorer.score(att.answer_text or "", norm_refs)
-                    g_result = GradingResult(
-                        id=uuid.uuid4(),
-                        grading_run_id=run.grading_run_id,
-                        attempt_id=att.attempt_id,
-                        is_technical_disruption=False,
-                        det_score=c_score.score,
-                        det_regulation_matches=[m.__dict__ for m in c_score.regulation_matches],
-                        det_article_matches=[m.__dict__ for m in c_score.article_matches],
-                        det_ungradable_refs=list(c_score.ungradable_refs),
-                        det_all_chained_cited=c_score.all_chained_cited,
-                        det_reference_total=c_score.reference_total,
-                        det_reference_correct=c_score.reference_correct,
-                        det_extracted_total=c_score.extracted_total,
-                        det_extracted_correct=c_score.extracted_correct,
-                        det_formula=(
-                            c_score.formula.value
-                            if hasattr(c_score.formula, "value")
-                            else str(c_score.formula)
-                        ),
-                    )
-                self.db.add(g_result)
-                self.db.flush()
-                self._save_llm_judge_records(g_result.id, att, case.case_code)
+        self._save_case_results(run.grading_run_id, run.cases, cases_input, scorer)
 
         action = (
-            "measurement_session.graded"
+            ACTION_MEASUREMENT_SESSION_GRADED
             if run.kind == "initial"
-            else "measurement_session.regraded"
+            else ACTION_MEASUREMENT_SESSION_REGRADED
         )
         log_entry = AuditLog(
             occurred_at=run.triggered_at,
@@ -796,9 +845,12 @@ class DbGradingStore:
         )
 
         crit_count = len(att.criteria)
-        crit_met = sum(1 for c in att.criteria if c.get("is_met"))
-        total = crit_count if crit_count > 0 else 1
-        met = crit_met if crit_count > 0 else (1 if score_val >= Decimal("2.50") else 0)
+        if crit_count > 0:
+            total = crit_count
+            met = sum(1 for c in att.criteria if c.get("is_met"))
+        else:
+            total = 1
+            met = 1 if score_val >= Decimal("2.50") else 0
         crit_ratio = round_two_digits(score_val / Decimal("5.00"))
         rub_level = max(0, min(5, int(round(score_val))))
 
@@ -1539,6 +1591,47 @@ def get_session_results(
     )
 
 
+def _resolve_session_rubric_map(db: Session, session_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
+    from app.modules.grading.models import GradingRun, RubricVersion
+
+    runs = db.scalars(
+        select(GradingRun).where(
+            GradingRun.session_id.in_(session_ids),
+            GradingRun.is_latest,
+        )
+    ).all()
+
+    rubric_map: dict[uuid.UUID, str] = {}
+    if runs:
+        run_by_session = {r.session_id: r for r in runs}
+        rubric_ids = {r.rubric_version_id for r in runs}
+        rubric_vers = db.scalars(
+            select(RubricVersion).where(RubricVersion.id.in_(rubric_ids))
+        ).all()
+        version_no_map = {rv.id: f"v{rv.version_no}" for rv in rubric_vers}
+        for s_id, run in run_by_session.items():
+            rubric_map[s_id] = version_no_map.get(run.rubric_version_id, "v1")
+
+    remaining_ids = [s_id for s_id in session_ids if s_id not in rubric_map]
+    if remaining_ids:
+        from app.modules.audit.models import AuditLog
+
+        logs = db.scalars(
+            select(AuditLog).where(
+                AuditLog.entity_type == "measurement_session",
+                AuditLog.entity_id.in_(remaining_ids),
+                AuditLog.action.in_(
+                    (ACTION_MEASUREMENT_SESSION_GRADED, ACTION_MEASUREMENT_SESSION_REGRADED)
+                ),
+            )
+        ).all()
+        for log in logs:
+            if log.entity_id and log.after and isinstance(log.after, dict):
+                ver = log.after.get("rubric_version", "v1")
+                rubric_map[log.entity_id] = str(ver)
+    return rubric_map
+
+
 def list_graded_sessions(
     db: Session,
     *,
@@ -1554,8 +1647,6 @@ def list_graded_sessions(
             "Peran Anda tidak berwenang melihat daftar hasil penilaian.",
             code="FORBIDDEN",
         )
-
-    from app.modules.grading.models import GradingRun, RubricVersion
 
     ended_statuses = (
         SessionStatus.FINISHED,
@@ -1586,40 +1677,7 @@ def list_graded_sessions(
     session_ids = [s.id for s in sessions]
     product_ids = {s.product_id for s in sessions}
     p_names = providers_service.product_names(db, product_ids)
-
-    runs = db.scalars(
-        select(GradingRun).where(
-            GradingRun.session_id.in_(session_ids),
-            GradingRun.is_latest,
-        )
-    ).all()
-
-    rubric_map: dict[uuid.UUID, str] = {}
-    if runs:
-        run_by_session = {r.session_id: r for r in runs}
-        rubric_ids = {r.rubric_version_id for r in runs}
-        rubric_vers = db.scalars(
-            select(RubricVersion).where(RubricVersion.id.in_(rubric_ids))
-        ).all()
-        version_no_map = {rv.id: f"v{rv.version_no}" for rv in rubric_vers}
-        for s_id, run in run_by_session.items():
-            rubric_map[s_id] = version_no_map.get(run.rubric_version_id, "v1")
-
-    remaining_ids = [s_id for s_id in session_ids if s_id not in rubric_map]
-    if remaining_ids:
-        from app.modules.audit.models import AuditLog
-
-        logs = db.scalars(
-            select(AuditLog).where(
-                AuditLog.entity_type == "measurement_session",
-                AuditLog.entity_id.in_(remaining_ids),
-                AuditLog.action.in_(("measurement_session.graded", "measurement_session.regraded")),
-            )
-        ).all()
-        for log in logs:
-            if log.entity_id and log.after and isinstance(log.after, dict):
-                ver = log.after.get("rubric_version", "v1")
-                rubric_map[log.entity_id] = str(ver)
+    rubric_map = _resolve_session_rubric_map(db, session_ids)
 
     return [
         GradedSessionListItem(
