@@ -4035,6 +4035,187 @@
         }
       }
     },
+    "/measurements/{session_id}/grade": {
+      "post": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Memicu penilaian manual untuk sesi pengukuran (Admin)",
+        "description": "Admin memicu penilaian manual untuk sesi otomatis atau manual (PBI-14 AC6, AC7).",
+        "operationId": "trigger_grade_endpoint_measurements__session_id__grade_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/GradeSessionRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionGradingResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya Admin yang dapat memicu penilaian (`FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Sesi diarsipkan (`SESSION_ARCHIVED`) atau sesi dalam antrean belum bisa dinilai (`SESSION_NOT_GRADABLE`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/measurements/{session_id}/results": {
+      "get": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Hasil penilaian sesi pengukuran dengan perincian skor per kasus dan agregat",
+        "description": "Hasil sesi berjalan hanya untuk Admin. Sesi selesai untuk Admin dan Viewer. Developer AI mendapat kasus test tersamar (PBI-14 AC8, PBI-11 AC9).",
+        "operationId": "get_results_endpoint_measurements__session_id__results_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionGradingResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hasil sesi yang masih berjalan hanya dapat dilihat Admin (`FORBIDDEN`), atau peran tidak berwenang (`FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`) atau hasil penilaian belum tersedia (`GRADING_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/results/sessions": {
+      "get": {
+        "tags": [
+          "results"
+        ],
+        "summary": "Daftar sesi selesai yang telah dinilai untuk Admin dan Viewer (SCRUM-226)",
+        "description": "Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin dan Viewer.",
+        "operationId": "list_graded_sessions_endpoint_results_sessions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GradedSessionListItem"
+                  },
+                  "type": "array",
+                  "title": "Response List Graded Sessions Endpoint Results Sessions Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/manual-measurements": {
       "post": {
         "tags": [
@@ -6405,6 +6586,96 @@
         "title": "AttemptCalls",
         "description": "Riwayat upaya satu percobaan, urut try_no (PBI-12 AC3)."
       },
+      "AttemptGradeResult": {
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id",
+            "description": "ID percobaan"
+          },
+          "repetition_no": {
+            "type": "integer",
+            "title": "Repetition No",
+            "description": "Nomor pengulangan (1-5)"
+          },
+          "status": {
+            "$ref": "#/components/schemas/AttemptStatus",
+            "description": "Status percobaan"
+          },
+          "source": {
+            "$ref": "#/components/schemas/AttemptSource",
+            "description": "Asal percobaan: automatic atau manual (PBI-12)",
+            "default": "automatic"
+          },
+          "is_technical_disruption": {
+            "type": "boolean",
+            "title": "Is Technical Disruption",
+            "description": "True bila jawaban kosong, AI menolak, atau judge error (AC4)"
+          },
+          "score": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScorePair"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Skor percobaan desimal 2 digit. null bila gangguan teknis atau disamarkan"
+          },
+          "answer_text": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Text",
+            "description": "Jawaban mentah. null bila disamarkan untuk Developer AI pada kasus test"
+          },
+          "explanation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explanation",
+            "description": "Penjelasan evaluasi penilai LLM (llm_judge_results.explanation)"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons",
+            "description": "Daftar kode alasan standar per jalur (grading_result_reasons)"
+          },
+          "criteria": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Criteria",
+            "description": "Hasil penilaian per kriteria (llm_criterion_results)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "attempt_id",
+          "repetition_no",
+          "status",
+          "is_technical_disruption"
+        ],
+        "title": "AttemptGradeResult",
+        "description": "Hasil penilaian satu percobaan."
+      },
       "AttemptResult": {
         "properties": {
           "id": {
@@ -6482,6 +6753,14 @@
         ],
         "title": "AttemptResult",
         "description": "Satu percobaan: jawaban mentah apa adanya dari produk (PBI-11 AC8)."
+      },
+      "AttemptSource": {
+        "type": "string",
+        "enum": [
+          "automatic",
+          "manual"
+        ],
+        "title": "AttemptSource"
       },
       "AttemptStatus": {
         "type": "string",
@@ -6899,6 +7178,94 @@
         "title": "CaseFilter",
         "description": "Pilihan kasus yang ikut diukur (PBI-11 AC2). both berarti dev dan test."
       },
+      "CaseGradeResult": {
+        "properties": {
+          "snapshot_item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Snapshot Item Id"
+          },
+          "case_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Case Id"
+          },
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "split_tag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SplitTag"
+              },
+              {
+                "type": "null"
+              }
+            ]
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          },
+          "question": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Question",
+            "description": "null bila disamarkan untuk Developer AI pada kasus test"
+          },
+          "masked": {
+            "type": "boolean",
+            "title": "Masked",
+            "description": "true untuk kasus test yang dilihat Developer AI",
+            "default": false
+          },
+          "scores": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ScorePair"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Rata-rata skor percobaan kasus. null bila disamarkan untuk Developer AI pada kasus test"
+          },
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/AttemptGradeResult"
+            },
+            "type": "array",
+            "title": "Attempts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot_item_id",
+          "case_id",
+          "case_code",
+          "title"
+        ],
+        "title": "CaseGradeResult",
+        "description": "Hasil penilaian satu kasus per baris tabel (AC8)."
+      },
       "CaseIdentity": {
         "properties": {
           "title": {
@@ -7222,6 +7589,32 @@
         ],
         "title": "CaseWrite",
         "description": "Body for create and update. The server sets status; clients cannot send it."
+      },
+      "CategoryScore": {
+        "properties": {
+          "category": {
+            "type": "string",
+            "title": "Category",
+            "description": "Nama kategori, atau 'Lain-lain' bila kosong"
+          },
+          "case_count": {
+            "type": "integer",
+            "title": "Case Count",
+            "description": "Jumlah kasus dalam kategori ini"
+          },
+          "scores": {
+            "$ref": "#/components/schemas/ScorePair",
+            "description": "Rata-rata skor kategori"
+          }
+        },
+        "type": "object",
+        "required": [
+          "category",
+          "case_count",
+          "scores"
+        ],
+        "title": "CategoryScore",
+        "description": "Pecahan skor per kategori kasus (PBI-14 AC10)."
       },
       "CommentDiscussion": {
         "properties": {
@@ -7594,6 +7987,78 @@
           "pdf"
         ],
         "title": "ExportFormat"
+      },
+      "GradeSessionRequest": {
+        "properties": {
+          "rubric_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rubric Version",
+            "description": "Versi rubrik yang dipilih Admin. Bila kosong, memakai versi aktif (default 'v1')."
+          }
+        },
+        "type": "object",
+        "title": "GradeSessionRequest",
+        "description": "Pemicu penilaian manual oleh Admin (PBI-14 AC6, AC7)."
+      },
+      "GradedSessionListItem": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id",
+            "description": "ID sesi pengukuran"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Label sesi pengukuran"
+          },
+          "product_name": {
+            "type": "string",
+            "title": "Product Name",
+            "description": "Nama produk AI yang diuji"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At",
+            "description": "Waktu sesi selesai (null bila belum tercatat)"
+          },
+          "rubric_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rubric Version",
+            "description": "Versi rubrik yang digunakan pada penilaian terbaru (mis. 'v1')"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "label",
+          "product_name"
+        ],
+        "title": "GradedSessionListItem",
+        "description": "Ringkasan sesi pengukuran selesai yang telah dinilai untuk Admin dan Viewer (PBI-14, SCRUM-226, SCRUM-227)."
       },
       "GraderPath": {
         "type": "string",
@@ -10157,6 +10622,52 @@
         "title": "RubricVersionSummary",
         "description": "Satu baris daftar versi (SCRUM-228): nomor, tanggal, pembuat, penyetuju."
       },
+      "ScorePair": {
+        "properties": {
+          "deterministic": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Deterministic",
+            "description": "Skor jalur deterministik (proporsi sitasi 0.00-1.00)"
+          },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality",
+            "description": "Skor kualitas substansi hukum berdasarkan kriteria rubrik (skala 0.00-1.00)"
+          },
+          "format": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format",
+            "description": "Skor kepatuhan format dan struktur jawaban (skala 0.00-1.00)"
+          }
+        },
+        "type": "object",
+        "title": "ScorePair",
+        "description": "Skor deterministik, kualitas rubrik, dan format penilai LLM (PBI-14, SCRUM-225)."
+      },
       "SessionAcceptRequest": {
         "properties": {
           "reason": {
@@ -10638,6 +11149,114 @@
         ],
         "title": "SessionDetail",
         "description": "Detail sesi: kolom daftar ditambah hasil per kasus (PBI-11 AC8)."
+      },
+      "SessionGradingResponse": {
+        "properties": {
+          "grading_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Grading Run Id"
+          },
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "session_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Label",
+            "description": "Label sesi pengukuran yang diuji"
+          },
+          "product_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Name",
+            "description": "Nama produk AI yang diuji"
+          },
+          "rubric_version": {
+            "type": "string",
+            "title": "Rubric Version",
+            "description": "Versi rubrik yang digunakan (mis. 'v1')"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "initial",
+              "regrade"
+            ],
+            "title": "Kind",
+            "description": "initial untuk penilaian pertama, regrade untuk nilai ulang"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "completed bila sudah selesai dinilai"
+          },
+          "triggered_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Triggered By",
+            "description": "Admin yang memicu penilaian"
+          },
+          "triggered_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Triggered At",
+            "description": "Waktu pemicuan penilaian"
+          },
+          "is_latest": {
+            "type": "boolean",
+            "title": "Is Latest",
+            "description": "True bila merupakan hasil penilaian terbaru untuk sesi ini",
+            "default": true
+          },
+          "scores": {
+            "$ref": "#/components/schemas/ThreeScores",
+            "description": "Tiga skor terpisah: dev, test, dan gabungan"
+          },
+          "category_scores": {
+            "items": {
+              "$ref": "#/components/schemas/CategoryScore"
+            },
+            "type": "array",
+            "title": "Category Scores",
+            "description": "Pecahan skor per kategori kasus"
+          },
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/CaseGradeResult"
+            },
+            "type": "array",
+            "title": "Cases",
+            "description": "Daftar kasus beserta hasil penilaian per percobaan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "grading_run_id",
+          "session_id",
+          "rubric_version",
+          "kind",
+          "status",
+          "triggered_by",
+          "triggered_at",
+          "scores"
+        ],
+        "title": "SessionGradingResponse",
+        "description": "Hasil penilaian sesi pengukuran (PBI-14 AC3, AC6, AC7, AC8)."
       },
       "SessionListItem": {
         "properties": {
@@ -11264,6 +11883,30 @@
         ],
         "title": "TagConfirmationBody",
         "description": "409 TAG_CHANGE_NEEDS_CONFIRMATION: tampilkan peringatan lalu kirim ulang dengan confirm."
+      },
+      "ThreeScores": {
+        "properties": {
+          "dev": {
+            "$ref": "#/components/schemas/ScorePair",
+            "description": "Skor kasus dev"
+          },
+          "test": {
+            "$ref": "#/components/schemas/ScorePair",
+            "description": "Skor kasus test (agregat)"
+          },
+          "combined": {
+            "$ref": "#/components/schemas/ScorePair",
+            "description": "Skor gabungan seluruh kasus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "dev",
+          "test",
+          "combined"
+        ],
+        "title": "ThreeScores",
+        "description": "Tiga skor terpisah yang diminta PBI-11 AC9: dev, test, dan gabungan."
       },
       "UnreadCount": {
         "properties": {
