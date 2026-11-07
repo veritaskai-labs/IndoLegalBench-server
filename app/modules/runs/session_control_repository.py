@@ -59,6 +59,21 @@ class SessionControlRepository:
     def attempt_states(self, session_id: uuid.UUID) -> list[AttemptStatus]:
         return list(self.db.scalars(select(Attempt.status).where(Attempt.session_id == session_id)))
 
+    def queue_waiting(self, session_id: uuid.UUID) -> bool:
+        """Ada sesi otomatis lain yang Menunggu giliran (antrean worker, SCRUM-267)."""
+        return bool(
+            self.db.scalar(
+                select(
+                    exists().where(
+                        MeasurementSession.id != session_id,
+                        MeasurementSession.session_type == SessionType.AUTOMATIC,
+                        MeasurementSession.status == SessionStatus.QUEUED,
+                        MeasurementSession.archived_at.is_(None),
+                    )
+                )
+            )
+        )
+
     def another_running(self, session_id: uuid.UUID) -> bool:
         return bool(
             self.db.scalar(

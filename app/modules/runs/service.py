@@ -445,6 +445,10 @@ class SessionQueue:
         if self._sessions.running_exists():
             return None
         while (waiting := self._sessions.oldest_queued()) is not None:
+            if waiting.prepared:
+                # SCRUM-267 AC8: snapshot dan hasil lama dipakai lagi. Galat sengaja tidak
+                # ditandai failed, supaya galat sesaat tidak membuang sesi yang sudah punya hasil.
+                return waiting.id if self._sessions.reopen(waiting.id, at=self._clock()) else None
             try:
                 prepared = self._prepare(waiting)
                 if prepared is None:
