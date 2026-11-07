@@ -68,12 +68,12 @@ def test_balasan_penilai_tidak_menggeser_skor_deterministik(db_session, produk, 
 def test_penilai_yang_gagal_membuat_seluruh_percobaan_tanpa_skor(db_session, produk, pembuat):  # noqa: F811
     """Edge: penilai error melewati percobaan sepenuhnya, termasuk jalur deterministiknya.
 
-    Ini perilaku yang didokumentasikan check_technical_disruption: judge error dihitung
-    gangguan teknis dan percobaannya dilewati tanpa skor. Dikunci di sini supaya terlihat,
-    karena AC menyebut kedua jalur terpisah dan tidak digabung, sementara di sini kegagalan
-    jalur judge menghapus angka deterministik yang sudah benar dihitung. Apakah angka
-    deterministik seharusnya tetap tampil masih perlu dipastikan ke PO.
+    Perilaku yang disengaja (AC4): percobaannya ditandai gangguan teknis, tidak diberi skor,
+    dan dilewati dari rata-rata, bukan dihitung nol, jadi angka produk tidak ikut turun.
+    Pemulihannya lewat coba ulang manual (PBI-12) atau nilai ulang. Dikunci di sini supaya
+    perubahan pada aturan itu terlihat, bukan karena perilakunya dipertanyakan.
     """
+
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
 
     normal = _nilai(db_session, sesi, pembuat, _MockJudgeAsker(BALASAN_BAGUS))
