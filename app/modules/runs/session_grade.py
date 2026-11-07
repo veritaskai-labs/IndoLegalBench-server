@@ -1320,13 +1320,8 @@ def _apply_judge_row_to_attempt(att: AttemptGradeInput, row: Any) -> None:
         att.judge_error = row.error or row.failure_kind
 
 
-def _execute_judge_for_attempt(
-    asker: object,
-    att: AttemptGradeInput,
-    case: CaseGradeInput,
-) -> None:
-    """Menjalankan evaluasi penilai LLM (SCRUM-224 run_judge) untuk percobaan non-gangguan."""
-    from app.modules.runs.judge import JudgeInputs, run_judge
+def _build_judge_inputs(case: CaseGradeInput, answer_text: str | None):
+    from app.modules.runs.judge import JudgeInputs
 
     must_contain, must_not_contain, conclusion = _extract_criteria_items(case.answer_criteria)
     crit_lines = list(must_contain) + [f"Not: {x}" for x in must_not_contain]
@@ -1338,16 +1333,29 @@ def _execute_judge_for_attempt(
     ground_truth = conclusion or (
         must_contain[0] if must_contain else (case.title or "Jawaban hukum")
     )
-    judge_in = JudgeInputs(
+    return JudgeInputs(
         criteria="\n".join(crit_lines),
         ground_truth=ground_truth,
         question=case.question or case.title or "Pertanyaan kasus",
-        provider_answer=att.answer_text or "",
+        provider_answer=answer_text or "",
     )
+
+
+def _execute_judge_for_attempt(
+    asker: object,
+    att: AttemptGradeInput,
+    case: CaseGradeInput,
+) -> None:
+    """Menjalankan evaluasi penilai LLM (SCRUM-224 run_judge) untuk percobaan non-gangguan."""
+    from app.modules.runs.judge import run_judge
+
+    judge_in = _build_judge_inputs(case, att.answer_text)
     try:
         writer = run_judge(asker, judge_in, repetitions=1)
         for row in writer.rows:
             _apply_judge_row_to_attempt(att, row)
+        if att.judge_error is None and (att.quality_score is None or att.format_score is None):
+            att.judge_error = "judge_incomplete"
     except Exception as exc:
         att.judge_error = str(exc)
 
@@ -1478,16 +1486,12 @@ def _resolve_active_judge_asker(
 
 
 def _should_grade_with_judge(att: AttemptGradeInput) -> bool:
-    return (
-        not check_technical_disruption(
-            status=att.status,
-            answer_text=att.answer_text,
-            failure_kind=att.failure_kind,
-            platform_refused=att.platform_refused,
-        )
-        and att.quality_score is None
-        and not att.criteria
-    )
+    return not check_technical_disruption(
+        status=att.status,
+        answer_text=att.answer_text,
+        failure_kind=att.failure_kind,
+        platform_refused=att.platform_refused,
+    ) and (att.quality_score is None or att.format_score is None)
 
 
 def _execute_judge_for_all_cases(

@@ -1520,6 +1520,8 @@ def test_llm_judge_integration_and_d6_persistence(db_session, produk, pembuat):
 
 def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat, monkeypatch):
     """Memastikan 100% statement coverage untuk fungsi-fungsi helper di session_grade."""
+    from unittest.mock import MagicMock
+
     from app.modules.runs.session_grade import (
         _calculate_db_quality_score,
         _execute_judge_for_attempt,
@@ -1592,6 +1594,22 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
     exc_asker = _MockJudgeAsker(raise_exc=True)
     _execute_judge_for_attempt(exc_asker, att_exc, case_in)
     assert att_exc.judge_error is not None
+
+    # Penilai mengembalikan hasil tidak lengkap
+    att_incomp = AttemptGradeInput(
+        attempt_id=uuid.uuid4(),
+        repetition_no=1,
+        status=AttemptStatus.SUCCEEDED,
+        answer_text="Jawaban",
+    )
+    mock_empty_writer = MagicMock()
+    mock_empty_writer.rows = []
+    monkeypatch.setattr(
+        "app.modules.runs.judge.run_judge", lambda *args, **kwargs: mock_empty_writer
+    )
+    _execute_judge_for_attempt(_MockJudgeAsker(), att_incomp, case_in)
+    assert att_incomp.judge_error == "judge_incomplete"
+    monkeypatch.undo()
 
     # Case tanpa kriteria khusus
     case_empty = CaseGradeInput(
