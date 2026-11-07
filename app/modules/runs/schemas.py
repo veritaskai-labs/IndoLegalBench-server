@@ -505,33 +505,54 @@ class SessionResumeResponse(BaseModel):
 
 
 class ManualAnswerSaveRequest(BaseModel):
-    """Request menyimpan jawaban manual."""
+    """Simpan atau timpa satu jawaban manual (AC4 sampai AC7).
+
+    Batas atas attempt_no di sini hanya pagar global PBI-11. Apakah nomornya
+    masuk jumlah pengulangan sesi diperiksa saat penyimpanan, karena jumlah itu
+    milik sesi, bukan milik kontrak.
+    """
 
     snapshot_item_id: uuid.UUID
-    attempt_no: int = Field(ge=1, le=5)
-    answer_md: str | None = None
-    obtained_at: datetime | None = None
+    attempt_no: int = Field(
+        ge=MIN_REPEATS,
+        le=MAX_REPEATS,
+        description="Nomor percobaan, harus masuk jumlah pengulangan sesi",
+    )
+    answer_md: str | None = Field(
+        default=None,
+        description="Jawaban markdown apa adanya, tanpa batas panjang (AC4)",
+    )
+    obtained_at: datetime | None = Field(
+        default=None,
+        description="Kapan jawaban diperoleh dari platform; kosong berarti sekarang (AC7)",
+    )
     platform_refused: bool = Field(default=False, strict=True)
     note: str | None = Field(
         default=None,
-        description="Required nonblank when platform_refused is true",
+        description="Wajib berisi teks bila platform_refused true (AC6)",
     )
-    requires_confirmation: bool = Field(default=False, strict=True)
+    requires_confirmation: bool = Field(
+        default=False,
+        strict=True,
+        description="Konfirmasi menimpa jawaban yang sudah ada (AC5)",
+    )
 
     @field_validator("obtained_at")
     @classmethod
     def validate_obtained_at(cls, value: datetime | None) -> datetime | None:
+        """Tolak waktu tanpa zona, lalu simpan dalam UTC."""
         if value is not None and value.utcoffset() is None:
-            raise ValueError("obtained_at must include a timezone")
+            raise ValueError("obtained_at harus menyertakan zona waktu")
 
         return value.astimezone(UTC) if value is not None else None
 
     @model_validator(mode="after")
     def validate_answer(self):
+        """Jawaban kosong ditolak, kecuali platform menolak menjawab dan ada catatan (AC6)."""
         if not self.platform_refused and (self.answer_md is None or not self.answer_md.strip()):
-            raise ValueError("answer_md must contain text unless platform_refused is true")
+            raise ValueError("answer_md harus berisi teks kecuali platform_refused true")
         if self.platform_refused and (self.note is None or not self.note.strip()):
-            raise ValueError("note must contain text when platform_refused is true")
+            raise ValueError("note harus berisi teks bila platform_refused true")
         return self
 
 

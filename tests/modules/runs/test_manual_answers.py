@@ -143,6 +143,7 @@ def test_waktu_diperoleh_bisa_diubah(manual):
 
 
 def test_attempt_bukan_milik_sesi_ditolak(manual):
+    """Negatif: kasus di luar snapshot sesi ditolak dengan kodenya sendiri."""
     ctx, session_id, attempts = manual
 
     response = ctx.sebagai(Role.ADMIN).put(
@@ -154,6 +155,24 @@ def test_attempt_bukan_milik_sesi_ditolak(manual):
     )
 
     assert response.status_code == 422
+    assert response.json()["code"] == "MANUAL_CASE_NOT_IN_SNAPSHOT"
+
+
+def test_nomor_percobaan_di_luar_pengulangan_sesi_ditolak(manual):
+    """Negatif: sesi ini satu pengulangan, jadi percobaan kedua tidak ada (AC4).
+
+    Kodenya harus beda dari kasus di luar snapshot, karena tiket menyebut keduanya
+    sebagai syarat terpisah.
+    """
+    ctx, session_id, attempts = manual
+
+    response = ctx.sebagai(Role.ADMIN).put(
+        path(session_id),
+        json=payload(attempts[0], attempt_no=2),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "MANUAL_ATTEMPT_NO_OUT_OF_RANGE"
 
 
 def test_tidak_boleh_mengubah_setelah_finalized(manual):

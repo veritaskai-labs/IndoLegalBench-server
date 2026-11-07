@@ -8663,7 +8663,8 @@
             "type": "integer",
             "maximum": 5.0,
             "minimum": 1.0,
-            "title": "Attempt No"
+            "title": "Attempt No",
+            "description": "Nomor percobaan, harus masuk jumlah pengulangan sesi"
           },
           "answer_md": {
             "anyOf": [
@@ -8674,7 +8675,8 @@
                 "type": "null"
               }
             ],
-            "title": "Answer Md"
+            "title": "Answer Md",
+            "description": "Jawaban markdown apa adanya, tanpa batas panjang (AC4)"
           },
           "obtained_at": {
             "anyOf": [
@@ -8686,7 +8688,8 @@
                 "type": "null"
               }
             ],
-            "title": "Obtained At"
+            "title": "Obtained At",
+            "description": "Kapan jawaban diperoleh dari platform; kosong berarti sekarang (AC7)"
           },
           "platform_refused": {
             "type": "boolean",
@@ -8703,11 +8706,12 @@
               }
             ],
             "title": "Note",
-            "description": "Required nonblank when platform_refused is true"
+            "description": "Wajib berisi teks bila platform_refused true (AC6)"
           },
           "requires_confirmation": {
             "type": "boolean",
             "title": "Requires Confirmation",
+            "description": "Konfirmasi menimpa jawaban yang sudah ada (AC5)",
             "default": false
           }
         },
@@ -8717,7 +8721,7 @@
           "attempt_no"
         ],
         "title": "ManualAnswerSaveRequest",
-        "description": "Request menyimpan jawaban manual."
+        "description": "Simpan atau timpa satu jawaban manual (AC4 sampai AC7).\n\nBatas atas attempt_no di sini hanya pagar global PBI-11. Apakah nomornya\nmasuk jumlah pengulangan sesi diperiksa saat penyimpanan, karena jumlah itu\nmilik sesi, bukan milik kontrak."
       },
       "ManualAttemptSlot": {
         "properties": {
