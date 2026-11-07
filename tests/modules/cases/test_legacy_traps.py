@@ -200,14 +200,15 @@ def test_versi_approved_lama_menyimpan_traps_utuh_setelah_draf_baru(as_role, db_
 # --- Peringatan untuk payload lama --------------------------------------------
 
 
-def test_payload_dengan_traps_lama_dicatat_peringatan_tanpa_isinya(as_role, caplog):
+@pytest.mark.parametrize("traps", [TRAPS_LAMA, [], None], ids=["berisi", "kosong", "null"])
+def test_buat_dengan_traps_lama_dicatat_satu_peringatan_tanpa_isinya(as_role, caplog, traps):
     # Arrange
     client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
     # Act
     with caplog.at_level(logging.WARNING, logger=LOGGER_LEGACY):
-        _buat(client, suite_id, traps=TRAPS_LAMA)
+        _buat(client, suite_id, traps=traps)
 
     # Assert
     catatan = [r for r in caplog.records if r.name == LOGGER_LEGACY]
@@ -216,6 +217,24 @@ def test_payload_dengan_traps_lama_dicatat_peringatan_tanpa_isinya(as_role, capl
     assert "traps" in catatan[0].getMessage()
     assert "Mencampur upah" not in caplog.text
     assert "pasal yang dicabut" not in caplog.text
+
+
+@pytest.mark.parametrize("traps", [TRAPS_LAMA, [], None], ids=["berisi", "kosong", "null"])
+def test_ubah_dengan_traps_lama_dicatat_satu_peringatan_dengan_id_kasus(as_role, caplog, traps):
+    # Arrange
+    client = as_role(Role.CONTRIBUTOR)
+    case_id = _buat(client, _suite(client)).json()["id"]
+
+    # Act
+    with caplog.at_level(logging.WARNING, logger=LOGGER_LEGACY):
+        response = client.put(f"/cases/{case_id}", json=_badan(traps=traps))
+
+    # Assert
+    catatan = [r for r in caplog.records if r.name == LOGGER_LEGACY]
+    assert response.status_code == 200
+    assert len(catatan) == 1
+    assert case_id in catatan[0].getMessage()
+    assert "Mencampur upah" not in caplog.text
 
 
 def test_payload_tanpa_traps_tidak_dicatat_peringatan(as_role, caplog):
