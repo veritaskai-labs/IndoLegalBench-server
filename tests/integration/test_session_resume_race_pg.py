@@ -67,6 +67,8 @@ def test_two_resumes_have_one_winner_with_atomic_loser(engine, monkeypatch, same
             return result
 
         monkeypatch.setattr(SessionControlRepository, "another_running", see_empty_slot)
+        # Rows other PG tests leave queued must not turn this into a queue-only resume.
+        monkeypatch.setattr(SessionControlRepository, "queue_waiting", lambda *_: False)
     outcomes = []
 
     def resume(item):
@@ -95,17 +97,19 @@ def test_two_resumes_have_one_winner_with_atomic_loser(engine, monkeypatch, same
             assert not thread.is_alive()
         assert len(outcomes) == 2
         failures = [(sid, value) for sid, value in outcomes if isinstance(value, Exception)]
-        assert len(failures) == 1
-        loser, error = failures[0]
-        assert isinstance(error, ConflictError)
-        assert error.code == (
-            "SESSION_NOT_RESUMABLE" if same_session else "ANOTHER_SESSION_RUNNING"
-        )
-        with Session(engine) as db:
-            if not same_session:
-                row = db.get(MeasurementSession, loser)
-                assert row.status == "paused" and row.stopped_at == NOW
-                assert not row.model_version_unverified and not row.resume_version_check_pending
+        if same_session:
+            assert len(failures) == 1
+            assert isinstance(failures[0][1], ConflictError)
+            assert failures[0][1].code == "SESSION_NOT_RESUMABLE"
+        else:
+            # SCRUM-267: the unique-index loser falls back to the queue instead of a 409.
+            assert failures == []
+            assert sorted(response.status for _, response in outcomes) == ["queued", "running"]
+            with Session(engine) as db:
+                rows = [db.get(MeasurementSession, sid) for sid, _ in outcomes]
+                assert sorted(row.status for row in rows) == ["queued", "running"]
+                loser = next(row for row in rows if row.status == "queued")
+                assert loser.stopped_at is None and loser.stop_reason is None
     finally:
         # Only synthetic rows in this disposable database; leave no active slot for other tests.
         with engine.begin() as connection:

@@ -154,19 +154,22 @@ def test_resume_requires_login(client):
     assert client.post(f"/measurements/{uuid.uuid4()}/resume").status_code == 401
 
 
-def test_occupied_slot_rejects_without_partial_marker_or_timestamp_writes(siap):
+def test_occupied_slot_queues_resume_behind_the_running_session(siap):
+    """SCRUM-267 AC8: an occupied slot puts the resumed session back in the queue."""
     session_id, _, _ = paused(siap)
     row = siap.db.get(MeasurementSession, session_id)
-    old_stopped = row.stopped_at
+    old_queued = row.queued_at
     second = start(siap)
     assert build_session_queue(siap.db).take_next() == second
     response = siap.sebagai(Role.ADMIN).post(f"/measurements/{session_id}/resume")
-    assert response.status_code == 409
-    assert response.json()["code"] == "ANOTHER_SESSION_RUNNING"
+    assert response.status_code == 202
+    assert response.json()["status"] == "queued"
     siap.db.expire_all()
     row = siap.db.get(MeasurementSession, session_id)
-    assert row.status == "paused" and row.stopped_at == old_stopped
-    assert not row.resumed_after_long_pause and not row.resume_version_check_pending
+    assert row.status == "queued" and row.queued_at > old_queued
+    assert row.stopped_at is None and row.stop_reason is None
+    assert row.resume_version_check_pending
+    assert siap.db.get(MeasurementSession, second).status == "running"
 
 
 def test_unrelated_integrity_failure_is_not_misreported_as_slot_conflict(siap, monkeypatch):
@@ -185,19 +188,41 @@ def test_unrelated_integrity_failure_is_not_misreported_as_slot_conflict(siap, m
     assert row.status == "paused" and not row.resume_version_check_pending
 
 
-def test_racing_sqlite_slot_violation_rolls_back(siap, monkeypatch):
+def _slot_violation():
     import sqlite3
 
     from sqlalchemy.exc import IntegrityError
 
+    original = sqlite3.IntegrityError("UNIQUE constraint failed: measurement_sessions.session_type")
+    original.sqlite_errorname = "SQLITE_CONSTRAINT_UNIQUE"
+    return IntegrityError("synthetic statement", {}, original)
+
+
+def test_racing_slot_violation_falls_back_to_the_queue(siap, monkeypatch):
+    """SCRUM-267: a worker took the slot between the check and the commit."""
+    session_id, _, _ = paused(siap)
+    real_commit = siap.db.commit
+    raised = []
+
+    def lose_first_race():
+        if not raised:
+            raised.append(True)
+            raise _slot_violation()
+        real_commit()
+
+    monkeypatch.setattr(siap.db, "commit", lose_first_race)
+    response = siap.sebagai(Role.ADMIN).post(f"/measurements/{session_id}/resume")
+    assert response.status_code == 202 and response.json()["status"] == "queued"
+    siap.db.expire_all()
+    assert siap.db.get(MeasurementSession, session_id).status == "queued"
+
+
+def test_repeated_slot_violation_rolls_back(siap, monkeypatch):
+    """Defensive: a slot violation even on the queue path is a 409 with no writes."""
     session_id, _, _ = paused(siap)
 
     def broken():
-        original = sqlite3.IntegrityError(
-            "UNIQUE constraint failed: measurement_sessions.session_type"
-        )
-        original.sqlite_errorname = "SQLITE_CONSTRAINT_UNIQUE"
-        raise IntegrityError("synthetic statement", {}, original)
+        raise _slot_violation()
 
     monkeypatch.setattr(siap.db, "commit", broken)
     response = siap.sebagai(Role.ADMIN).post(f"/measurements/{session_id}/resume")

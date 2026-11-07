@@ -515,3 +515,110 @@ def test_gagal_tetap_tercatat_setelah_transaksi_sebelumnya_galat(antrean, db_ses
     # Assert
     assert berhasil is True
     assert antrean.oldest_queued() is None
+
+
+# SCRUM-267: sesi yang dilanjutkan kembali Menunggu dengan snapshot dan salinan lamanya.
+DIJEDA = MULAI + timedelta(minutes=5)
+DILANJUTKAN = MULAI + timedelta(minutes=10)
+DIBUKA = MULAI + timedelta(minutes=20)
+
+
+def _menunggu_lagi(antrean, db_session, label="Dilanjutkan"):
+    """Sesi yang sudah berjalan, dijeda, lalu Lanjutkan saat slot terpakai (AC8)."""
+    sesi = antrean.create_queued(_baru(label, repetitions=1))
+    antrean.start(sesi.id, items=ITEMS, product=_salinan(), started_at=MULAI)
+    status = repository.SessionStatusRepository(db_session)
+    status.change_status(sesi.id, SessionStatus.PAUSED, at=DIJEDA, stop_reason="user")
+    status.change_status(sesi.id, SessionStatus.QUEUED, at=DILANJUTKAN)
+    return sesi.id
+
+
+def test_sesi_baru_belum_disiapkan_dan_sesi_dilanjutkan_sudah(antrean, db_session):
+    """Positif: oldest_queued membedakan sesi yang belum pernah punya snapshot."""
+    # Arrange
+    dilanjutkan = _menunggu_lagi(antrean, db_session)
+
+    # Act
+    pertama = antrean.oldest_queued()
+    antrean.create_queued(_baru("Baru"))
+    db_session.get(MeasurementSession, dilanjutkan).status = SessionStatus.CANCELLED
+    db_session.commit()
+    kedua = antrean.oldest_queued()
+
+    # Assert
+    assert pertama.id == dilanjutkan and pertama.prepared is True
+    assert kedua.new.label == "Baru" and kedua.prepared is False
+
+
+def test_reopen_menjalankan_lagi_tanpa_snapshot_baru(antrean, db_session):
+    """Positif: AC8, started_at awal tetap, satu snapshot, perpindahan tercatat di audit."""
+    # Arrange
+    from app.modules.audit.models import AuditLog
+
+    sesi_id = _menunggu_lagi(antrean, db_session)
+
+    # Act
+    berhasil = antrean.reopen(sesi_id, at=DIBUKA)
+
+    # Assert
+    assert berhasil is True
+    db_session.expire_all()
+    baris = db_session.get(MeasurementSession, sesi_id)
+    assert baris.status == SessionStatus.RUNNING
+    assert baris.started_at.replace(tzinfo=UTC) == MULAI
+    assert baris.stopped_at is None and baris.stop_reason is None
+    assert _jumlah(db_session, CaseSnapshot, sesi_id) == 1
+    assert _jumlah(db_session, SessionProductCopy, sesi_id) == 1
+    terakhir = db_session.scalars(
+        select(AuditLog).where(AuditLog.entity_id == sesi_id).order_by(AuditLog.id.desc())
+    ).first()
+    assert terakhir.before == {"status": "queued"} and terakhir.after == {"status": "running"}
+
+
+def test_reopen_ditolak_saat_sesi_lain_running(db_session):
+    """Negatif: PBI-11 AC3, partial index menolak; sesi tetap Menunggu."""
+    # Arrange
+    antrean = repository.SessionQueueRepository(db_session, clock=lambda: JAM)
+    sesi_id = _menunggu_lagi(antrean, db_session)
+    lain = antrean.create_queued(_baru("Lain"))
+    antrean.start(lain.id, items=ITEMS, product=_salinan(), started_at=DIBUKA)
+
+    # Act
+    berhasil = antrean.reopen(sesi_id, at=DIBUKA)
+
+    # Assert
+    assert berhasil is False
+    db_session.expire_all()
+    assert db_session.get(MeasurementSession, sesi_id).status == SessionStatus.QUEUED
+
+
+def test_reopen_ditolak_bila_sesi_tidak_lagi_menunggu(antrean, db_session):
+    """Edge: Admin membatalkan sesi sebelum worker sempat membukanya."""
+    # Arrange
+    sesi_id = _menunggu_lagi(antrean, db_session)
+    repository.SessionStatusRepository(db_session).change_status(
+        sesi_id, SessionStatus.CANCELLED, at=DIBUKA
+    )
+
+    # Act
+    berhasil = antrean.reopen(sesi_id, at=DIBUKA)
+
+    # Assert
+    assert berhasil is False
+    assert db_session.get(MeasurementSession, sesi_id).status == SessionStatus.CANCELLED
+
+
+def test_reopen_tidak_menyembunyikan_galat_lain(antrean, db_session, monkeypatch):
+    """Negatif: galat integritas lain dinaikkan dan transaksinya dibatalkan."""
+    # Arrange
+    sesi_id = _menunggu_lagi(antrean, db_session)
+
+    def rusak(*_args, **_kwargs):
+        raise IntegrityError("synthetic", {}, ValueError("unrelated failure"))
+
+    monkeypatch.setattr(repository, "_catat_status", rusak)
+
+    # Act / Assert
+    with pytest.raises(IntegrityError):
+        antrean.reopen(sesi_id, at=DIBUKA)
+    assert db_session.get(MeasurementSession, sesi_id).status == SessionStatus.QUEUED
