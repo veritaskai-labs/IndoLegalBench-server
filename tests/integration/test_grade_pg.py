@@ -59,13 +59,24 @@ def pg():
     engine.dispose()
 
 
-def _setup_pg_grade_session(conn):
+def _setup_pg_grade_session(conn, extra_disrupted: bool = False):
     admin_id = buat_admin(conn)
     product_id = buat_produk(conn, admin_id)
     session_id = buat_sesi(conn, product_id, admin_id)
-    ubah_status(conn, session_id, "finished")
     buat_versi_aktif(conn, admin_id)
     attempt_id = buat_percobaan(conn, session_id, admin_id)
+
+    disrupt_att_id = None
+    if extra_disrupted:
+        disrupt_att_id = buat_percobaan(conn, session_id, admin_id)
+        conn.execute(
+            text(
+                "UPDATE attempts SET status = 'failed', failure_kind = 'platform_refused', "
+                "answer_text = 'Maaf, saya tidak dapat menjawab pertanyaan ini.' "
+                "WHERE id = :id"
+            ),
+            {"id": disrupt_att_id},
+        )
 
     conn.execute(
         text(
@@ -105,6 +116,10 @@ def _setup_pg_grade_session(conn):
         {"sesi": session_id, "body": json.dumps(body_data)},
     )
 
+    ubah_status(conn, session_id, "finished")
+
+    if extra_disrupted:
+        return admin_id, session_id, attempt_id, disrupt_att_id
     return admin_id, session_id, attempt_id
 
 
@@ -169,17 +184,8 @@ def test_grade_session_pg_lifecycle_and_criterion_unmet(pg):
 def test_grade_session_pg_technical_disruption_does_not_call_judge_guard(pg):
     """Positif: Percobaan dengan gangguan teknis tidak memasukkan baris juri ke Postgres."""
     db, conn = pg
-    admin_id, session_id, attempt_id = _setup_pg_grade_session(conn)
-
-    # Tambah percobaan kedua dengan gangguan teknis (platform_refused)
-    disrupt_att_id = buat_percobaan(conn, session_id, admin_id)
-    conn.execute(
-        text(
-            "UPDATE attempts SET status = 'failed', failure_kind = 'platform_refused', "
-            "answer_text = 'Maaf, saya tidak dapat menjawab pertanyaan ini.' "
-            "WHERE id = :id"
-        ),
-        {"id": disrupt_att_id},
+    admin_id, session_id, attempt_id, disrupt_att_id = _setup_pg_grade_session(
+        conn, extra_disrupted=True
     )
 
     res = grade_session(db, session_id, actor_id=admin_id, actor_role=Role.ADMIN)
