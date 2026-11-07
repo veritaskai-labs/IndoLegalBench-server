@@ -26,6 +26,7 @@ from app.modules.runs.dependencies import (
 )
 from app.modules.runs.schemas import (
     AttemptCalls,
+    GradedSessionListItem,
     GradeSessionRequest,
     ProgressResponse,
     SessionAcceptRequest,
@@ -46,7 +47,11 @@ from app.modules.runs.session_accept import accept_session, clear_acceptance
 from app.modules.runs.session_archive import archive_session
 from app.modules.runs.session_control_router import router as control_router
 from app.modules.runs.session_detail import SessionDetailService
-from app.modules.runs.session_grade import get_session_results, grade_session
+from app.modules.runs.session_grade import (
+    get_session_results,
+    grade_session,
+    list_graded_sessions,
+)
 from app.modules.runs.session_list import SessionListService
 from app.modules.runs.session_retry import retry_failed_attempts
 from app.shared.database import get_db
@@ -382,6 +387,35 @@ _RESPONS_RESULTS = {
         ),
     },
 }
+
+
+results_router = APIRouter(prefix="/results", tags=["results"])
+
+
+@results_router.get(
+    "/sessions",
+    response_model=list[GradedSessionListItem],
+    summary="Daftar sesi selesai yang telah dinilai untuk Admin dan Viewer (SCRUM-226)",
+)
+def list_graded_sessions_alias_endpoint(
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[GradedSessionListItem]:
+    """Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin, Viewer, dan Developer AI."""
+    return list_graded_sessions(db, viewer_role=user.role)
+
+
+@router.get(
+    "/results/sessions",
+    response_model=list[GradedSessionListItem],
+    summary="Daftar sesi selesai yang telah dinilai untuk Admin dan Viewer (SCRUM-226)",
+)
+def list_graded_sessions_endpoint(
+    user: CurrentUser = Depends(get_current_user),
+    db: Session = Depends(get_db),
+) -> list[GradedSessionListItem]:
+    """Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin, Viewer, dan Developer AI."""
+    return list_graded_sessions(db, viewer_role=user.role)
 
 
 @router.post(
