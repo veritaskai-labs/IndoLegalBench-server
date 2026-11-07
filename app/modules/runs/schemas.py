@@ -25,6 +25,7 @@ from app.modules.runs.models import (
     AttemptStatus,
     EvidenceKind,
     SessionStatus,
+    SessionType,
     StopReason,
 )
 from app.shared.text import strip_blank
@@ -160,6 +161,9 @@ class SessionListItem(BaseModel):
     )
     repetitions: int
     status: SessionStatus
+    session_type: SessionType = Field(
+        description="automatic atau manual; label manual di daftar sesi (PBI-22 AC9)"
+    )
     progress: SessionProgressRead
 
 

@@ -53,7 +53,6 @@ PENGECUALIAN = {
         "measurement_session.evidence_added dan evidence_removed sendiri"
     ),
     "evidence_files": "SCRUM-233: isi berkas bukti; metadata dan pengunggahnya di attempt_evidence",
-    "attempts": "SCRUM-205: jawaban mentah permanen (trigger); bukti panggilan di call_logs (SCRUM-209)",
     "rubric_aspects": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
     "rubric_levels": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
     "rubric_level_descriptors": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",

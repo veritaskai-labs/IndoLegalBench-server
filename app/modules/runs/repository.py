@@ -310,6 +310,7 @@ class SessionListRepository:
                 status=SessionStatus(session.status),
                 case_count=cases.get(session.id),
                 attempt_counts=attempts.get(session.id, {}),
+                session_type=SessionType(session.session_type),
             )
             for session in sessions
         ]

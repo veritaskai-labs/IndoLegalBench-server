@@ -8573,6 +8573,10 @@
           "status": {
             "$ref": "#/components/schemas/SessionStatus"
           },
+          "session_type": {
+            "$ref": "#/components/schemas/SessionType",
+            "description": "automatic atau manual; label manual di daftar sesi (PBI-22 AC9)"
+          },
           "progress": {
             "$ref": "#/components/schemas/SessionProgressRead"
           }
@@ -8589,6 +8593,7 @@
           "case_count",
           "repetitions",
           "status",
+          "session_type",
           "progress"
         ],
         "title": "LatestRunSummary",
@@ -11296,6 +11301,10 @@
           "status": {
             "$ref": "#/components/schemas/SessionStatus"
           },
+          "session_type": {
+            "$ref": "#/components/schemas/SessionType",
+            "description": "automatic atau manual; label manual di daftar sesi (PBI-22 AC9)"
+          },
           "progress": {
             "$ref": "#/components/schemas/SessionProgressRead"
           },
@@ -11467,6 +11476,7 @@
           "case_count",
           "repetitions",
           "status",
+          "session_type",
           "progress",
           "purpose",
           "split_filter",
@@ -11554,6 +11564,10 @@
           "status": {
             "$ref": "#/components/schemas/SessionStatus"
           },
+          "session_type": {
+            "$ref": "#/components/schemas/SessionType",
+            "description": "automatic atau manual; label manual di daftar sesi (PBI-22 AC9)"
+          },
           "progress": {
             "$ref": "#/components/schemas/SessionProgressRead"
           }
@@ -11570,6 +11584,7 @@
           "case_count",
           "repetitions",
           "status",
+          "session_type",
           "progress"
         ],
         "title": "SessionListItem",
@@ -11713,6 +11728,14 @@
         ],
         "title": "SessionStatus",
         "description": "Status sesi per D4 (otomatis) dan D8 (manual). Perpindahan sah di session_transitions.\n\npaused mencakup Jeda dari pengguna dan sesi yang dihentikan sistem (restart, deploy,\nanggaran habis); D4 tidak memisahkan Dihentikan dari Dijeda.\n\nLima status terakhir milik sesi manual (PBI-22 SCRUM-230, D9 menaruhnya di kolom yang\nsama): Belum terisi, Terisi sebagian, Lengkap, Dinilai, Selesai."
+      },
+      "SessionType": {
+        "type": "string",
+        "enum": [
+          "automatic",
+          "manual"
+        ],
+        "title": "SessionType"
       },
       "SessionUnarchiveResponse": {
         "properties": {
