@@ -143,7 +143,24 @@ def modul():
     return manual_session
 
 
-def _service(modul, *, kunci=None, salinan=None, snapshot=None, penyimpan=None, suite=None):
+JUDGE_ID = uuid.UUID("00000000-0000-0000-0000-0000000000f6")
+
+
+class _Penilai:
+    """Kunci penilai palsu (SCRUM-258): tersedia bila id ada di daftar penilai aktif."""
+
+    def __init__(self, aktif: frozenset[uuid.UUID] = frozenset({JUDGE_ID})) -> None:
+        self.aktif = aktif
+        self.dikunci: list[uuid.UUID] = []
+
+    def lock_available(self, judge_provider_id):
+        self.dikunci.append(judge_provider_id)
+        return judge_provider_id in self.aktif
+
+
+def _service(
+    modul, *, kunci=None, salinan=None, snapshot=None, penyimpan=None, suite=None, penilai=None
+):
     penyimpan = penyimpan or _Penyimpan()
     layanan = modul.ManualSessionService(
         sessions=penyimpan,
@@ -151,6 +168,7 @@ def _service(modul, *, kunci=None, salinan=None, snapshot=None, penyimpan=None, 
         products=salinan or _Salinan(),
         product_lock=kunci or _Kunci(),
         suites=suite or _Suite(),
+        judge_lock=penilai or _Penilai(),
     )
     return layanan, penyimpan
 
@@ -325,3 +343,41 @@ def test_label_kosong_ditolak():
     # Act / Assert
     with pytest.raises(PydanticValidationError):
         _permintaan(label="   ")
+
+
+# --- Penilai LLM (SCRUM-258) ------------------------------------------------------
+# ManualStartRequest mewarisi judge_provider_id dari StartRequest. Sejak FK SCRUM-258,
+# id yang tidak dikenal tanpa pemeriksaan ini menjadi 500 dari database.
+
+
+def test_sesi_manual_tanpa_penilai_tidak_mengunci_penilai(modul):
+    """Edge: keputusan PO K2, penilai boleh kosong; untuk sesi manual D2 masih [USULAN SA]."""
+    penilai = _Penilai()
+    layanan, penyimpan = _service(modul, penilai=penilai)
+
+    layanan.create(_permintaan(), created_by=ADMIN_ID)
+
+    assert penilai.dikunci == []
+    assert penyimpan.dibuat[0][0].judge_provider_id is None
+
+
+def test_sesi_manual_menyimpan_penilai_aktif_yang_dikunci(modul):
+    penilai = _Penilai()
+    layanan, penyimpan = _service(modul, penilai=penilai)
+
+    layanan.create(_permintaan(judge_provider_id=JUDGE_ID), created_by=ADMIN_ID)
+
+    assert penilai.dikunci == [JUDGE_ID]
+    assert penyimpan.dibuat[0][0].judge_provider_id == JUDGE_ID
+
+
+def test_sesi_manual_dengan_penilai_tidak_tersedia_ditolak_tanpa_sesi(modul):
+    """Negatif: 422 dengan code dan field yang sama seperti Mulai otomatis, bukan 500 FK."""
+    layanan, penyimpan = _service(modul, penilai=_Penilai(aktif=frozenset()))
+
+    with pytest.raises(ValidationError) as galat:
+        layanan.create(_permintaan(judge_provider_id=JUDGE_ID), created_by=ADMIN_ID)
+
+    assert galat.value.code == "JUDGE_PROVIDER_NOT_AVAILABLE"
+    assert galat.value.field == "judge_provider_id"
+    assert penyimpan.dibuat == []

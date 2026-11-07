@@ -34,6 +34,7 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column
 
 from app.shared.database import Base
+from app.shared.text import sql_not_blank
 
 # JSONB on PostgreSQL, plain JSON on SQLite so the tests keep running.
 # none_as_null: None disimpan sebagai SQL NULL, bukan JSON null. C1 (D1) mensyaratkan
@@ -210,6 +211,60 @@ class AiProduct(Base):
     )
     deleted_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # FK lewat nama tabel, bukan import model auth. Batas modul tetap utuh.
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        server_default=func.now(),
+        onupdate=func.now(),
+        nullable=False,
+    )
+
+
+class JudgeProvider(Base):
+    """Provider LLM penilai (PBI-14 AC1, AC6; D6; SCRUM-258).
+
+    Tabel sendiri, bukan baris ai_products, supaya penilai tidak muncul di pilihan
+    produk, dashboard, dan laporan (catatan SA 6 Nov). Kredensial memakai masking
+    yang sama dengan ai_products. Harga wajib supaya biaya tiap baris penilai
+    diketahui, dan anggaran bulanannya terpisah dari produk (klien No. 63 A).
+    """
+
+    __tablename__ = "judge_providers"
+    __table_args__ = (
+        CheckConstraint(sql_not_blank("name"), name="ck_judge_providers_name"),
+        CheckConstraint(sql_not_blank("base_url"), name="ck_judge_providers_base_url"),
+        CheckConstraint(sql_not_blank("model_name"), name="ck_judge_providers_model_name"),
+        CheckConstraint("length(credential_hint) = 4", name="ck_judge_providers_credential_hint"),
+        CheckConstraint(
+            "price_input_usd_per_mtok >= 0 AND price_output_usd_per_mtok >= 0",
+            name="ck_judge_providers_prices",
+        ),
+        CheckConstraint("monthly_budget_idr > 0", name="ck_judge_providers_monthly_budget"),
+        # Nama tidak dipakai ulang, juga oleh penilai nonaktif yang masih dirujuk sesi lama.
+        UniqueConstraint("name", name="uq_judge_providers_name"),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    name: Mapped[str] = mapped_column(String(200), nullable=False)
+    provider_type: Mapped[ProviderType] = mapped_column(
+        Enum(ProviderType, name="ai_product_provider_type_enum", values_callable=_enum_values),
+        nullable=False,
+    )
+    base_url: Mapped[str] = mapped_column(String(2048), nullable=False)
+    model_name: Mapped[str] = mapped_column(String(200), nullable=False)
+    credential_encrypted: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    credential_hint: Mapped[str] = mapped_column(String(4), nullable=False)
+    price_input_usd_per_mtok: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+    price_output_usd_per_mtok: Mapped[Decimal] = mapped_column(Numeric(12, 4), nullable=False)
+    monthly_budget_idr: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    is_active: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default=true()
+    )
     created_by: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False
     )

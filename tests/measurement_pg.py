@@ -57,15 +57,17 @@ def buat_sesi(conn: Connection, produk_id: uuid.UUID, admin_id: uuid.UUID, **uba
         "repetitions": 1,
         "split_filter": "dev",
         "created_by": admin_id,
+        "judge_provider_id": None,
     }
     isi.update(ubah)
     return conn.execute(
         text(
             "INSERT INTO measurement_sessions "
-            "(id, label, purpose, session_type, product_id, repetitions, split_filter, created_by) "
+            "(id, label, purpose, session_type, product_id, repetitions, split_filter, created_by, "
+            "judge_provider_id) "
             "VALUES (:id, :label, CAST(:purpose AS measurement_purpose_enum), "
             "CAST(:session_type AS measurement_session_type_enum), :product_id, :repetitions, "
-            "CAST(:split_filter AS measurement_split_filter_enum), :created_by) "
+            "CAST(:split_filter AS measurement_split_filter_enum), :created_by, :judge_provider_id) "
             "RETURNING id"
         ),
         isi,

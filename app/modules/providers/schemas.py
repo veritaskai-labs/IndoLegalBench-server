@@ -8,7 +8,6 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from typing import Literal
-from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, JsonValue, RootModel, field_validator
 
@@ -18,24 +17,10 @@ from app.modules.providers.models import (
     MeasurementType,
     ProviderType,
 )
+from app.modules.providers.validators import http_url, required_text
 
 # Batas catatan akses dan parameter produk Manual (teks bebas, PBI-23 AC3).
 _PANJANG_TEKS_MANUAL = 2000
-
-
-def _teks_bersih(value: str) -> str:
-    bersih = value.strip()
-    if not bersih:
-        raise ValueError("tidak boleh kosong")
-    return bersih
-
-
-def _url_http(value: str) -> str:
-    bersih = value.strip()
-    parsed = urlparse(bersih)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError("harus berupa URL http atau https")
-    return bersih
 
 
 class ModelParams(RootModel[dict[str, JsonValue]]):
@@ -83,17 +68,17 @@ class AiProductCreate(BaseModel):
     @field_validator("name")
     @classmethod
     def nama_wajib_ada(cls, value: str) -> str:
-        return _teks_bersih(value)
+        return required_text(value)
 
     @field_validator("model_name", "vendor_name")
     @classmethod
     def teks_tidak_kosong(cls, value: str | None) -> str | None:
-        return None if value is None else _teks_bersih(value)
+        return None if value is None else required_text(value)
 
     @field_validator("base_url", "site_url")
     @classmethod
     def url_http(cls, value: str | None) -> str | None:
-        return None if value is None else _url_http(value)
+        return None if value is None else http_url(value)
 
 
 class AiProductUpdate(BaseModel):
@@ -124,14 +109,14 @@ class AiProductUpdate(BaseModel):
     def wajib_ada(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        return _teks_bersih(value)
+        return required_text(value)
 
     @field_validator("base_url", "site_url")
     @classmethod
     def url_http(cls, value: str | None) -> str | None:
         if value is None:
             return None
-        return _url_http(value)
+        return http_url(value)
 
 
 class AiProductRead(BaseModel):
