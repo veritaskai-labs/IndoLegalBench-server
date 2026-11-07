@@ -211,3 +211,24 @@ def test_peringatan_rentang_tanggal_mengikuti_setting(siap_manual, batas_hari, h
     # Assert
     assert isi["date_range_warning"] is peringatan
     assert isi["answer_date_from"].startswith("2026-11-01")
+
+
+def test_daftar_sesi_menghitung_jawaban_manual_yang_terisi(siap_manual):
+    """Positif: AC8, daftar /measurements dan halaman sesi manual menunjukkan X yang sama.
+
+    Percobaan manual tetap pending; jawaban terisi tercatat di filled_at (D9), jadi
+    progres daftar menghitung filled_at untuk sesi manual.
+    """
+    # Arrange
+    sesi_id = _sesi_manual(siap_manual, repeat_count=1)
+    _isi_kasus(siap_manual.db, sesi_id, 0, HARI_1)
+    admin = siap_manual.sebagai(Role.ADMIN)
+
+    # Act
+    daftar = admin.get("/measurements").json()
+    kepala = admin.get(f"/measurements/{sesi_id}").json()
+
+    # Assert
+    (baris,) = [item for item in daftar if item["id"] == str(sesi_id)]
+    assert baris["progress"] == {"completed": 1, "total": 3}
+    assert kepala["progress"] == {"completed": 1, "total": 3}

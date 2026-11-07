@@ -208,6 +208,33 @@ def test_suite_tanpa_kasus_layak_ditolak_tanpa_sisa(siap_manual):
     assert _jumlah(siap_manual.db, CaseSnapshot) == 0
 
 
+def test_suite_diarsipkan_ditolak_409(siap_manual):
+    """Negatif: suite arsip tidak dapat dipilih untuk pengukuran baru (archive_suite, SCRUM-206)."""
+    # Arrange
+    admin = siap_manual.sebagai(Role.ADMIN)
+    admin.post(f"/suites/{siap_manual.suite_id}/archive")
+
+    # Act
+    respons = admin.post(URL, json=_badan(siap_manual))
+
+    # Assert
+    assert respons.status_code == 409
+    assert respons.json()["code"] == "SUITE_ARCHIVED"
+    assert _jumlah(siap_manual.db, MeasurementSession) == 0
+
+
+def test_suite_yang_tidak_ada_ditolak_404(siap_manual):
+    """Negatif: suite yang tidak ada adalah 404, sama seperti POST /measurements."""
+    # Act
+    respons = siap_manual.sebagai(Role.ADMIN).post(
+        URL, json=_badan(siap_manual, suite_ids=[str(uuid.uuid4())])
+    )
+
+    # Assert
+    assert respons.status_code == 404
+    assert _jumlah(siap_manual.db, MeasurementSession) == 0
+
+
 @pytest.mark.parametrize("jumlah", [0, 6])
 def test_jumlah_percobaan_di_luar_batas_ditolak(siap_manual, jumlah):
     """Negatif: AC1, percobaan 1 sampai 5."""

@@ -22,7 +22,7 @@ import pytest
 from pydantic import ValidationError as PydanticValidationError
 
 from app.modules.runs import schemas, session_ports
-from app.shared.exceptions import NotFoundError, ValidationError
+from app.shared.exceptions import ConflictError, NotFoundError, ValidationError
 
 SUITE_A = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 SUITE_B = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
@@ -86,6 +86,19 @@ class _Salinan:
         return _salinan_justisio()
 
 
+class _Suite:
+    """Penjaga suite palsu; galat meniru suites_service.require_existing (SCRUM-206)."""
+
+    def __init__(self, galat: Exception | None = None) -> None:
+        self.galat = galat
+        self.diperiksa: list[tuple] = []
+
+    def require_measurable(self, suite_ids):
+        self.diperiksa.append(tuple(suite_ids))
+        if self.galat is not None:
+            raise self.galat
+
+
 class _Snapshot:
     """Kasus disetujui terbaru per suite, urut tetap seperti SnapshotSourceAdapter."""
 
@@ -130,13 +143,14 @@ def modul():
     return manual_session
 
 
-def _service(modul, *, kunci=None, salinan=None, snapshot=None, penyimpan=None):
+def _service(modul, *, kunci=None, salinan=None, snapshot=None, penyimpan=None, suite=None):
     penyimpan = penyimpan or _Penyimpan()
     layanan = modul.ManualSessionService(
         sessions=penyimpan,
         snapshots=snapshot or _Snapshot(),
         products=salinan or _Salinan(),
         product_lock=kunci or _Kunci(),
+        suites=suite or _Suite(),
     )
     return layanan, penyimpan
 
@@ -231,6 +245,42 @@ def test_produk_hilang_atau_nonaktif_ditolak(modul, kunci, salinan, jenis_galat,
     # Assert
     assert galat.value.code == kode
     assert penyimpan.dibuat == []
+
+
+def test_suite_yang_dipilih_diperiksa_sebelum_snapshot(modul):
+    """Positif: suite diperiksa dengan aturan yang sama seperti sesi otomatis (SCRUM-206)."""
+    # Arrange
+    suite = _Suite()
+    layanan, _ = _service(modul, suite=suite)
+
+    # Act
+    layanan.create(_permintaan(), created_by=ADMIN_ID)
+
+    # Assert
+    assert suite.diperiksa == [(SUITE_A, SUITE_B)]
+
+
+@pytest.mark.parametrize(
+    ("galat", "kode"),
+    [
+        (ConflictError("x", code="SUITE_ARCHIVED"), "SUITE_ARCHIVED"),
+        (NotFoundError("x", code="NOT_FOUND"), "NOT_FOUND"),
+    ],
+    ids=["diarsipkan", "tidak-ada"],
+)
+def test_suite_diarsipkan_atau_tidak_ada_ditolak(modul, galat, kode):
+    """Negatif: suite arsip tidak bisa dipilih untuk pengukuran baru, termasuk sesi manual."""
+    # Arrange
+    snapshot = _Snapshot()
+    layanan, penyimpan = _service(modul, suite=_Suite(galat=galat), snapshot=snapshot)
+
+    # Act
+    with pytest.raises(type(galat)) as tertangkap:
+        layanan.create(_permintaan(), created_by=ADMIN_ID)
+
+    # Assert
+    assert tertangkap.value.code == kode
+    assert (penyimpan.dibuat, snapshot.diminta) == ([], [])
 
 
 def test_tanpa_kasus_layak_ditolak(modul):
