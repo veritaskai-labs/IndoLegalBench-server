@@ -1839,7 +1839,16 @@ def get_session_results(
 
 def to_run_summary(run: SessionGradingResponse) -> GradingRunSummary:
     """Meringkas satu hasil penilaian menjadi baris riwayat tanpa rincian kasus."""
-    raise NotImplementedError
+    return GradingRunSummary(
+        grading_run_id=run.grading_run_id,
+        rubric_version=run.rubric_version,
+        kind=run.kind,
+        status=run.status,
+        triggered_by=run.triggered_by,
+        triggered_at=run.triggered_at,
+        is_latest=run.is_latest,
+        scores=run.scores,
+    )
 
 
 def list_grading_runs(
@@ -1848,8 +1857,19 @@ def list_grading_runs(
     *,
     store: GradingStore | None = None,
 ) -> list[GradingRunSummary]:
-    """Riwayat penilaian satu sesi, terbaru di atas (PBI-14 AC7)."""
-    raise NotImplementedError
+    """Riwayat penilaian satu sesi, terbaru di atas (PBI-14 AC7).
+
+    Sesi yang belum pernah dinilai mengembalikan daftar kosong. Run dengan waktu sama
+    tetap dalam urutan simpan, karena sort Python stabil juga saat dibalik.
+    """
+    if db.get(MeasurementSession, session_id) is None:
+        raise NotFoundError("Pengukuran tidak ditemukan.", code="MEASUREMENT_NOT_FOUND")
+
+    grading_store = store or DbGradingStore(db)
+    runs = sorted(
+        grading_store.get_grading_runs(session_id), key=lambda r: r.triggered_at, reverse=True
+    )
+    return [to_run_summary(run) for run in runs]
 
 
 def _resolve_session_rubric_map(db: Session, session_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
