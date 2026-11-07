@@ -166,3 +166,50 @@ def test_alasan_terima_yang_hanya_berisi_karakter_kosong_ditolak_database(
     with pytest.raises(IntegrityError):
         db_session.commit()
     db_session.rollback()
+
+
+def test_sesi_manual_selesai_mencatat_waktu_dan_pelakunya(db_session, runs_models, produk, admin):
+    """Positif: D9 finalized_at dan finalized_by, serta rentang tanggal jawaban (PBI-22 AC8, AC13)."""
+    # Arrange
+    selesai = datetime(2026, 11, 7, 10, 0, tzinfo=UTC)
+    sesi = _sesi(
+        runs_models,
+        produk,
+        admin,
+        session_type=runs_models.SessionType.MANUAL,
+        status=runs_models.SessionStatus.FINALIZED,
+        answer_date_from=datetime(2026, 11, 1, tzinfo=UTC),
+        answer_date_to=datetime(2026, 11, 3, tzinfo=UTC),
+        finalized_at=selesai,
+        finalized_by=admin.id,
+    )
+
+    # Act
+    db_session.add(sesi)
+    db_session.commit()
+    baris = db_session.execute(text("SELECT status FROM measurement_sessions")).scalar_one()
+
+    # Assert
+    assert baris == "finalized"
+
+
+@pytest.mark.parametrize("kolom", ["finalized_at", "finalized_by"])
+def test_tanda_selesai_tanpa_pasangannya_ditolak_database(
+    db_session, runs_models, produk, admin, kolom
+):
+    """Negatif: D9, waktu Selesai tanpa pelakunya (atau sebaliknya) tidak bisa dijelaskan."""
+    # Arrange
+    isi = {"finalized_at": datetime(2026, 11, 7, tzinfo=UTC), "finalized_by": admin.id}
+    sesi = _sesi(
+        runs_models,
+        produk,
+        admin,
+        session_type=runs_models.SessionType.MANUAL,
+        status=runs_models.SessionStatus.FINALIZED,
+        **{kolom: isi[kolom]},
+    )
+
+    # Act / Assert
+    db_session.add(sesi)
+    with pytest.raises(IntegrityError):
+        db_session.commit()
