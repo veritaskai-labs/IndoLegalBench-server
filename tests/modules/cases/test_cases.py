@@ -18,6 +18,7 @@ from app.modules.cases.validation import PLACEHOLDER_CASE_CODE_PATTERN
 from app.shared.exceptions import ForbiddenError
 from app.shared.security import Role, get_current_user
 from tests.legal_refs import rujukan_pasal
+from tests.modules.cases.legacy_traps import TRAPS_LAMA, tanam_traps_lama
 from tests.modules.conftest import USER_ID_QA
 
 AUTHOR_LAIN = uuid.UUID("00000000-0000-0000-0000-00000000b000")
@@ -571,10 +572,11 @@ def test_completeness_kasus_lengkap(as_role):
     assert body["legal_ref_count"] >= 1
 
 
-def test_completeness_kasus_legacy_dengan_jebakan_tetap_lengkap(as_role):
+def test_completeness_kasus_legacy_dengan_jebakan_tetap_lengkap(as_role, db_session):
     client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
+    tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
 
     body = client.get(f"/cases/{case_id}/completeness").json()
 
