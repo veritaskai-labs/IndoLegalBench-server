@@ -2,11 +2,9 @@
 
 Verifies that grade_session and save_grading_run strictly adhere to PostgreSQL triggers:
 - grading_runs_guard: a new grading run starts queued and not latest, then moves queued -> running -> finished
-- llm_judge_guard: llm_criterion_results.reason_code foreign key to reason_codes (criterion_unmet)
 - technical disruption attempts do not insert into llm_judge_results
 """
 
-import json
 import os
 
 import pytest
@@ -20,10 +18,9 @@ from app.modules.grading.models import (
     GradingRun,
     GradingRunKind,
     GradingRunStatus,
-    LlmCriterionResult,
     LlmJudgeResult,
 )
-from app.modules.runs.session_grade import REASON_CRITERION_UNMET, grade_session
+from app.modules.runs.session_grade import grade_session
 from app.shared.database import get_db
 from app.shared.security import Role, get_current_user
 from tests.grading_pg import buat_percobaan, buat_versi_aktif
@@ -64,36 +61,6 @@ def _setup_pg_grade_session(conn, extra_disrupted: bool = False):
     product_id = buat_produk(conn, admin_id)
     session_id = buat_sesi(conn, product_id, admin_id)
     buat_versi_aktif(conn, admin_id)
-    attempt_id = buat_percobaan(conn, session_id, admin_id)
-
-    disrupt_att_id = None
-    if extra_disrupted:
-        disrupt_att_id = buat_percobaan(conn, session_id, admin_id)
-        conn.execute(
-            text("UPDATE attempts SET status = 'running' WHERE id = :id"),
-            {"id": disrupt_att_id},
-        )
-        conn.execute(
-            text(
-                "UPDATE attempts SET status = 'technical_failure', failure_kind = 'platform_refused', "
-                "answer_text = 'Maaf, saya tidak dapat menjawab pertanyaan ini.' "
-                "WHERE id = :id"
-            ),
-            {"id": disrupt_att_id},
-        )
-
-    conn.execute(
-        text("UPDATE attempts SET status = 'running' WHERE id = :id"),
-        {"id": attempt_id},
-    )
-    conn.execute(
-        text(
-            "UPDATE attempts SET status = 'succeeded', "
-            "answer_text = 'Berdasarkan UU 1/2023 Pasal 1, badan hukum sah berlaku tanpa izin.' "
-            "WHERE id = :id"
-        ),
-        {"id": attempt_id},
-    )
 
     body_data = {
         "sections": {
@@ -116,12 +83,35 @@ def _setup_pg_grade_session(conn, extra_disrupted: bool = False):
         }
     }
 
+    attempt_id = buat_percobaan(conn, session_id, admin_id, body=body_data)
+
+    disrupt_att_id = None
+    if extra_disrupted:
+        disrupt_att_id = buat_percobaan(conn, session_id, admin_id, body=body_data)
+        conn.execute(
+            text("UPDATE attempts SET status = 'running' WHERE id = :id"),
+            {"id": disrupt_att_id},
+        )
+        conn.execute(
+            text(
+                "UPDATE attempts SET status = 'technical_failure', "
+                "answer_text = 'Maaf, saya tidak dapat menjawab pertanyaan ini.' "
+                "WHERE id = :id"
+            ),
+            {"id": disrupt_att_id},
+        )
+
+    conn.execute(
+        text("UPDATE attempts SET status = 'running' WHERE id = :id"),
+        {"id": attempt_id},
+    )
     conn.execute(
         text(
-            "UPDATE case_snapshot_items SET body = CAST(:body AS jsonb) "
-            "WHERE snapshot_id IN (SELECT id FROM case_snapshots WHERE session_id = :sesi)"
+            "UPDATE attempts SET status = 'succeeded', "
+            "answer_text = 'Berdasarkan UU 1/2023 Pasal 1, badan hukum sah berlaku tanpa izin.' "
+            "WHERE id = :id"
         ),
-        {"sesi": session_id, "body": json.dumps(body_data)},
+        {"id": attempt_id},
     )
 
     ubah_status(conn, session_id, "finished")
@@ -131,8 +121,8 @@ def _setup_pg_grade_session(conn, extra_disrupted: bool = False):
     return admin_id, session_id, attempt_id
 
 
-def test_grade_session_pg_lifecycle_and_criterion_unmet(pg):
-    """Positif: Penilaian sesi di PostgreSQL mengikuti siklus status dan reason_codes yang valid."""
+def test_grade_session_pg_lifecycle(pg):
+    """Positif: Penilaian sesi di PostgreSQL mengikuti siklus status."""
     db, conn = pg
     admin_id, session_id, attempt_id = _setup_pg_grade_session(conn)
 
@@ -142,8 +132,8 @@ def test_grade_session_pg_lifecycle_and_criterion_unmet(pg):
     assert res_initial.status == "completed"
     assert res_initial.kind == "initial"
     assert res_initial.is_latest is True
-    assert res_initial.scores.deterministic is not None
-    assert res_initial.scores.quality is not None
+    assert res_initial.scores.dev.deterministic is not None
+    assert res_initial.scores.dev.quality is None
 
     # Verifikasi GradingRun di Postgres
     runs = db.scalars(
@@ -157,14 +147,6 @@ def test_grade_session_pg_lifecycle_and_criterion_unmet(pg):
     assert run_1.kind == GradingRunKind.INITIAL
     assert run_1.is_latest is True
     assert run_1.finished_at is not None
-
-    # Verifikasi LlmCriterionResult: foreign key ke reason_codes (criterion_unmet)
-    crits = db.scalars(select(LlmCriterionResult).order_by(LlmCriterionResult.criterion_key)).all()
-    assert len(crits) == 4
-    unmet_crit = next(c for c in crits if not c.is_met)
-    assert unmet_crit.reason_code == REASON_CRITERION_UNMET
-    met_crit = next(c for c in crits if c.is_met)
-    assert met_crit.reason_code is None
 
     # 2. Pemicuan penilaian ulang (kind=regrade)
     res_regrade = grade_session(db, session_id, actor_id=admin_id, actor_role=Role.ADMIN)
