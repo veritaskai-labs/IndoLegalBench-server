@@ -1,8 +1,9 @@
 """Status sesi manual: hitung ulang dan Tandai selesai. PBI-22 (SCRUM-176) AC8, AC13; SCRUM-230.
 
-D8: status dihitung ulang server setiap kali jawaban disimpan. recompute_manual_status
-dipanggil SCRUM-231 di transaksi simpan jawaban, jadi ia tidak commit sendiri: jawaban
-dan statusnya tersimpan atau batal bersama. Rentang tanggal jawaban (AC13) diperbarui
+D8: status dihitung ulang server setiap kali jawaban disimpan. SCRUM-231 memanggil
+ManualSessionStatusService.recompute di transaksi simpan jawaban (review #116: lewat service
+dan repository, bukan query langsung), jadi ia tidak commit sendiri: jawaban dan statusnya
+tersimpan atau batal bersama. Rentang tanggal jawaban (AC13) diperbarui
 dari jawaban yang terisi saja.
 
 Tandai selesai (POST /manual-measurements/{id}/finalize): hanya dari Lengkap atau Dinilai
@@ -39,12 +40,13 @@ JAM = datetime(2026, 11, 7, 10, 0, tzinfo=UTC)
 AKSI_STATUS = "measurement_session.status_changed"
 
 
-@pytest.fixture
-def modul():
-    # Diimpor lewat fixture: modul yang belum ada membuat tes merah, bukan galat koleksi.
-    from app.modules.runs import manual_session_status
+def _hitung_ulang(db, sesi_id) -> SessionStatus:
+    """Cara SCRUM-231 memanggilnya: service status di atas repository, di session yang sama."""
+    # Diimpor di sini: service yang belum ada membuat tes merah, bukan galat koleksi.
+    from app.modules.runs.manual_session_status import ManualSessionStatusService
 
-    return manual_session_status
+    layanan = ManualSessionStatusService(repository.ManualSessionRepository(db))
+    return layanan.recompute(sesi_id, now=JAM)
 
 
 def _sesi_manual(siap_manual, **ubah) -> uuid.UUID:
@@ -97,14 +99,14 @@ def _catatan(db, sesi_id) -> list[AuditLog]:
     ("terisi", "status"),
     [(0, "not_filled"), (1, "partially_filled"), (3, "complete")],
 )
-def test_status_dihitung_ulang_dari_jawaban_terisi(modul, siap_manual, terisi, status):
+def test_status_dihitung_ulang_dari_jawaban_terisi(siap_manual, terisi, status):
     """Positif: D8, 0 dari 3 Belum terisi, 1 dari 3 Terisi sebagian, 3 dari 3 Lengkap."""
     # Arrange
     sesi_id = _sesi_manual(siap_manual)
     _isi(siap_manual.db, sesi_id, [HARI_1] * terisi)
 
     # Act
-    hasil = modul.recompute_manual_status(siap_manual.db, sesi_id, now=JAM)
+    hasil = _hitung_ulang(siap_manual.db, sesi_id)
     siap_manual.db.commit()
 
     # Assert
@@ -112,15 +114,15 @@ def test_status_dihitung_ulang_dari_jawaban_terisi(modul, siap_manual, terisi, s
     assert _status(siap_manual.db, sesi_id) == status
 
 
-def test_perubahan_status_tercatat_di_audit_dan_yang_tetap_tidak(modul, siap_manual):
+def test_perubahan_status_tercatat_di_audit_dan_yang_tetap_tidak(siap_manual):
     """Positif: PBI-18, satu catatan per perpindahan; hitung ulang tanpa perubahan tidak mencatat."""
     # Arrange
     sesi_id = _sesi_manual(siap_manual)
-    modul.recompute_manual_status(siap_manual.db, sesi_id, now=JAM)
+    _hitung_ulang(siap_manual.db, sesi_id)
     _isi(siap_manual.db, sesi_id, [HARI_1])
 
     # Act
-    modul.recompute_manual_status(siap_manual.db, sesi_id, now=JAM)
+    _hitung_ulang(siap_manual.db, sesi_id)
     siap_manual.db.commit()
 
     # Assert
@@ -131,7 +133,7 @@ def test_perubahan_status_tercatat_di_audit_dan_yang_tetap_tidak(modul, siap_man
     )
 
 
-def test_rentang_tanggal_hanya_dari_jawaban_terisi(modul, siap_manual):
+def test_rentang_tanggal_hanya_dari_jawaban_terisi(siap_manual):
     """Positif: AC13, tanggal percobaan yang belum terisi tidak ikut rentang."""
     # Arrange
     sesi_id = _sesi_manual(siap_manual)
@@ -141,7 +143,7 @@ def test_rentang_tanggal_hanya_dari_jawaban_terisi(modul, siap_manual):
     siap_manual.db.commit()
 
     # Act
-    modul.recompute_manual_status(siap_manual.db, sesi_id, now=JAM)
+    _hitung_ulang(siap_manual.db, sesi_id)
     siap_manual.db.commit()
 
     # Assert
@@ -153,14 +155,14 @@ def test_rentang_tanggal_hanya_dari_jawaban_terisi(modul, siap_manual):
     )
 
 
-def test_hitung_ulang_tidak_commit_sendiri(modul, siap_manual):
+def test_hitung_ulang_tidak_commit_sendiri(siap_manual):
     """Edge: SCRUM-231 memegang transaksinya; batal simpan jawaban ikut membatalkan status."""
     # Arrange
     sesi_id = _sesi_manual(siap_manual)
     _isi(siap_manual.db, sesi_id, [HARI_1])
 
     # Act
-    modul.recompute_manual_status(siap_manual.db, sesi_id, now=JAM)
+    _hitung_ulang(siap_manual.db, sesi_id)
     siap_manual.db.rollback()
 
     # Assert
@@ -168,7 +170,7 @@ def test_hitung_ulang_tidak_commit_sendiri(modul, siap_manual):
 
 
 @pytest.mark.parametrize("tetap", [SessionStatus.GRADED, SessionStatus.FINALIZED])
-def test_dinilai_dan_selesai_tidak_dihitung_ulang(modul, siap_manual, tetap):
+def test_dinilai_dan_selesai_tidak_dihitung_ulang(siap_manual, tetap):
     """Edge: D8, Dinilai dan Selesai ditulis aksi Admin, bukan dari jumlah jawaban."""
     # Arrange
     sesi_id = _sesi_manual(siap_manual)
@@ -176,7 +178,7 @@ def test_dinilai_dan_selesai_tidak_dihitung_ulang(modul, siap_manual, tetap):
     _ubah_status(siap_manual.db, sesi_id, tetap)
 
     # Act
-    hasil = modul.recompute_manual_status(siap_manual.db, sesi_id, now=JAM)
+    hasil = _hitung_ulang(siap_manual.db, sesi_id)
 
     # Assert
     assert hasil == tetap
@@ -184,7 +186,7 @@ def test_dinilai_dan_selesai_tidak_dihitung_ulang(modul, siap_manual, tetap):
 
 
 @pytest.mark.parametrize("lama", [SessionStatus.QUEUED, SessionStatus.RUNNING])
-def test_sesi_manual_berstatus_d4_ditolak_409(modul, siap_manual, lama):
+def test_sesi_manual_berstatus_d4_ditolak_409(siap_manual, lama):
     """Negatif: review #116, baris manual lama berstatus D4 tidak boleh membuat 500 di SCRUM-231."""
     # Arrange
     sesi_id = _sesi_manual(siap_manual)
@@ -192,13 +194,13 @@ def test_sesi_manual_berstatus_d4_ditolak_409(modul, siap_manual, lama):
 
     # Act
     with pytest.raises(ConflictError) as galat:
-        modul.recompute_manual_status(siap_manual.db, sesi_id, now=JAM)
+        _hitung_ulang(siap_manual.db, sesi_id)
 
     # Assert
     assert galat.value.code == "MANUAL_SESSION_STATUS_INVALID"
 
 
-def test_sesi_otomatis_atau_tidak_ada_bukan_sesi_manual(modul, siap_manual):
+def test_sesi_otomatis_atau_tidak_ada_bukan_sesi_manual(siap_manual):
     """Negatif: hitung ulang hanya untuk sesi manual; id lain ditolak 404."""
     # Arrange
     sesi_id = _sesi_manual(siap_manual)
@@ -212,7 +214,7 @@ def test_sesi_otomatis_atau_tidak_ada_bukan_sesi_manual(modul, siap_manual):
     # Act / Assert
     for target in (sesi_id, uuid.uuid4()):
         with pytest.raises(NotFoundError) as galat:
-            modul.recompute_manual_status(siap_manual.db, target, now=JAM)
+            _hitung_ulang(siap_manual.db, target)
         assert galat.value.code == "MANUAL_SESSION_NOT_FOUND"
 
 
