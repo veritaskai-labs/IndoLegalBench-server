@@ -32,6 +32,7 @@ from app.modules.runs.models import (
 )
 from app.shared.config import get_settings
 from app.shared.security import Role
+from tests.judge_rows import tambah_penilai
 from tests.modules.cases.test_cases import ADMIN_LAIN, _buat, _ganti, _setujui, _suite
 from tests.modules.runs.test_summary_endpoint import _settings, _tambah_produk
 
@@ -309,10 +310,10 @@ def test_produk_dihapus_setelah_mulai_sesi_gagal_saat_giliran(siap):
 
 
 def test_provider_penilai_yang_dipilih_tersimpan_di_sesi(siap):
-    """Positif: AC1, D3 langkah 19, judge_provider_id dari body tersimpan di measurement_sessions."""
+    """Positif: AC1, D3 langkah 19, penilai terdaftar dari body tersimpan di measurement_sessions."""
     # Arrange
     client = siap.sebagai(Role.ADMIN)
-    judge = uuid.uuid4()
+    judge = tambah_penilai(siap.db, ADMIN_LAIN).id
 
     # Act
     response = client.post(URL, json=_badan(siap, judge_provider_id=str(judge)))
@@ -321,6 +322,28 @@ def test_provider_penilai_yang_dipilih_tersimpan_di_sesi(siap):
     assert response.status_code == 201
     tersimpan = siap.db.get(MeasurementSession, uuid.UUID(response.json()["session_id"]))
     assert tersimpan.judge_provider_id == judge
+
+
+@pytest.mark.parametrize("keadaan", ["tidak-dikenal", "nonaktif"])
+def test_provider_penilai_tidak_tersedia_ditolak_422(siap, keadaan):
+    """Negatif: SCRUM-258, dulu uuid apa pun diterima; sekarang 422 dengan field, bukan
+    500 dari FK, dan tidak ada sesi yang dibuat."""
+    # Arrange
+    client = siap.sebagai(Role.ADMIN)
+    judge = (
+        uuid.uuid4()
+        if keadaan == "tidak-dikenal"
+        else tambah_penilai(siap.db, ADMIN_LAIN, is_active=False).id
+    )
+
+    # Act
+    response = client.post(URL, json=_badan(siap, judge_provider_id=str(judge)))
+
+    # Assert
+    assert response.status_code == 422
+    assert response.json()["code"] == "JUDGE_PROVIDER_NOT_AVAILABLE"
+    assert response.json()["field"] == "judge_provider_id"
+    assert _jumlah_sesi(siap.db) == 0
 
 
 def test_penyimpanan_sesi_memakai_tabel_untuk_request_itu(db_session):

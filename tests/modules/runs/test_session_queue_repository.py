@@ -41,6 +41,7 @@ from app.modules.runs.models import (
     SessionStatus,
     SessionType,
 )
+from tests.judge_rows import tambah_penilai
 
 PRODUCT_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c3")
 ADMIN_ID = uuid.UUID("00000000-0000-0000-0000-0000000000d4")
@@ -448,7 +449,7 @@ def test_gagal_hanya_untuk_sesi_yang_masih_menunggu(antrean, db_session, keadaan
 def test_provider_penilai_tersimpan_dan_terbaca_kembali(antrean, db_session):
     """Positif: judge_provider_id (kolom #89) ditulis saat Mulai dan dibawa ke giliran sesi."""
     # Arrange
-    judge = uuid.UUID("00000000-0000-0000-0000-0000000000f8")
+    judge = tambah_penilai(db_session, ADMIN_ID).id
 
     # Act
     hasil = antrean.create_queued(_baru(judge_provider_id=judge))
@@ -459,7 +460,7 @@ def test_provider_penilai_tersimpan_dan_terbaca_kembali(antrean, db_session):
 
 
 def test_tanpa_provider_penilai_kolomnya_kosong(antrean, db_session):
-    """Edge: sesi tanpa penilai tetap tersimpan, kolomnya NULL sampai PBI-14."""
+    """Edge: sesi tanpa penilai tetap tersimpan, kolomnya NULL (keputusan PO K2, SCRUM-258)."""
     # Act
     hasil = antrean.create_queued(_baru())
 
