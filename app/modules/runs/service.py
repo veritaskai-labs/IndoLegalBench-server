@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.modules.runs import repository
 from app.modules.runs.adapters import NameAdapter
 from app.modules.runs.call_log import month_start, monthly_limit
+from app.modules.runs.case_progress import case_progress
 from app.modules.runs.cost_estimator import estimate_cost_idr
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.models import SessionStatus
@@ -316,8 +317,12 @@ class ProgressService:
             monthly_budget_idr=produk.monthly_budget_idr,
             spent_this_month_idr=self._spend.spent_this_month_idr(produk.id),
         )
+        kasus = case_progress(
+            completed_cases=hitungan.completed_cases, total_cases=hitungan.total_cases
+        )
         return ProgressResponse(
             **asdict(angka),
+            **asdict(kasus),
             started_at=hitungan.started_at,
             updated_at=hitungan.updated_at,
         )

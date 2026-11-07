@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
+from app.modules.runs.case_progress import case_progress
 from app.modules.runs.models import SessionStatus
 from app.modules.runs.schemas import SessionListItem, SessionProgressRead
 from app.modules.runs.session_rules import progress
@@ -33,6 +34,9 @@ class SessionRow:
     # None selama sesi antre: snapshot baru dibuat saat sesi mulai (SCRUM-207).
     case_count: int | None
     attempt_counts: Mapping[str, int]
+    # Kasus yang semua pengulangannya selesai, dari repository.case_completion (SCRUM-265).
+    completed_cases: int
+    total_cases: int
 
 
 class SessionListStore(Protocol):
@@ -80,6 +84,7 @@ def to_list_item(
 ) -> SessionListItem:
     """Kolom daftar untuk satu sesi, dipakai juga sebagai kepala detail sesi."""
     hasil = progress(row.attempt_counts)
+    kasus = case_progress(completed_cases=row.completed_cases, total_cases=row.total_cases)
     return SessionListItem(
         id=row.id,
         label=row.label,
@@ -91,5 +96,11 @@ def to_list_item(
         case_count=row.case_count,
         repetitions=row.repetitions,
         status=row.status,
-        progress=SessionProgressRead(completed=hasil.completed, total=hasil.total),
+        progress=SessionProgressRead(
+            completed=hasil.completed,
+            total=hasil.total,
+            completed_cases=kasus.completed_cases,
+            total_cases=kasus.total_cases,
+            percent_cases_complete=kasus.percent_cases_complete,
+        ),
     )

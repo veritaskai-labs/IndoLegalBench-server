@@ -14,7 +14,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import Row, exists, func, null, select, update
+from sqlalchemy import Row, and_, case, exists, func, null, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -299,6 +299,7 @@ class SessionListRepository:
         ids = [session.id for session in sessions]
         attempts = self._attempt_counts(ids)
         cases = self._case_counts(ids)
+        kasus = case_completion(self._db, ids)
         return [
             SessionRow(
                 id=session.id,
@@ -310,8 +311,11 @@ class SessionListRepository:
                 status=SessionStatus(session.status),
                 case_count=cases.get(session.id),
                 attempt_counts=attempts.get(session.id, {}),
+                completed_cases=selesai,
+                total_cases=total,
             )
             for session in sessions
+            for selesai, total in (kasus.get(session.id, (0, 0)),)
         ]
 
     def _attempt_counts(self, ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, dict[str, int]]:
@@ -606,9 +610,39 @@ def attempt_with_calls(
     return attempt, body, calls
 
 
-def case_completion(db: Session, session_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, tuple[int, int]]:
-    """Stub red SCRUM-265: diisi di commit green."""
-    raise NotImplementedError
+def case_completion(
+    db: Session, session_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, tuple[int, int]]:
+    """(kasus selesai, total kasus) per sesi, satu query untuk banyak sesi (PBI-12 AC5, SCRUM-265).
+
+    Kasus = item snapshot yang punya attempts. Kasus selesai bila tidak ada satu pun
+    pengulangannya yang masih pending/running tanpa jawaban manual terisi (filled_at,
+    D8). Coba ulang mengembalikan percobaan ke pending, jadi kasusnya kembali belum
+    selesai. Sesi tanpa attempts (masih antre) tidak ada di hasil.
+    """
+    if not session_ids:
+        return {}
+    belum_selesai = and_(
+        Attempt.status.in_((AttemptStatus.PENDING, AttemptStatus.RUNNING)),
+        Attempt.filled_at.is_(None),
+    )
+    per_kasus = (
+        select(
+            Attempt.session_id.label("session_id"),
+            func.sum(case((belum_selesai, 1), else_=0)).label("belum"),
+        )
+        .where(Attempt.session_id.in_(session_ids))
+        .group_by(Attempt.session_id, Attempt.snapshot_item_id)
+        .subquery()
+    )
+    rows = db.execute(
+        select(
+            per_kasus.c.session_id,
+            func.sum(case((per_kasus.c.belum == 0, 1), else_=0)),
+            func.count(),
+        ).group_by(per_kasus.c.session_id)
+    )
+    return {session_id: (int(selesai), int(total)) for session_id, selesai, total in rows}
 
 
 def reopen_for_retry(

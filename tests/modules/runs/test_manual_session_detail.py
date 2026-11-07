@@ -231,5 +231,17 @@ def test_daftar_sesi_menghitung_jawaban_manual_yang_terisi(siap_manual):
 
     # Assert
     (baris,) = [item for item in daftar if item["id"] == str(sesi_id)]
-    assert baris["progress"] == {"completed": 1, "total": 3, "completed_cases": 1, "total_cases": 3, "percent_cases_complete": 33}
-    assert kepala["progress"] == {"completed": 1, "total": 3, "completed_cases": 1, "total_cases": 3, "percent_cases_complete": 33}
+    assert baris["progress"] == {
+        "completed": 1,
+        "total": 3,
+        "completed_cases": 1,
+        "total_cases": 3,
+        "percent_cases_complete": 33,
+    }
+    assert kepala["progress"] == {
+        "completed": 1,
+        "total": 3,
+        "completed_cases": 1,
+        "total_cases": 3,
+        "percent_cases_complete": 33,
+    }

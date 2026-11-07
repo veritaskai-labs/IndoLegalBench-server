@@ -138,9 +138,7 @@ def test_sesi_berjalan_menghitung_kasus_yang_semua_pengulangannya_selesai(
 def test_sesi_dijeda_tetap_menghitung_dari_attempts(db_session, produk, pembuat):
     """Positif: jeda tidak mengubah hitungan, kasus yang sudah selesai tetap selesai."""
     # Arrange
-    sesi = _sesi(
-        db_session, produk, pembuat, [[S, S], [S, P]], status=SessionStatus.PAUSED
-    )
+    sesi = _sesi(db_session, produk, pembuat, [[S, S], [S, P]], status=SessionStatus.PAUSED)
 
     # Act
     hasil = repository.case_completion(db_session, [sesi.id])

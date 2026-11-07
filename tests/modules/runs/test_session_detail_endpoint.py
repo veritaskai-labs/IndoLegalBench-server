@@ -145,7 +145,13 @@ def test_admin_melihat_jawaban_mentah_per_percobaan(as_role, db_session, sesi_ca
     assert body["product_name"] == "Produk Detail"
     assert body["created_by_name"] == "Admin Sesi"
     assert body["case_count"] == 2
-    assert body["progress"] == {"completed": 4, "total": 4, "completed_cases": 2, "total_cases": 2, "percent_cases_complete": 100}
+    assert body["progress"] == {
+        "completed": 4,
+        "total": 4,
+        "completed_cases": 2,
+        "total_cases": 2,
+        "percent_cases_complete": 100,
+    }
     assert body["purpose"] == "trial"
     assert body["split_filter"] == "both"
     assert [item["case_code"] for item in body["cases"]] == ["KASUS-001", "KASUS-002"]
@@ -302,7 +308,13 @@ def test_developer_ai_melihat_jawaban_kasus_dev_saat_sesi_berjalan(
     assert response.status_code == 200
     body = response.json()
     assert body["status"] == "running"
-    assert body["progress"] == {"completed": 1, "total": 2, "completed_cases": 0, "total_cases": 1, "percent_cases_complete": 0}
+    assert body["progress"] == {
+        "completed": 1,
+        "total": 2,
+        "completed_cases": 0,
+        "total_cases": 1,
+        "percent_cases_complete": 0,
+    }
     dev = body["cases"][0]
     assert dev["masked"] is False
     assert [a["status"] for a in dev["attempts"]] == ["succeeded", "pending"]

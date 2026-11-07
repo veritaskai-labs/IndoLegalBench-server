@@ -63,7 +63,13 @@ def test_admin_melihat_sesi_terakhir(as_role, db_session, produk, pembuat):
     assert terakhir["label"] == "Baru"
     assert terakhir["product_name"] == "Produk Dashboard"
     assert terakhir["status"] == "running"
-    assert terakhir["progress"] == {"completed": 1, "total": 2, "completed_cases": 0, "total_cases": 1, "percent_cases_complete": 0}
+    assert terakhir["progress"] == {
+        "completed": 1,
+        "total": 2,
+        "completed_cases": 0,
+        "total_cases": 1,
+        "percent_cases_complete": 0,
+    }
 
 
 def test_belum_ada_sesi_bernilai_null(as_role):
