@@ -20,8 +20,10 @@ from app.modules.cases.models import SplitTag
 from app.modules.cases.schemas import VersionSections
 
 # Satu enum status sesi untuk tabel (#89) dan kontrak API, supaya keduanya tidak menyimpang.
-from app.modules.runs.models import AttemptStatus, SessionStatus, StopReason
+from app.modules.runs.models import AttemptSource, AttemptStatus, SessionStatus, StopReason
 from app.shared.text import strip_blank
+
+from datetime import UTC, datetime
 
 # PBI-11 AC3: satu angka pengulangan untuk seluruh pengukuran.
 MIN_REPEATS = 1
@@ -400,6 +402,12 @@ class ManualAttemptSlot(BaseModel):
     answered_at_platform: datetime | None = Field(
         description="Kapan jawaban diperoleh dari platform (AC7)"
     )
+    source: AttemptSource = AttemptSource.MANUAL
+    answer_md: str | None = None
+    platform_refused: bool = False
+    note: str | None = None
+    filled_by: uuid.UUID | None = None
+    filled_at: datetime | None = None
 
 
 class ManualCaseProgress(BaseModel):
@@ -475,3 +483,60 @@ class SessionResumeResponse(BaseModel):
     status: SessionStatus
     resumed_after_long_pause: bool
     model_version_unverified: bool
+
+class ManualAnswerSaveRequest(BaseModel):
+    """Request menyimpan jawaban manual."""
+
+    snapshot_item_id: uuid.UUID
+    attempt_no: int = Field(ge=1, le=5)
+    answer_md: str | None = None
+    obtained_at: datetime | None = None
+    platform_refused: bool = Field(default=False, strict=True)
+    note: str | None = None
+    requires_confirmation: bool = Field(default=False, strict=True)
+
+    @field_validator("obtained_at")
+    @classmethod
+    def validate_obtained_at(
+        cls, value: datetime | None
+    ) -> datetime | None:
+        if value is not None and value.utcoffset() is None:
+            raise ValueError("obtained_at must include a timezone")
+
+        return value.astimezone(UTC) if value is not None else None
+
+    @model_validator(mode="after")
+    def validate_answer(self):
+        if not self.platform_refused:
+            if self.answer_md is None or not self.answer_md.strip():
+                raise ValueError(
+                    "answer_md must contain text unless platform_refused is true"
+                )
+        return self
+
+
+class ManualAnswerResponse(BaseModel):
+    attempt_id: uuid.UUID
+    snapshot_item_id: uuid.UUID
+    attempt_no: int
+    source: AttemptSource
+    answer_md: str | None
+    obtained_at: datetime
+    platform_refused: bool
+    note: str | None
+    filled_by: uuid.UUID
+    filled_at: datetime
+    session_status: SessionStatus
+
+
+class ManualAnswerHistoryEntry(BaseModel):
+    id: uuid.UUID
+    attempt_id: uuid.UUID
+    answer_md: str | None
+    filled_by: uuid.UUID | None
+    filled_at: datetime
+    obtained_at: datetime | None
+    platform_refused: bool
+    note: str | None
+    overwritten_by: uuid.UUID
+    overwritten_at: datetime
