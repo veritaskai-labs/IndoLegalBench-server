@@ -75,3 +75,13 @@ def ensure_archivable(status: str, *, archived_at: datetime | None) -> None:
             "Sesi hanya bisa diarsipkan setelah berakhir.",
             code="SESSION_NOT_ARCHIVABLE",
         )
+
+
+def ensure_unarchivable(*, archived_at: datetime | None) -> None:
+    """Sesi hanya bisa dikembalikan dari arsip bila memang sedang diarsipkan (AC10).
+
+    Status tidak dicek: arsip hanya menerima sesi yang sudah berakhir, dan
+    mengembalikannya tidak mengubah status.
+    """
+    if archived_at is None:
+        raise ConflictError("Sesi ini belum diarsipkan.", code="SESSION_NOT_ARCHIVED")
