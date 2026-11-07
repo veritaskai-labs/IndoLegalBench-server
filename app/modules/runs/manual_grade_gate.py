@@ -7,16 +7,17 @@ versi rubrik yang sama dengan jawaban otomatis (AC9); itu milik grade_session di
 
 grade_session memanggil dua titik ini, di transaksi yang sama dengan hasil penilaian:
 
-    manual_status = ManualGradeGate(ManualSessionRepository(db)).before_grading(session_id)
-    if manual_status is None:
-        ensure_session_gradable(session)   # aturan D4 untuk sesi otomatis
+    gate = ManualGradeGate(ManualSessionRepository(db))
+    if gate.before_grading(session_id) is None:
+        ensure_session_gradable(session)   # sesi otomatis: aturan D4 dan arsip (#114)
     ...  # nilai dan simpan hasil
-    if manual_status is not None:
-        gate.after_grading(session_id, manual_status, now=now)
+    gate.after_grading(session_id, now=now)   # tidak berbuat apa pun untuk sesi otomatis
     db.commit()
 
-before_grading mengunci baris sesi manual, jadi Tandai selesai atau jawaban baru tidak bisa
-menyela di tengah penilaian.
+before_grading tidak mengunci (review #121): penilaian memanggil LLM judge untuk setiap
+percobaan, dan kunci FOR UPDATE selama itu menahan semua simpan jawaban dan unggah bukti.
+Baris sesi baru dikunci di after_grading, tepat sebelum status ditulis, dan statusnya dibaca
+ulang di sana: sesi yang ditandai Selesai selama penilaian tetap Selesai.
 """
 
 import uuid
@@ -32,28 +33,36 @@ from app.modules.runs.session_ports import ManualStatusStore
 from app.shared.exceptions import ConflictError
 
 
+def _ensure_manual_status(status: SessionStatus) -> None:
+    if status not in MANUAL_STATUSES:
+        # Baris manual lama berstatus D4 (sebelum SCRUM-230): 409, bukan 500 (review #116).
+        raise ConflictError(
+            "Sesi manual ini masih berstatus sesi otomatis dan tidak bisa dinilai.",
+            code="MANUAL_SESSION_STATUS_INVALID",
+        )
+
+
 class ManualGradeGate:
     def __init__(self, store: ManualStatusStore) -> None:
         self._store = store
 
     def before_grading(self, session_id: uuid.UUID) -> SessionStatus | None:
         """None = bukan sesi manual (aturan D4 berlaku); selain itu status sesi yang lengkap."""
+        row = self._store.read_manual(session_id)
+        if row is None:
+            return None
+        # Review #121: Selesai bisa diarsipkan; arsip tidak dinilai, sama dengan sesi otomatis.
+        if row.archived_at is not None:
+            raise ConflictError("Sesi ini sudah diarsipkan.", code="SESSION_ARCHIVED")
+        _ensure_manual_status(row.status)
+        ensure_manual_gradable(row.status)
+        return row.status
+
+    def after_grading(self, session_id: uuid.UUID, *, now: datetime) -> SessionStatus | None:
+        """D8: Lengkap -> Dinilai. Tanpa commit: hasil penilaian dan statusnya batal bersama."""
         status = self._store.lock_manual(session_id)
         if status is None:
             return None
-        if status not in MANUAL_STATUSES:
-            # Baris manual lama berstatus D4 (sebelum SCRUM-230): 409, bukan 500 (review #116).
-            raise ConflictError(
-                "Sesi manual ini masih berstatus sesi otomatis dan tidak bisa dinilai.",
-                code="MANUAL_SESSION_STATUS_INVALID",
-            )
-        ensure_manual_gradable(status)
-        return status
-
-    def after_grading(
-        self, session_id: uuid.UUID, status: SessionStatus, *, now: datetime
-    ) -> SessionStatus:
-        """D8: Lengkap -> Dinilai. Tanpa commit: hasil penilaian dan statusnya batal bersama."""
         target = status_after_grading(status)
         if target != status:
             self._store.change_status(session_id, target, at=now, commit=False)

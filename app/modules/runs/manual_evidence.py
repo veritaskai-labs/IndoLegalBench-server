@@ -11,7 +11,8 @@ Setiap tambah dan hapus tercatat di audit_logs dengan label manual (AC9, PBI-18)
 berkas dan tautan tidak disalin ke audit.
 
 Yang tidak boleh melihat bukti (flag MANUAL_EVIDENCE_VISIBILITY, AC7 TBA) mendapat 404,
-bukan 403, supaya keberadaan bukti tidak terbaca.
+bukan 403, supaya keberadaan bukti tidak terbaca. Pengunggah tetap boleh menghapus buktinya
+sendiri, supaya salah unggah tidak terjebak (review #121).
 """
 
 import uuid
@@ -164,11 +165,13 @@ class ManualEvidenceService:
             content=content, mime_type=row.mime_type, file_name=row.file_name or "bukti"
         )
 
-    def delete(self, session_id: uuid.UUID, evidence_id: uuid.UUID, *, role: Role) -> None:
-        self._ensure_visible(role)
+    def delete(
+        self, session_id: uuid.UUID, evidence_id: uuid.UUID, *, role: Role, actor: uuid.UUID
+    ) -> None:
+        """Yang boleh melihat bukti, atau pengunggahnya sendiri (review #121), boleh menghapus."""
         self._ensure_open(self._store.session_status(session_id, lock=True))
         found = self._store.find_evidence(session_id, evidence_id)
-        if found is None:
+        if found is None or not (self._visible(role) or found[0].uploaded_by == actor):
             raise _evidence_not_found()
         row, target = found
         self._store.remove(row.id)
@@ -188,14 +191,21 @@ class ManualEvidenceService:
     ) -> EvidenceTarget:
         """Sesi dikunci dan masih terbuka, percobaannya ada, dan masih ada tempat."""
         self._ensure_open(self._store.session_status(session_id, lock=True))
-        target = self._attempt(session_id, snapshot_item_id, attempt_no)
+        # Kunci attempt: kunci sesi FOR SHARE tidak saling menahan, jadi tanpa ini dua
+        # unggahan bersamaan sama-sama melihat 2 bukti dan yang kalah ditolak trigger (500).
+        target = self._attempt(session_id, snapshot_item_id, attempt_no, lock=True)
         rules.ensure_room(len(self._store.evidence_for(target.attempt_id)))
         return target
 
     def _attempt(
-        self, session_id: uuid.UUID, snapshot_item_id: uuid.UUID, attempt_no: int
+        self,
+        session_id: uuid.UUID,
+        snapshot_item_id: uuid.UUID,
+        attempt_no: int,
+        *,
+        lock: bool = False,
     ) -> EvidenceTarget:
-        target = self._store.find_attempt(session_id, snapshot_item_id, attempt_no)
+        target = self._store.find_attempt(session_id, snapshot_item_id, attempt_no, lock=lock)
         if target is None:
             raise NotFoundError(
                 "Kasus atau percobaan tidak ditemukan pada sesi.", code="MANUAL_ATTEMPT_NOT_FOUND"
@@ -214,6 +224,9 @@ class ManualEvidenceService:
             )
         ensure_answers_open(status)
 
+    def _visible(self, role: Role) -> bool:
+        return rules.can_view_evidence(role, policy=self._visibility)
+
     def _ensure_visible(self, role: Role) -> None:
-        if not rules.can_view_evidence(role, policy=self._visibility):
+        if not self._visible(role):
             raise _evidence_not_found()

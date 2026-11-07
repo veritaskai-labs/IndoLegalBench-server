@@ -180,6 +180,8 @@ class ManualSessionRow:
     vendor_name: str | None
     site_url: str | None
     manual_params: str | None
+    # Review #121: sesi Selesai yang diarsipkan tidak dinilai, sama seperti sesi otomatis.
+    archived_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -206,6 +208,8 @@ class ManualAttemptRow:
     note: str | None = None
     filled_by: uuid.UUID | None = None
     filled_at: datetime | None = None
+    # Review #121: jumlah bukti per jawaban di halaman sesi, supaya FE tidak N+1 panggilan.
+    evidence_count: int = 0
 
 
 class ManualStatusStore(Protocol):
@@ -288,8 +292,14 @@ class EvidenceStore(Protocol):
         raise NotImplementedError
 
     def find_attempt(
-        self, session_id: uuid.UUID, snapshot_item_id: uuid.UUID, attempt_no: int
+        self,
+        session_id: uuid.UUID,
+        snapshot_item_id: uuid.UUID,
+        attempt_no: int,
+        *,
+        lock: bool = False,
     ) -> EvidenceTarget | None:
+        """lock=True mengunci baris attempt (FOR UPDATE), supaya hitungan 3 bukti diserialkan."""
         raise NotImplementedError
 
     def evidence_for(self, attempt_id: uuid.UUID) -> list[EvidenceRow]:

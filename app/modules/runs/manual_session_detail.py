@@ -85,6 +85,7 @@ def _slots_per_case(
                 note=attempt.note,
                 filled_by=attempt.filled_by,
                 filled_at=attempt.filled_at,
+                evidence_count=attempt.evidence_count,
             )
         )
     return slots

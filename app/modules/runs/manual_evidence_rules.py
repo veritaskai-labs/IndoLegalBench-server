@@ -13,7 +13,7 @@ import re
 from typing import Literal
 from urllib.parse import urlsplit
 
-from app.shared.exceptions import ConflictError, ValidationError
+from app.shared.exceptions import ConflictError, PayloadTooLargeError, ValidationError
 from app.shared.security import Role
 
 MAX_EVIDENCE_PER_ATTEMPT = 3
@@ -64,7 +64,8 @@ def ensure_size(size: int, *, limit_bytes: int) -> None:
     if size <= 0:
         raise ValidationError("Berkas bukti kosong.", code="EVIDENCE_EMPTY", field="file")
     if size > limit_bytes:
-        raise ValidationError(
+        # 413, sama dengan penolakan dari Content-Length di router (review #121).
+        raise PayloadTooLargeError(
             "Berkas bukti melebihi batas ukuran.",
             code="EVIDENCE_TOO_LARGE",
             field="file",

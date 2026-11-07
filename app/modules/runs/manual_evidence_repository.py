@@ -4,8 +4,9 @@ Terpisah dari repository.py (sudah lebih dari 1000 baris) dengan peran yang sama
 SQL bukti ada di sini, service ManualEvidenceService tidak menulis query sendiri.
 
 Kunci baris sesi FOR SHARE: beberapa pengunggah boleh jalan bersamaan, tetapi Tandai selesai
-(FOR UPDATE, lock_manual) menunggu sampai bukti yang sedang diunggah ter-commit. Batas 3 per
-percobaan tetap dijaga trigger attempt_evidence_guard yang mengunci baris attempt.
+(FOR UPDATE, lock_manual) menunggu sampai bukti yang sedang diunggah ter-commit. Baris attempt
+dikunci FOR UPDATE di jalur tulis (review #121), jadi hitungan 3 bukti di service sudah benar
+sebelum INSERT; trigger attempt_evidence_guard tetap jadi jaring pengaman.
 """
 
 import uuid
@@ -67,16 +68,24 @@ class EvidenceRepository:
         return SessionStatus(row.status)
 
     def find_attempt(
-        self, session_id: uuid.UUID, snapshot_item_id: uuid.UUID, attempt_no: int
+        self,
+        session_id: uuid.UUID,
+        snapshot_item_id: uuid.UUID,
+        attempt_no: int,
+        *,
+        lock: bool = False,
     ) -> EvidenceTarget | None:
-        attempt = self._db.scalars(
-            select(Attempt).where(
-                Attempt.session_id == session_id,
-                Attempt.snapshot_item_id == snapshot_item_id,
-                Attempt.repetition_no == attempt_no,
-                Attempt.source == AttemptSource.MANUAL,
-            )
-        ).first()
+        query = select(Attempt).where(
+            Attempt.session_id == session_id,
+            Attempt.snapshot_item_id == snapshot_item_id,
+            Attempt.repetition_no == attempt_no,
+            Attempt.source == AttemptSource.MANUAL,
+        )
+        if lock:
+            # Review #121: hitungan 3 bukti di service diserialkan per jawaban; trigger
+            # attempt_evidence_guard mengambil kunci yang sama, jadi urutan kuncinya cocok.
+            query = query.with_for_update()
+        attempt = self._db.scalars(query).first()
         return None if attempt is None else _target(attempt)
 
     def evidence_for(self, attempt_id: uuid.UUID) -> list[EvidenceRow]:

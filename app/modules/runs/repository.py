@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.runs.models import (
     Attempt,
+    AttemptEvidence,
     AttemptSource,
     AttemptStatus,
     CallLog,
@@ -834,6 +835,15 @@ class ManualSessionRepository:
             .where(Attempt.session_id == session_id)
             .order_by(Attempt.snapshot_item_id, Attempt.repetition_no)
         ).all()
+        # Review #121: satu query hitung bukti untuk seluruh sesi (SCRUM-233).
+        evidence = dict(
+            self._db.execute(
+                select(AttemptEvidence.attempt_id, func.count())
+                .join(Attempt, Attempt.id == AttemptEvidence.attempt_id)
+                .where(Attempt.session_id == session_id)
+                .group_by(AttemptEvidence.attempt_id)
+            ).all()
+        )
 
         return [
             ManualAttemptRow(
@@ -848,6 +858,7 @@ class ManualSessionRepository:
                 note=row.manual_note,
                 filled_by=row.filled_by,
                 filled_at=row.filled_at,
+                evidence_count=evidence.get(row.id, 0),
             )
             for row in rows
         ]
@@ -900,6 +911,7 @@ class ManualSessionRepository:
             vendor_name=product.vendor_name if product else None,
             site_url=product.site_url if product else None,
             manual_params=product.manual_params if product else None,
+            archived_at=session.archived_at,
         )
 
     def snapshot_cases(self, session_id: uuid.UUID) -> list[ManualCaseRow]:

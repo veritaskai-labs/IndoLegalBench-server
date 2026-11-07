@@ -33,8 +33,9 @@ class SessionRow:
     # None selama sesi antre: snapshot baru dibuat saat sesi mulai (SCRUM-207).
     case_count: int | None
     attempt_counts: Mapping[str, int]
-    # PBI-22 AC9 (SCRUM-233): label manual terbawa ke daftar sesi.
-    session_type: SessionType = SessionType.AUTOMATIC
+    # PBI-22 AC9 (SCRUM-233): label manual terbawa ke daftar sesi. Wajib (review #121):
+    # bawaan automatic akan diam-diam melabeli sesi manual dari pembuat baris yang lupa.
+    session_type: SessionType
 
 
 class SessionListStore(Protocol):

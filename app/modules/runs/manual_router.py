@@ -8,7 +8,8 @@ import uuid
 from datetime import UTC, datetime
 from urllib.parse import quote
 
-from fastapi import APIRouter, Depends, File, Form, Query, Response, UploadFile, status
+from fastapi import APIRouter, Depends, Query, Request, Response, status
+from fastapi.concurrency import run_in_threadpool
 from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
@@ -36,7 +37,7 @@ from app.modules.runs.schemas import (
 )
 from app.shared.config import Settings, get_settings
 from app.shared.database import get_db
-from app.shared.exceptions import ValidationError
+from app.shared.exceptions import PayloadTooLargeError, ValidationError
 from app.shared.security import CurrentUser, Role, require_roles
 
 router = APIRouter(prefix="/manual-measurements", tags=["manual-measurements"])
@@ -199,53 +200,113 @@ _EVIDENCE_409 = {
 }
 
 
+# Ruang untuk boundary dan header multipart di atas batas berkas.
+_MULTIPART_OVERHEAD = 64 * 1024
+# Body ditulis manual (bukan File/Form) supaya Content-Length dicek sebelum multipart dibaca;
+# schema ini menjaga kontrak OpenAPI tetap menyebut kedua field untuk FE.
+_EVIDENCE_FORM = {
+    "requestBody": {
+        "required": True,
+        "content": {
+            "multipart/form-data": {
+                "schema": {
+                    "type": "object",
+                    "properties": {
+                        "file": {
+                            "type": "string",
+                            "format": "binary",
+                            "description": "Tangkapan layar PNG/JPG atau PDF",
+                        },
+                        "url": {"type": "string", "description": "Tautan bukti, http atau https"},
+                    },
+                    "description": "Tepat satu dari file atau url",
+                }
+            }
+        },
+    }
+}
+
+
+def _reject_oversized(request: Request, limit_bytes: int) -> None:
+    """Review #121: Starlette menampung seluruh body multipart sebelum handler membaca berkas,
+    jadi unggahan raksasa ditolak dari Content-Length sebelum body diterima. Tanpa header itu
+    (chunked), batas tetap dijaga saat berkas dibaca di bawah."""
+    try:
+        length = int(request.headers.get("content-length", ""))
+    except ValueError:
+        return
+    if length > limit_bytes + _MULTIPART_OVERHEAD:
+        raise PayloadTooLargeError(
+            "Berkas bukti melebihi batas ukuran.",
+            code="EVIDENCE_TOO_LARGE",
+            field="file",
+            details={"limit_bytes": limit_bytes},
+        )
+
+
 @router.post(
     _EVIDENCE,
     response_model=EvidenceRead,
     status_code=status.HTTP_201_CREATED,
     summary="Tambah bukti jawaban manual: satu berkas PNG/JPG/PDF atau satu tautan",
+    openapi_extra=_EVIDENCE_FORM,
     responses={
         404: _EVIDENCE_404,
         409: _EVIDENCE_409,
+        413: {
+            "model": ErrorBody,
+            "description": "Berkas melewati MANUAL_EVIDENCE_MAX_BYTES (`EVIDENCE_TOO_LARGE`).",
+        },
         422: {
             "model": ErrorBody,
             "description": (
                 "Bukan tepat satu berkas atau tautan (`EVIDENCE_KIND_REQUIRED`), isi berkas bukan "
-                "PNG/JPG/PDF (`EVIDENCE_TYPE_NOT_ALLOWED`, `EVIDENCE_TYPE_MISMATCH`), kosong atau "
-                "lewat batas (`EVIDENCE_EMPTY`, `EVIDENCE_TOO_LARGE`), atau tautan tidak sah "
-                "(`EVIDENCE_LINK_INVALID`)."
+                "PNG/JPG/PDF (`EVIDENCE_TYPE_NOT_ALLOWED`, `EVIDENCE_TYPE_MISMATCH`), berkas "
+                "kosong (`EVIDENCE_EMPTY`), atau tautan tidak sah (`EVIDENCE_LINK_INVALID`)."
             ),
         },
     },
 )
-def add_manual_evidence(
+async def add_manual_evidence(
     session_id: uuid.UUID,
     snapshot_item_id: uuid.UUID,
     attempt_no: int,
-    file: UploadFile | None = File(default=None, description="Tangkapan layar PNG/JPG atau PDF"),
-    url: str | None = Form(default=None, description="Tautan bukti, http atau https"),
+    request: Request,
     user: CurrentUser = Depends(_viewers),
     service: ManualEvidenceService = Depends(get_manual_evidence_service),
     settings: Settings = Depends(get_settings),
 ) -> EvidenceRead:
-    if (file is None) == (url is None):
-        raise ValidationError(
-            "Kirim tepat satu bukti: berkas atau tautan.", code="EVIDENCE_KIND_REQUIRED"
-        )
+    limit = settings.manual_evidence_max_bytes
+    _reject_oversized(request, limit)
     actor = uuid.UUID(str(user.user_id))
-    if url is not None:
-        return service.add_link(session_id, snapshot_item_id, attempt_no, url=url, actor=actor)
-    # Dibaca paling banyak batas + 1 byte: cukup untuk tahu berkasnya kelewat besar.
-    content = file.file.read(settings.manual_evidence_max_bytes + 1)
-    return service.add_file(
-        session_id,
-        snapshot_item_id,
-        attempt_no,
-        content=content,
-        declared_type=file.content_type,
-        file_name=file.filename,
-        actor=actor,
-    )
+    async with request.form(max_files=1, max_fields=1) as form:
+        file, url = form.get("file"), form.get("url")
+        if isinstance(file, str) or (file is None) == (url is None):
+            raise ValidationError(
+                "Kirim tepat satu bukti: berkas atau tautan.", code="EVIDENCE_KIND_REQUIRED"
+            )
+        if url is not None:
+            # Query database sinkron dijalankan di threadpool, bukan di event loop.
+            return await run_in_threadpool(
+                service.add_link,
+                session_id,
+                snapshot_item_id,
+                attempt_no,
+                url=str(url),
+                actor=actor,
+            )
+        # Dibaca paling banyak batas + 1 byte: cukup untuk tahu berkasnya kelewat besar.
+        content = await file.read(limit + 1)
+        return await run_in_threadpool(
+            service.add_file,
+            session_id,
+            snapshot_item_id,
+            attempt_no,
+            content=content,
+            declared_type=file.content_type,
+            file_name=file.filename,
+            actor=actor,
+        )
 
 
 @router.get(
@@ -307,5 +368,5 @@ def delete_manual_evidence(
     user: CurrentUser = Depends(_viewers),
     service: ManualEvidenceService = Depends(get_manual_evidence_service),
 ) -> Response:
-    service.delete(session_id, evidence_id, role=user.role)
+    service.delete(session_id, evidence_id, role=user.role, actor=uuid.UUID(str(user.user_id)))
     return Response(status_code=status.HTTP_204_NO_CONTENT)
