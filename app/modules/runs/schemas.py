@@ -418,15 +418,15 @@ class ManualAttemptSlot(BaseModel):
     attempt_id: uuid.UUID
     repetition_no: int
     filled: bool = Field(description="Teks jawaban atau 'Platform menolak menjawab' tersimpan")
-    answered_at_platform: datetime | None = Field(
-        description="Kapan jawaban diperoleh dari platform (AC7)"
+    answered_at_platform: UtcDateTime | None = Field(
+        description="Kapan jawaban diperoleh dari platform, ISO 8601 UTC (AC7)"
     )
-    source: AttemptSource = AttemptSource.MANUAL
+    source: AttemptSource
     answer_md: str | None = None
     platform_refused: bool = False
     note: str | None = None
     filled_by: uuid.UUID | None = None
-    filled_at: datetime | None = None
+    filled_at: UtcDateTime | None = None
 
 
 class ManualCaseProgress(BaseModel):
@@ -457,8 +457,8 @@ class ManualSessionDetail(BaseModel):
     repetitions: int = Field(description="Percobaan per kasus (AC12, penanda PBI-15)")
     filled_answers: int = Field(description="X pada 'X dari N jawaban terisi', seluruh sesi")
     total_answers: int = Field(description="N: kasus x percobaan")
-    answer_date_from: datetime | None
-    answer_date_to: datetime | None
+    answer_date_from: UtcDateTime | None
+    answer_date_to: UtcDateTime | None
     date_range_warning: bool = Field(
         description="Rentang tanggal jawaban melebihi batas hari (AC13; batas TBA, bawaan mati)"
     )
@@ -541,11 +541,11 @@ class ManualAnswerResponse(BaseModel):
     attempt_no: int
     source: AttemptSource
     answer_md: str | None
-    obtained_at: datetime
+    obtained_at: UtcDateTime
     platform_refused: bool
     note: str | None
     filled_by: uuid.UUID
-    filled_at: datetime
+    filled_at: UtcDateTime
     session_status: SessionStatus
 
 
@@ -554,9 +554,9 @@ class ManualAnswerHistoryEntry(BaseModel):
     attempt_id: uuid.UUID
     answer_md: str | None
     filled_by: uuid.UUID | None
-    filled_at: datetime
-    obtained_at: datetime | None
+    filled_at: UtcDateTime
+    obtained_at: UtcDateTime | None
     platform_refused: bool
     note: str | None
-    overwritten_by: uuid.UUID
+    overwritten_at: UtcDateTime
     overwritten_at: datetime

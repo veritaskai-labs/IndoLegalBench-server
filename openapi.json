@@ -8552,11 +8552,6 @@
             ],
             "title": "Note"
           },
-          "overwritten_by": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Overwritten By"
-          },
           "overwritten_at": {
             "type": "string",
             "format": "date-time",
@@ -8573,7 +8568,6 @@
           "obtained_at",
           "platform_refused",
           "note",
-          "overwritten_by",
           "overwritten_at"
         ],
         "title": "ManualAnswerHistoryEntry"
@@ -8752,11 +8746,10 @@
               }
             ],
             "title": "Answered At Platform",
-            "description": "Kapan jawaban diperoleh dari platform (AC7)"
+            "description": "Kapan jawaban diperoleh dari platform, ISO 8601 UTC (AC7)"
           },
           "source": {
-            "$ref": "#/components/schemas/AttemptSource",
-            "default": "manual"
+            "$ref": "#/components/schemas/AttemptSource"
           },
           "answer_md": {
             "anyOf": [
@@ -8815,7 +8808,8 @@
           "attempt_id",
           "repetition_no",
           "filled",
-          "answered_at_platform"
+          "answered_at_platform",
+          "source"
         ],
         "title": "ManualAttemptSlot",
         "description": "Satu kotak jawaban (Percobaan n) di kartu kasus sesi manual (PBI-22 AC4)."

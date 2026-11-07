@@ -1,12 +1,14 @@
 """TDD untuk penyimpanan jawaban manual SCRUM-231."""
 
+import json
 import uuid
 from datetime import datetime
 
 import pytest
 from sqlalchemy import select
 
-from app.modules.runs.models import AnswerHistory, Attempt
+from app.modules.runs.models import AnswerHistory, Attempt, AttemptSource, SessionStatus
+from app.modules.runs.schemas import ManualAnswerResponse
 from app.shared.security import Role
 from tests.modules.runs.test_manual_session_detail import _sesi_manual
 
@@ -244,3 +246,31 @@ def test_save_recomputes_progress_and_date_range(manual):
         datetime.fromisoformat(detail["answer_date_to"]).timestamp()
         == datetime.fromisoformat(dates[1]).timestamp()
     )
+
+
+def test_waktu_jawaban_manual_keluar_sebagai_iso_8601_utc():
+    """Edge: waktu di respons wajib berakhiran Z, supaya FE tahu itu UTC (AC7).
+
+    Tes suite memakai SQLite yang membuang zona waktu, jadi tanpa anotasi
+    UtcDateTime nilainya keluar polos tanpa penanda dan FE salah menghitung WIB.
+    """
+    polos = datetime(2026, 11, 7, 14, 0)
+
+    jawaban = ManualAnswerResponse(
+        attempt_id=uuid.uuid4(),
+        snapshot_item_id=uuid.uuid4(),
+        attempt_no=1,
+        source=AttemptSource.MANUAL,
+        answer_md="**jawaban**",
+        obtained_at=polos,
+        platform_refused=False,
+        note=None,
+        filled_by=uuid.uuid4(),
+        filled_at=polos,
+        session_status=SessionStatus.PARTIALLY_FILLED,
+    )
+
+    terkirim = json.loads(jawaban.model_dump_json())
+
+    assert terkirim["obtained_at"] == "2026-11-07T14:00:00Z"
+    assert terkirim["filled_at"] == "2026-11-07T14:00:00Z"
