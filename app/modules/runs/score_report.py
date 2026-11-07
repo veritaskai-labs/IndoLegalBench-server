@@ -9,7 +9,8 @@ from sqlalchemy.orm import Session
 
 from app.modules.runs import repository
 from app.modules.runs.adapters import SnapshotCaseAdapter
-from app.modules.runs.grading_ports import GradeScoreSnapshot as GradeScoreSnapshot, GradingReaderPort
+from app.modules.runs.grading_ports import GradeScoreSnapshot as GradeScoreSnapshot
+from app.modules.runs.grading_ports import GradingReaderPort
 from app.modules.runs.session_scores import AttemptCase, SessionScores, aggregate_attempt_maps
 from app.modules.runs.snapshot_cases import CaseFacts
 
