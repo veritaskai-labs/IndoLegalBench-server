@@ -40,8 +40,13 @@ def aturan():
         (PDF, "application/pdf", "application/pdf"),
         # Browser lama mengirim image/jpg untuk .jpg; isinya tetap JPEG.
         (JPEG, "image/jpg", "image/jpeg"),
+        # Review Elision #121: label generik atau tanpa label tidak mengklaim tipe apa pun,
+        # jadi signature yang sah cukup.
+        (PNG, "application/octet-stream", "image/png"),
+        (PDF, None, "application/pdf"),
+        (JPEG, "", "image/jpeg"),
     ],
-    ids=["png", "jpg", "pdf", "alias-jpg"],
+    ids=["png", "jpg", "pdf", "alias-jpg", "octet-stream", "tanpa-label", "label-kosong"],
 )
 def test_tipe_berkas_dibaca_dari_isi(aturan, isi, dikirim, tipe):
     """Positif: AC7, tipe disimpan dari magic bytes, jadi kolom mime_type D9 selalu sah."""
@@ -60,10 +65,12 @@ def test_tipe_berkas_dibaca_dari_isi(aturan, isi, dikirim, tipe):
         (b"<html><script>", "image/png", "EVIDENCE_TYPE_NOT_ALLOWED"),
         # Negatif: isi PDF yang diberi label PNG; ekstensi saja tidak dipercaya.
         (PDF, "image/png", "EVIDENCE_TYPE_MISMATCH"),
-        # Negatif: Content-Type di luar daftar walau isinya PNG.
-        (PNG, "application/octet-stream", "EVIDENCE_TYPE_MISMATCH"),
+        # Negatif: label tipe lain yang spesifik tetap ditolak walau isinya PNG.
+        (PNG, "image/gif", "EVIDENCE_TYPE_MISMATCH"),
+        # Negatif: label generik tidak meloloskan isi yang bukan PNG/JPG/PDF.
+        (b"GIF89a" + b"\x00" * 24, "application/octet-stream", "EVIDENCE_TYPE_NOT_ALLOWED"),
     ],
-    ids=["gif", "html", "pdf-berlabel-png", "octet-stream"],
+    ids=["gif", "html", "pdf-berlabel-png", "png-berlabel-gif", "gif-octet-stream"],
 )
 def test_tipe_berkas_ditolak_bila_isi_tidak_sah(aturan, isi, dikirim, kode):
     """Negatif: AC7, validasi tipe di server dari isi berkas, bukan hanya ekstensi."""
@@ -143,8 +150,23 @@ def test_tautan_http_diterima(aturan, tautan, hasil):
         "https://",
         "bukan tautan",
         "https://example.com/" + "a" * 2030,
+        # Review Elision #121: urlsplit melempar ValueError (dulu 500), dan netloc tanpa host.
+        "https://[rusak",
+        "https://@",
+        "https://user@:80",
     ],
-    ids=["kosong", "spasi", "javascript", "ftp", "tanpa-host", "teks", "lewat-2048"],
+    ids=[
+        "kosong",
+        "spasi",
+        "javascript",
+        "ftp",
+        "tanpa-host",
+        "teks",
+        "lewat-2048",
+        "ipv6-rusak",
+        "hanya-userinfo",
+        "userinfo-dan-port",
+    ],
 )
 def test_tautan_tidak_sah_ditolak(aturan, tautan):
     """Negatif: AC7, hanya http(s) dengan host, maksimal 2048 karakter (D9 varchar(2048))."""
