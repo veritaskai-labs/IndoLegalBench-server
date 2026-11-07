@@ -55,6 +55,7 @@ from app.modules.runs.schemas import (
     CategoryScore,
     GradedSessionListItem,
     GradeSessionRequest,
+    GradingRunSummary,
     ScorePair,
     SessionGradingResponse,
     ThreeScores,
@@ -1834,6 +1835,21 @@ def get_session_results(
         viewer_role=viewer_role,
         session_status=session.status,
     )
+
+
+def to_run_summary(run: SessionGradingResponse) -> GradingRunSummary:
+    """Meringkas satu hasil penilaian menjadi baris riwayat tanpa rincian kasus."""
+    raise NotImplementedError
+
+
+def list_grading_runs(
+    db: Session,
+    session_id: uuid.UUID,
+    *,
+    store: GradingStore | None = None,
+) -> list[GradingRunSummary]:
+    """Riwayat penilaian satu sesi, terbaru di atas (PBI-14 AC7)."""
+    raise NotImplementedError
 
 
 def _resolve_session_rubric_map(db: Session, session_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
