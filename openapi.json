@@ -4126,6 +4126,74 @@
         }
       }
     },
+    "/measurements/{session_id}/grading-runs": {
+      "get": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Riwayat penilaian sesi pengukuran, terbaru di atas (Admin)",
+        "description": "Semua penilaian sesi ini, termasuk hasil lama sebelum nilai ulang (PBI-14 AC7).",
+        "operationId": "list_grading_runs_endpoint_measurements__session_id__grading_runs_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GradingRunSummary"
+                  },
+                  "title": "Response List Grading Runs Endpoint Measurements  Session Id  Grading Runs Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya Admin yang dapat melihat riwayat penilaian (`FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/measurements/{session_id}/results": {
       "get": {
         "tags": [
@@ -8613,6 +8681,68 @@
         ],
         "title": "GraderPath",
         "description": "Jalur penilaian satu dimensi rubrik (D6): deterministik atau LLM judge."
+      },
+      "GradingRunSummary": {
+        "properties": {
+          "grading_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Grading Run Id"
+          },
+          "rubric_version": {
+            "type": "string",
+            "title": "Rubric Version",
+            "description": "Versi rubrik yang digunakan (mis. 'v1')"
+          },
+          "kind": {
+            "type": "string",
+            "enum": [
+              "initial",
+              "regrade"
+            ],
+            "title": "Kind",
+            "description": "initial untuk penilaian pertama, regrade untuk nilai ulang"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "completed bila sudah selesai dinilai"
+          },
+          "triggered_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Triggered By",
+            "description": "Admin yang memicu penilaian"
+          },
+          "triggered_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Triggered At",
+            "description": "Waktu pemicuan penilaian"
+          },
+          "is_latest": {
+            "type": "boolean",
+            "title": "Is Latest",
+            "description": "True bila ini hasil penilaian terbaru sesi tersebut"
+          },
+          "scores": {
+            "$ref": "#/components/schemas/ThreeScores",
+            "description": "Tiga skor terpisah: dev, test, dan gabungan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "grading_run_id",
+          "rubric_version",
+          "kind",
+          "status",
+          "triggered_by",
+          "triggered_at",
+          "is_latest",
+          "scores"
+        ],
+        "title": "GradingRunSummary",
+        "description": "Satu baris riwayat penilaian sesi, tanpa rincian kasus (PBI-14 AC7)."
       },
       "HTTPValidationError": {
         "properties": {

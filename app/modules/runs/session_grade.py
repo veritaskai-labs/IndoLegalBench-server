@@ -57,6 +57,7 @@ from app.modules.runs.schemas import (
     CategoryScore,
     GradedSessionListItem,
     GradeSessionRequest,
+    GradingRunSummary,
     ScorePair,
     SessionGradingResponse,
     ThreeScores,
@@ -68,6 +69,7 @@ from app.shared.security import Role
 _DUA_DIGIT = Decimal("0.01")
 LAIN_LAIN = "Lain-lain"
 DEFAULT_RUBRIC_VERSION = "v1"
+MEASUREMENT_NOT_FOUND_MESSAGE = "Pengukuran tidak ditemukan."
 ACTION_MEASUREMENT_SESSION_GRADED = "measurement_session.graded"
 ACTION_MEASUREMENT_SESSION_REGRADED = "measurement_session.regraded"
 REASON_CRITERION_UNMET = "criterion_unmet"
@@ -1766,7 +1768,7 @@ def grade_session(
 
     session = db.get(MeasurementSession, session_id)
     if session is None:
-        raise NotFoundError("Pengukuran tidak ditemukan.", code="MEASUREMENT_NOT_FOUND")
+        raise NotFoundError(MEASUREMENT_NOT_FOUND_MESSAGE, code="MEASUREMENT_NOT_FOUND")
 
     # PBI-22 AC9 (SCRUM-233): sesi manual memakai prasyarat D7 (409 NOT_COMPLETE) dan arsip
     # dari gate; sesi otomatis tetap aturan D4. Gate tidak mengunci selama judge berjalan.
@@ -1819,7 +1821,7 @@ def get_session_results(
     """Mengambil hasil penilaian terbaru dengan filter visibilitas per peran (AC8)."""
     session = db.get(MeasurementSession, session_id)
     if session is None:
-        raise NotFoundError("Pengukuran tidak ditemukan.", code="MEASUREMENT_NOT_FOUND")
+        raise NotFoundError(MEASUREMENT_NOT_FOUND_MESSAGE, code="MEASUREMENT_NOT_FOUND")
 
     grading_store = store or DbGradingStore(db)
     latest_run = grading_store.get_latest_grading_run(session_id)
@@ -1844,6 +1846,41 @@ def get_session_results(
         viewer_role=viewer_role,
         session_status=session.status,
     )
+
+
+def to_run_summary(run: SessionGradingResponse) -> GradingRunSummary:
+    """Meringkas satu hasil penilaian menjadi baris riwayat tanpa rincian kasus."""
+    return GradingRunSummary(
+        grading_run_id=run.grading_run_id,
+        rubric_version=run.rubric_version,
+        kind=run.kind,
+        status=run.status,
+        triggered_by=run.triggered_by,
+        triggered_at=run.triggered_at,
+        is_latest=run.is_latest,
+        scores=run.scores,
+    )
+
+
+def list_grading_runs(
+    db: Session,
+    session_id: uuid.UUID,
+    *,
+    store: GradingStore | None = None,
+) -> list[GradingRunSummary]:
+    """Riwayat penilaian satu sesi, terbaru di atas (PBI-14 AC7).
+
+    Sesi yang belum pernah dinilai mengembalikan daftar kosong. Run dengan waktu sama
+    tetap dalam urutan simpan, karena sort Python stabil juga saat dibalik.
+    """
+    if db.get(MeasurementSession, session_id) is None:
+        raise NotFoundError(MEASUREMENT_NOT_FOUND_MESSAGE, code="MEASUREMENT_NOT_FOUND")
+
+    grading_store = store or DbGradingStore(db)
+    runs = sorted(
+        grading_store.get_grading_runs(session_id), key=lambda r: r.triggered_at, reverse=True
+    )
+    return [to_run_summary(run) for run in runs]
 
 
 def _resolve_session_rubric_map(db: Session, session_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
