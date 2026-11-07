@@ -7385,9 +7385,9 @@
           },
           "credential": {
             "type": "string",
-            "minLength": 4,
+            "minLength": 8,
             "title": "Credential",
-            "description": "Hanya ditulis; respons memuat hint 4 karakter"
+            "description": "Hanya ditulis, spasi di ujung dibuang; respons memuat hint 4 karakter"
           },
           "price_input_usd_per_mtok": {
             "anyOf": [
@@ -7570,14 +7570,14 @@
             "anyOf": [
               {
                 "type": "string",
-                "minLength": 4
+                "minLength": 8
               },
               {
                 "type": "null"
               }
             ],
             "title": "Credential",
-            "description": "Hanya ditulis; respons memuat hint 4 karakter"
+            "description": "Hanya ditulis, spasi di ujung dibuang; respons memuat hint 4 karakter"
           },
           "price_input_usd_per_mtok": {
             "anyOf": [

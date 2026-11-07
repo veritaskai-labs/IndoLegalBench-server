@@ -8,31 +8,23 @@ has_credential (L5, PBI-10 AC2).
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from urllib.parse import urlparse
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.modules.providers.models import ProviderType
-from app.shared.text import strip_blank
+from app.modules.providers.validators import (
+    JUDGE_CREDENTIAL_MIN,
+    http_url,
+    judge_credential,
+    required_text,
+)
 
 _HARGA = {"ge": 0, "max_digits": 12, "decimal_places": 4}
 _ANGGARAN = {"gt": 0, "max_digits": 18, "decimal_places": 2}
-_KREDENSIAL = {"min_length": 4, "description": "Hanya ditulis; respons memuat hint 4 karakter"}
-
-
-def _teks_wajib(value: str) -> str:
-    bersih = strip_blank(value)
-    if not bersih:
-        raise ValueError("tidak boleh kosong")
-    return bersih
-
-
-def _url_http(value: str) -> str:
-    bersih = strip_blank(value)
-    parsed = urlparse(bersih)
-    if parsed.scheme not in {"http", "https"} or not parsed.hostname:
-        raise ValueError("harus berupa URL http atau https")
-    return bersih
+_KREDENSIAL = {
+    "min_length": JUDGE_CREDENTIAL_MIN,
+    "description": "Hanya ditulis, spasi di ujung dibuang; respons memuat hint 4 karakter",
+}
 
 
 class JudgeProviderCreate(BaseModel):
@@ -55,12 +47,17 @@ class JudgeProviderCreate(BaseModel):
     @field_validator("name", "model_name")
     @classmethod
     def teks_tidak_kosong(cls, value: str) -> str:
-        return _teks_wajib(value)
+        return required_text(value)
 
     @field_validator("base_url")
     @classmethod
     def url_http(cls, value: str) -> str:
-        return _url_http(value)
+        return http_url(value)
+
+    @field_validator("credential")
+    @classmethod
+    def kredensial_bersih(cls, value: str) -> str:
+        return judge_credential(value)
 
 
 class JudgeProviderUpdate(BaseModel):
@@ -83,6 +80,11 @@ class JudgeProviderUpdate(BaseModel):
         if value is None:
             raise ValueError("tidak boleh null; hilangkan isian ini kalau tidak diubah")
         return value
+
+    @field_validator("credential")
+    @classmethod
+    def kredensial_bersih(cls, value: str) -> str:
+        return judge_credential(value)
 
 
 class JudgeProviderRead(BaseModel):
