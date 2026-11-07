@@ -162,6 +162,21 @@ def test_kasus_lama_berisi_traps_bisa_dibuka_diedit_dan_diajukan(as_role, db_ses
     assert diajukan.status_code == 200
 
 
+def test_put_pada_draf_berisi_traps_lama_menulis_ulang_isi_tanpa_traps(as_role, db_session):
+    # Arrange
+    client = as_role(Role.CONTRIBUTOR)
+    case_id = _buat(client, _suite(client)).json()["id"]
+    tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
+    assert _isi_versi(db_session, case_id)["traps"] == TRAPS_LAMA
+
+    # Act
+    response = client.put(f"/cases/{case_id}", json=_badan())
+
+    # Assert
+    assert response.status_code == 200
+    assert "traps" not in _isi_versi(db_session, case_id)
+
+
 def test_kasus_lama_berisi_traps_tetap_lengkap_di_daftar_dan_completeness(as_role, db_session):
     client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
