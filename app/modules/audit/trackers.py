@@ -11,7 +11,7 @@ tidak mengimpor models milik modul lain.
 
 import uuid
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date
 from decimal import Decimal
 from enum import Enum
 from typing import Any
@@ -485,6 +485,25 @@ class MeasurementSessionTracker(Tracker):
         )
 
 
+class RubricVersionTracker(Tracker):
+    """Versi rubrik (PBI-14 AC7, SCRUM-222). Penulisnya hanya POST /admin/rubrics.
+
+    Prompt penilai sengaja tidak dicatat: teks panjang yang sudah tersimpan utuh di
+    versinya sendiri dan tidak pernah berubah. locked_at diisi bersamaan dengan
+    aktivasi, jadi tidak butuh event sendiri.
+    """
+
+    entity_type = AuditEntityType.RUBRIC_VERSION
+    prefix = "rubric_version"
+    created_fields = ("version_no", "effective_date", "approved_by_name", "approved_at")
+    fields = ("is_active",)
+    special = frozenset(fields)
+
+    def _special_event(self, row: Any, field: str, change: Change) -> AuditEvent:
+        verb = "activated" if change.new else "deactivated"
+        return self._field_event(row, verb, field, change)
+
+
 TRACKERS: dict[str, Tracker] = {
     "suites": SuiteTracker(),
     "suite_snapshots": SuiteSnapshotTracker(),
@@ -498,6 +517,7 @@ TRACKERS: dict[str, Tracker] = {
     "users": UserTracker(),
     "call_logs": CallLogTracker(),
     "measurement_sessions": MeasurementSessionTracker(),
+    "rubric_versions": RubricVersionTracker(),
 }
 
 
@@ -511,6 +531,7 @@ def _json(value: Any) -> Any:
         return value.value
     if isinstance(value, uuid.UUID | Decimal):
         return str(value)
-    if isinstance(value, datetime):
+    # datetime turunan date, jadi satu cabang untuk keduanya (tanggal rubrik, SCRUM-222).
+    if isinstance(value, date):
         return value.isoformat()
     return value

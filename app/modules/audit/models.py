@@ -50,6 +50,7 @@ class AuditEntityType(StrEnum):
     USER = "user"
     CALL_LOG = "call_log"
     MEASUREMENT_SESSION = "measurement_session"
+    RUBRIC_VERSION = "rubric_version"
 
 
 class AuditLog(Base):

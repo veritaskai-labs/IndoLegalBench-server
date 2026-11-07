@@ -169,4 +169,5 @@ def test_jenis_objek_sesuai_katalog():
         "user",
         "call_log",
         "measurement_session",
+        "rubric_version",  # SCRUM-222 PR B: versi rubrik
     }

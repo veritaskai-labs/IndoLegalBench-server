@@ -1,9 +1,9 @@
 """Perpindahan status sesi pengukuran per D4. PBI-12 AC7, AC9, SCRUM-214.
 
 Semua perpindahan status sesi lewat satu aturan, supaya tidak ada transisi liar.
-Matriks di bawah menguji setiap pasangan (status sekarang, status tujuan): 7 x 7 = 49
-pasangan, termasuk ke status yang sama. Yang tidak ada di D4 ditolak dengan 409
-INVALID_TRANSITION.
+Matriks di bawah menguji setiap pasangan (status sekarang, status tujuan): 12 x 12 = 144
+pasangan, termasuk ke status yang sama. Yang tidak ada di D4 atau D8 ditolak dengan 409
+INVALID_TRANSITION, termasuk perpindahan antara status otomatis dan status manual.
 
 Panah D4 (Bagian A) yang diizinkan:
 - queued -> running (giliran antrean), queued -> cancelled ([USULAN SA] boleh).
@@ -19,6 +19,14 @@ Panah D4 (Bagian A) yang diizinkan:
 
 Nama status mengikuti enum di staging (finished, finished_with_failures), bukan label
 D4 (completed, completed_with_failures).
+
+Panah D8 (sesi manual, PBI-22 SCRUM-230) yang diizinkan:
+- not_filled -> partially_filled, atau langsung complete bila jawaban pertama sudah
+  melengkapi sesi (mis. 1 kasus x 1 percobaan).
+- partially_filled -> complete (semua kasus x semua percobaan terisi).
+- complete -> graded (Nilai, SCRUM-226) dan complete -> finalized (Tandai selesai).
+- graded -> finalized. Selesai dari Lengkap atau Dinilai: keputusan SA 7 November 2026,
+  karena urutan Selesai dan Nilai masih TBA. finalized tidak bisa dibuka kembali (AC8).
 
 Setiap tes diberi label di docstring-nya:
 - Positif: perilaku yang memang diharapkan terjadi.
@@ -44,6 +52,11 @@ _STATUS = [
     "finished",
     "finished_with_failures",
     "failed",
+    "not_filled",
+    "partially_filled",
+    "complete",
+    "graded",
+    "finalized",
 ]
 
 _D4 = {
@@ -62,8 +75,17 @@ _D4 = {
     ("cancelled", "queued"),
 }
 
+_D8 = {
+    ("not_filled", "partially_filled"),
+    ("not_filled", "complete"),
+    ("partially_filled", "complete"),
+    ("complete", "graded"),
+    ("complete", "finalized"),
+    ("graded", "finalized"),
+}
+
 _SEMUA_PASANGAN = list(itertools.product(_STATUS, repeat=2))
-_DITOLAK = [pasangan for pasangan in _SEMUA_PASANGAN if pasangan not in _D4]
+_DITOLAK = [pasangan for pasangan in _SEMUA_PASANGAN if pasangan not in _D4 | _D8]
 
 
 @pytest.fixture
@@ -71,22 +93,22 @@ def transisi():
     return importlib.import_module("app.modules.runs.session_transitions")
 
 
-def test_enum_punya_tujuh_status_d4():
-    """Positif: paused dan cancelled ditambahkan ke lima status dasar PBI-11."""
+def test_enum_punya_tujuh_status_d4_dan_lima_status_d8():
+    """Positif: lima status sesi manual D8 ada di enum yang sama dengan status D4 (D9)."""
     # Assert
     assert {status.value for status in SessionStatus} == set(_STATUS)
 
 
-@pytest.mark.parametrize(("sekarang", "tujuan"), sorted(_D4))
+@pytest.mark.parametrize(("sekarang", "tujuan"), sorted(_D4 | _D8))
 def test_transisi_d4_diizinkan(transisi, sekarang, tujuan):
-    """Positif: setiap panah di D4 boleh dilewati."""
+    """Positif: setiap panah di D4 dan D8 boleh dilewati."""
     # Act / Assert
     transisi.ensure_transition(SessionStatus(sekarang), SessionStatus(tujuan))
 
 
 @pytest.mark.parametrize(("sekarang", "tujuan"), _DITOLAK)
 def test_transisi_di_luar_d4_ditolak(transisi, sekarang, tujuan):
-    """Negatif: pasangan yang tidak digambar di D4 ditolak dengan 409 INVALID_TRANSITION."""
+    """Negatif: pasangan yang tidak digambar di D4 atau D8 ditolak dengan 409 INVALID_TRANSITION."""
     # Act
     with pytest.raises(ConflictError) as error:
         transisi.ensure_transition(SessionStatus(sekarang), SessionStatus(tujuan))

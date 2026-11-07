@@ -18,6 +18,7 @@ from app.modules.cases.validation import PLACEHOLDER_CASE_CODE_PATTERN
 from app.shared.exceptions import ForbiddenError
 from app.shared.security import Role, get_current_user
 from tests.legal_refs import rujukan_pasal
+from tests.modules.cases.legacy_traps import TRAPS_LAMA, tanam_traps_lama
 from tests.modules.conftest import USER_ID_QA
 
 AUTHOR_LAIN = uuid.UUID("00000000-0000-0000-0000-00000000b000")
@@ -44,12 +45,6 @@ def _badan(**ubah) -> dict:
             "must_not_contain": [],
             "expected_conclusion": "tidak sah",
         },
-        "traps": [
-            {
-                "description": "Mencampur upah dan pesangon",
-                "expected_model_behavior": "menolak",
-            }
-        ],
         "split_tag": "dev",
     }
     badan.update(ubah)
@@ -281,7 +276,6 @@ def test_draft_boleh_belum_lengkap(as_role):
         client,
         suite_id,
         answer_criteria={"must_contain": [], "must_not_contain": []},
-        traps=[],
     )
 
     assert response.status_code == 201
@@ -322,7 +316,7 @@ def test_daftar_menghitung_ulang_completeness(as_role, db_session):
     client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
 
-    case_id = _buat(client, suite_id, traps=[]).json()["id"]
+    case_id = _buat(client, suite_id).json()["id"]
 
     kasus = db_session.get(Case, uuid.UUID(case_id))
     assert kasus is not None
@@ -574,14 +568,15 @@ def test_completeness_kasus_lengkap(as_role):
     assert body["ready_for_review"] is True
     assert body["missing"] == []
     assert body["pct"] == 100
-    assert body["trap_count"] >= 1
+    assert "trap_count" not in body
     assert body["legal_ref_count"] >= 1
 
 
-def test_completeness_tanpa_jebakan_lengkap(as_role):
+def test_completeness_kasus_legacy_dengan_jebakan_tetap_lengkap(as_role, db_session):
     client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
-    case_id = _buat(client, suite_id, traps=[]).json()["id"]
+    case_id = _buat(client, suite_id).json()["id"]
+    tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
 
     body = client.get(f"/cases/{case_id}/completeness").json()
 
@@ -589,7 +584,7 @@ def test_completeness_tanpa_jebakan_lengkap(as_role):
     assert body["is_complete"] is True
     assert body["ready_for_review"] is True
     assert body["missing"] == []
-    assert body["trap_count"] == 0
+    assert "trap_count" not in body
 
 
 def test_completeness_kasus_tidak_dikenal(as_role):
