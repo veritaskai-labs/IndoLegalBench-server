@@ -160,3 +160,42 @@ def test_arsip_ulang_setelah_unarchive_tetap_dicatat_archived():
     # Assert
     assert event.action == "measurement_session.archived"
     assert event.after == {"archived_at": waktu_baru.isoformat()}
+
+
+def test_unarchive_lewat_endpoint_menulis_satu_catatan_dengan_pelaku(as_role, db_session):
+    """Positif: unarchive menulis event unarchived, tanpa event archived baru."""
+    # Arrange
+    sesi = _siapkan_sesi(db_session)
+    client = as_role(Role.DEVELOPER_AI)
+    client.patch(f"/measurements/{sesi.id}/archive")
+
+    # Act
+    response = client.patch(f"/measurements/{sesi.id}/unarchive")
+
+    # Assert
+    assert response.status_code == 200
+    db_session.expire_all()
+    catatan = list(db_session.scalars(select(AuditLog).where(AuditLog.entity_id == sesi.id)))
+    assert sorted(item.action for item in catatan) == [
+        "measurement_session.archived",
+        "measurement_session.unarchived",
+    ]
+    (unarchive,) = [item for item in catatan if item.action.endswith(".unarchived")]
+    assert unarchive.actor_user_id == USER_ID_QA
+    assert unarchive.actor_role == "developer_ai"
+    assert unarchive.after == {"archived_at": None}
+
+
+def test_unarchive_yang_ditolak_tidak_menulis_catatan(as_role, db_session):
+    """Negatif: sesi yang belum diarsipkan ditolak 409 dan tidak meninggalkan jejak."""
+    # Arrange
+    sesi = _siapkan_sesi(db_session)
+
+    # Act
+    response = as_role(Role.ADMIN).patch(f"/measurements/{sesi.id}/unarchive")
+
+    # Assert
+    assert response.status_code == 409
+    db_session.expire_all()
+    aksi = db_session.scalars(select(AuditLog.action)).all()
+    assert "measurement_session.unarchived" not in aksi
