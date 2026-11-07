@@ -36,6 +36,9 @@ _SIGNATURES = (
     (b"\xff\xd8\xff", MIME_JPEG),
     (b"%PDF-", MIME_PDF),
 )
+# Label yang tidak mengklaim tipe apa pun (review Elision #121): klien non-browser dan
+# beberapa browser mengirim octet-stream atau tanpa Content-Type; signature yang sah cukup.
+_GENERIC_DECLARED = frozenset({"", "application/octet-stream"})
 # Content-Type yang dikirim browser untuk tiap tipe. image/jpg dipakai browser lama.
 _DECLARED = {
     MIME_PNG: MIME_PNG,
@@ -48,7 +51,7 @@ _SESSION_VIEWERS = frozenset({Role.ADMIN, Role.CONTRIBUTOR})
 
 
 def detect_file_type(head: bytes, *, declared: str | None) -> str:
-    """Tipe MIME dari isi berkas. Ditolak bila bukan PNG/JPG/PDF atau tidak cocok label."""
+    """Tipe MIME dari isi berkas. Ditolak bila bukan PNG/JPG/PDF atau tidak cocok label tipenya."""
     actual = next((mime for sig, mime in _SIGNATURES if head.startswith(sig)), None)
     if actual is None:
         raise ValidationError(
@@ -56,7 +59,8 @@ def detect_file_type(head: bytes, *, declared: str | None) -> str:
             code="EVIDENCE_TYPE_NOT_ALLOWED",
             field="file",
         )
-    if _DECLARED.get((declared or "").split(";")[0].strip().lower()) != actual:
+    label = (declared or "").split(";")[0].strip().lower()
+    if label not in _GENERIC_DECLARED and _DECLARED.get(label) != actual:
         raise ValidationError(
             "Isi berkas tidak sesuai dengan tipenya.",
             code="EVIDENCE_TYPE_MISMATCH",
@@ -94,14 +98,23 @@ def ensure_room(existing: int) -> None:
 def normalize_link(url: str) -> str:
     """Hanya http(s) dengan host, jadi javascript: dan sejenisnya tidak pernah tersimpan."""
     value = (url or "").strip()
-    parts = urlsplit(value)
-    if len(value) > MAX_LINK_LENGTH or parts.scheme not in ("http", "https") or not parts.netloc:
+    if len(value) > MAX_LINK_LENGTH or not _has_web_host(value):
         raise ValidationError(
             "Tautan bukti harus alamat http atau https yang lengkap.",
             code="EVIDENCE_LINK_INVALID",
             field="url",
         )
     return value
+
+
+def _has_web_host(value: str) -> bool:
+    # Review Elision #121: urlsplit melempar ValueError untuk "https://[rusak" (dulu 500), dan
+    # netloc "@" atau "user@:80" tidak kosong walau tanpa host, jadi yang dicek hostname.
+    try:
+        parts = urlsplit(value)
+    except ValueError:
+        return False
+    return parts.scheme in ("http", "https") and bool(parts.hostname)
 
 
 def can_view_evidence(role: Role | str, *, policy: EvidenceVisibility) -> bool:
