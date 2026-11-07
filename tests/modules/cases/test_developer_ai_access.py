@@ -268,6 +268,7 @@ _DIBUKA = {
     ("GET", "/measurements"),
     ("GET", "/measurements/{session_id}"),
     ("PATCH", "/measurements/{session_id}/archive"),
+    ("PATCH", "/measurements/{session_id}/unarchive"),
     # PBI-12 AC3 (SCRUM-218): coba ulang sesi miliknya (D10 [USULAN PO]) dan detail teknis
     # upaya; detail kasus test disamarkan, diuji di test_session_retry_endpoint.py.
     ("POST", "/measurements/{session_id}/retry"),
