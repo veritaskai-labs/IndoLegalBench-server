@@ -67,9 +67,13 @@ def _nilai_enum(conn) -> list[str]:
 
 
 def test_upgrade_menambah_paused_dan_cancelled(conn):
-    """Positif: setelah head, enum status sesi berisi tujuh status D4."""
+    """Positif: setelah head, enum status sesi diawali tujuh status D4.
+
+    Status sesi manual D8 (SCRUM-230) menyusul di belakangnya; diuji di
+    test_manual_session_migration_pg.py.
+    """
     # Assert
-    assert _nilai_enum(conn) == [
+    assert _nilai_enum(conn)[:7] == [
         "queued",
         "running",
         "finished",

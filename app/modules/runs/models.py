@@ -73,10 +73,13 @@ class SplitFilter(StrEnum):
 
 
 class SessionStatus(StrEnum):
-    """Status sesi per D4. Perpindahan yang sah ada di session_transitions (SCRUM-214).
+    """Status sesi per D4 (otomatis) dan D8 (manual). Perpindahan sah di session_transitions.
 
     paused mencakup Jeda dari pengguna dan sesi yang dihentikan sistem (restart, deploy,
     anggaran habis); D4 tidak memisahkan Dihentikan dari Dijeda.
+
+    Lima status terakhir milik sesi manual (PBI-22 SCRUM-230, D9 menaruhnya di kolom yang
+    sama): Belum terisi, Terisi sebagian, Lengkap, Dinilai, Selesai.
     """
 
     QUEUED = "queued"
@@ -86,6 +89,11 @@ class SessionStatus(StrEnum):
     FINISHED = "finished"
     FINISHED_WITH_FAILURES = "finished_with_failures"
     FAILED = "failed"
+    NOT_FILLED = "not_filled"
+    PARTIALLY_FILLED = "partially_filled"
+    COMPLETE = "complete"
+    GRADED = "graded"
+    FINALIZED = "finalized"
 
 
 class StopReason(StrEnum):
@@ -147,6 +155,11 @@ class MeasurementSession(Base):
         CheckConstraint(
             "(stopped_at IS NULL) = (stop_reason IS NULL)",
             name="ck_measurement_sessions_stop_complete",
+        ),
+        # D9: Selesai (PBI-22 AC8) selalu tercatat bersama pelakunya.
+        CheckConstraint(
+            "(finalized_at IS NULL) = (finalized_by IS NULL)",
+            name="ck_measurement_sessions_finalized_complete",
         ),
         Index("ix_measurement_sessions_product_id", "product_id"),
         # Satu sesi otomatis berjalan (AC3). Parsial di kedua dialek: tanpa
@@ -223,6 +236,16 @@ class MeasurementSession(Base):
         Uuid(as_uuid=True), ForeignKey(_USER_FK), nullable=True
     )
     accepted_as_is_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # D9, sesi manual (PBI-22 SCRUM-230). Rentang tanggal jawaban dari platform untuk
+    # peringatan rentang (AC13) dan laporan PBI-15; diperbarui setiap jawaban disimpan.
+    answer_date_from: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    answer_date_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finalized_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey(_USER_FK), nullable=True
+    )
 
 
 class MeasurementSessionSuite(Base):
@@ -276,6 +299,9 @@ class SessionProductCopy(Base):
     # Produk manual (PBI-23 AC3). access_note tidak disalin, sama seperti kredensial.
     vendor_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     site_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    # Paket produk manual saat sesi dibuat (PBI-22 SCRUM-230, review #116): laporan PBI-15
+    # tetap tahu paket mana yang menjawab walau Admin mengubah produknya kemudian.
+    manual_params: Mapped[str | None] = mapped_column(Text, nullable=True)
     copied_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
@@ -347,6 +373,12 @@ class Attempt(Base):
     # Jawaban mentah markdown. Sekali terisi tidak bisa diubah (trigger).
     answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_version: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # D9, percobaan manual (PBI-22). filled_at kosong = belum terisi (status D8 dihitung
+    # dari sini); answered_at_platform = kapan jawaban diperoleh dari platform (AC7, AC13).
+    filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    answered_at_platform: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
