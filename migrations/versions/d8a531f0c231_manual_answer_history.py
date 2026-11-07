@@ -2,14 +2,14 @@
 """SCRUM-231 manual answer metadata and history.
 
 Revision ID: d8a531f0c231
-Revises: 4f844618b782
+Revises: b3c91d7a5e24
 """
 
 import sqlalchemy as sa
 from alembic import op
 
 revision = "d8a531f0c231"  # pragma: allowlist secret
-down_revision = "4f844618b782"  # pragma: allowlist secret
+down_revision = "b3c91d7a5e24"  # pragma: allowlist secret
 branch_labels = None
 depends_on = None
 
