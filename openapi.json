@@ -6410,10 +6410,6 @@
             "type": "array",
             "title": "Missing"
           },
-          "trap_count": {
-            "type": "integer",
-            "title": "Trap Count"
-          },
           "legal_ref_count": {
             "type": "integer",
             "title": "Legal Ref Count"
@@ -6425,7 +6421,6 @@
           "ready_for_review",
           "pct",
           "missing",
-          "trap_count",
           "legal_ref_count"
         ],
         "title": "CaseCompleteness",
@@ -6654,13 +6649,6 @@
           "answer_criteria": {
             "$ref": "#/components/schemas/AnswerCriteria"
           },
-          "traps": {
-            "items": {
-              "$ref": "#/components/schemas/Trap"
-            },
-            "type": "array",
-            "title": "Traps"
-          },
           "split_tag": {
             "$ref": "#/components/schemas/SplitTag"
           },
@@ -6701,7 +6689,6 @@
           "identity",
           "legal_refs",
           "answer_criteria",
-          "traps",
           "split_tag",
           "status",
           "was_dev",
@@ -6875,13 +6862,6 @@
           },
           "answer_criteria": {
             "$ref": "#/components/schemas/AnswerCriteria"
-          },
-          "traps": {
-            "items": {
-              "$ref": "#/components/schemas/Trap"
-            },
-            "type": "array",
-            "title": "Traps"
           },
           "split_tag": {
             "$ref": "#/components/schemas/SplitTag"
@@ -8570,14 +8550,6 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Answer Criteria"
-          },
-          "traps": {
-            "items": {
-              "additionalProperties": true,
-              "type": "object"
-            },
-            "type": "array",
-            "title": "Traps"
           }
         },
         "type": "object",
@@ -8590,8 +8562,7 @@
           "split_tag",
           "identity",
           "legal_refs",
-          "answer_criteria",
-          "traps"
+          "answer_criteria"
         ],
         "title": "ReviewCopy",
         "description": "One version as a reviewer reads it (PBI-6, SCRUM-145).\n\nsplit_tag is shown read-only and is not graded (PBI-9 AC2)."
@@ -10788,11 +10759,6 @@
             "additionalProperties": true,
             "type": "object",
             "title": "Answer Criteria"
-          },
-          "traps": {
-            "items": {},
-            "type": "array",
-            "title": "Traps"
           }
         },
         "type": "object",
@@ -10802,11 +10768,10 @@
           "case_code",
           "split_tag",
           "legal_refs",
-          "answer_criteria",
-          "traps"
+          "answer_criteria"
         ],
         "title": "VersionSections",
-        "description": "One version split into the eight SCRUM-137 sections.\n\nThe dotted names are the API keys. See app/modules/cases/sections.py."
+        "description": "One version split into the seven SCRUM-137 sections.\n\nThe dotted names are the API keys. See app/modules/cases/sections.py."
       },
       "VersionSide": {
         "properties": {
@@ -10838,7 +10803,7 @@
           "sections"
         ],
         "title": "VersionSide",
-        "description": "One side of a compare. sections uses the eight section names."
+        "description": "One side of a compare. sections uses the seven section names."
       },
       "VersionSummary": {
         "properties": {
