@@ -27,6 +27,8 @@ from app.modules.runs.exchange_rate import (
     ExchangeRateProvider,
     JisdorExchangeRate,
 )
+from app.modules.runs.manual_evidence import ManualEvidenceService
+from app.modules.runs.manual_evidence_repository import DbEvidenceStorage, EvidenceRepository
 from app.modules.runs.manual_session import ManualSessionService
 from app.modules.runs.manual_session_status import ManualSessionStatusService
 from app.modules.runs.pricing import ConfigPriceCatalog
@@ -136,6 +138,18 @@ def get_manual_session_service(db: Session = Depends(get_db)) -> ManualSessionSe
 def get_manual_status_service(db: Session = Depends(get_db)) -> ManualSessionStatusService:
     """Status, Selesai, dan halaman sesi manual lewat repository (review #116)."""
     return ManualSessionStatusService(ManualSessionRepository(db))
+
+
+def get_manual_evidence_service(
+    db: Session = Depends(get_db), settings: Settings = Depends(get_settings)
+) -> ManualEvidenceService:
+    """Baris bukti dan isi berkasnya di satu session database (PBI-22 SCRUM-233)."""
+    return ManualEvidenceService(
+        EvidenceRepository(db),
+        DbEvidenceStorage(db),
+        max_bytes=settings.manual_evidence_max_bytes,
+        visibility=settings.manual_evidence_visibility,
+    )
 
 
 def build_session_queue(db: Session) -> SessionQueue:

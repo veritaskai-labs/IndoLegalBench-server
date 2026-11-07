@@ -50,3 +50,8 @@ tiktoken==0.12.0
 # Ekspor audit log ke PDF (PBI-18 AC6). Lisensi BSD, tanpa browser atau
 # dependency sistem, jadi image Docker tidak perlu paket tambahan.
 reportlab==5.0.1
+
+# Unggah berkas bukti jawaban manual (PBI-22 AC7, SCRUM-233). FastAPI butuh
+# paket ini untuk membaca multipart/form-data (UploadFile, Form); tanpa ini
+# aplikasi gagal start begitu route unggah terdaftar.
+python-multipart==0.0.33

@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.runs.models import (
     Attempt,
+    AttemptEvidence,
     AttemptSource,
     AttemptStatus,
     CallLog,
@@ -310,6 +311,7 @@ class SessionListRepository:
                 status=SessionStatus(session.status),
                 case_count=cases.get(session.id),
                 attempt_counts=attempts.get(session.id, {}),
+                session_type=SessionType(session.session_type),
             )
             for session in sessions
         ]
@@ -828,26 +830,37 @@ class ManualSessionRepository:
         return SessionStatus(session.status)
 
     def manual_attempts(self, session_id: uuid.UUID) -> list[ManualAttemptRow]:
-        rows = self._db.execute(
-            select(
-                Attempt.id,
-                Attempt.snapshot_item_id,
-                Attempt.repetition_no,
-                Attempt.filled_at,
-                Attempt.answered_at_platform,
-            )
+        rows = self._db.scalars(
+            select(Attempt)
             .where(Attempt.session_id == session_id)
             .order_by(Attempt.snapshot_item_id, Attempt.repetition_no)
+        ).all()
+        # Review #121: satu query hitung bukti untuk seluruh sesi (SCRUM-233).
+        evidence = dict(
+            self._db.execute(
+                select(AttemptEvidence.attempt_id, func.count())
+                .join(Attempt, Attempt.id == AttemptEvidence.attempt_id)
+                .where(Attempt.session_id == session_id)
+                .group_by(AttemptEvidence.attempt_id)
+            ).all()
         )
+
         return [
             ManualAttemptRow(
-                id=attempt_id,
-                snapshot_item_id=item_id,
-                repetition_no=nomor,
-                filled=filled_at is not None,
-                answered_at_platform=diperoleh,
+                id=row.id,
+                snapshot_item_id=row.snapshot_item_id,
+                repetition_no=row.repetition_no,
+                filled=row.filled_at is not None,
+                answered_at_platform=row.answered_at_platform,
+                source=row.source,
+                answer_md=row.answer_text,
+                platform_refused=row.platform_refused,
+                note=row.manual_note,
+                filled_by=row.filled_by,
+                filled_at=row.filled_at,
+                evidence_count=evidence.get(row.id, 0),
             )
-            for attempt_id, item_id, nomor, filled_at, diperoleh in rows
+            for row in rows
         ]
 
     def set_answer_dates(
@@ -898,6 +911,7 @@ class ManualSessionRepository:
             vendor_name=product.vendor_name if product else None,
             site_url=product.site_url if product else None,
             manual_params=product.manual_params if product else None,
+            archived_at=session.archived_at,
         )
 
     def snapshot_cases(self, session_id: uuid.UUID) -> list[ManualCaseRow]:

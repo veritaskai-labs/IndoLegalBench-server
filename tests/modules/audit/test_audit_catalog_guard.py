@@ -42,7 +42,17 @@ PENGECUALIAN = {
     "session_product_copies": "SCRUM-205: salinan sekali tulis; perubahan produk sendiri sudah dicatat di ai_products",
     "case_snapshots": "SCRUM-205: hanya INSERT, UPDATE dan DELETE ditolak trigger",
     "case_snapshot_items": "SCRUM-205: hanya INSERT; isinya salinan versi kasus yang sudah dicatat",
-    "attempts": "SCRUM-205: jawaban mentah permanen (trigger); bukti panggilan di call_logs (SCRUM-209)",
+    "answer_history": (
+        "SCRUM-231: riwayat jawaban manual bersifat append-only; "
+        "identitas pengisi, waktu pengisian, dan pelaku overwrite "
+        "tersimpan dalam tabel ini. Konten jawaban tidak disalin "
+        "ke audit_logs."
+    ),
+    "attempt_evidence": (
+        "SCRUM-233: tidak punya session_id, jadi service mencatat "
+        "measurement_session.evidence_added dan evidence_removed sendiri"
+    ),
+    "evidence_files": "SCRUM-233: isi berkas bukti; metadata dan pengunggahnya di attempt_evidence",
     "rubric_aspects": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
     "rubric_levels": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
     "rubric_level_descriptors": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",

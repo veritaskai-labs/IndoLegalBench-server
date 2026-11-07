@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
-from app.modules.runs.models import SessionStatus
+from app.modules.runs.models import SessionStatus, SessionType
 from app.modules.runs.schemas import SessionListItem, SessionProgressRead
 from app.modules.runs.session_rules import progress
 
@@ -33,6 +33,9 @@ class SessionRow:
     # None selama sesi antre: snapshot baru dibuat saat sesi mulai (SCRUM-207).
     case_count: int | None
     attempt_counts: Mapping[str, int]
+    # PBI-22 AC9 (SCRUM-233): label manual terbawa ke daftar sesi. Wajib (review #121):
+    # bawaan automatic akan diam-diam melabeli sesi manual dari pembuat baris yang lupa.
+    session_type: SessionType
 
 
 class SessionListStore(Protocol):
@@ -91,5 +94,6 @@ def to_list_item(
         case_count=row.case_count,
         repetitions=row.repetitions,
         status=row.status,
+        session_type=row.session_type,
         progress=SessionProgressRead(completed=hasil.completed, total=hasil.total),
     )

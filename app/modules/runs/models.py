@@ -21,6 +21,7 @@ from enum import StrEnum
 
 from sqlalchemy import (
     JSON,
+    BigInteger,
     Boolean,
     CheckConstraint,
     DateTime,
@@ -28,6 +29,7 @@ from sqlalchemy import (
     ForeignKey,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     SmallInteger,
     String,
@@ -108,6 +110,13 @@ class StopReason(StrEnum):
 class AttemptSource(StrEnum):
     AUTOMATIC = "automatic"
     MANUAL = "manual"
+
+
+class EvidenceKind(StrEnum):
+    """Jenis bukti jawaban manual (D9 attempt_evidence.kind). PBI-22 AC7, SCRUM-233."""
+
+    FILE = "file"
+    LINK = "link"
 
 
 class AttemptStatus(StrEnum):
@@ -405,6 +414,23 @@ class Attempt(Base):
         DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False
     )
 
+    # SCRUM-231: metadata jawaban manual
+    filled_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(_USER_FK),
+        nullable=True,
+    )
+    platform_refused: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=False,
+        server_default=false(),
+    )
+    manual_note: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+
 
 class CallLog(Base):
     """Satu baris per upaya.
@@ -440,4 +466,122 @@ class CallLog(Base):
     )
     is_manual_retry: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default=false()
+    )
+
+
+class AnswerHistory(Base):
+    """Riwayat jawaban manual sebelum ditimpa."""
+
+    __tablename__ = "answer_history"
+
+    id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    attempt_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey("attempts.id"),
+        nullable=False,
+        index=True,
+    )
+    answer_md: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    filled_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(_USER_FK),
+        nullable=True,
+    )
+    filled_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+    obtained_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True),
+        nullable=True,
+    )
+    platform_refused: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+    )
+    note: Mapped[str | None] = mapped_column(
+        Text,
+        nullable=True,
+    )
+    overwritten_by: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(_USER_FK),
+        nullable=False,
+    )
+    overwritten_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True),
+        nullable=False,
+    )
+
+
+class AttemptEvidence(Base):
+    """Bukti opsional satu jawaban manual, maks 3 per attempt (D9). PBI-22 AC7, SCRUM-233.
+
+    Batas 3 dan "hanya percobaan manual" dicek service, lalu dijaga trigger PostgreSQL
+    attempt_evidence_guard yang mengunci baris attempt. Baris tidak bisa diubah; bukti
+    yang salah dihapus lalu diunggah ulang, dan keduanya dicatat di audit_logs.
+
+    file_name bukan kolom D9 [USULAN SA]: nama asli berkas untuk unduhan.
+    """
+
+    __tablename__ = "attempt_evidence"
+    __table_args__ = (
+        CheckConstraint(
+            "(kind = 'file' AND file_key IS NOT NULL AND mime_type IS NOT NULL "
+            "AND size_bytes IS NOT NULL AND url IS NULL) OR "
+            "(kind = 'link' AND url IS NOT NULL AND file_key IS NULL "
+            "AND mime_type IS NULL AND size_bytes IS NULL)",
+            name="ck_attempt_evidence_kind_fields",
+        ),
+        CheckConstraint(
+            "mime_type IS NULL OR mime_type IN ('image/png', 'image/jpeg', 'application/pdf')",
+            name="ck_attempt_evidence_mime_type",
+        ),
+        CheckConstraint(
+            "size_bytes IS NULL OR size_bytes > 0", name="ck_attempt_evidence_size_bytes"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    attempt_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("attempts.id"), nullable=False, index=True
+    )
+    kind: Mapped[EvidenceKind] = mapped_column(
+        _enum(EvidenceKind, "attempt_evidence_kind_enum"), nullable=False
+    )
+    # Kunci baris evidence_files; tanpa FK supaya penyimpanan bisa diganti (port EvidenceStorage).
+    file_key: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    file_name: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    mime_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    size_bytes: Mapped[int | None] = mapped_column(BigInteger, nullable=True)
+    url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    uploaded_by: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey(_USER_FK), nullable=False
+    )
+    uploaded_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
+    )
+
+
+class EvidenceFile(Base):
+    """Isi berkas bukti (BYTEA), dirujuk attempt_evidence.file_key. SCRUM-233.
+
+    Di PostgreSQL, bukan volume disk: kontainer API tidak punya volume dan backup.sh hanya
+    mencadangkan PostgreSQL (keputusan SA 7 November 2026). Ukurannya dibatasi
+    MANUAL_EVIDENCE_MAX_BYTES.
+    """
+
+    __tablename__ = "evidence_files"
+
+    key: Mapped[str] = mapped_column(String(64), primary_key=True)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), server_default=func.now(), nullable=False
     )
