@@ -9,31 +9,35 @@ Fitur utama:
    dilewati dari perhitungan rata-rata, dan dapat dicoba ulang manual via PBI-12.
 3. Penilaian seragam: alur yang sama untuk percobaan otomatis maupun manual (AC9).
 4. Riwayat nilai ulang: nilai ulang menandai hasil baru sebagai is_latest=True,
-   hasil lama tetap tersimpan (AC7).
+   hasil lama tetap tersimpan (AC7) di tabel D6 (grading_runs, grading_results).
 5. Visibilitas hasil & Server-enforced Masking (AC8, D10):
    - Sesi berjalan: hanya Admin. Viewer & Developer AI ditolak (403).
    - Sesi selesai: Admin & Viewer melihat hasil lengkap; Developer AI melihat kasus
      dev lengkap, sedangkan kasus test disamarkan per-kasus (pertanyaan, jawaban, skor
-     kasus null; judul terproteksi), namun skor agregat test tetap terlihat di ThreeScores.
+     kasus, dan kategori null; judul terproteksi), namun skor agregat test tetap terlihat di ThreeScores.
 """
 
 from __future__ import annotations
 
-import re
 import threading
 import uuid
 from collections import defaultdict
-from collections.abc import Iterable, Sequence
+from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Protocol
 
-from sqlalchemy import select
+from sqlalchemy import null, select
 from sqlalchemy.orm import Session
 
+import app.modules.legal_refs.service as legal_refs_service
 from app.modules.cases.models import SplitTag
 from app.modules.cases.service import MASKED_CASE_CODE, MASKED_TITLE
+from app.modules.legal_refs.seed import load_regulation_types
+from app.modules.legal_refs.service import TypeName
+from app.modules.providers import service as providers_service
+from app.modules.runs.citation_score import CitationScorer
 from app.modules.runs.models import (
     Attempt,
     AttemptSource,
@@ -48,6 +52,7 @@ from app.modules.runs.schemas import (
     AttemptGradeResult,
     CaseGradeResult,
     CategoryScore,
+    GradedSessionListItem,
     GradeSessionRequest,
     ScorePair,
     SessionGradingResponse,
@@ -60,6 +65,7 @@ from app.shared.security import Role
 _DUA_DIGIT = Decimal("0.01")
 LAIN_LAIN = "Lain-lain"
 DEFAULT_RUBRIC_VERSION = "v1"
+_MAX_REFUSAL_LENGTH = 250
 
 _REFUSAL_PHRASES = (
     "maaf, saya tidak dapat menjawab",
@@ -72,6 +78,16 @@ _REFUSAL_PHRASES = (
     "as an ai, i cannot",
     "i cannot assist with this request",
     "i am unable to provide legal advice",
+)
+
+_DISCLAIMER_TRANSITIONS = (
+    "namun",
+    "tetapi",
+    "akan tetapi",
+    "berikut",
+    "namun demikian",
+    "meskipun demikian",
+    "adapun",
 )
 
 _TECHNICAL_FAILURE_KINDS = frozenset(
@@ -102,14 +118,30 @@ def is_empty_answer(text: str | None) -> bool:
 
 
 def is_ai_refusal(text: str | None, failure_kind: str | None = None) -> bool:
-    """Deteksi model AI menolak menjawab (AC4)."""
+    """Deteksi model AI menolak menjawab (AC4).
+
+    Penolakan teknis terjadi jika:
+    1. failure_kind == 'ai_refused'
+    2. Teks mengandung penanda eksplisit '[Platform menolak menjawab]'
+    3. Teks memuat frasa penolakan DAN berukuran pendek (<= 250 karakter)
+       atau tanpa kata kunci transisi jawaban substantif. Jawaban panjang yang
+       hanya diawali disclaimer hukum ("Sebagai AI ... namun...") tidak dihitung
+       sebagai gangguan teknis penolakan.
+    """
     if failure_kind == "ai_refused":
         return True
-    if text:
-        text_lower = text.lower().strip()
-        for phrase in _REFUSAL_PHRASES:
-            if phrase in text_lower:
-                return True
+    if not text:
+        return False
+    if "[Platform menolak menjawab]" in text:
+        return True
+
+    text_lower = text.lower().strip()
+    if any(phrase in text_lower for phrase in _REFUSAL_PHRASES):
+        if any(tr in text_lower for tr in _DISCLAIMER_TRANSITIONS):
+            return False
+        if len(text_lower) <= _MAX_REFUSAL_LENGTH:
+            return True
+        return len(text_lower.split()) <= 40
     return False
 
 
@@ -238,54 +270,113 @@ def compute_category_scores(cases: Sequence[CaseGradeResult]) -> list[CategorySc
     return results
 
 
-def _match_regulation(num: str, year: str, text: str) -> bool:
-    if num and year:
-        patterns = [
-            rf"{re.escape(num)}/{re.escape(year)}",
-            rf"nomor\s+{re.escape(num)}\s+tahun\s+{re.escape(year)}",
-            rf"no\.?\s*{re.escape(num)}\s+tahun\s+{re.escape(year)}",
-            rf"no\.?\s*{re.escape(num)}/{re.escape(year)}",
-        ]
-        return any(re.search(p, text) for p in patterns)
-    if num:
-        return bool(re.search(rf"\b{re.escape(num)}\b", text))
-    return False
+def _get_jenis_catalog(db: Session | None = None) -> dict[str, TypeName]:
+    """Mengambil katalog jenis peraturan dari database atau fallback ke seed data."""
+    if db is not None:
+        try:
+            return legal_refs_service.load_catalog(db).names
+        except Exception:
+            pass
+    try:
+        seeds = load_regulation_types()
+        return {s.code: TypeName(s.label, s.singkatan) for s in seeds}
+    except Exception:
+        return {}
 
 
-def _match_article(article: str, text: str) -> bool:
-    if not article:
-        return True
-    art_num_match = re.search(r"\d+", article)
-    if art_num_match:
-        art_num = art_num_match.group()
-        return bool(re.search(rf"pasal\s+{art_num}\b", text))
-    return True
-
-
-def _match_legal_ref(ref: dict[str, Any] | Any, text_lower: str) -> bool:
-    ref_dict = ref if isinstance(ref, dict) else getattr(ref, "__dict__", {})
-    num = str(ref_dict.get("number") or ref_dict.get("nomor") or "").lower()
-    year = str(ref_dict.get("year") or ref_dict.get("tahun") or "").lower()
-    article = str(ref_dict.get("article") or ref_dict.get("pasal") or "").lower()
-    return _match_regulation(num, year, text_lower) and _match_article(article, text_lower)
+def normalize_legal_refs(refs: Sequence[Any]) -> list[dict[str, Any]]:
+    """Normalisasi format rujukan acuan ke bentuk LegalRefStored untuk CitationScorer."""
+    normalized: list[dict[str, Any]] = []
+    for ref in refs:
+        ref_dict = ref if isinstance(ref, dict) else getattr(ref, "__dict__", {})
+        if "links" in ref_dict and isinstance(ref_dict["links"], (list, tuple)):
+            norm_links = []
+            for link in ref_dict["links"]:
+                ld = dict(link) if isinstance(link, dict) else getattr(link, "__dict__", {})
+                reg_type = str(ld.get("regulation_type") or "").strip().lower()
+                norm_links.append({**ld, "regulation_type": reg_type})
+            normalized.append({**ref_dict, "links": norm_links})
+        elif "number" in ref_dict or "nomor" in ref_dict:
+            reg_type = str(ref_dict.get("regulation_type") or "uu").strip().lower()
+            num = str(ref_dict.get("number") or ref_dict.get("nomor") or "").strip()
+            year_val = ref_dict.get("year") or ref_dict.get("tahun")
+            year = int(year_val) if year_val else None
+            pasal = ref_dict.get("article") or ref_dict.get("pasal")
+            normalized.append(
+                {
+                    "kind": "structured",
+                    "free_text": None,
+                    "links": [
+                        {
+                            "regulation_type": reg_type,
+                            "number": num,
+                            "year": year,
+                            "pasal": str(pasal) if pasal is not None else None,
+                        }
+                    ],
+                }
+            )
+        else:
+            normalized.append(ref_dict)
+    return normalized
 
 
 def score_deterministic_citations(
     answer_text: str | None,
-    legal_refs: Sequence[dict[str, Any] | Any],
+    legal_refs: Sequence[dict[str, Any] | Any] | None,
+    *,
+    scorer: CitationScorer | None = None,
+    jenis_catalog: Mapping[str, TypeName] | None = None,
 ) -> Decimal | None:
     """Menghitung skor deterministik berdasarkan pencocokan peraturan dan pasal (AC1, AC2).
 
-    Rumus: total extracted sitasi benar / total real sitasi acuan.
-    Jika kasus tidak memiliki rujukan acuan (legal_refs kosong), mengembalikan None (TBA).
+    Menggunakan CitationScorer dari SCRUM-223 (#107).
+    Jika kasus tidak memiliki rujukan acuan yang dapat dinilai, mengembalikan None.
     """
     if not legal_refs or not answer_text or not answer_text.strip():
         return None
 
-    text_lower = answer_text.lower()
-    matched_refs = sum(1 for ref in legal_refs if _match_legal_ref(ref, text_lower))
-    score = Decimal(matched_refs) / Decimal(len(legal_refs))
-    return round_two_digits(score)
+    active_scorer = scorer
+    if active_scorer is None:
+        catalog = jenis_catalog or _get_jenis_catalog()
+        active_scorer = CitationScorer(catalog)
+
+    norm_refs = normalize_legal_refs(legal_refs)
+    score_obj = active_scorer.score(answer_text, norm_refs)
+    if score_obj.score is None:
+        return None
+    return round_two_digits(score_obj.score)
+
+
+def _extract_criteria_items(
+    criteria: dict[str, Any] | Sequence[Any] | None,
+) -> tuple[list[str], list[str], str | None]:
+    """Mengekstrak must_contain, must_not_contain, dan expected_conclusion."""
+    if not criteria:
+        return [], [], None
+
+    if isinstance(criteria, dict):
+        must_contain = [str(x) for x in criteria.get("must_contain", [])]
+        must_not_contain = [str(x) for x in criteria.get("must_not_contain", [])]
+        expected_conclusion = (
+            str(criteria["expected_conclusion"]) if criteria.get("expected_conclusion") else None
+        )
+        if must_contain or must_not_contain or expected_conclusion:
+            return must_contain, must_not_contain, expected_conclusion
+
+        items: list[str] = []
+        if "items" in criteria and isinstance(criteria["items"], list):
+            items = [str(x) for x in criteria["items"]]
+        elif "kriteria" in criteria and isinstance(criteria["kriteria"], list):
+            items = [str(x) for x in criteria["kriteria"]]
+        elif "catatan" in criteria and criteria["catatan"]:
+            items = [str(criteria["catatan"])]
+        return items, [], None
+
+    if isinstance(criteria, (list, tuple)):
+        return [str(x) for x in criteria], [], None
+
+    return [], [], None
 
 
 def score_judge_criteria(
@@ -294,29 +385,25 @@ def score_judge_criteria(
 ) -> Decimal | None:
     """Menghitung skor judge berbasis kriteria jawaban pada kasus secara proporsional (AC3, AC5).
 
-    Jika tidak ada kriteria yang dapat dinilai, mengembalikan None (TBA).
-    Skala mengikuti dokumen rubrik v1: skor proporsional dikalikan skala 5.00 (lulus >= 4.00).
+    Mendukung AnswerCriteria dari cases/schemas.py (must_contain, must_not_contain, expected_conclusion).
+    Jika tidak ada kriteria yang dapat dinilai, mengembalikan None.
+    Skala mengikuti dokumen rubrik: skor proporsional dikalikan skala 5.00 (lulus >= 4.00).
     """
     if not criteria or not answer_text or not answer_text.strip():
         return None
 
-    crit_items: list[str] = []
-    if isinstance(criteria, dict):
-        if "items" in criteria and isinstance(criteria["items"], list):
-            crit_items = [str(x) for x in criteria["items"]]
-        elif "kriteria" in criteria and isinstance(criteria["kriteria"], list):
-            crit_items = [str(x) for x in criteria["kriteria"]]
-        elif "catatan" in criteria and criteria["catatan"]:
-            crit_items = [str(criteria["catatan"])]
-    elif isinstance(criteria, (list, tuple)):
-        crit_items = [str(x) for x in criteria]
-
-    if not crit_items:
+    must_contain, must_not_contain, conclusion = _extract_criteria_items(criteria)
+    total_count = len(must_contain) + len(must_not_contain) + (1 if conclusion else 0)
+    if total_count == 0:
         return None
 
     text_lower = answer_text.lower()
-    met_count = sum(1 for item in crit_items if item.lower() in text_lower)
-    prop = Decimal(met_count) / Decimal(len(crit_items))
+    met_count = sum(1 for item in must_contain if item.lower() in text_lower)
+    met_count += sum(1 for item in must_not_contain if item.lower() not in text_lower)
+    if conclusion and conclusion.lower() in text_lower:
+        met_count += 1
+
+    prop = Decimal(met_count) / Decimal(total_count)
     score = prop * Decimal("5.00")
     return round_two_digits(score)
 
@@ -333,6 +420,9 @@ class AttemptGradeInput:
     judge_error: str | None = None
     deterministic_score: Decimal | None = None
     judge_score: Decimal | None = None
+    explanation: str | None = None
+    reasons: list[str] = field(default_factory=list)
+    criteria: list[dict[str, Any]] = field(default_factory=list)
 
 
 @dataclass
@@ -358,7 +448,7 @@ class GradingStore(Protocol):
 
 
 class MemoryGradingStore:
-    """Implementasi thread-safe in-memory store untuk grading run."""
+    """Implementasi thread-safe in-memory store untuk grading run (khusus isolasi pengujian)."""
 
     def __init__(self) -> None:
         self._lock = threading.Lock()
@@ -371,7 +461,6 @@ class MemoryGradingStore:
     def save_grading_run(self, run: SessionGradingResponse) -> None:
         with self._lock:
             history = self._runs[run.session_id]
-            # Set older runs to is_latest=False if this new run is is_latest
             if run.is_latest:
                 updated = [
                     item.model_copy(update={"is_latest": False}) if item.is_latest else item
@@ -390,11 +479,10 @@ class MemoryGradingStore:
 
 
 class DbGradingStore:
-    """Implementasi GradingStore berbasis database via AuditLog.
+    """Implementasi GradingStore berbasis database tabel D6 (grading_runs, grading_results) dan AuditLog.
 
     Menjamin persistensi riwayat penilaian dan regrade lintas restart server
-    dan lintas proses/worker tanpa memerlukan migrasi tabel baru yang sedang
-    dikerjakan di subtask SCRUM-222.
+    dan lintas proses/worker tanpa ketergantungan pada memory global.
     """
 
     def __init__(self, db: Session) -> None:
@@ -425,13 +513,126 @@ class DbGradingStore:
             for i, r in enumerate(runs):
                 r.is_latest = i == len(runs) - 1
             return runs
+        return []
 
-        return default_grading_store.get_grading_runs(session_id)
+    def _resolve_db_rubric_version_id(
+        self, rubric_ver_str: str | None, triggered_by: uuid.UUID
+    ) -> uuid.UUID:
+        from app.modules.grading.models import RubricVersion
 
-    def save_grading_run(self, run: SessionGradingResponse) -> None:
+        ver_str = (rubric_ver_str or "v1").lower().lstrip("v")
+        ver_no = int(ver_str) if ver_str.isdigit() else 1
+        rubric_ver = self.db.scalars(
+            select(RubricVersion).where(RubricVersion.version_no == ver_no)
+        ).first()
+        if rubric_ver is None:
+            rubric_ver = self.db.scalars(
+                select(RubricVersion).where(RubricVersion.is_active)
+            ).first()
+        if rubric_ver is None:
+            rubric_ver = RubricVersion(
+                id=uuid.uuid4(),
+                version_no=1,
+                effective_date=date.today(),
+                is_active=True,
+                locked_at=datetime.now(UTC),
+                judge_prompt_quality="Default quality prompt",
+                judge_prompt_format="Default format prompt",
+                created_by=triggered_by,
+            )
+            self.db.add(rubric_ver)
+            self.db.flush()
+        return rubric_ver.id
+
+    def save_grading_run(
+        self,
+        run: SessionGradingResponse,
+        cases_input: Sequence[CaseGradeInput] | None = None,
+    ) -> None:
         from app.modules.audit.models import AuditEntityType, AuditLog
+        from app.modules.grading.models import (
+            GradingResult,
+            GradingRun,
+            GradingRunKind,
+            GradingRunStatus,
+        )
 
-        default_grading_store.save_grading_run(run)
+        rubric_version_id = self._resolve_db_rubric_version_id(run.rubric_version, run.triggered_by)
+
+        if run.is_latest:
+            old_latest_runs = self.db.scalars(
+                select(GradingRun).where(
+                    GradingRun.session_id == run.session_id,
+                    GradingRun.is_latest,
+                )
+            ).all()
+            for old_run in old_latest_runs:
+                old_run.is_latest = False
+            self.db.flush()
+
+        grading_run_row = GradingRun(
+            id=run.grading_run_id,
+            session_id=run.session_id,
+            rubric_version_id=rubric_version_id,
+            kind=GradingRunKind.REGRADE if run.kind == "regrade" else GradingRunKind.INITIAL,
+            status=GradingRunStatus.FINISHED,
+            is_latest=run.is_latest,
+            triggered_by=run.triggered_by,
+            triggered_at=run.triggered_at,
+            finished_at=run.triggered_at,
+        )
+        self.db.add(grading_run_row)
+        self.db.flush()
+
+        catalog = _get_jenis_catalog(self.db)
+        scorer = CitationScorer(catalog)
+        case_input_by_item_id = {c.snapshot_item_id: c for c in (cases_input or [])}
+
+        for case in run.cases:
+            case_in = case_input_by_item_id.get(case.snapshot_item_id)
+            norm_refs = normalize_legal_refs(case_in.legal_refs) if case_in else []
+            for att in case.attempts:
+                if att.is_technical_disruption:
+                    g_result = GradingResult(
+                        id=uuid.uuid4(),
+                        grading_run_id=run.grading_run_id,
+                        attempt_id=att.attempt_id,
+                        is_technical_disruption=True,
+                        det_score=None,
+                        det_regulation_matches=null(),
+                        det_article_matches=null(),
+                        det_ungradable_refs=null(),
+                        det_all_chained_cited=None,
+                        det_reference_total=None,
+                        det_reference_correct=None,
+                        det_extracted_total=None,
+                        det_extracted_correct=None,
+                        det_formula=None,
+                    )
+                else:
+                    c_score = scorer.score(att.answer_text or "", norm_refs)
+                    g_result = GradingResult(
+                        id=uuid.uuid4(),
+                        grading_run_id=run.grading_run_id,
+                        attempt_id=att.attempt_id,
+                        is_technical_disruption=False,
+                        det_score=c_score.score,
+                        det_regulation_matches=[m.__dict__ for m in c_score.regulation_matches],
+                        det_article_matches=[m.__dict__ for m in c_score.article_matches],
+                        det_ungradable_refs=list(c_score.ungradable_refs),
+                        det_all_chained_cited=c_score.all_chained_cited,
+                        det_reference_total=c_score.reference_total,
+                        det_reference_correct=c_score.reference_correct,
+                        det_extracted_total=c_score.extracted_total,
+                        det_extracted_correct=c_score.extracted_correct,
+                        det_formula=(
+                            c_score.formula.value
+                            if hasattr(c_score.formula, "value")
+                            else str(c_score.formula)
+                        ),
+                    )
+                self.db.add(g_result)
+                self.db.flush()
 
         action = (
             "measurement_session.graded"
@@ -455,11 +656,7 @@ class DbGradingStore:
         runs = self.get_grading_runs(session_id)
         if runs:
             return runs[-1]
-        return default_grading_store.get_latest_grading_run(session_id)
-
-
-# Default global store instance (can be swapped or injected in tests)
-default_grading_store = MemoryGradingStore()
+        return None
 
 
 def _evaluate_attempt_score(
@@ -496,13 +693,20 @@ def _grade_single_attempt(
     att_status = (
         att.status if isinstance(att.status, AttemptStatus) else AttemptStatus(str(att.status))
     )
+    att_source = (
+        att.source if isinstance(att.source, AttemptSource) else AttemptSource(str(att.source))
+    )
     result = AttemptGradeResult(
         attempt_id=att.attempt_id,
         repetition_no=att.repetition_no,
         status=att_status,
+        source=att_source,
         is_technical_disruption=disrupted,
         score=score,
         answer_text=att.answer_text,
+        explanation=att.explanation,
+        reasons=att.reasons,
+        criteria=att.criteria,
     )
     return result, score
 
@@ -543,6 +747,8 @@ def grade_session_data(
     rubric_version: str | None = None,
     existing_runs: Sequence[SessionGradingResponse] = (),
     now: datetime | None = None,
+    session_label: str | None = None,
+    product_name: str | None = None,
 ) -> SessionGradingResponse:
     """Melakukan evaluasi gangguan teknis, penilaian tiap percobaan, dan agregasi skor."""
     timestamp = now or datetime.now(UTC)
@@ -556,6 +762,8 @@ def grade_session_data(
     return SessionGradingResponse(
         grading_run_id=uuid.uuid4(),
         session_id=session_id,
+        session_label=session_label,
+        product_name=product_name,
         rubric_version=rubric_ver,
         kind=kind,
         status="completed",
@@ -574,9 +782,13 @@ def _mask_test_case(case: CaseGradeResult) -> CaseGradeResult:
             attempt_id=att.attempt_id,
             repetition_no=att.repetition_no,
             status=att.status,
+            source=att.source,
             is_technical_disruption=att.is_technical_disruption,
             score=None,  # Disamarkan per percobaan
             answer_text=None,  # Disamarkan
+            explanation=None,
+            reasons=[],
+            criteria=[],
         )
         for att in case.attempts
     ]
@@ -586,7 +798,7 @@ def _mask_test_case(case: CaseGradeResult) -> CaseGradeResult:
         case_code=MASKED_CASE_CODE,
         title=MASKED_TITLE,
         split_tag=case.split_tag,
-        category=case.category,
+        category=None,  # Disamarkan untuk Developer AI agar tidak bocor
         question=None,  # Disamarkan
         masked=True,
         scores=None,  # Skor per kasus disamarkan!
@@ -609,10 +821,11 @@ def _mask_for_developer_ai(grading: SessionGradingResponse) -> SessionGradingRes
     # membocorkan performa per kategori pada kasus test.
     dev_category_scores = compute_category_scores(dev_cases)
 
-    # ThreeScores (termasuk skor agregat test) tetap utuh
     return SessionGradingResponse(
         grading_run_id=grading.grading_run_id,
         session_id=grading.session_id,
+        session_label=grading.session_label,
+        product_name=grading.product_name,
         rubric_version=grading.rubric_version,
         kind=grading.kind,
         status=grading.status,
@@ -642,7 +855,6 @@ def apply_visibility_mask(
         session_status.value if isinstance(session_status, SessionStatus) else str(session_status)
     )
 
-    # D10 / AC8: Sesi yang masih berjalan hanya dapat dilihat Admin
     if not has_ended(status_str):
         if viewer_role != Role.ADMIN:
             raise ForbiddenError(
@@ -651,7 +863,6 @@ def apply_visibility_mask(
             )
         return grading
 
-    # Sesi sudah berakhir / selesai
     if viewer_role == Role.CONTRIBUTOR:
         raise ForbiddenError(
             "Peran Kontributor tidak berwenang melihat hasil penilaian.",
@@ -788,6 +999,40 @@ def _load_case_grade_inputs(db: Session, session_id: uuid.UUID) -> list[CaseGrad
     return [_build_case_grade_input(item, attempts_by_item.get(item.id, [])) for item in items]
 
 
+def _resolve_rubric_version(db: Session, requested_version: str | None) -> str:
+    """Mengambil versi rubrik aktif bila tidak diisi, dan memvalidasi ke tabel rubric_versions."""
+    from app.modules.grading.models import RubricVersion
+
+    if requested_version:
+        ver_str = requested_version.lower().lstrip("v")
+        ver_no = int(ver_str) if ver_str.isdigit() else None
+
+        query = select(RubricVersion)
+        if ver_no is not None:
+            query = query.where(RubricVersion.version_no == ver_no)
+        else:
+            try:
+                query = query.where(RubricVersion.id == uuid.UUID(requested_version))
+            except (ValueError, TypeError):
+                query = query.where(RubricVersion.version_no == -1)
+
+        ver = db.scalars(query).first()
+        if ver is None:
+            has_any = db.scalars(select(RubricVersion.id).limit(1)).first() is not None
+            if has_any:
+                raise NotFoundError(
+                    f"Versi rubrik '{requested_version}' tidak ditemukan.",
+                    code="RUBRIC_VERSION_NOT_FOUND",
+                )
+            return requested_version
+        return f"v{ver.version_no}"
+
+    active_ver = db.scalars(select(RubricVersion).where(RubricVersion.is_active)).first()
+    if active_ver is not None:
+        return f"v{active_ver.version_no}"
+    return DEFAULT_RUBRIC_VERSION
+
+
 def grade_session(
     db: Session,
     session_id: uuid.UUID,
@@ -811,18 +1056,27 @@ def grade_session(
     grading_store = store or DbGradingStore(db)
     cases = _load_case_grade_inputs(db, session_id)
 
-    rubric_version = payload.rubric_version if payload else None
+    raw_rubric_version = payload.rubric_version if payload else None
+    rubric_version = _resolve_rubric_version(db, raw_rubric_version)
     existing_runs = grading_store.get_grading_runs(session_id)
+
+    p_names = providers_service.product_names(db, {session.product_id})
+    product_name = p_names.get(session.product_id, "")
 
     response = grade_session_data(
         session_id=session_id,
+        session_label=session.label,
+        product_name=product_name,
         cases_input=cases,
         triggered_by=actor_id,
         rubric_version=rubric_version,
         existing_runs=existing_runs,
         now=now,
     )
-    grading_store.save_grading_run(response)
+    if isinstance(grading_store, DbGradingStore):
+        grading_store.save_grading_run(response, cases_input=cases)
+    else:
+        grading_store.save_grading_run(response)
     db.commit()
     return response
 
@@ -847,8 +1101,113 @@ def get_session_results(
             code="GRADING_NOT_FOUND",
         )
 
+    if not latest_run.session_label or not latest_run.product_name:
+        p_names = providers_service.product_names(db, {session.product_id})
+        p_name = p_names.get(session.product_id, "")
+        latest_run = latest_run.model_copy(
+            update={
+                "session_label": latest_run.session_label or session.label,
+                "product_name": latest_run.product_name or p_name,
+            }
+        )
+
     return apply_visibility_mask(
         latest_run,
         viewer_role=viewer_role,
         session_status=session.status,
     )
+
+
+def list_graded_sessions(
+    db: Session,
+    *,
+    viewer_role: Role | str,
+) -> list[GradedSessionListItem]:
+    """Daftar sesi selesai yang telah dinilai untuk Admin dan Viewer (SCRUM-226, SCRUM-227).
+
+    Hanya sesi yang sudah selesai, tidak diarsipkan, dan memiliki hasil penilaian.
+    """
+    role = Role(viewer_role) if isinstance(viewer_role, str) else viewer_role
+    if role not in (Role.ADMIN, Role.VIEWER, Role.DEVELOPER_AI):
+        raise ForbiddenError(
+            "Peran Anda tidak berwenang melihat daftar hasil penilaian.",
+            code="FORBIDDEN",
+        )
+
+    from app.modules.grading.models import GradingRun, RubricVersion
+
+    ended_statuses = (
+        SessionStatus.FINISHED,
+        SessionStatus.FINISHED_WITH_FAILURES,
+        SessionStatus.FAILED,
+        SessionStatus.FINALIZED,
+        "finished",
+        "finished_with_failures",
+        "failed",
+        "finalized",
+    )
+
+    sessions = db.scalars(
+        select(MeasurementSession)
+        .where(
+            MeasurementSession.archived_at.is_(None),
+            MeasurementSession.status.in_(ended_statuses),
+        )
+        .order_by(
+            MeasurementSession.finished_at.desc().nullslast(),
+            MeasurementSession.created_at.desc(),
+        )
+    ).all()
+
+    if not sessions:
+        return []
+
+    session_ids = [s.id for s in sessions]
+    product_ids = {s.product_id for s in sessions}
+    p_names = providers_service.product_names(db, product_ids)
+
+    runs = db.scalars(
+        select(GradingRun).where(
+            GradingRun.session_id.in_(session_ids),
+            GradingRun.is_latest,
+        )
+    ).all()
+
+    rubric_map: dict[uuid.UUID, str] = {}
+    if runs:
+        run_by_session = {r.session_id: r for r in runs}
+        rubric_ids = {r.rubric_version_id for r in runs}
+        rubric_vers = db.scalars(
+            select(RubricVersion).where(RubricVersion.id.in_(rubric_ids))
+        ).all()
+        version_no_map = {rv.id: f"v{rv.version_no}" for rv in rubric_vers}
+        for s_id, run in run_by_session.items():
+            rubric_map[s_id] = version_no_map.get(run.rubric_version_id, "v1")
+
+    remaining_ids = [s_id for s_id in session_ids if s_id not in rubric_map]
+    if remaining_ids:
+        from app.modules.audit.models import AuditLog
+
+        logs = db.scalars(
+            select(AuditLog).where(
+                AuditLog.entity_type == "measurement_session",
+                AuditLog.entity_id.in_(remaining_ids),
+                AuditLog.action.in_(("measurement_session.graded", "measurement_session.regraded")),
+            )
+        ).all()
+        for log in logs:
+            if log.entity_id and log.after and isinstance(log.after, dict):
+                ver = log.after.get("rubric_version", "v1")
+                rubric_map[log.entity_id] = str(ver)
+
+    return [
+        GradedSessionListItem(
+            session_id=s.id,
+            label=s.label,
+            product_name=p_names.get(s.product_id, ""),
+            finished_at=s.finished_at,
+            rubric_version=rubric_map.get(s.id),
+        )
+        for s in sessions
+        if s.id in rubric_map
+    ]

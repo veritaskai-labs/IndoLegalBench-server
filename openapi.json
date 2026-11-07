@@ -3940,6 +3940,32 @@
         }
       }
     },
+    "/measurements/results/sessions": {
+      "get": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Daftar sesi selesai yang telah dinilai untuk Admin dan Viewer (SCRUM-226)",
+        "description": "Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin, Viewer, dan Developer AI.",
+        "operationId": "list_graded_sessions_endpoint_measurements_results_sessions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GradedSessionListItem"
+                  },
+                  "type": "array",
+                  "title": "Response List Graded Sessions Endpoint Measurements Results Sessions Get"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/measurements/{session_id}/grade": {
       "post": {
         "tags": [
@@ -4088,6 +4114,32 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/results/sessions": {
+      "get": {
+        "tags": [
+          "results"
+        ],
+        "summary": "Daftar sesi selesai yang telah dinilai untuk Admin dan Viewer (SCRUM-226)",
+        "description": "Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin, Viewer, dan Developer AI.",
+        "operationId": "list_graded_sessions_alias_endpoint_results_sessions_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/GradedSessionListItem"
+                  },
+                  "type": "array",
+                  "title": "Response List Graded Sessions Alias Endpoint Results Sessions Get"
                 }
               }
             }
@@ -6150,6 +6202,11 @@
             "$ref": "#/components/schemas/AttemptStatus",
             "description": "Status percobaan"
           },
+          "source": {
+            "$ref": "#/components/schemas/AttemptSource",
+            "description": "Asal percobaan: automatic atau manual (PBI-12)",
+            "default": "automatic"
+          },
           "is_technical_disruption": {
             "type": "boolean",
             "title": "Is Technical Disruption",
@@ -6177,6 +6234,35 @@
             ],
             "title": "Answer Text",
             "description": "Jawaban mentah. null bila disamarkan untuk Developer AI pada kasus test"
+          },
+          "explanation": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Explanation",
+            "description": "Penjelasan evaluasi penilai LLM (llm_judge_results.explanation)"
+          },
+          "reasons": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Reasons",
+            "description": "Daftar kode alasan standar per jalur (grading_result_reasons)"
+          },
+          "criteria": {
+            "items": {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            "type": "array",
+            "title": "Criteria",
+            "description": "Hasil penilaian per kriteria (llm_criterion_results)"
           }
         },
         "type": "object",
@@ -6238,6 +6324,14 @@
         ],
         "title": "AttemptResult",
         "description": "Satu percobaan: jawaban mentah apa adanya dari produk (PBI-11 AC8)."
+      },
+      "AttemptSource": {
+        "type": "string",
+        "enum": [
+          "automatic",
+          "manual"
+        ],
+        "title": "AttemptSource"
       },
       "AttemptStatus": {
         "type": "string",
@@ -7482,6 +7576,59 @@
         "type": "object",
         "title": "GradeSessionRequest",
         "description": "Pemicu penilaian manual oleh Admin (PBI-14 AC6, AC7)."
+      },
+      "GradedSessionListItem": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id",
+            "description": "ID sesi pengukuran"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Label sesi pengukuran"
+          },
+          "product_name": {
+            "type": "string",
+            "title": "Product Name",
+            "description": "Nama produk AI yang diuji"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At",
+            "description": "Waktu sesi selesai (null bila belum tercatat)"
+          },
+          "rubric_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rubric Version",
+            "description": "Versi rubrik yang digunakan pada penilaian terbaru (mis. 'v1')"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "label",
+          "product_name"
+        ],
+        "title": "GradedSessionListItem",
+        "description": "Ringkasan sesi pengukuran selesai yang telah dinilai untuk Admin dan Viewer (PBI-14, SCRUM-226, SCRUM-227)."
       },
       "GraderPath": {
         "type": "string",
@@ -10301,6 +10448,30 @@
             "type": "string",
             "format": "uuid",
             "title": "Session Id"
+          },
+          "session_label": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Label",
+            "description": "Label sesi pengukuran yang diuji"
+          },
+          "product_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Name",
+            "description": "Nama produk AI yang diuji"
           },
           "rubric_version": {
             "type": "string",

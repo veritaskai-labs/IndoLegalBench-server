@@ -10,7 +10,7 @@ import uuid
 from datetime import datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Literal
+from typing import Any, Literal
 
 from pydantic import BaseModel, Field, field_validator, model_validator
 
@@ -20,7 +20,12 @@ from app.modules.cases.models import SplitTag
 from app.modules.cases.schemas import VersionSections
 
 # Satu enum status sesi untuk tabel (#89) dan kontrak API, supaya keduanya tidak menyimpang.
-from app.modules.runs.models import AttemptStatus, SessionStatus, StopReason
+from app.modules.runs.models import (
+    AttemptSource,
+    AttemptStatus,
+    SessionStatus,
+    StopReason,
+)
 from app.shared.text import strip_blank
 
 # PBI-11 AC3: satu angka pengulangan untuk seluruh pengukuran.
@@ -517,6 +522,10 @@ class AttemptGradeResult(BaseModel):
     attempt_id: uuid.UUID = Field(description="ID percobaan")
     repetition_no: int = Field(description="Nomor pengulangan (1-5)")
     status: AttemptStatus = Field(description="Status percobaan")
+    source: AttemptSource = Field(
+        default=AttemptSource.AUTOMATIC,
+        description="Asal percobaan: automatic atau manual (PBI-12)",
+    )
     is_technical_disruption: bool = Field(
         description="True bila jawaban kosong, AI menolak, atau judge error (AC4)"
     )
@@ -527,6 +536,18 @@ class AttemptGradeResult(BaseModel):
     answer_text: str | None = Field(
         default=None,
         description="Jawaban mentah. null bila disamarkan untuk Developer AI pada kasus test",
+    )
+    explanation: str | None = Field(
+        default=None,
+        description="Penjelasan evaluasi penilai LLM (llm_judge_results.explanation)",
+    )
+    reasons: list[str] = Field(
+        default_factory=list,
+        description="Daftar kode alasan standar per jalur (grading_result_reasons)",
+    )
+    criteria: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Hasil penilaian per kriteria (llm_criterion_results)",
     )
 
 
@@ -557,6 +578,8 @@ class SessionGradingResponse(BaseModel):
 
     grading_run_id: uuid.UUID
     session_id: uuid.UUID
+    session_label: str | None = Field(default=None, description="Label sesi pengukuran yang diuji")
+    product_name: str | None = Field(default=None, description="Nama produk AI yang diuji")
     rubric_version: str = Field(description="Versi rubrik yang digunakan (mis. 'v1')")
     kind: Literal["initial", "regrade"] = Field(
         description="initial untuk penilaian pertama, regrade untuk nilai ulang"
@@ -573,4 +596,18 @@ class SessionGradingResponse(BaseModel):
     )
     cases: list[CaseGradeResult] = Field(
         default_factory=list, description="Daftar kasus beserta hasil penilaian per percobaan"
+    )
+
+
+class GradedSessionListItem(BaseModel):
+    """Ringkasan sesi pengukuran selesai yang telah dinilai untuk Admin dan Viewer (PBI-14, SCRUM-226, SCRUM-227)."""
+
+    session_id: uuid.UUID = Field(description="ID sesi pengukuran")
+    label: str = Field(description="Label sesi pengukuran")
+    product_name: str = Field(description="Nama produk AI yang diuji")
+    finished_at: datetime | None = Field(
+        default=None, description="Waktu sesi selesai (null bila belum tercatat)"
+    )
+    rubric_version: str | None = Field(
+        default=None, description="Versi rubrik yang digunakan pada penilaian terbaru (mis. 'v1')"
     )

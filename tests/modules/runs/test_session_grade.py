@@ -12,7 +12,7 @@ PBI-11 AC9: Tiga skor terpisah (dev, test, gabungan).
 """
 
 import uuid
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
@@ -23,6 +23,7 @@ from app.modules.auth.models import User
 from app.modules.cases.models import SplitTag
 from app.modules.cases.sections import snapshot_body
 from app.modules.cases.service import MASKED_CASE_CODE, MASKED_TITLE
+from app.modules.grading.models import RubricVersion
 from app.modules.runs.models import (
     Attempt,
     AttemptSource,
@@ -44,8 +45,11 @@ from app.modules.runs.session_grade import (
     CaseGradeInput,
     DbGradingStore,
     MemoryGradingStore,
+    _extract_criteria_items,
+    _get_jenis_catalog,
     _is_judge_failure,
     _load_call_logs_metadata,
+    _resolve_rubric_version,
     aggregate_case_scores,
     apply_visibility_mask,
     check_technical_disruption,
@@ -56,6 +60,8 @@ from app.modules.runs.session_grade import (
     grade_session_data,
     is_ai_refusal,
     is_empty_answer,
+    list_graded_sessions,
+    normalize_legal_refs,
     round_two_digits,
     score_deterministic_citations,
     score_judge_criteria,
@@ -571,11 +577,27 @@ def _buat_body_kasus(code: str, tag: str, question: str) -> dict:
             "title": f"Judul {code}",
             "question": question,
             "category": "kategori-uji",
-            "answer_criteria": {"catatan": "kriteria sintetis"},
+            "answer_criteria": {
+                "must_contain": ["badan hukum", "pesangon"],
+                "must_not_contain": [],
+                "expected_conclusion": "sah",
+            },
             "traps": [],
         },
         legal_refs=[
-            {"regulation_type": "UU", "number": "40", "year": 2007, "article": "Pasal 156"}
+            {
+                "kind": "structured",
+                "free_text": None,
+                "links": [
+                    {
+                        "regulation_type": "uu",
+                        "number": "40",
+                        "year": 2007,
+                        "pasal": "156",
+                        "angka": "1",
+                    }
+                ],
+            }
         ],
     )
 
@@ -602,7 +624,10 @@ def _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISH
             repetition_no=1,
             source=AttemptSource.AUTOMATIC,
             status=AttemptStatus.SUCCEEDED,
-            answer_text="Berdasarkan UU 40/2007 Pasal 156 ayat (1) mengenai dev",
+            answer_text=(
+                "Berdasarkan Pasal 156 angka 1 Undang-Undang Nomor 40 Tahun 2007 tentang Perseroan Terbatas, "
+                "badan hukum pesangon adalah sah."
+            ),
             model_version="model-v1",
         )
     )
@@ -623,7 +648,10 @@ def _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISH
             repetition_no=1,
             source=AttemptSource.AUTOMATIC,
             status=AttemptStatus.SUCCEEDED,
-            answer_text="Berdasarkan UU 40/2007 Pasal 156 ayat (1) mengenai test",
+            answer_text=(
+                "Berdasarkan Pasal 156 ayat (1) Undang-Undang Nomor 40 Tahun 2007, "
+                "badan hukum pesangon adalah sah."
+            ),
             model_version="model-v1",
         )
     )
@@ -747,8 +775,13 @@ def test_get_results_sesi_selesai_developer_ai_masking(as_role, db_session, prod
     assert test_c["title"] == MASKED_TITLE
     assert test_c["question"] is None
     assert test_c["scores"] is None
+    assert test_c["category"] is None
     assert test_c["attempts"][0]["answer_text"] is None
     assert test_c["attempts"][0]["score"] is None
+    assert test_c["attempts"][0]["explanation"] is None
+    assert test_c["attempts"][0]["reasons"] == []
+    assert test_c["attempts"][0]["criteria"] == []
+    assert test_c["attempts"][0]["source"] == "automatic"
 
     # Kasus dev tidak tersamar
     dev_c = next(c for c in dev_cases if c["masked"] is False)
@@ -758,19 +791,48 @@ def test_get_results_sesi_selesai_developer_ai_masking(as_role, db_session, prod
 
 
 def test_regrade_via_api(as_role, db_session, produk, pembuat):
-    """AC7: Nilai ulang via API menandai kind='regrade'."""
+    """AC7: Nilai ulang via API menandai kind='regrade' dan validasi versi rubrik."""
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
     admin = as_role(Role.ADMIN)
+
+    # Seed versi v1 dan v2 di tabel rubric_versions
+    v1 = RubricVersion(
+        id=uuid.uuid4(),
+        version_no=1,
+        effective_date=date.today(),
+        is_active=True,
+        locked_at=datetime.now(UTC),
+        judge_prompt_quality="Quality prompt v1",
+        judge_prompt_format="Format prompt v1",
+        created_by=pembuat.id,
+    )
+    v2 = RubricVersion(
+        id=uuid.uuid4(),
+        version_no=2,
+        effective_date=date.today(),
+        is_active=False,
+        locked_at=datetime.now(UTC),
+        judge_prompt_quality="Quality prompt v2",
+        judge_prompt_format="Format prompt v2",
+        created_by=pembuat.id,
+    )
+    db_session.add_all([v1, v2])
+    db_session.commit()
 
     res1 = admin.post(f"/measurements/{sesi.id}/grade", json={"rubric_version": "v1"})
     assert res1.status_code == 200
     assert res1.json()["kind"] == "initial"
+    assert res1.json()["rubric_version"] == "v1"
 
     res2 = admin.post(f"/measurements/{sesi.id}/grade", json={"rubric_version": "v2"})
     assert res2.status_code == 200
     assert res2.json()["kind"] == "regrade"
     assert res2.json()["rubric_version"] == "v2"
     assert res2.json()["is_latest"] is True
+
+    # Unknown version ditolak 404 (AC7)
+    res_unknown = admin.post(f"/measurements/{sesi.id}/grade", json={"rubric_version": "v99"})
+    assert res_unknown.status_code == 404
 
 
 def test_get_grade_alias(as_role, db_session, produk, pembuat):
@@ -960,7 +1022,7 @@ def test_grade_session_commits_trigger_and_timestamp_audit_record(
     assert audit_entry.after["session_id"] == str(sesi.id)
 
 
-def test_edge_cases_and_error_handling(db_session, produk, pembuat):
+def test_edge_cases_and_error_handling(db_session, produk, pembuat, monkeypatch):
     """Pengujian cabang dan penanganan error untuk mencapai 100% coverage."""
     # 1. round_two_digits(None)
     assert round_two_digits(None) is None
@@ -968,11 +1030,28 @@ def test_edge_cases_and_error_handling(db_session, produk, pembuat):
     # 2. score_deterministic_citations edge cases
     assert score_deterministic_citations("", [{"number": "40"}]) is None
     assert score_deterministic_citations(None, [{"number": "40"}]) is None
+    assert (
+        score_deterministic_citations("Sesuai UU 40 tentang perseroan", [{"number": "40"}]) is None
+    )
     assert score_deterministic_citations(
-        "Sesuai UU 40 tentang perseroan", [{"number": "40"}]
+        "Sesuai UU 40 Tahun 2007 tentang perseroan", [{"number": "40", "year": 2007}]
     ) == Decimal("1.00")
 
-    # 3. score_judge_criteria formatting branches
+    # 3. score_judge_criteria formatting branches and real AnswerCriteria
+    real_crit = {
+        "must_contain": ["badan hukum", "perseroan"],
+        "must_not_contain": ["ilegal"],
+        "expected_conclusion": "sah",
+    }
+    assert score_judge_criteria(
+        "Badan hukum perseroan ini sah menurut undang-undang.",
+        real_crit,
+    ) == Decimal("5.00")
+    assert score_judge_criteria(
+        "Badan hukum ini sah namun ilegal.",
+        real_crit,
+    ) == Decimal("2.50")
+
     crit_a = "kriteria pertama harus dipenuhi sepenuhnya"
     crit_b = "kriteria kedua harus dipenuhi sepenuhnya"
     assert score_judge_criteria(
@@ -994,6 +1073,36 @@ def test_edge_cases_and_error_handling(db_session, produk, pembuat):
         "jawaban memuat kata singkat di sini",
         {"items": ["singkat", "dua kata"]},
     ) == Decimal("2.50")
+
+    # Real LegalRefStored deterministic scoring & refusal with disclaimer
+    real_ref = {
+        "kind": "structured",
+        "free_text": None,
+        "links": [
+            {
+                "regulation_type": "UU",
+                "number": "40",
+                "year": 2007,
+                "pasal": "1",
+                "angka": "1",
+            }
+        ],
+    }
+    assert score_deterministic_citations(
+        "Pasal 1 angka 1 Undang-Undang Nomor 40 Tahun 2007 menyatakan...",
+        [real_ref],
+    ) == Decimal("1.00")
+    assert score_deterministic_citations(
+        "Pasal 1 angka 1 Peraturan Pemerintah Nomor 40 Tahun 2007 menyatakan...",
+        [real_ref],
+    ) == Decimal("0.00")
+
+    disclaimer_ans = (
+        "Saya tidak dapat memberikan nasihat hukum yang mengikat, namun berdasarkan "
+        "Undang-Undang Nomor 40 Tahun 2007 Pasal 156, perseroan terbatas wajib mematuhi aturan ini."
+    )
+    assert is_ai_refusal(disclaimer_ans) is False
+    assert is_ai_refusal("Maaf, saya tidak dapat menjawab pertanyaan ini.") is True
 
     # 4. MemoryGradingStore get_latest_grading_run
     mem_store = MemoryGradingStore()
@@ -1063,10 +1172,182 @@ def test_edge_cases_and_error_handling(db_session, produk, pembuat):
 
     # 10. Helper branch coverage: empty legal ref, non-digit article, empty logs, None failure
     assert score_deterministic_citations(
-        "jawaban 40/2007", [{"number": "40", "year": "2007", "article": "pasal tanpa nomor"}]
+        "jawaban UU 40/2007 Pasal 1", [{"number": "40", "year": "2007", "article": "1"}]
     ) == Decimal("1.00")
     assert score_deterministic_citations(
-        "jawaban", [{"number": "", "year": "", "article": "pasal 1"}]
+        "jawaban 40/2007", [{"number": "40", "year": "2007", "article": "pasal tanpa nomor"}]
     ) == Decimal("0.00")
+    assert (
+        score_deterministic_citations("jawaban", [{"number": "", "year": "", "article": "pasal 1"}])
+        is None
+    )
     assert _is_judge_failure(None) is False
     assert _load_call_logs_metadata(db_session, []) == ({}, {})
+
+    # 11. is_ai_refusal branch coverage
+    assert is_ai_refusal(None) is False
+    assert is_ai_refusal("") is False
+    assert is_ai_refusal("Catatan: [Platform menolak menjawab] sepenuhnya.") is True
+    long_refusal_short_words = "maaf, saya tidak dapat menjawab " + (
+        "frasa_sangat_panjang_sekali " * 15
+    )
+    assert len(long_refusal_short_words) > 250
+    assert len(long_refusal_short_words.split()) <= 40
+    assert is_ai_refusal(long_refusal_short_words) is True
+    long_refusal_many_words = "maaf, saya tidak dapat menjawab " + ("kata " * 45)
+    assert len(long_refusal_many_words) > 250
+    assert len(long_refusal_many_words.split()) > 40
+    assert is_ai_refusal(long_refusal_many_words) is False
+
+    # 12. _get_jenis_catalog & normalize_legal_refs edge cases
+    class BadDB:
+        pass
+
+    assert _get_jenis_catalog(BadDB()) is not None
+    monkeypatch.setattr(
+        "app.modules.runs.session_grade.load_regulation_types",
+        lambda: (_ for _ in ()).throw(RuntimeError("fail")),
+    )
+    assert _get_jenis_catalog() == {}
+    assert normalize_legal_refs([{"kind": "free_text", "free_text": "bebas"}]) == [
+        {"kind": "free_text", "free_text": "bebas"}
+    ]
+
+    # 13. score_judge_criteria and _extract_criteria_items edge cases
+    assert score_judge_criteria("jawaban", None) is None
+    assert score_judge_criteria(
+        "jawaban catatan penting", {"catatan": "catatan penting"}
+    ) == Decimal("5.00")
+    assert _extract_criteria_items(None) == ([], [], None)
+    assert _extract_criteria_items(12345) == ([], [], None)
+
+    # 14. _resolve_rubric_version UUID and non-digit lookups
+    active_rubric = RubricVersion(
+        id=uuid.uuid4(),
+        version_no=12,
+        effective_date=date.today(),
+        is_active=True,
+        locked_at=datetime.now(UTC),
+        judge_prompt_quality="Quality prompt v12",
+        judge_prompt_format="Format prompt v12",
+        created_by=pembuat.id,
+    )
+    db_session.add(active_rubric)
+    db_session.commit()
+
+    with pytest.raises(NotFoundError, match="tidak ditemukan"):
+        _resolve_rubric_version(db_session, str(uuid.uuid4()))
+    with pytest.raises(NotFoundError, match="tidak ditemukan"):
+        _resolve_rubric_version(db_session, "non-numeric-rubric-version")
+
+    assert _resolve_rubric_version(db_session, None) == "v12"
+
+    # 15. grade_session with non-DbGradingStore
+    mem_store_custom = MemoryGradingStore()
+    resp_mem = grade_session(
+        db_session,
+        sesi.id,
+        actor_id=pembuat.id,
+        actor_role=Role.ADMIN,
+        store=mem_store_custom,
+    )
+    assert resp_mem.grading_run_id is not None
+
+
+def test_session_label_and_product_name_in_results(db_session, produk, pembuat):
+    """Memastikan session_label dan product_name tercantum di hasil penilaian (SCRUM-226/227)."""
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    graded = grade_session(db_session, sesi.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
+
+    assert graded.session_label == sesi.label
+    assert graded.product_name == produk.name
+
+    fetched = get_session_results(db_session, sesi.id, viewer_role=Role.VIEWER)
+    assert fetched.session_label == sesi.label
+    assert fetched.product_name == produk.name
+
+    # Fallback saat grading run yang tersimpan belum memiliki session_label/product_name
+    old_run = graded.model_copy(update={"session_label": None, "product_name": None})
+    mock_store = MemoryGradingStore()
+    mock_store.save_grading_run(old_run)
+    fetched_fallback = get_session_results(
+        db_session, sesi.id, viewer_role=Role.ADMIN, store=mock_store
+    )
+    assert fetched_fallback.session_label == sesi.label
+    assert fetched_fallback.product_name == produk.name
+
+
+def test_list_graded_sessions_logic(db_session, produk, pembuat):
+    """Memastikan list_graded_sessions hanya mengembalikan sesi selesai yang memiliki hasil penilaian."""
+    # 1. Saat belum ada sesi selesai dinilai -> []
+    assert list_graded_sessions(db_session, viewer_role=Role.VIEWER) == []
+
+    # 2. Peran Kontributor ditolak
+    with pytest.raises(ForbiddenError, match="tidak berwenang"):
+        list_graded_sessions(db_session, viewer_role=Role.CONTRIBUTOR)
+
+    # 3. Sesi running tidak masuk
+    _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.RUNNING)
+    assert list_graded_sessions(db_session, viewer_role=Role.ADMIN) == []
+
+    # 4. Sesi selesai tetapi belum dinilai -> tidak masuk
+    sesi_finished = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    assert list_graded_sessions(db_session, viewer_role=Role.ADMIN) == []
+
+    # 5. Sesi selesai dan sudah dinilai -> masuk
+    grade_session(db_session, sesi_finished.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
+    results = list_graded_sessions(db_session, viewer_role=Role.VIEWER)
+    assert len(results) == 1
+    item = results[0]
+    assert item.session_id == sesi_finished.id
+    assert item.label == sesi_finished.label
+    assert item.product_name == produk.name
+    assert item.rubric_version == "v1"
+
+    # 6. Sesi diarsipkan -> tidak muncul
+    sesi_finished.archived_at = datetime.now(UTC)
+    sesi_finished.archived_by = pembuat.id
+    db_session.commit()
+    assert list_graded_sessions(db_session, viewer_role=Role.ADMIN) == []
+
+    # 7. Fallback AuditLog: sesi selesai dengan grading di AuditLog tetapi tanpa baris GradingRun
+    sesi_audit = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    log = AuditLog(
+        occurred_at=datetime.now(UTC),
+        actor_user_id=pembuat.id,
+        actor_role=Role.ADMIN.value,
+        action="measurement_session.graded",
+        entity_type="measurement_session",
+        entity_id=sesi_audit.id,
+        after={"rubric_version": "v2"},
+        reason="manual grade audit",
+    )
+    db_session.add(log)
+    db_session.commit()
+    audit_results = list_graded_sessions(db_session, viewer_role=Role.ADMIN)
+    assert any(r.session_id == sesi_audit.id and r.rubric_version == "v2" for r in audit_results)
+
+
+def test_list_graded_sessions_api_endpoints(as_role, db_session, produk, pembuat):
+    """Memastikan endpoint GET /measurements/results/sessions dan GET /results/sessions dapat diakses Viewer."""
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    grade_session(db_session, sesi.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
+
+    # Viewer can access /measurements/results/sessions
+    res1 = as_role(Role.VIEWER).get("/measurements/results/sessions")
+    assert res1.status_code == 200
+    data1 = res1.json()
+    assert len(data1) >= 1
+    assert data1[0]["session_id"] == str(sesi.id)
+    assert data1[0]["label"] == sesi.label
+    assert data1[0]["product_name"] == produk.name
+
+    # Viewer can access /results/sessions alias
+    res2 = as_role(Role.VIEWER).get("/results/sessions")
+    assert res2.status_code == 200
+    data2 = res2.json()
+    assert data2 == data1
+
+    # Contributor is rejected with 403
+    res3 = as_role(Role.CONTRIBUTOR).get("/results/sessions")
+    assert res3.status_code == 403
