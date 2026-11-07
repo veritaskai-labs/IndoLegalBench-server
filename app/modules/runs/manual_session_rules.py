@@ -11,7 +11,7 @@ Jawaban terisi = teks jawaban tidak kosong atau opsi "Platform menolak menjawab"
 
 from collections.abc import Iterable
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from app.modules.runs.models import SessionStatus
 from app.shared.exceptions import ConflictError
@@ -81,10 +81,21 @@ def ensure_answers_open(status: SessionStatus | str) -> None:
 def answer_date_range(
     answered_at: Iterable[datetime | None],
 ) -> tuple[datetime | None, datetime | None]:
-    """Tanggal jawaban paling awal dan paling akhir dari platform (AC13, D9)."""
-    dates = [value for value in answered_at if value is not None]
+    """Rentang tanggal jawaban, dinormalisasi ke UTC."""
+
+    dates = []
+
+    for value in answered_at:
+        if value is None:
+            continue
+
+        value = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+        dates.append(value)
+
     if not dates:
         return None, None
+
     return min(dates), max(dates)
 
 
