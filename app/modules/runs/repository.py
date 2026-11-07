@@ -19,6 +19,7 @@ from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.runs.models import (
+    AnswerHistory,
     Attempt,
     AttemptSource,
     AttemptStatus,
@@ -38,6 +39,7 @@ from app.modules.runs.schemas import CaseFilter, MeasurementPurpose
 from app.modules.runs.session_detail import AttemptRow, CaseRow, SessionDetailRow
 from app.modules.runs.session_list import SessionRow
 from app.modules.runs.session_ports import (
+    ManualAnswerHistoryRow,
     ManualAttemptRow,
     ManualCaseRow,
     ManualSessionRow,
@@ -782,6 +784,23 @@ class SessionQueueRepository:
         return gagal == 1
 
 
+def _manual_attempt_row(row: Attempt) -> ManualAttemptRow:
+    """Satu bentuk baris percobaan manual untuk daftar maupun satu slot (D9)."""
+    return ManualAttemptRow(
+        id=row.id,
+        snapshot_item_id=row.snapshot_item_id,
+        repetition_no=row.repetition_no,
+        filled=row.filled_at is not None,
+        answered_at_platform=row.answered_at_platform,
+        source=row.source,
+        answer_md=row.answer_text,
+        platform_refused=row.platform_refused,
+        note=row.manual_note,
+        filled_by=row.filled_by,
+        filled_at=row.filled_at,
+    )
+
+
 class ManualSessionRepository:
     """Sesi manual di tabel D2 (PBI-22 SCRUM-230).
 
@@ -834,22 +853,126 @@ class ManualSessionRepository:
             .order_by(Attempt.snapshot_item_id, Attempt.repetition_no)
         ).all()
 
-        return [
-            ManualAttemptRow(
-                id=row.id,
-                snapshot_item_id=row.snapshot_item_id,
-                repetition_no=row.repetition_no,
-                filled=row.filled_at is not None,
-                answered_at_platform=row.answered_at_platform,
-                source=row.source,
+        return [_manual_attempt_row(row) for row in rows]
+
+    def is_manual_session(self, session_id: uuid.UUID) -> bool:
+        """Sesi ada dan bertipe manual; dipakai riwayat untuk menjawab 404 (AC5)."""
+        return (
+            self._db.scalar(
+                select(MeasurementSession.session_type).where(MeasurementSession.id == session_id)
+            )
+            == SessionType.MANUAL
+        )
+
+    def answer_slot(
+        self,
+        session_id: uuid.UUID,
+        snapshot_item_id: uuid.UUID,
+        attempt_no: int,
+        *,
+        lock: bool = False,
+    ) -> ManualAttemptRow | None:
+        query = select(Attempt).where(
+            Attempt.session_id == session_id,
+            Attempt.snapshot_item_id == snapshot_item_id,
+            Attempt.repetition_no == attempt_no,
+            Attempt.source == AttemptSource.MANUAL,
+        )
+        if lock:
+            query = query.with_for_update()
+        row = self._db.scalar(query)
+        return _manual_attempt_row(row) if row is not None else None
+
+    def case_attempt_count(self, session_id: uuid.UUID, snapshot_item_id: uuid.UUID) -> int:
+        return (
+            self._db.scalar(
+                select(func.count())
+                .select_from(Attempt)
+                .where(
+                    Attempt.session_id == session_id,
+                    Attempt.snapshot_item_id == snapshot_item_id,
+                    Attempt.source == AttemptSource.MANUAL,
+                )
+            )
+            or 0
+        )
+
+    def archive_answer(
+        self,
+        attempt_id: uuid.UUID,
+        *,
+        overwritten_by: uuid.UUID,
+        overwritten_at: datetime,
+    ) -> None:
+        """Salin jawaban yang sekarang ke answer_history, tanpa menyentuh baris lama (AC5)."""
+        row = self._db.get(Attempt, attempt_id)
+        if row is None:
+            return
+        self._db.add(
+            AnswerHistory(
+                attempt_id=row.id,
                 answer_md=row.answer_text,
-                platform_refused=row.platform_refused,
-                note=row.manual_note,
                 filled_by=row.filled_by,
                 filled_at=row.filled_at,
+                obtained_at=row.answered_at_platform,
+                platform_refused=row.platform_refused,
+                note=row.manual_note,
+                overwritten_by=overwritten_by,
+                overwritten_at=overwritten_at,
+            )
+        )
+        self._db.flush()
+
+    def write_answer(
+        self,
+        attempt_id: uuid.UUID,
+        *,
+        answer_md: str | None,
+        platform_refused: bool,
+        note: str | None,
+        obtained_at: datetime,
+        filled_by: uuid.UUID,
+        filled_at: datetime,
+    ) -> ManualAttemptRow:
+        row = self._db.get(Attempt, attempt_id)
+        if row is None:
+            raise NotFoundError("Percobaan tidak ditemukan.", code="MANUAL_ATTEMPT_NOT_FOUND")
+        row.answer_text = answer_md
+        row.platform_refused = platform_refused
+        row.manual_note = note
+        row.answered_at_platform = obtained_at
+        row.filled_by = filled_by
+        row.filled_at = filled_at
+        self._db.flush()
+        return _manual_attempt_row(row)
+
+    def answer_history(self, attempt_id: uuid.UUID) -> list[ManualAnswerHistoryRow]:
+        rows = self._db.scalars(
+            select(AnswerHistory)
+            .where(AnswerHistory.attempt_id == attempt_id)
+            .order_by(AnswerHistory.overwritten_at, AnswerHistory.id)
+        ).all()
+        return [
+            ManualAnswerHistoryRow(
+                id=row.id,
+                attempt_id=row.attempt_id,
+                answer_md=row.answer_md,
+                filled_by=row.filled_by,
+                filled_at=row.filled_at,
+                obtained_at=row.obtained_at,
+                platform_refused=row.platform_refused,
+                note=row.note,
+                overwritten_by=row.overwritten_by,
+                overwritten_at=row.overwritten_at,
             )
             for row in rows
         ]
+
+    def commit(self) -> None:
+        self._db.commit()
+
+    def rollback(self) -> None:
+        self._db.rollback()
 
     def set_answer_dates(
         self, session_id: uuid.UUID, start: datetime | None, end: datetime | None

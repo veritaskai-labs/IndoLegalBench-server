@@ -8,17 +8,14 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
 from app.modules.runs.dependencies import (
+    get_manual_answer_service,
     get_manual_session_service,
     get_manual_status_service,
 )
-from app.modules.runs.manual_answers import (
-    manual_answer_history,
-    save_manual_answer,
-)
+from app.modules.runs.manual_answers import ManualAnswerService
 from app.modules.runs.manual_session import ManualSessionService
 from app.modules.runs.manual_session_status import ManualSessionStatusService
 from app.modules.runs.schemas import (
@@ -31,7 +28,6 @@ from app.modules.runs.schemas import (
     ManualStartResponse,
 )
 from app.shared.config import Settings, get_settings
-from app.shared.database import get_db
 from app.shared.security import CurrentUser, Role, require_roles
 
 router = APIRouter(prefix="/manual-measurements", tags=["manual-measurements"])
@@ -147,31 +143,30 @@ def put_manual_answer(
     session_id: uuid.UUID,
     payload: ManualAnswerSaveRequest,
     user: CurrentUser = Depends(_viewers),
-    db: Session = Depends(get_db),
+    service: ManualAnswerService = Depends(get_manual_answer_service),
 ) -> ManualAnswerResponse:
-    return save_manual_answer(
-        db,
-        session_id,
-        payload,
-        actor=uuid.UUID(str(user.user_id)),
-    )
+    return service.save(session_id, payload, actor=uuid.UUID(str(user.user_id)))
 
 
 @router.get(
     "/{session_id}/answers/{snapshot_item_id}/{attempt_no}/history",
     response_model=list[ManualAnswerHistoryEntry],
     summary="Riwayat perubahan jawaban manual",
+    responses={
+        404: {
+            "model": ErrorBody,
+            "description": (
+                "Sesi manual tidak ditemukan (`MANUAL_SESSION_NOT_FOUND`) atau jawaban "
+                "tidak ada (`MANUAL_ANSWER_NOT_FOUND`)."
+            ),
+        },
+    },
 )
 def get_manual_answer_history(
     session_id: uuid.UUID,
     snapshot_item_id: uuid.UUID,
     attempt_no: int,
     _user: CurrentUser = Depends(_viewers),
-    db: Session = Depends(get_db),
+    service: ManualAnswerService = Depends(get_manual_answer_service),
 ) -> list[ManualAnswerHistoryEntry]:
-    return manual_answer_history(
-        db,
-        session_id,
-        snapshot_item_id,
-        attempt_no,
-    )
+    return service.history(session_id, snapshot_item_id, attempt_no)
