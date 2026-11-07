@@ -68,6 +68,9 @@ _retry_roles = require_roles(Role.ADMIN, Role.DEVELOPER_AI)
 router = APIRouter(prefix="/measurements", tags=["measurements"])
 router.include_router(control_router)
 
+# Deskripsi 404 yang sama di semua route yang membaca satu sesi.
+_SESI_TIDAK_ADA = "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."
+
 _RESPONS_RINGKASAN = {
     404: {
         "model": ErrorBody,
@@ -156,9 +159,7 @@ def list_sessions(
     "/{session_id}",
     response_model=SessionDetail,
     summary="Detail sesi dengan jawaban mentah per kasus dan percobaan",
-    responses={
-        404: {"model": ErrorBody, "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."}
-    },
+    responses={404: {"model": ErrorBody, "description": _SESI_TIDAK_ADA}},
 )
 def get_session(
     session_id: uuid.UUID,
@@ -177,7 +178,7 @@ _RESPONS_ARSIP = {
             "buatan orang lain (`NOT_YOUR_SESSION`)."
         ),
     },
-    404: {"model": ErrorBody, "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."},
+    404: {"model": ErrorBody, "description": _SESI_TIDAK_ADA},
     409: {
         "model": ErrorBody,
         "description": (
@@ -216,7 +217,7 @@ _RESPONS_UNARCHIVE = {
             "buatan orang lain (`NOT_YOUR_SESSION`)."
         ),
     },
-    404: {"model": ErrorBody, "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."},
+    404: {"model": ErrorBody, "description": _SESI_TIDAK_ADA},
     409: {"model": ErrorBody, "description": "Sesi belum diarsipkan (`SESSION_NOT_ARCHIVED`)."},
 }
 
@@ -242,7 +243,7 @@ def unarchive(
 
 _RESPONS_TERIMA = {
     403: {"model": ErrorBody, "description": "Hanya Admin (`FORBIDDEN`)."},
-    404: {"model": ErrorBody, "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."},
+    404: {"model": ErrorBody, "description": _SESI_TIDAK_ADA},
 }
 
 
@@ -304,7 +305,7 @@ def clear_accept(session_id: uuid.UUID, db: Session = Depends(get_db)) -> Sessio
                 "buatan orang lain (`NOT_YOUR_SESSION`)."
             ),
         },
-        404: {"model": ErrorBody, "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."},
+        404: {"model": ErrorBody, "description": _SESI_TIDAK_ADA},
         409: {
             "model": ErrorBody,
             "description": (
