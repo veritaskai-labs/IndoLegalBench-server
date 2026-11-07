@@ -22,6 +22,7 @@ from tests.measurement_pg import (
     CHECK_VIOLATION,
     FOREIGN_KEY_VIOLATION,
     INVALID_TEXT_REPRESENTATION,
+    STRING_DATA_RIGHT_TRUNCATION,
     UNIQUE_VIOLATION,
     buat_admin,
     buat_produk,
@@ -149,10 +150,15 @@ def test_teks_wajib_tidak_boleh_hanya_karakter_kosong(conn, admin_id, kolom, isi
     assert _sqlstate_buat(conn, admin_id, **{kolom: isi}) == CHECK_VIOLATION
 
 
-@pytest.mark.parametrize("hint", ["abc", "abcde", ""], ids=["tiga", "lima", "kosong"])
-def test_hint_kredensial_selalu_empat_karakter(conn, admin_id, hint):
-    """Negatif: hint = empat karakter terakhir (crypto.HINT_LENGTH), tidak lebih panjang."""
-    assert _sqlstate_buat(conn, admin_id, credential_hint=hint) == CHECK_VIOLATION
+@pytest.mark.parametrize(
+    ("hint", "sqlstate"),
+    [("abc", CHECK_VIOLATION), ("", CHECK_VIOLATION), ("abcde", STRING_DATA_RIGHT_TRUNCATION)],
+    ids=["tiga", "kosong", "lima"],
+)
+def test_hint_kredensial_selalu_empat_karakter(conn, admin_id, hint, sqlstate):
+    """Negatif: hint = empat karakter terakhir (crypto.HINT_LENGTH). Lebih pendek ditolak
+    CHECK; lebih panjang sudah ditolak varchar(4) sebelum CHECK dijalankan."""
+    assert _sqlstate_buat(conn, admin_id, credential_hint=hint) == sqlstate
 
 
 @pytest.mark.parametrize("kolom", ["price_input_usd_per_mtok", "price_output_usd_per_mtok"])

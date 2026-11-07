@@ -52,6 +52,7 @@ PENGECUALIAN = {
     "reason_codes": "SCRUM-222: hanya migrasi yang menulis (seed usulan); tracker saat ada API",
     "llm_judge_results": "SCRUM-222: hasil mesin, hanya INSERT (trigger); biaya ada di baris ini",
     "llm_criterion_results": "SCRUM-222: hasil mesin, hanya INSERT (trigger)",
+    "judge_providers": "SCRUM-258 slice 1: tabel saja; tracker datang bersama API-nya",
 }
 
 

@@ -176,8 +176,17 @@ class MeasurementSession(Base):
     split_filter: Mapped[SplitFilter] = mapped_column(
         _enum(SplitFilter, "measurement_split_filter_enum"), nullable=False
     )
-    # Penilai LLM (AC1). Tabel judge_providers milik PBI-14, jadi belum ber-FK.
-    judge_provider_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    # Penilai LLM (AC1), dipilih saat membuat sesi. Boleh kosong sampai form punya
+    # dropdown penilai (keputusan PO 7 Nov, SCRUM-258).
+    judge_provider_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "judge_providers.id",
+            name="fk_measurement_sessions_judge_provider",
+            ondelete="RESTRICT",
+        ),
+        nullable=True,
+    )
     status: Mapped[SessionStatus] = mapped_column(
         _enum(SessionStatus, "measurement_session_status_enum"),
         nullable=False,
