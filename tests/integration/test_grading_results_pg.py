@@ -7,8 +7,8 @@ penanda is_latest yang pindah (jawaban klien No. 68 A).
 
 grading_results menyimpan komponen deterministik #107 (CitationScore) per percobaan,
 tanpa skor gabungan (keputusan PO K7, AC1). det_score boleh kosong kalau tidak ada
-acuan yang bisa dinilai (catatan SA 6 Nov). judge_provider_id belum ber-FK sampai
-SCRUM-258.
+acuan yang bisa dinilai (catatan SA 6 Nov). judge_provider_id ber-FK ke judge_providers
+sejak SCRUM-258.
 
 Setiap tes berjalan di dalam transaksi yang di-rollback. Dilewati kalau
 TEST_POSTGRES_URL kosong.
@@ -34,6 +34,7 @@ from tests.grading_pg import (
     selesaikan_run,
     ubah_run,
 )
+from tests.judge_pg import buat_penilai
 from tests.measurement_pg import (
     CHECK_VIOLATION,
     FOREIGN_KEY_VIOLATION,
@@ -157,8 +158,10 @@ def test_run_memakai_versi_yang_sudah_dinonaktifkan(conn, sesi_id, admin_id):
     assert _run(conn, run)[0] == "queued"
 
 
-@pytest.mark.parametrize("penilai", [None, uuid.uuid4()], ids=["kosong", "uuid-bebas"])
-def test_penilai_belum_ber_fk_sampai_scrum_258(conn, sesi_id, versi_id, admin_id, penilai):
+@pytest.mark.parametrize("ada_penilai", [False, True], ids=["kosong", "penilai-terdaftar"])
+def test_run_menyimpan_penilai_atau_kosong(conn, sesi_id, versi_id, admin_id, ada_penilai):
+    """SCRUM-258: penilai sekarang ber-FK ke judge_providers; kosong tetap boleh."""
+    penilai = buat_penilai(conn, admin_id) if ada_penilai else None
     run = buat_run(conn, sesi_id, versi_id, admin_id, judge_provider_id=penilai)
 
     tersimpan = conn.execute(
@@ -297,7 +300,12 @@ def test_run_berakhir_tanpa_waktu_selesai_ditolak(conn, run_id):
 )
 def test_identitas_run_tidak_bisa_diubah(conn, run_id, kolom):
     """Nilai baru harus benar-benar beda dan valid untuk FK, supaya yang menolak trigger."""
-    nilai = buat_admin(conn) if kolom == "triggered_by" else uuid.uuid4()
+    if kolom == "triggered_by":
+        nilai = buat_admin(conn)
+    elif kolom == "judge_provider_id":
+        nilai = buat_penilai(conn, buat_admin(conn))
+    else:
+        nilai = uuid.uuid4()
 
     sqlstate = sqlstate_penolakan(
         conn,
