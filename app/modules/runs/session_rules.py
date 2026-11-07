@@ -5,12 +5,16 @@ Status percobaan ditulis sebagai string yang sama dengan enum attempts di D2
 sebelum tabel attempts ada di staging.
 """
 
+import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
 
 from app.modules.runs.models import SessionStatus
-from app.shared.exceptions import ConflictError
+from app.shared.exceptions import ConflictError, ForbiddenError
+from app.shared.security import Role
+
+NOT_YOUR_SESSION = "NOT_YOUR_SESSION"
 
 # Sesi yang sudah berakhir. Status PBI-12 (stopped, cancelled) belum ada di sini
 # sampai D4 memutuskan apakah boleh diarsipkan. Sesi manual berakhir saat Selesai (D8).
@@ -85,3 +89,16 @@ def ensure_unarchivable(*, archived_at: datetime | None) -> None:
     """
     if archived_at is None:
         raise ConflictError("Sesi ini belum diarsipkan.", code="SESSION_NOT_ARCHIVED")
+
+
+def ensure_owner_or_admin(
+    *, actor_id: uuid.UUID, actor_role: Role, created_by: uuid.UUID, action: str
+) -> None:
+    """Admin mengelola sesi siapa pun, Developer AI hanya sesi yang ia buat (D10).
+
+    action melengkapi pesan, mis. "mengarsipkan". Kode galatnya selalu NOT_YOUR_SESSION.
+    """
+    if actor_role == Role.DEVELOPER_AI and created_by != actor_id:
+        raise ForbiddenError(
+            f"Developer AI hanya bisa {action} sesi yang ia buat.", code=NOT_YOUR_SESSION
+        )

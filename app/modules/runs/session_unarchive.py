@@ -14,9 +14,8 @@ from sqlalchemy.orm import Session
 
 from app.modules.runs import repository
 from app.modules.runs.schemas import SessionUnarchiveResponse
-from app.modules.runs.session_archive import NOT_YOUR_SESSION
-from app.modules.runs.session_rules import ensure_unarchivable
-from app.shared.exceptions import ForbiddenError, NotFoundError
+from app.modules.runs.session_rules import ensure_owner_or_admin, ensure_unarchivable
+from app.shared.exceptions import NotFoundError
 from app.shared.security import Role
 
 
@@ -30,10 +29,12 @@ def unarchive_session(
     session = repository.get_session_for_update(db, session_id)
     if session is None:
         raise NotFoundError("Pengukuran tidak ditemukan.", code="MEASUREMENT_NOT_FOUND")
-    if actor_role == Role.DEVELOPER_AI and session.created_by != actor_id:
-        raise ForbiddenError(
-            "Developer AI hanya bisa mengembalikan sesi yang ia buat.", code=NOT_YOUR_SESSION
-        )
+    ensure_owner_or_admin(
+        actor_id=actor_id,
+        actor_role=actor_role,
+        created_by=session.created_by,
+        action="mengembalikan",
+    )
     ensure_unarchivable(archived_at=session.archived_at)
     session.archived_at = None
     session.archived_by = None
