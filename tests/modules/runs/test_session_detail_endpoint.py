@@ -288,8 +288,10 @@ def _sesi_berjalan(db_session, produk, pembuat):
     return sesi
 
 
-def test_developer_ai_tidak_melihat_jawaban_sesi_berjalan(as_role, db_session, produk, pembuat):
-    """Negatif: D10 hasil sesi berjalan hanya untuk Admin. Status dan progres tetap terlihat."""
+def test_developer_ai_melihat_jawaban_kasus_dev_saat_sesi_berjalan(
+    as_role, db_session, produk, pembuat
+):
+    """Positif: AC9 jawaban kasus dev terbaca begitu percobaannya selesai, sesi masih berjalan."""
     # Arrange
     sesi = _sesi_berjalan(db_session, produk, pembuat)
 
@@ -298,13 +300,69 @@ def test_developer_ai_tidak_melihat_jawaban_sesi_berjalan(as_role, db_session, p
 
     # Assert
     assert response.status_code == 200
-    assert JAWABAN_BERJALAN not in response.text
     body = response.json()
     assert body["status"] == "running"
     assert body["progress"] == {"completed": 1, "total": 2}
-    percobaan = body["cases"][0]["attempts"]
-    assert [a["status"] for a in percobaan] == ["succeeded", "pending"]
-    assert {a["answer_text"] for a in percobaan} == {None}
+    dev = body["cases"][0]
+    assert dev["masked"] is False
+    assert [a["status"] for a in dev["attempts"]] == ["succeeded", "pending"]
+    assert [a["answer_text"] for a in dev["attempts"]] == [JAWABAN_BERJALAN, None]
+
+
+def test_developer_ai_tidak_melihat_kasus_test_saat_sesi_berjalan(
+    as_role, db_session, produk, pembuat
+):
+    """Negatif: kasus test tetap tertutup selama sesi berjalan, jawaban dev di sebelahnya terbuka."""
+    # Arrange
+    sesi = _sesi_berjalan(db_session, produk, pembuat)
+    _kasus(
+        db_session,
+        sesi,
+        db_session.scalars(select(CaseSnapshot).where(CaseSnapshot.session_id == sesi.id)).one(),
+        _body("KASUS-009", "test", PERTANYAAN_TEST),
+        [(AttemptStatus.SUCCEEDED, JAWABAN_TEST), (AttemptStatus.PENDING, None)],
+    )
+
+    # Act
+    response = as_role(Role.DEVELOPER_AI).get(_url(sesi.id))
+
+    # Assert
+    assert JAWABAN_BERJALAN in response.text
+    assert PERTANYAAN_TEST not in response.text
+    assert JAWABAN_TEST not in response.text
+    assert "KASUS-009" not in response.text
+    test = _per_kode(response.json()["cases"])["TERSEMBUNYI"]
+    assert test["masked"] is True
+    assert {a["answer_text"] for a in test["attempts"]} == {None}
+
+
+@pytest.mark.parametrize("split_tag", [None, "tag-tak-dikenal"])
+def test_developer_ai_tidak_melihat_kasus_bertag_kosong_atau_tak_dikenal(
+    as_role, db_session, produk, pembuat, split_tag
+):
+    """Edge: fail-closed. Kasus yang tidak jelas dev atau test diperlakukan seperti test."""
+    # Arrange
+    sesi = _sesi(db_session, produk, pembuat, status=SessionStatus.RUNNING)
+    body = _body("KASUS-007", "dev", PERTANYAAN_TEST)
+    body["sections"]["split_tag"] = split_tag
+    _kasus(
+        db_session,
+        sesi,
+        _snapshot(db_session, sesi),
+        body,
+        [(AttemptStatus.SUCCEEDED, JAWABAN_TEST)],
+    )
+
+    # Act
+    response = as_role(Role.DEVELOPER_AI).get(_url(sesi.id))
+
+    # Assert
+    assert PERTANYAAN_TEST not in response.text
+    assert JAWABAN_TEST not in response.text
+    assert "KASUS-007" not in response.text
+    kasus = response.json()["cases"][0]
+    assert kasus["masked"] is True
+    assert kasus["case_code"] == "TERSEMBUNYI"
 
 
 def test_admin_melihat_jawaban_sesi_berjalan(as_role, db_session, produk, pembuat):

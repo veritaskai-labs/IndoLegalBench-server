@@ -5,10 +5,11 @@ bukan dari kasus live, supaya detail menunjukkan versi yang benar-benar diukur.
 
 Developer AI tidak melihat isi kasus test (SCRUM-183). Barisnya tetap ada dengan
 status percobaan, tetapi kode, judul, pertanyaan, dan jawabannya disamarkan
-dengan teks yang sama seperti daftar kasus.
+dengan teks yang sama seperti daftar kasus. Keputusannya ada di
+case_visibility (fail-closed: tag kosong atau tak dikenal ikut disamarkan).
 
-Selama sesi antre atau berjalan, Developer AI juga tidak mendapat jawaban mentah
-(D10 "hasil sesi berjalan" hanya Admin). Status dan progres tetap terlihat.
+Jawaban kasus dev terbaca begitu percobaannya selesai, tanpa menunggu sesi
+berakhir (PBI-11 AC9, SCRUM-261).
 """
 
 import uuid
@@ -17,12 +18,14 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Protocol
 
+from app.modules.cases.models import SplitTag
 from app.modules.cases.schemas import VersionSections
 from app.modules.cases.service import MASKED_CASE_CODE, MASKED_TITLE
+from app.modules.runs.case_visibility import can_view_case_content
 from app.modules.runs.models import AttemptStatus, StopReason
 from app.modules.runs.schemas import AttemptResult, SessionCaseResult, SessionDetail
 from app.modules.runs.session_list import NameLookup, SessionRow, to_list_item
-from app.modules.runs.session_rules import has_ended, is_report_eligible
+from app.modules.runs.session_rules import is_report_eligible
 from app.shared.exceptions import NotFoundError
 from app.shared.security import Role
 
@@ -85,11 +88,8 @@ class SessionDetailService:
             self._names.product_names({summary.product_id}),
             self._names.user_names({summary.created_by}),
         )
-        developer_ai = viewer_role == Role.DEVELOPER_AI
-        # D10: hasil sesi yang belum berakhir hanya untuk Admin; progres tetap terlihat.
-        hide_answers = developer_ai and not has_ended(summary.status)
         cases = sorted(
-            (_case(case, hide_test=developer_ai, hide_answers=hide_answers) for case in row.cases),
+            (_case(case, viewer_role=viewer_role) for case in row.cases),
             key=lambda case: (case.masked, case.case_code),
         )
         return SessionDetail(
@@ -115,17 +115,24 @@ class SessionDetailService:
         )
 
 
-def _case(case: CaseRow, *, hide_test: bool, hide_answers: bool) -> SessionCaseResult:
+def _known_split(split_tag: object) -> SplitTag | None:
+    """Tag di luar enum tidak dikembalikan apa adanya, supaya response tetap valid."""
+    return SplitTag(split_tag) if split_tag in {tag.value for tag in SplitTag} else None
+
+
+def _case(case: CaseRow, *, viewer_role: Role) -> SessionCaseResult:
     sections = case.body.get("sections") or {}
     split_tag = sections.get("split_tag")
-    masked = hide_test and split_tag == "test"
+    # Masking must read the raw split_tag: _known_split maps an unknown tag to None, which
+    # would make it look like a dev case.
+    masked = not can_view_case_content(viewer_role, split_tag)
     return SessionCaseResult(
         snapshot_item_id=case.snapshot_item_id,
         case_id=case.case_id,
         case_code=MASKED_CASE_CODE if masked else sections.get("case_code") or "",
         title=MASKED_TITLE if masked else sections.get("identity.title") or "",
         question=None if masked else sections.get("identity.question"),
-        split_tag=split_tag,
+        split_tag=_known_split(split_tag),
         masked=masked,
         version_no=None if masked else case.body.get("version_no"),
         sections=None if masked else VersionSections.model_validate(sections),
@@ -135,7 +142,7 @@ def _case(case: CaseRow, *, hide_test: bool, hide_answers: bool) -> SessionCaseR
                 id=attempt.id,
                 repetition_no=attempt.repetition_no,
                 status=attempt.status,
-                answer_text=None if masked or hide_answers else attempt.answer_text,
+                answer_text=None if masked else attempt.answer_text,
                 model_version=attempt.model_version,
                 # Waktu tidak memuat isi kasus, jadi tidak ikut disamarkan.
                 started_at=attempt.started_at,
