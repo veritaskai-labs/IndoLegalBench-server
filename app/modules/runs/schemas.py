@@ -353,9 +353,14 @@ class StartRequest(SummaryRequest):
         min_length=1, max_length=_PANJANG_LABEL, description="Nama sesi, wajib, maksimal 200"
     )
     purpose: MeasurementPurpose = Field(description="official = Pengukuran Resmi, trial = Uji Coba")
-    # AC1, D3 langkah 19. Opsional dan belum divalidasi: tabel judge_providers datang di PBI-14.
+    # AC1, D3 langkah 19. Opsional sampai form punya dropdown penilai (keputusan PO K2, 7 Nov);
+    # kalau diisi, StartSessionService memeriksa penilai ada dan aktif (SCRUM-258).
     judge_provider_id: uuid.UUID | None = Field(
-        default=None, description="Provider penilai (LLM judge) yang dipilih; kosong sampai PBI-14"
+        default=None,
+        description=(
+            "Provider penilai (LLM judge) dari GET /judge-providers. Boleh kosong; penilai yang "
+            "tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
+        ),
     )
 
     @field_validator("label", mode="before")

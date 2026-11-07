@@ -32,6 +32,7 @@ from app.modules.runs.models import (
     SessionType,
 )
 from app.shared.security import Role
+from tests.judge_rows import tambah_penilai
 from tests.modules.cases.test_cases import ADMIN_LAIN, _buat, _ganti, _setujui, _suite
 from tests.modules.runs.test_summary_endpoint import _tambah_produk
 
@@ -278,3 +279,36 @@ def test_galat_di_tengah_pembuatan_tidak_meninggalkan_sesi(db_session, monkeypat
     # Assert
     assert _jumlah(db_session, MeasurementSession) == 0
     assert _jumlah(db_session, MeasurementSessionSuite) == 0
+
+
+@pytest.mark.parametrize("keadaan", ["tidak-dikenal", "nonaktif"])
+def test_sesi_manual_dengan_penilai_tidak_tersedia_ditolak_422(siap_manual, keadaan):
+    """Negatif: SCRUM-258, FK penilai membuat uuid bebas jadi 500; sekarang 422 tanpa sesi."""
+    # Arrange
+    judge = (
+        uuid.uuid4()
+        if keadaan == "tidak-dikenal"
+        else tambah_penilai(siap_manual.db, ADMIN_LAIN, is_active=False).id
+    )
+
+    # Act
+    respons = siap_manual.sebagai(Role.ADMIN).post(
+        URL, json=_badan(siap_manual, judge_provider_id=str(judge))
+    )
+
+    # Assert
+    assert respons.status_code == 422
+    assert respons.json()["code"] == "JUDGE_PROVIDER_NOT_AVAILABLE"
+    assert _jumlah(siap_manual.db, MeasurementSession) == 0
+
+
+def test_sesi_manual_menyimpan_penilai_terdaftar(siap_manual):
+    judge = tambah_penilai(siap_manual.db, ADMIN_LAIN).id
+
+    respons = siap_manual.sebagai(Role.ADMIN).post(
+        URL, json=_badan(siap_manual, judge_provider_id=str(judge))
+    )
+
+    assert respons.status_code == 201, respons.text
+    sesi = siap_manual.db.get(MeasurementSession, uuid.UUID(respons.json()["session_id"]))
+    assert sesi.judge_provider_id == judge

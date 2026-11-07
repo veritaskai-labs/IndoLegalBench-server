@@ -266,8 +266,13 @@ class GradingRun(Base):
     rubric_version_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True), ForeignKey(_VERSION_FK), nullable=False
     )
-    # Belum ber-FK: tabel judge_providers datang di SCRUM-258.
-    judge_provider_id: Mapped[uuid.UUID | None] = mapped_column(Uuid(as_uuid=True), nullable=True)
+    judge_provider_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True),
+        ForeignKey(
+            "judge_providers.id", name="fk_grading_runs_judge_provider", ondelete="RESTRICT"
+        ),
+        nullable=True,
+    )
     kind: Mapped[GradingRunKind] = mapped_column(
         _enum(GradingRunKind, "grading_run_kind_enum"), nullable=False
     )

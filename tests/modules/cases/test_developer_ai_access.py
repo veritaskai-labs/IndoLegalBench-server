@@ -260,6 +260,9 @@ _DIBUKA = {
     # PBI-11: Developer AI ikut membuat pengukuran (ringkasan SCRUM-206, Mulai SCRUM-207).
     ("POST", "/measurements/summary"),
     ("POST", "/measurements"),
+    # PBI-14 (SCRUM-258): dropdown penilai di form pengukuran yang sama (klien No. 35).
+    # Registri lengkap /admin/judge-providers tetap 403, diuji di test_judge_providers_api.py.
+    ("GET", "/judge-providers"),
     # PBI-11 AC8, AC10 (SCRUM-210): Developer AI memantau, membuka, dan mengarsipkan sesi.
     # Isi kasus test tetap disamarkan, diuji di test_session_detail_endpoint.py.
     ("GET", "/measurements"),
