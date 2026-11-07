@@ -491,6 +491,7 @@ class SessionStatusRepository:
         at: datetime,
         stop_reason: StopReason | str | None = None,
         commit: bool = True,
+        finalized_by: uuid.UUID | None = None,
     ) -> None:
         target = SessionStatus(target)
         reason = None if stop_reason is None else StopReason(stop_reason)
@@ -500,6 +501,16 @@ class SessionStatusRepository:
                 code="STOP_REASON_REQUIRED",
                 field="stop_reason",
             )
+        # D9: Selesai sesi manual (PBI-22 AC8) selalu tercatat bersama pelakunya.
+        selesai: dict[str, object] = {}
+        if target is SessionStatus.FINALIZED:
+            if finalized_by is None:
+                raise ValidationError(
+                    "Sesi manual yang ditandai selesai wajib mencatat pelakunya.",
+                    code="FINALIZED_BY_REQUIRED",
+                    field="finalized_by",
+                )
+            selesai = {"finalized_at": at, "finalized_by": finalized_by}
         # Kunci baris dulu supaya status asal di catatan audit pasti status yang diganti.
         asal = self._db.scalar(
             select(MeasurementSession.status)
@@ -514,7 +525,7 @@ class SessionStatusRepository:
                 # Diterima apa adanya = selesai sepenuhnya (AC9): tidak berpindah ke mana pun.
                 MeasurementSession.accepted_as_is_at.is_(None),
             )
-            .values(status=target, **_kolom_waktu(target, at, reason))
+            .values(status=target, **_kolom_waktu(target, at, reason), **selesai)
             .execution_options(synchronize_session=False)
         ).rowcount
         if diubah == 1:

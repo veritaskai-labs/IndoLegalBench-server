@@ -4001,6 +4001,69 @@
         }
       }
     },
+    "/manual-measurements/{session_id}/finalize": {
+      "post": {
+        "tags": [
+          "manual-measurements"
+        ],
+        "summary": "Tandai sesi manual selesai: final, tidak dapat dibuka kembali",
+        "operationId": "finalize_manual_manual_measurements__session_id__finalize_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualFinalizeResponse"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sesi manual tidak ditemukan (`MANUAL_SESSION_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Masih ada jawaban kosong (`MANUAL_SESSION_INCOMPLETE`) atau sesi sudah selesai (`MANUAL_SESSION_FINALIZED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit-logs": {
       "get": {
         "tags": [
@@ -7469,6 +7532,38 @@
         ],
         "title": "LegalRefWrite",
         "description": "One citation as the editor sends it. Links are in chain order."
+      },
+      "ManualFinalizeResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus",
+            "description": "Selalu finalized: final, tidak dapat dibuka kembali"
+          },
+          "finalized_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Finalized At"
+          },
+          "finalized_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Finalized By"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status",
+          "finalized_at",
+          "finalized_by"
+        ],
+        "title": "ManualFinalizeResponse",
+        "description": "Jawaban Tandai selesai sesi manual (PBI-22 AC8, D9 finalized_at/finalized_by)."
       },
       "ManualStartRequest": {
         "properties": {

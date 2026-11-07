@@ -386,6 +386,15 @@ class ManualStartResponse(BaseModel):
     total_answers: int = Field(description="N pada progres 'X dari N jawaban terisi'")
 
 
+class ManualFinalizeResponse(BaseModel):
+    """Jawaban Tandai selesai sesi manual (PBI-22 AC8, D9 finalized_at/finalized_by)."""
+
+    id: uuid.UUID
+    status: SessionStatus = Field(description="Selalu finalized: final, tidak dapat dibuka kembali")
+    finalized_at: datetime
+    finalized_by: uuid.UUID
+
+
 class SessionControlResponse(BaseModel):
     """Kontrol diterima (202); call aktif masih boleh menyelesaikan persistence."""
 

@@ -5,13 +5,21 @@ biaya, anggaran, maupun antrean sesi otomatis (AC10).
 """
 
 import uuid
+from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, status
+from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
 from app.modules.runs.dependencies import get_manual_session_service
 from app.modules.runs.manual_session import ManualSessionService
-from app.modules.runs.schemas import ManualStartRequest, ManualStartResponse
+from app.modules.runs.manual_session_status import finalize_manual_session
+from app.modules.runs.schemas import (
+    ManualFinalizeResponse,
+    ManualStartRequest,
+    ManualStartResponse,
+)
+from app.shared.database import get_db
 from app.shared.security import CurrentUser, Role, require_roles
 
 router = APIRouter(prefix="/manual-measurements", tags=["manual-measurements"])
@@ -49,3 +57,32 @@ def create_manual_session(
     service: ManualSessionService = Depends(get_manual_session_service),
 ) -> ManualStartResponse:
     return service.create(payload, created_by=uuid.UUID(str(user.user_id)))
+
+
+@router.post(
+    "/{session_id}/finalize",
+    response_model=ManualFinalizeResponse,
+    summary="Tandai sesi manual selesai: final, tidak dapat dibuka kembali",
+    responses={
+        404: {
+            "model": ErrorBody,
+            "description": "Sesi manual tidak ditemukan (`MANUAL_SESSION_NOT_FOUND`).",
+        },
+        409: {
+            "model": ErrorBody,
+            "description": (
+                "Masih ada jawaban kosong (`MANUAL_SESSION_INCOMPLETE`) atau sesi sudah "
+                "selesai (`MANUAL_SESSION_FINALIZED`)."
+            ),
+        },
+    },
+)
+def finalize_manual(
+    session_id: uuid.UUID,
+    # Siapa yang boleh menandai Selesai masih TBA; standar tiket: Admin (AC8).
+    user: CurrentUser = Depends(_admin),
+    db: Session = Depends(get_db),
+) -> ManualFinalizeResponse:
+    return finalize_manual_session(
+        db, session_id, finalized_by=uuid.UUID(str(user.user_id)), now=datetime.now(UTC)
+    )
