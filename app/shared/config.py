@@ -66,6 +66,10 @@ class Settings(BaseSettings):
     resume_long_stop_days: int = Field(default=7, ge=0)
     measurement_dev_ai_controls_enabled: bool = False
 
+    # PBI-22 AC13: batas hari peringatan rentang tanggal jawaban sesi manual. Klien memilih
+    # ada peringatan tetapi belum menyebut angkanya (TBA); kosong = peringatan mati.
+    manual_answer_date_warning_days: int | None = Field(default=None, ge=1)
+
     # PBI-18 AC7: koneksi role ilb_retention, khusus job retensi. Bukan DATABASE_URL:
     # role aplikasi tidak pernah boleh menghapus audit log.
     audit_retention_database_url: str = ""

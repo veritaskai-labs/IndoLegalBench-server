@@ -38,6 +38,9 @@ from app.modules.runs.schemas import CaseFilter, MeasurementPurpose
 from app.modules.runs.session_detail import AttemptRow, CaseRow, SessionDetailRow
 from app.modules.runs.session_list import SessionRow
 from app.modules.runs.session_ports import (
+    ManualAttemptRow,
+    ManualCaseRow,
+    ManualSessionRow,
     NewSession,
     ProductCopy,
     QueuedSession,
@@ -303,15 +306,19 @@ class SessionListRepository:
         ]
 
     def _attempt_counts(self, ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, dict[str, int]]:
+        terisi = Attempt.filled_at.is_not(None)
         rows = self._db.execute(
-            select(Attempt.session_id, Attempt.status, func.count())
+            select(Attempt.session_id, Attempt.status, terisi, func.count())
             .where(Attempt.session_id.in_(ids))
-            .group_by(Attempt.session_id, Attempt.status)
+            .group_by(Attempt.session_id, Attempt.status, terisi)
         )
-        counts: dict[uuid.UUID, dict[str, int]] = defaultdict(dict)
-        for session_id, status, count in rows:
-            counts[session_id][AttemptStatus(status).value] = count
-        return counts
+        counts: dict[uuid.UUID, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        for session_id, status, filled, count in rows:
+            # PBI-22 D8: percobaan manual tetap pending; jawaban yang terisi (filled_at)
+            # sudah punya hasil akhir, jadi dihitung selesai seperti succeeded.
+            kunci = AttemptStatus.SUCCEEDED.value if filled else AttemptStatus(status).value
+            counts[session_id][kunci] += count
+        return {session_id: dict(per_status) for session_id, per_status in counts.items()}
 
     def _case_counts(self, ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, int]:
         """Hanya sesi yang sudah punya snapshot. Snapshot kosong bernilai 0."""
@@ -493,6 +500,7 @@ class SessionStatusRepository:
         at: datetime,
         stop_reason: StopReason | str | None = None,
         commit: bool = True,
+        finalized_by: uuid.UUID | None = None,
     ) -> None:
         target = SessionStatus(target)
         reason = None if stop_reason is None else StopReason(stop_reason)
@@ -502,6 +510,16 @@ class SessionStatusRepository:
                 code="STOP_REASON_REQUIRED",
                 field="stop_reason",
             )
+        # D9: Selesai sesi manual (PBI-22 AC8) selalu tercatat bersama pelakunya.
+        selesai: dict[str, object] = {}
+        if target is SessionStatus.FINALIZED:
+            if finalized_by is None:
+                raise ValidationError(
+                    "Sesi manual yang ditandai selesai wajib mencatat pelakunya.",
+                    code="FINALIZED_BY_REQUIRED",
+                    field="finalized_by",
+                )
+            selesai = {"finalized_at": at, "finalized_by": finalized_by}
         # Kunci baris dulu supaya status asal di catatan audit pasti status yang diganti.
         asal = self._db.scalar(
             select(MeasurementSession.status)
@@ -516,7 +534,7 @@ class SessionStatusRepository:
                 # Diterima apa adanya = selesai sepenuhnya (AC9): tidak berpindah ke mana pun.
                 MeasurementSession.accepted_as_is_at.is_(None),
             )
-            .values(status=target, **_kolom_waktu(target, at, reason))
+            .values(status=target, **_kolom_waktu(target, at, reason), **selesai)
             .execution_options(synchronize_session=False)
         ).rowcount
         if diubah == 1:
@@ -711,7 +729,7 @@ class SessionQueueRepository:
             if dimulai != 1:
                 self._db.rollback()
                 return False
-            self._freeze(session_id, items, product)
+            _freeze(self._db, session_id, items, product, AttemptSource.AUTOMATIC)
             _catat_status(self._db, session_id, SessionStatus.QUEUED, SessionStatus.RUNNING, None)
             self._db.commit()
         except Exception as exc:
@@ -754,39 +772,175 @@ class SessionQueueRepository:
             raise
         return gagal == 1
 
-    def _freeze(
-        self, session_id: uuid.UUID, items: Sequence[SnapshotItem], product: ProductCopy
-    ) -> None:
-        snapshot = CaseSnapshot(session_id=session_id)
-        self._db.add(snapshot)
-        self._db.flush()
-        rows = [
-            CaseSnapshotItem(
-                snapshot_id=snapshot.id,
-                case_id=item.case_id,
-                case_version_id=item.case_version_id,
-                body=item.content,
+
+class ManualSessionRepository:
+    """Sesi manual di tabel D2 (PBI-22 SCRUM-230).
+
+    Memenuhi port ManualSessionStore (membuat sesi) dan ManualStatusStore (status, Selesai,
+    halaman sesi), supaya service tidak menulis query sendiri (review #116).
+    """
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def create_manual(
+        self, new: NewSession, *, items: Sequence[SnapshotItem], product: ProductCopy
+    ) -> uuid.UUID:
+        """D8 "Admin membuat sesi": semua tersimpan dalam satu transaksi, atau tidak sama sekali."""
+        try:
+            session = MeasurementSession(
+                label=new.label,
+                purpose=SessionPurpose(new.purpose.value),
+                session_type=SessionType.MANUAL,
+                product_id=new.product_id,
+                repetitions=new.repetitions,
+                split_filter=SplitFilter(new.case_filter.value),
+                status=SessionStatus.NOT_FILLED,
+                created_by=new.created_by,
+                judge_provider_id=new.judge_provider_id,
             )
-            for item in items
-        ]
-        self._db.add_all(rows)
-        self._db.add(_product_copy_row(session_id, product))
-        self._db.flush()
-        repetitions = self._db.scalar(
-            select(MeasurementSession.repetitions).where(MeasurementSession.id == session_id)
+            self._db.add(session)
+            self._db.flush()
+            self._db.add_all(
+                MeasurementSessionSuite(session_id=session.id, suite_id=suite_id)
+                for suite_id in new.suite_ids
+            )
+            _freeze(self._db, session.id, items, product, AttemptSource.MANUAL)
+            self._db.commit()
+        except Exception:
+            self._db.rollback()
+            raise
+        return session.id
+
+    def lock_manual(self, session_id: uuid.UUID) -> SessionStatus | None:
+        session = get_session_for_update(self._db, session_id)
+        if session is None or session.session_type != SessionType.MANUAL:
+            return None
+        return SessionStatus(session.status)
+
+    def manual_attempts(self, session_id: uuid.UUID) -> list[ManualAttemptRow]:
+        rows = self._db.execute(
+            select(
+                Attempt.id,
+                Attempt.snapshot_item_id,
+                Attempt.repetition_no,
+                Attempt.filled_at,
+                Attempt.answered_at_platform,
+            )
+            .where(Attempt.session_id == session_id)
+            .order_by(Attempt.snapshot_item_id, Attempt.repetition_no)
         )
-        self._db.add_all(
-            Attempt(
-                session_id=session_id,
-                snapshot_item_id=row.id,
+        return [
+            ManualAttemptRow(
+                id=attempt_id,
+                snapshot_item_id=item_id,
                 repetition_no=nomor,
-                source=AttemptSource.AUTOMATIC,
-                status=AttemptStatus.PENDING,
+                filled=filled_at is not None,
+                answered_at_platform=diperoleh,
             )
-            for row in rows
-            for nomor in range(1, repetitions + 1)
+            for attempt_id, item_id, nomor, filled_at, diperoleh in rows
+        ]
+
+    def set_answer_dates(
+        self, session_id: uuid.UUID, start: datetime | None, end: datetime | None
+    ) -> None:
+        self._db.execute(
+            update(MeasurementSession)
+            .where(MeasurementSession.id == session_id)
+            .values(answer_date_from=start, answer_date_to=end)
+            .execution_options(synchronize_session=False)
         )
-        self._db.flush()
+
+    def change_status(
+        self,
+        session_id: uuid.UUID,
+        target: SessionStatus,
+        *,
+        at: datetime,
+        finalized_by: uuid.UUID | None = None,
+        commit: bool,
+    ) -> None:
+        SessionStatusRepository(self._db).change_status(
+            session_id, target, at=at, finalized_by=finalized_by, commit=commit
+        )
+
+    def read_manual(self, session_id: uuid.UUID) -> ManualSessionRow | None:
+        session = self._db.get(MeasurementSession, session_id)
+        if session is None or session.session_type != SessionType.MANUAL:
+            return None
+        # Baris manual lama tanpa salinan produk tetap terbaca, bukan 500 (review #116).
+        product = self._db.scalars(
+            select(SessionProductCopy).where(SessionProductCopy.session_id == session_id)
+        ).first()
+        return ManualSessionRow(
+            id=session.id,
+            label=session.label,
+            purpose=SessionPurpose(session.purpose).value,
+            status=SessionStatus(session.status),
+            case_filter=SplitFilter(session.split_filter).value,
+            repetitions=session.repetitions,
+            created_by=session.created_by,
+            created_at=session.created_at,
+            answer_date_from=session.answer_date_from,
+            answer_date_to=session.answer_date_to,
+            finalized_at=session.finalized_at,
+            finalized_by=session.finalized_by,
+            product_name=product.name if product else "",
+            vendor_name=product.vendor_name if product else None,
+            site_url=product.site_url if product else None,
+            manual_params=product.manual_params if product else None,
+        )
+
+    def snapshot_cases(self, session_id: uuid.UUID) -> list[ManualCaseRow]:
+        rows = self._db.execute(
+            select(CaseSnapshotItem.id, CaseSnapshotItem.case_id, CaseSnapshotItem.body)
+            .join(CaseSnapshot, CaseSnapshot.id == CaseSnapshotItem.snapshot_id)
+            .where(CaseSnapshot.session_id == session_id)
+        )
+        return [
+            ManualCaseRow(snapshot_item_id=item_id, case_id=case_id, body=body)
+            for item_id, case_id, body in rows
+        ]
+
+
+def _freeze(
+    db: Session,
+    session_id: uuid.UUID,
+    items: Sequence[SnapshotItem],
+    product: ProductCopy,
+    source: AttemptSource,
+) -> None:
+    """Snapshot, salinan produk, dan percobaan pending (D3 langkah 26-28, D8 sesi manual)."""
+    snapshot = CaseSnapshot(session_id=session_id)
+    db.add(snapshot)
+    db.flush()
+    rows = [
+        CaseSnapshotItem(
+            snapshot_id=snapshot.id,
+            case_id=item.case_id,
+            case_version_id=item.case_version_id,
+            body=item.content,
+        )
+        for item in items
+    ]
+    db.add_all(rows)
+    db.add(_product_copy_row(session_id, product))
+    db.flush()
+    repetitions = db.scalar(
+        select(MeasurementSession.repetitions).where(MeasurementSession.id == session_id)
+    )
+    db.add_all(
+        Attempt(
+            session_id=session_id,
+            snapshot_item_id=row.id,
+            repetition_no=nomor,
+            source=source,
+            status=AttemptStatus.PENDING,
+        )
+        for row in rows
+        for nomor in range(1, repetitions + 1)
+    )
+    db.flush()
 
 
 def _product_copy_row(session_id: uuid.UUID, product: ProductCopy) -> SessionProductCopy:
@@ -804,4 +958,7 @@ def _product_copy_row(session_id: uuid.UUID, product: ProductCopy) -> SessionPro
         price_input_usd_per_mtok=product.price_input_usd_per_mtok,
         price_output_usd_per_mtok=product.price_output_usd_per_mtok,
         monthly_budget_idr=product.monthly_budget_idr,
+        vendor_name=product.vendor_name,
+        site_url=product.site_url,
+        manual_params=product.manual_params,
     )

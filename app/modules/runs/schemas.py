@@ -27,6 +27,8 @@ from app.shared.text import strip_blank
 MIN_REPEATS = 1
 MAX_REPEATS = 5
 DEFAULT_REPEATS = 3
+# PBI-22 AC1: sesi manual standar 1 percobaan (beban awal 2 platform x 100 kasus x 1).
+MANUAL_DEFAULT_REPEATS = 1
 
 
 def _as_utc(value: datetime) -> datetime:
@@ -371,6 +373,100 @@ class StartResponse(BaseModel):
     status: SessionStatus = Field(description="Selalu queued: worker yang menjalankan saat giliran")
     # Nama D2 (keputusan PO di #89): antrean FIFO diurutkan dengan queued_at.
     queued_at: datetime = Field(description="Waktu masuk antrean; yang lebih awal jalan lebih dulu")
+
+
+class ManualStartRequest(StartRequest):
+    """Body POST /manual-measurements (PBI-22 AC1, SCRUM-230).
+
+    Isian sesi otomatis diwarisi (suite, filter, label, tujuan, penilai), supaya aturan
+    validasinya satu. Bedanya: produk harus manual, dan percobaan standar 1, bukan 3.
+    """
+
+    product_id: uuid.UUID = Field(description="Satu produk AI manual yang dicatat tim legal")
+    repeat_count: int = Field(
+        default=MANUAL_DEFAULT_REPEATS,
+        ge=MIN_REPEATS,
+        le=MAX_REPEATS,
+        description="Percobaan per kasus, standar 1, maksimum 5, ditentukan saat sesi dibuat",
+    )
+
+    @field_validator("repeat_count", mode="before")
+    @classmethod
+    def repeat_null_memakai_bawaan(cls, value):
+        # Nama sama dengan validator induk supaya menggantikannya, bukan menambah.
+        return MANUAL_DEFAULT_REPEATS if value is None else value
+
+
+class ManualStartResponse(BaseModel):
+    """Jawaban 201 POST /manual-measurements: sesi siap diisi (D8 Belum terisi)."""
+
+    session_id: uuid.UUID
+    status: SessionStatus = Field(description="Selalu not_filled: tanpa antrean (PBI-22 AC10)")
+    case_count: int = Field(description="Kasus yang dibekukan di snapshot")
+    repetitions: int = Field(description="Percobaan per kasus")
+    total_answers: int = Field(description="N pada progres 'X dari N jawaban terisi'")
+
+
+class ManualAttemptSlot(BaseModel):
+    """Satu kotak jawaban (Percobaan n) di kartu kasus sesi manual (PBI-22 AC4)."""
+
+    attempt_id: uuid.UUID
+    repetition_no: int
+    filled: bool = Field(description="Teks jawaban atau 'Platform menolak menjawab' tersimpan")
+    answered_at_platform: datetime | None = Field(
+        description="Kapan jawaban diperoleh dari platform (AC7)"
+    )
+
+
+class ManualCaseProgress(BaseModel):
+    """Satu kartu kasus: pertanyaan untuk disalin (AC3) dan slot per percobaan (AC4)."""
+
+    snapshot_item_id: uuid.UUID
+    case_id: uuid.UUID
+    case_code: str
+    title: str
+    question: str
+    split_tag: str
+    filled: bool = Field(description="Semua percobaan kasus ini sudah terisi (AC8)")
+    attempts: list[ManualAttemptSlot]
+
+
+class ManualSessionDetail(BaseModel):
+    """Halaman sesi manual (PBI-22 AC8, AC11-AC13). Tanpa biaya dan anggaran (AC10)."""
+
+    id: uuid.UUID
+    label: str
+    purpose: MeasurementPurpose
+    status: SessionStatus
+    product_name: str
+    vendor_name: str | None
+    site_url: str | None
+    manual_params: str | None = Field(description="Paket produk manual saat sesi dibuat (PBI-23)")
+    case_filter: CaseFilter
+    repetitions: int = Field(description="Percobaan per kasus (AC12, penanda PBI-15)")
+    filled_answers: int = Field(description="X pada 'X dari N jawaban terisi', seluruh sesi")
+    total_answers: int = Field(description="N: kasus x percobaan")
+    answer_date_from: datetime | None
+    answer_date_to: datetime | None
+    date_range_warning: bool = Field(
+        description="Rentang tanggal jawaban melebihi batas hari (AC13; batas TBA, bawaan mati)"
+    )
+    created_by: uuid.UUID
+    created_at: datetime
+    finalized_at: datetime | None
+    finalized_by: uuid.UUID | None
+    cases: list[ManualCaseProgress] = Field(
+        description="Kartu kasus urut kode; disaring bila unfilled=true"
+    )
+
+
+class ManualFinalizeResponse(BaseModel):
+    """Jawaban Tandai selesai sesi manual (PBI-22 AC8, D9 finalized_at/finalized_by)."""
+
+    id: uuid.UUID
+    status: SessionStatus = Field(description="Selalu finalized: final, tidak dapat dibuka kembali")
+    finalized_at: datetime
+    finalized_by: uuid.UUID
 
 
 class SessionControlResponse(BaseModel):
