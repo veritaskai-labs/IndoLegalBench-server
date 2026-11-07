@@ -19,7 +19,7 @@ judge exists, because dropping the table would silently drop the judge of
 every session.
 
 Revision ID: 4f844618b782
-Revises: 57f872b138f0
+Revises: c0e745d15998
 """
 
 import logging
@@ -31,7 +31,7 @@ from sqlalchemy.dialects import postgresql
 from app.shared.text import sql_not_blank
 
 revision = "4f844618b782"  # pragma: allowlist secret
-down_revision = "57f872b138f0"  # pragma: allowlist secret
+down_revision = "c0e745d15998"  # pragma: allowlist secret
 branch_labels = None
 depends_on = None
 

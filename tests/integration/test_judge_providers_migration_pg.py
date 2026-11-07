@@ -39,7 +39,7 @@ from tests.measurement_pg import (
 )
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "")
-SEBELUM = "57f872b138f0"  # pragma: allowlist secret (revision id)
+SEBELUM = "c0e745d15998"  # pragma: allowlist secret (revision id)
 BERKAS = "4f844618b782_judge_providers.py"
 ROOT = Path(__file__).resolve().parents[2]
 VERSIONS = ROOT / "migrations" / "versions"
