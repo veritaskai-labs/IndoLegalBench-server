@@ -308,7 +308,14 @@ class EvidenceStore(Protocol):
     def remove(self, evidence_id: uuid.UUID) -> None:
         raise NotImplementedError
 
-    def record(self, session_id: uuid.UUID, action: str, payload: dict[str, Any]) -> None:
+    def record(
+        self,
+        session_id: uuid.UUID,
+        action: str,
+        *,
+        before: dict[str, Any] | None = None,
+        after: dict[str, Any] | None = None,
+    ) -> None:
         """Satu baris audit_logs untuk sesi, di transaksi yang sama (PBI-18, D6b)."""
         raise NotImplementedError
 

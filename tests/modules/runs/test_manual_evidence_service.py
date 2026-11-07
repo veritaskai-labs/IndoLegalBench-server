@@ -83,8 +83,10 @@ class _Penyimpan:
     def remove(self, evidence_id):
         self.bukti = [b for b in self.bukti if b.id != evidence_id]
 
-    def record(self, session_id, action, payload):
-        self.audit.append((action, payload))
+    def record(self, session_id, action, *, before=None, after=None):
+        # Tambah tercatat di after, hapus di before (pola audit PBI-18).
+        self.audit.append((action, after if after is not None else before))
+        self.sisi = "after" if after is not None else "before"
 
     def commit(self):
         self.commit_ke += 1
@@ -354,6 +356,7 @@ def test_hapus_bukti_menghapus_berkas_dan_tercatat(buat):
     assert (penyimpan.bukti, berkas.isi) == ([], {})
     assert penyimpan.audit[-1][0] == "measurement_session.evidence_removed"
     assert penyimpan.audit[-1][1]["evidence_id"] == str(bukti.id)
+    assert penyimpan.sisi == "before"
     assert penyimpan.commit_ke == 2
 
 

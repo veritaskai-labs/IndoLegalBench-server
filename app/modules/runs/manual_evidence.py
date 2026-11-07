@@ -174,12 +174,12 @@ class ManualEvidenceService:
         self._store.remove(row.id)
         if row.file_key is not None:
             self._files.delete(row.file_key)
-        self._store.record(session_id, ACTION_EVIDENCE_REMOVED, _audit_payload(row, target))
+        self._store.record(session_id, ACTION_EVIDENCE_REMOVED, before=_audit_payload(row, target))
         self._store.commit()
 
     def _add(self, session_id: uuid.UUID, target: EvidenceTarget, new: NewEvidence) -> EvidenceRead:
         row = self._store.add(new)
-        self._store.record(session_id, ACTION_EVIDENCE_ADDED, _audit_payload(row, target))
+        self._store.record(session_id, ACTION_EVIDENCE_ADDED, after=_audit_payload(row, target))
         self._store.commit()
         return _read(row)
 
