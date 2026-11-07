@@ -120,10 +120,38 @@ def test_percobaan_otomatis_tidak_dicatat_tracker_ini(tracker):
 
 
 def test_percobaan_baru_dan_status_tidak_dicatat(tracker):
-    """Negatif: percobaan kosong dibuat bersama snapshot sesi; hanya filled_at dipantau."""
+    """Negatif: percobaan kosong dibuat bersama snapshot sesi; hanya kolom jawaban dipantau."""
     # Act / Assert
     assert tracker.created(_percobaan(filled_at=None)) == []
-    assert tracker.fields == ("filled_at",)
+    assert set(tracker.fields) == {
+        "filled_at",
+        "filled_by",
+        "answer_text",
+        "manual_note",
+        "platform_refused",
+        "answered_at_platform",
+    }
+
+
+def test_isi_berubah_tanpa_filled_at_baru_tetap_tercatat_ditimpa(tracker):
+    """Edge: review Elision #121, timpa tidak bergantung pada filled_at yang ikut berubah.
+
+    SCRUM-231 selalu menulis filled_at baru, tetapi jalur tulis lain (atau dua simpan dengan
+    waktu yang sama) bisa mengubah isi jawaban tanpa itu; perubahannya tetap harus diaudit.
+    """
+    # Act
+    (event,) = tracker.updated(_percobaan(), {"answer_text": Change("jawaban lama", "baru")})
+
+    # Assert
+    assert event.action == "measurement_session.answer_overwritten"
+    assert event.before == {"filled_at": HARI_2.isoformat()}
+    assert "rahasia" not in repr((event.before, event.after))
+
+
+def test_isi_berubah_pada_percobaan_yang_belum_terisi_tidak_dicatat(tracker):
+    """Negatif: review Elision #121, tanpa filled_at belum ada jawaban yang disimpan atau ditimpa."""
+    # Act / Assert
+    assert tracker.updated(_percobaan(filled_at=None), {"answer_text": Change(None, "x")}) == []
 
 
 def test_isian_yang_dikosongkan_tidak_dicatat(tracker):
