@@ -211,3 +211,13 @@ def test_nama_berkas_panjang_tanpa_ekstensi_dipotong(aturan):
     """Edge: tanpa ekstensi yang wajar, nama cukup dipotong ke 255 karakter."""
     # Act / Assert
     assert aturan.safe_file_name("b" * 300) == "b" * 255
+
+
+def test_berkas_lewat_batas_dijawab_413(aturan):
+    """Positif: review #121, terlalu besar = 413 Payload Too Large, sama dengan cek Content-Length."""
+    # Act
+    with pytest.raises(ValidationError) as galat:
+        aturan.ensure_size(2048, limit_bytes=1024)
+
+    # Assert
+    assert (galat.value.status_code, galat.value.code) == (413, "EVIDENCE_TOO_LARGE")

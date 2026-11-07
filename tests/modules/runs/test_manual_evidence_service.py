@@ -27,6 +27,7 @@ SESI = uuid.UUID("00000000-0000-0000-0000-0000000000e5")
 ITEM = uuid.UUID("00000000-0000-0000-0000-00000000000a")
 PERCOBAAN = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 ADMIN = uuid.UUID("00000000-0000-0000-0000-0000000000d4")
+KONTRIBUTOR = uuid.UUID("00000000-0000-0000-0000-0000000000c7")
 JAM = datetime(2026, 11, 7, 10, 0, tzinfo=UTC)
 PNG = b"\x89PNG\r\n\x1a\n" + b"\x00" * 16
 
@@ -40,13 +41,15 @@ class _Penyimpan:
         self.bukti: list[session_ports.EvidenceRow] = []
         self.audit: list[tuple[str, dict]] = []
         self.dikunci: list[bool] = []
+        self.percobaan_dikunci: list[bool] = []
         self.commit_ke = 0
 
     def session_status(self, session_id, *, lock):
         self.dikunci.append(lock)
         return self.status
 
-    def find_attempt(self, session_id, snapshot_item_id, attempt_no):
+    def find_attempt(self, session_id, snapshot_item_id, attempt_no, *, lock=False):
+        self.percobaan_dikunci.append(lock)
         if not self.ada_percobaan:
             return None
         return session_ports.EvidenceTarget(
@@ -299,7 +302,7 @@ def test_melihat_bukti_mengikuti_flag(buat, visibility, peran, boleh):
         for aksi in (
             lambda: layanan.list(SESI, ITEM, 1, role=peran),
             lambda: layanan.download(SESI, bukti.id, role=peran),
-            lambda: layanan.delete(SESI, bukti.id, role=peran),
+            lambda: layanan.delete(SESI, bukti.id, role=peran, actor=KONTRIBUTOR),
         ):
             with pytest.raises(NotFoundError) as galat:
                 aksi()
@@ -350,7 +353,7 @@ def test_hapus_bukti_menghapus_berkas_dan_tercatat(buat):
     bukti = _unggah(layanan)
 
     # Act
-    layanan.delete(SESI, bukti.id, role=Role.CONTRIBUTOR)
+    layanan.delete(SESI, bukti.id, role=Role.CONTRIBUTOR, actor=KONTRIBUTOR)
 
     # Assert
     assert (penyimpan.bukti, berkas.isi) == ([], {})
@@ -370,7 +373,7 @@ def test_hapus_bukti_sesi_selesai_ditolak(buat):
 
     # Act
     with pytest.raises(ConflictError) as galat:
-        layanan.delete(SESI, bukti.id, role=Role.ADMIN)
+        layanan.delete(SESI, bukti.id, role=Role.ADMIN, actor=ADMIN)
 
     # Assert
     assert galat.value.code == "MANUAL_SESSION_FINALIZED"
@@ -398,7 +401,64 @@ def test_hapus_bukti_yang_tidak_ada_404(buat):
 
     # Act
     with pytest.raises(NotFoundError) as galat:
-        layanan.delete(SESI, uuid.uuid4(), role=Role.ADMIN)
+        layanan.delete(SESI, uuid.uuid4(), role=Role.ADMIN, actor=ADMIN)
+
+    # Assert
+    assert galat.value.code == "EVIDENCE_NOT_FOUND"
+    assert len(penyimpan.bukti) == 1
+
+
+# Review #121.
+
+
+def test_jalur_tulis_mengunci_percobaan_jalur_baca_tidak(buat):
+    """Positif: review #121 blocker 1, hitungan 3 bukti diserialkan lewat kunci baris attempt.
+
+    Kunci sesi FOR SHARE tidak saling menahan, jadi tanpa kunci attempt dua unggahan
+    bersamaan sama-sama melihat 2 bukti dan yang kalah mendapat 500 dari trigger.
+    """
+    # Arrange
+    layanan, penyimpan, _ = buat()
+
+    # Act
+    _unggah(layanan)
+    layanan.add_link(SESI, ITEM, 1, url="https://x.test", actor=ADMIN)
+    layanan.list(SESI, ITEM, 1, role=Role.ADMIN)
+
+    # Assert
+    assert penyimpan.percobaan_dikunci == [True, True, False]
+
+
+def test_pengunggah_boleh_menghapus_buktinya_sendiri_walau_flag_admin_saja(buat):
+    """Positif: review #121, bukti salah unggah tidak terjebak saat Kontributor tidak boleh melihat."""
+    # Arrange
+    layanan, penyimpan, berkas = buat(visibility="admin_only")
+    bukti = layanan.add_file(
+        SESI,
+        ITEM,
+        1,
+        content=PNG,
+        declared_type="image/png",
+        file_name="salah.png",
+        actor=KONTRIBUTOR,
+    )
+
+    # Act
+    layanan.delete(SESI, bukti.id, role=Role.CONTRIBUTOR, actor=KONTRIBUTOR)
+
+    # Assert
+    assert (penyimpan.bukti, berkas.isi) == ([], {})
+
+
+def test_bukti_orang_lain_tetap_tersembunyi_saat_flag_admin_saja(buat):
+    """Negatif: review #121, pengecualian hanya untuk pengunggahnya sendiri."""
+    # Arrange
+    layanan, penyimpan, _ = buat(visibility="admin_only")
+    bukti = _unggah(layanan)
+
+    # Act
+    with pytest.raises(NotFoundError) as galat:
+        layanan.delete(SESI, bukti.id, role=Role.CONTRIBUTOR, actor=KONTRIBUTOR)
 
     # Assert
     assert galat.value.code == "EVIDENCE_NOT_FOUND"

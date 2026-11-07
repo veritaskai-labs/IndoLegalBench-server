@@ -137,7 +137,7 @@ def test_berkas_tidak_sah_ditolak_422_tanpa_tersimpan(manual, isi, tipe, nama, k
 
 
 def test_berkas_lewat_batas_teknis_ditolak(manual, setelan):
-    """Negatif: AC7, ukuran bebas dengan batas teknis tim (MANUAL_EVIDENCE_MAX_BYTES)."""
+    """Negatif: AC7, ukuran bebas dengan batas teknis tim (MANUAL_EVIDENCE_MAX_BYTES); 413."""
     # Arrange
     ctx, sesi_id, percobaan = manual
     setelan(manual_evidence_max_bytes=32)
@@ -146,7 +146,7 @@ def test_berkas_lewat_batas_teknis_ditolak(manual, setelan):
     respons = _unggah(ctx.sebagai(Role.ADMIN), sesi_id, percobaan[0])
 
     # Assert
-    assert respons.status_code == 422
+    assert respons.status_code == 413
     assert respons.json()["code"] == "EVIDENCE_TOO_LARGE"
 
 
@@ -317,3 +317,78 @@ def test_bukti_untuk_sesi_yang_tidak_ada_404(manual):
     # Assert
     assert respons.status_code == 404
     assert respons.json()["code"] == "MANUAL_SESSION_NOT_FOUND"
+
+
+# Review #121.
+
+
+def test_unggahan_raksasa_ditolak_dari_content_length_sebelum_dibaca(manual, setelan):
+    """Negatif: review #121, batas teknis menolak sebelum body multipart diterima seluruhnya.
+
+    Starlette menerima dan menampung seluruh body multipart sebelum handler membaca berkas,
+    jadi batas yang hanya dicek di service tidak melindungi server dari unggahan raksasa.
+    """
+    # Arrange
+    ctx, sesi_id, percobaan = manual
+    setelan(manual_evidence_max_bytes=1024)
+    raksasa = PNG + b"\x00" * (512 * 1024)
+
+    # Act
+    respons = _unggah(ctx.sebagai(Role.ADMIN), sesi_id, percobaan[0], isi=raksasa)
+
+    # Assert
+    assert respons.status_code == 413
+    assert respons.json()["code"] == "EVIDENCE_TOO_LARGE"
+    assert ctx.db.scalars(select(EvidenceFile)).all() == []
+
+
+def test_kartu_sesi_manual_menampilkan_jumlah_bukti_per_percobaan(manual):
+    """Positif: review #121, halaman sesi membawa evidence_count supaya FE tidak N+1 panggilan."""
+    # Arrange
+    ctx, sesi_id, percobaan = manual
+    client = ctx.sebagai(Role.CONTRIBUTOR)
+    _unggah(client, sesi_id, percobaan[0])
+    _tautan(client, sesi_id, percobaan[0])
+
+    # Act
+    respons = client.get(f"/manual-measurements/{sesi_id}")
+
+    # Assert
+    assert respons.status_code == 200, respons.text
+    jumlah = {
+        slot["attempt_id"]: slot["evidence_count"]
+        for kasus in respons.json()["cases"]
+        for slot in kasus["attempts"]
+    }
+    assert jumlah[str(percobaan[0].id)] == 2
+    assert sum(jumlah.values()) == 2
+
+
+def test_pengunggah_menghapus_buktinya_sendiri_saat_flag_admin_saja(manual, setelan):
+    """Positif: review #121, Kontributor bisa membatalkan unggahannya walau tidak boleh melihat bukti."""
+    # Arrange
+    ctx, sesi_id, percobaan = manual
+    setelan(manual_evidence_visibility="admin_only")
+    client = ctx.sebagai(Role.CONTRIBUTOR)
+    bukti = _unggah(client, sesi_id, percobaan[0]).json()
+
+    # Act
+    respons = client.delete(f"/manual-measurements/{sesi_id}/evidence/{bukti['id']}")
+
+    # Assert
+    assert respons.status_code == 204
+    assert ctx.db.scalars(select(AttemptEvidence)).all() == []
+
+
+@pytest.mark.parametrize(
+    "header", [{}, {"content-length": "bukan-angka"}], ids=["chunked", "rusak"]
+)
+def test_tanpa_content_length_yang_sah_batas_dicek_saat_berkas_dibaca(header):
+    """Edge: review #121, unggahan chunked tidak ditolak di depan; batas tetap dijaga service."""
+    # Arrange
+    from types import SimpleNamespace
+
+    from app.modules.runs.manual_router import _reject_oversized
+
+    # Act / Assert: tidak melempar
+    _reject_oversized(SimpleNamespace(headers=header), 1024)

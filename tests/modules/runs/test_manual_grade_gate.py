@@ -7,16 +7,19 @@ Nilai memindahkan Lengkap ke Dinilai; nilai ulang tidak menulis status lagi, dan
 tetap Selesai.
 
 ManualGradeGate dipanggil grade_session di dua titik:
-- before_grading(): None untuk sesi otomatis (aturan D4 #114 tetap berlaku), status sesi
-  untuk sesi manual yang lengkap, atau 409 bila belum;
-- after_grading(): Lengkap -> Dinilai lewat change_status (tabel transisi + audit PBI-18),
-  di transaksi yang sama dengan hasil penilaian (tanpa commit sendiri).
+- before_grading(): tanpa kunci (review #121: penilaian memanggil LLM judge bermenit-menit,
+  dan kunci FOR UPDATE selama itu menahan semua simpan jawaban). None untuk sesi otomatis
+  (aturan D4 #114 tetap berlaku); 409 SESSION_ARCHIVED untuk sesi yang diarsipkan, seperti
+  sesi otomatis (review #121 blocker 2); 409 NOT_COMPLETE bila belum lengkap.
+- after_grading(): baru mengunci baris sesi, membaca ulang statusnya, lalu Lengkap ->
+  Dinilai lewat change_status (tabel transisi + audit PBI-18), tanpa commit sendiri.
 
 Label: Positif = perilaku yang diharapkan, Negatif = ditolak, Edge = batas perilaku.
 """
 
 import uuid
 from datetime import UTC, datetime
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select, update
@@ -32,14 +35,24 @@ JAM = datetime(2026, 11, 7, 12, 0, tzinfo=UTC)
 
 
 class _Penyimpan:
-    """Bagian ManualStatusStore yang dipakai gerbang: kunci status dan tulis status."""
+    """Bagian ManualStatusStore yang dipakai gerbang: baca, kunci, dan tulis status."""
 
-    def __init__(self, status: str | None):
+    def __init__(self, status: str | None, *, diarsipkan=False, terkunci: str | None = None):
         self.status = None if status is None else SessionStatus(status)
+        self.archived_at = JAM if diarsipkan else None
+        # Status saat dikunci; bisa berbeda dari saat dibaca (sesi berubah selama dinilai).
+        self.terkunci = self.status if terkunci is None else SessionStatus(terkunci)
+        self.kunci = 0
         self.perpindahan: list[tuple] = []
 
+    def read_manual(self, session_id):
+        if self.status is None:
+            return None
+        return SimpleNamespace(status=self.status, archived_at=self.archived_at)
+
     def lock_manual(self, session_id):
-        return self.status
+        self.kunci += 1
+        return self.terkunci
 
     def change_status(self, session_id, target, *, at, finalized_by=None, commit):
         self.perpindahan.append((SessionStatus(target), commit))
@@ -75,10 +88,25 @@ def test_sesi_manual_belum_lengkap_ditolak_409(gerbang, status):
 
 
 @pytest.mark.parametrize("status", ["complete", "graded", "finalized"])
-def test_sesi_manual_lengkap_boleh_dinilai(gerbang, status):
-    """Positif: AC9, nilai pertama (Lengkap), nilai ulang (Dinilai), Selesai lebih dulu (D8)."""
+def test_sesi_manual_lengkap_boleh_dinilai_tanpa_mengunci(gerbang, status):
+    """Positif: AC9, nilai pertama, nilai ulang, Selesai lebih dulu (D8); belum ada kunci."""
+    # Arrange
+    penyimpan = _Penyimpan(status)
+
     # Act / Assert
-    assert gerbang(_Penyimpan(status)).before_grading(SESI) == status
+    assert gerbang(penyimpan).before_grading(SESI) == status
+    # Review #121: kunci baru diambil di after_grading, bukan selama LLM judge berjalan.
+    assert penyimpan.kunci == 0
+
+
+def test_sesi_manual_yang_diarsipkan_ditolak_seperti_sesi_otomatis(gerbang):
+    """Negatif: review #121 blocker 2, Selesai bisa diarsipkan; arsip tidak dinilai (#114)."""
+    # Act
+    with pytest.raises(ConflictError) as galat:
+        gerbang(_Penyimpan("finalized", diarsipkan=True)).before_grading(SESI)
+
+    # Assert
+    assert galat.value.code == "SESSION_ARCHIVED"
 
 
 def test_sesi_manual_berstatus_d4_409_bukan_500(gerbang):
@@ -106,19 +134,41 @@ def test_setelah_dinilai_lengkap_menjadi_dinilai(gerbang, status, perpindahan):
     penyimpan = _Penyimpan(status)
 
     # Act
-    gerbang(penyimpan).after_grading(SESI, SessionStatus(status), now=JAM)
+    hasil = gerbang(penyimpan).after_grading(SESI, now=JAM)
 
     # Assert
     assert penyimpan.perpindahan == perpindahan
+    assert penyimpan.kunci == 1
+    assert hasil == (perpindahan[0][0] if perpindahan else SessionStatus(status))
+
+
+def test_setelah_dinilai_memakai_status_terbaru_saat_dikunci(gerbang):
+    """Edge: review #121, sesi ditandai Selesai selama penilaian; status tidak ditimpa Dinilai."""
+    # Arrange
+    penyimpan = _Penyimpan("complete", terkunci="finalized")
+
+    # Act
+    hasil = gerbang(penyimpan).after_grading(SESI, now=JAM)
+
+    # Assert
+    assert (hasil, penyimpan.perpindahan) == (SessionStatus.FINALIZED, [])
+
+
+def test_setelah_dinilai_sesi_otomatis_tidak_disentuh(gerbang):
+    """Edge: after_grading untuk sesi bukan manual tidak menulis apa pun."""
+    # Arrange
+    penyimpan = _Penyimpan(None)
+
+    # Act / Assert
+    assert gerbang(penyimpan).after_grading(SESI, now=JAM) is None
+    assert penyimpan.perpindahan == []
 
 
 # Jalur ke tabel lewat ManualSessionRepository: tabel transisi dan audit sungguhan.
 
 
-def _status(db, sesi_id, status):
-    db.execute(
-        update(MeasurementSession).where(MeasurementSession.id == sesi_id).values(status=status)
-    )
+def _ubah(db, sesi_id, **kolom):
+    db.execute(update(MeasurementSession).where(MeasurementSession.id == sesi_id).values(**kolom))
     db.commit()
 
 
@@ -126,12 +176,12 @@ def test_nilai_sesi_lengkap_tercatat_dinilai_di_database(siap_manual, gerbang):
     """Positif: D8, Lengkap -> Dinilai lewat change_status, dengan catatan status_changed."""
     # Arrange
     sesi_id = _sesi_manual(siap_manual, repeat_count=1)
-    _status(siap_manual.db, sesi_id, "complete")
+    _ubah(siap_manual.db, sesi_id, status="complete")
     pintu = gerbang(ManualSessionRepository(siap_manual.db))
 
     # Act
-    status = pintu.before_grading(sesi_id)
-    pintu.after_grading(sesi_id, status, now=JAM)
+    pintu.before_grading(sesi_id)
+    pintu.after_grading(sesi_id, now=JAM)
     siap_manual.db.commit()
 
     # Assert
@@ -159,3 +209,25 @@ def test_nilai_sesi_baru_dibuat_ditolak_di_database(siap_manual, gerbang):
 
     # Assert
     assert galat.value.code == "NOT_COMPLETE"
+
+
+def test_nilai_sesi_selesai_yang_diarsipkan_ditolak_di_database(siap_manual, gerbang):
+    """Negatif: review #121 blocker 2, arsip dibaca dari database (read_manual)."""
+    # Arrange
+    sesi_id = _sesi_manual(siap_manual, repeat_count=1)
+    _ubah(
+        siap_manual.db,
+        sesi_id,
+        status="finalized",
+        finalized_at=JAM,
+        finalized_by=siap_manual.produk.created_by,
+        archived_at=JAM,
+        archived_by=siap_manual.produk.created_by,
+    )
+
+    # Act
+    with pytest.raises(ConflictError) as galat:
+        gerbang(ManualSessionRepository(siap_manual.db)).before_grading(sesi_id)
+
+    # Assert
+    assert galat.value.code == "SESSION_ARCHIVED"

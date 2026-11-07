@@ -16,7 +16,7 @@ import os
 import uuid
 
 import pytest
-from sqlalchemy import create_engine, text
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.exc import DBAPIError
 from sqlalchemy.orm import Session
 
@@ -159,3 +159,32 @@ def test_bukti_tidak_terlihat_dari_sesi_lain(db, repo, jawaban, conn):
 
     # Act / Assert
     assert penyimpan.find_evidence(sesi_lain, bukti.id) is None
+
+
+@pytest.mark.parametrize(("kunci", "ada_for_update"), [(True, True), (False, False)])
+def test_cari_percobaan_mengunci_baris_attempt_di_jalur_tulis(
+    db, conn, repo, jawaban, kunci, ada_for_update
+):
+    """Positif: review #121 blocker 1, hitungan 3 bukti diserialkan oleh FOR UPDATE di attempt.
+
+    Tanpa kunci ini dua unggahan sama-sama melihat 2 bukti (kunci sesi FOR SHARE tidak saling
+    menahan) dan yang kalah ditolak trigger sebagai IntegrityError, jadi 500 bukan 409.
+    """
+    # Arrange
+    sesi, item, _, _ = jawaban
+    perintah: list[str] = []
+
+    def catat(_conn, _cursor, statement, *_args):
+        perintah.append(statement)
+
+    event.listen(conn, "before_cursor_execute", catat)
+
+    # Act
+    try:
+        repo.EvidenceRepository(db).find_attempt(sesi, item, 1, lock=kunci)
+    finally:
+        event.remove(conn, "before_cursor_execute", catat)
+
+    # Assert
+    (pilih,) = [p for p in perintah if "FROM attempts" in p]
+    assert ("FOR UPDATE" in pilih) is ada_for_update
