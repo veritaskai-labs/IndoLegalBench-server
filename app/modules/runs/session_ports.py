@@ -12,6 +12,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
+from app.modules.runs.models import AttemptSource
 from app.modules.runs.schemas import CaseFilter, MeasurementPurpose, SessionStatus
 
 
@@ -199,6 +200,12 @@ class ManualAttemptRow:
     repetition_no: int
     filled: bool
     answered_at_platform: datetime | None
+    source: AttemptSource = AttemptSource.MANUAL
+    answer_md: str | None = None
+    platform_refused: bool = False
+    note: str | None = None
+    filled_by: uuid.UUID | None = None
+    filled_at: datetime | None = None
 
 
 class ManualStatusStore(Protocol):

@@ -71,6 +71,12 @@ def _slots_per_case(
                 repetition_no=attempt.repetition_no,
                 filled=attempt.filled,
                 answered_at_platform=attempt.answered_at_platform,
+                source=attempt.source,
+                answer_md=attempt.answer_md,
+                platform_refused=attempt.platform_refused,
+                note=attempt.note,
+                filled_by=attempt.filled_by,
+                filled_at=attempt.filled_at,
             )
         )
     return slots

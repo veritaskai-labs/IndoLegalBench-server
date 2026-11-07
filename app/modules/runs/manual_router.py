@@ -8,21 +8,30 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, status
+from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
 from app.modules.runs.dependencies import (
     get_manual_session_service,
     get_manual_status_service,
 )
+from app.modules.runs.manual_answers import (
+    manual_answer_history,
+    save_manual_answer,
+)
 from app.modules.runs.manual_session import ManualSessionService
 from app.modules.runs.manual_session_status import ManualSessionStatusService
 from app.modules.runs.schemas import (
+    ManualAnswerHistoryEntry,
+    ManualAnswerResponse,
+    ManualAnswerSaveRequest,
     ManualFinalizeResponse,
     ManualSessionDetail,
     ManualStartRequest,
     ManualStartResponse,
 )
 from app.shared.config import Settings, get_settings
+from app.shared.database import get_db
 from app.shared.security import CurrentUser, Role, require_roles
 
 router = APIRouter(prefix="/manual-measurements", tags=["manual-measurements"])
@@ -116,4 +125,53 @@ def read_manual_session(
         session_id,
         unfilled_only=unfilled,
         warning_days=settings.manual_answer_date_warning_days,
+    )
+
+
+@router.put(
+    "/{session_id}/answers",
+    response_model=ManualAnswerResponse,
+    summary="Simpan atau timpa jawaban manual",
+    responses={
+        409: {
+            "model": ErrorBody,
+            "description": "Konfirmasi overwrite diperlukan atau sesi sudah selesai.",
+        },
+        422: {
+            "model": ErrorBody,
+            "description": "Jawaban kosong atau percobaan tidak valid.",
+        },
+    },
+)
+def put_manual_answer(
+    session_id: uuid.UUID,
+    payload: ManualAnswerSaveRequest,
+    user: CurrentUser = Depends(_viewers),
+    db: Session = Depends(get_db),
+) -> ManualAnswerResponse:
+    return save_manual_answer(
+        db,
+        session_id,
+        payload,
+        actor=uuid.UUID(str(user.user_id)),
+    )
+
+
+@router.get(
+    "/{session_id}/answers/{snapshot_item_id}/{attempt_no}/history",
+    response_model=list[ManualAnswerHistoryEntry],
+    summary="Riwayat perubahan jawaban manual",
+)
+def get_manual_answer_history(
+    session_id: uuid.UUID,
+    snapshot_item_id: uuid.UUID,
+    attempt_no: int,
+    _user: CurrentUser = Depends(_viewers),
+    db: Session = Depends(get_db),
+) -> list[ManualAnswerHistoryEntry]:
+    return manual_answer_history(
+        db,
+        session_id,
+        snapshot_item_id,
+        attempt_no,
     )
