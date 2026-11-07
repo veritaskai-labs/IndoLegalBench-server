@@ -107,6 +107,16 @@ class SnapshotSourceAdapter:
         return items
 
 
+class SuiteGuardAdapter:
+    """Aturan suite yang sama dengan ringkasan sesi otomatis (CaseCountAdapter)."""
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def require_measurable(self, suite_ids: Sequence[uuid.UUID]) -> None:
+        suites_service.require_existing(self._db, set(suite_ids))
+
+
 class ProductCopyAdapter:
     """Salinan produk untuk sesi (D2 session_product_copies). Kredensial tidak dibaca."""
 

@@ -20,6 +20,7 @@ from app.modules.runs.session_ports import (
     ProductCopySource,
     ProductLock,
     SnapshotSource,
+    SuiteGuard,
 )
 from app.shared.exceptions import ValidationError
 
@@ -36,11 +37,13 @@ class ManualSessionService:
         snapshots: SnapshotSource,
         products: ProductCopySource,
         product_lock: ProductLock,
+        suites: SuiteGuard,
     ) -> None:
         self._sessions = sessions
         self._snapshots = snapshots
         self._products = products
         self._product_lock = product_lock
+        self._suites = suites
 
     def create(self, request: ManualStartRequest, *, created_by: uuid.UUID) -> ManualStartResponse:
         # Kontrak #90: kunci produk dan baca ulang jenisnya di transaksi yang sama dengan
@@ -49,6 +52,8 @@ class ManualSessionService:
             raise ValidationError(_PESAN_PRODUK_OTOMATIS, code="PRODUCT_NOT_MANUAL")
         # PRODUCT_INACTIVE dari ProductCopyAdapter: produk nonaktif tidak bisa dicatat.
         product = self._products.copy(request.product_id)
+        # Suite arsip tidak bisa dipilih untuk pengukuran baru, manual maupun otomatis.
+        self._suites.require_measurable(request.suite_ids)
         items = items_for_filter(
             self._snapshots.approved_items(request.suite_ids), request.case_filter
         )

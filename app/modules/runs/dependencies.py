@@ -18,6 +18,7 @@ from app.modules.runs.adapters import (
     ProductLockAdapter,
     SessionProgressAdapter,
     SnapshotSourceAdapter,
+    SuiteGuardAdapter,
 )
 from app.modules.runs.call_log import CallLogService
 from app.modules.runs.exchange_rate import (
@@ -122,6 +123,7 @@ def get_manual_session_service(db: Session = Depends(get_db)) -> ManualSessionSe
         snapshots=SnapshotSourceAdapter(db),
         products=ProductCopyAdapter(db),
         product_lock=ProductLockAdapter(db),
+        suites=SuiteGuardAdapter(db),
     )
 
 

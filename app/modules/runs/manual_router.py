@@ -40,7 +40,7 @@ _viewers = require_roles(Role.ADMIN, Role.CONTRIBUTOR)
     responses={
         404: {
             "model": ErrorBody,
-            "description": "Produk AI tidak ditemukan (`AI_PRODUCT_NOT_FOUND`).",
+            "description": "Suite atau produk AI tidak ditemukan (`AI_PRODUCT_NOT_FOUND`).",
         },
         409: {
             "model": ErrorBody,

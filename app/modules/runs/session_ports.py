@@ -133,6 +133,12 @@ class ProductCopySource(Protocol):
         raise NotImplementedError
 
 
+class SuiteGuard(Protocol):
+    def require_measurable(self, suite_ids: Sequence[uuid.UUID]) -> None:
+        """Suite ada dan tidak diarsipkan: 404 bila hilang, 409 SUITE_ARCHIVED (SCRUM-206)."""
+        raise NotImplementedError
+
+
 class ManualSessionStore(Protocol):
     def create_manual(
         self, new: NewSession, *, items: Sequence[SnapshotItem], product: ProductCopy

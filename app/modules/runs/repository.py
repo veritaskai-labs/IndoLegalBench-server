@@ -301,15 +301,19 @@ class SessionListRepository:
         ]
 
     def _attempt_counts(self, ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, dict[str, int]]:
+        terisi = Attempt.filled_at.is_not(None)
         rows = self._db.execute(
-            select(Attempt.session_id, Attempt.status, func.count())
+            select(Attempt.session_id, Attempt.status, terisi, func.count())
             .where(Attempt.session_id.in_(ids))
-            .group_by(Attempt.session_id, Attempt.status)
+            .group_by(Attempt.session_id, Attempt.status, terisi)
         )
-        counts: dict[uuid.UUID, dict[str, int]] = defaultdict(dict)
-        for session_id, status, count in rows:
-            counts[session_id][AttemptStatus(status).value] = count
-        return counts
+        counts: dict[uuid.UUID, dict[str, int]] = defaultdict(lambda: defaultdict(int))
+        for session_id, status, filled, count in rows:
+            # PBI-22 D8: percobaan manual tetap pending; jawaban yang terisi (filled_at)
+            # sudah punya hasil akhir, jadi dihitung selesai seperti succeeded.
+            kunci = AttemptStatus.SUCCEEDED.value if filled else AttemptStatus(status).value
+            counts[session_id][kunci] += count
+        return {session_id: dict(per_status) for session_id, per_status in counts.items()}
 
     def _case_counts(self, ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, int]:
         """Hanya sesi yang sudah punya snapshot. Snapshot kosong bernilai 0."""
