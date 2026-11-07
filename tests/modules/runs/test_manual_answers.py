@@ -35,7 +35,7 @@ def payload(attempt, **changes):
         "attempt_no": attempt.repetition_no,
         "answer_md": "\n# Markdown\r\n**tebal**\n\n",
         "platform_refused": False,
-        "requires_confirmation": False,
+        "confirm": False,
     }
     data.update(changes)
     return data
@@ -106,7 +106,7 @@ def test_overwrite_harus_dikonfirmasi_dan_disimpan_di_history(manual):
 
     success = client.put(
         path(session_id),
-        json={**second, "requires_confirmation": True},
+        json={**second, "confirm": True},
     )
     assert success.status_code == 200, success.text
 
@@ -188,7 +188,7 @@ def test_tidak_boleh_mengubah_setelah_finalized(manual):
 
     response = client.put(
         path(session_id),
-        json=payload(attempts[0], requires_confirmation=True),
+        json=payload(attempts[0], confirm=True),
     )
     assert response.status_code == 409
     assert response.json()["code"] == "MANUAL_SESSION_FINALIZED"
@@ -309,7 +309,7 @@ def test_riwayat_memuat_penimpa_dan_waktu_timpa_dalam_utc(manual):
     client.put(path(session_id), json=payload(attempt, answer_md="Jawaban lama"))
     client.put(
         path(session_id),
-        json=payload(attempt, answer_md="Jawaban baru", requires_confirmation=True),
+        json=payload(attempt, answer_md="Jawaban baru", confirm=True),
     )
 
     response = client.get(f"{path(session_id)}/{attempt.snapshot_item_id}/1/history")
@@ -319,3 +319,121 @@ def test_riwayat_memuat_penimpa_dan_waktu_timpa_dalam_utc(manual):
     assert catatan["overwritten_by"]
     assert catatan["overwritten_at"].endswith("Z")
     assert catatan["filled_at"].endswith("Z")
+
+
+@pytest.mark.parametrize("attempt_no", [0, 6])
+def test_nomor_percobaan_di_luar_batas_kontrak_ditolak_422(manual, attempt_no):
+    """Negatif: batas global PBI-11 adalah 1 sampai 5, di luar itu ditolak kontraknya."""
+    ctx, session_id, attempts = manual
+
+    response = ctx.sebagai(Role.ADMIN).put(
+        path(session_id),
+        json=payload(attempts[0], attempt_no=attempt_no),
+    )
+
+    assert response.status_code == 422
+
+
+def test_waktu_diperoleh_tanpa_zona_ditolak_422(manual):
+    """Negatif: waktu tanpa zona tidak bisa disimpan sebagai UTC (AC7)."""
+    ctx, session_id, attempts = manual
+
+    response = ctx.sebagai(Role.ADMIN).put(
+        path(session_id),
+        json=payload(attempts[0], obtained_at="2026-11-07T14:00:00"),
+    )
+
+    assert response.status_code == 422
+
+
+def test_dua_kali_menimpa_menyisakan_dua_versi_lama_berurutan(manual):
+    """Positif: tiap timpa menambah satu versi, terlama dulu (AC5)."""
+    ctx, session_id, attempts = manual
+    client = ctx.sebagai(Role.ADMIN)
+    attempt = attempts[0]
+
+    client.put(path(session_id), json=payload(attempt, answer_md="Versi satu"))
+    for teks in ("Versi dua", "Versi tiga"):
+        client.put(
+            path(session_id),
+            json=payload(attempt, answer_md=teks, confirm=True),
+        )
+
+    riwayat = client.get(f"{path(session_id)}/{attempt.snapshot_item_id}/1/history").json()
+
+    assert [catatan["answer_md"] for catatan in riwayat] == ["Versi satu", "Versi dua"]
+
+    ctx.db.expire_all()
+    assert ctx.db.get(Attempt, attempt.id).answer_text == "Versi tiga"
+
+
+def test_penolakan_platform_bisa_ditimpa_jawaban_normal(manual):
+    """Positif: tim legal boleh memperbaiki penolakan dengan jawaban asli (AC6)."""
+    ctx, session_id, attempts = manual
+    client = ctx.sebagai(Role.ADMIN)
+    attempt = attempts[0]
+
+    client.put(
+        path(session_id),
+        json=payload(attempt, answer_md=None, platform_refused=True, note="Platform menolak."),
+    )
+    response = client.put(
+        path(session_id),
+        json=payload(attempt, answer_md="**Jawaban asli**", confirm=True),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["platform_refused"] is False
+    assert response.json()["answer_md"] == "**Jawaban asli**"
+
+    riwayat = client.get(f"{path(session_id)}/{attempt.snapshot_item_id}/1/history").json()
+    assert riwayat[0]["platform_refused"] is True
+    assert riwayat[0]["note"] == "Platform menolak."
+
+
+def test_jawaban_normal_bisa_ditimpa_penolakan_platform(manual):
+    """Positif: arah sebaliknya juga boleh, dan catatannya tersimpan (AC6)."""
+    ctx, session_id, attempts = manual
+    client = ctx.sebagai(Role.ADMIN)
+    attempt = attempts[0]
+
+    client.put(path(session_id), json=payload(attempt, answer_md="Jawaban awal"))
+    response = client.put(
+        path(session_id),
+        json=payload(
+            attempt,
+            answer_md=None,
+            platform_refused=True,
+            note="Ternyata platform menolak.",
+            confirm=True,
+        ),
+    )
+
+    assert response.status_code == 200, response.text
+    assert response.json()["platform_refused"] is True
+    assert response.json()["note"] == "Ternyata platform menolak."
+
+    riwayat = client.get(f"{path(session_id)}/{attempt.snapshot_item_id}/1/history").json()
+    assert riwayat[0]["answer_md"] == "Jawaban awal"
+
+
+def test_riwayat_sesi_tidak_dikenal_menghasilkan_404(manual):
+    """Negatif: sesi yang tidak ada bukan galat isian (AC5)."""
+    ctx, _session_id, attempts = manual
+
+    response = ctx.sebagai(Role.ADMIN).get(
+        f"/manual-measurements/{uuid.uuid4()}/answers/{attempts[0].snapshot_item_id}/1/history"
+    )
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "MANUAL_SESSION_NOT_FOUND"
+
+
+def test_riwayat_kasus_tidak_dikenal_menghasilkan_404(manual):
+    """Negatif: pada GET, kasus yang tidak ada berarti sumbernya tidak ada, bukan 422."""
+    ctx, session_id, _attempts = manual
+
+    response = ctx.sebagai(Role.ADMIN).get(f"{path(session_id)}/{uuid.uuid4()}/1/history")
+
+    assert response.status_code == 404
+    assert response.json()["code"] == "MANUAL_ANSWER_NOT_FOUND"
