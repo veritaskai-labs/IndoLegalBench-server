@@ -108,6 +108,7 @@ class TableSessionStore(SessionStore):
         # Partial failed answers belong to the call evidence; successful answers are immutable.
         row.answer_text = None if failed else record.text
         row.model_version = record.model_version
+        row.finished_at = record.ended_at or datetime.now(UTC)
         # The copy trigger reads the attempt as evidence; persist it before queuing that update.
         self.db.flush()
         copy = self.db.scalar(
