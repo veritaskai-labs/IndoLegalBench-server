@@ -1,9 +1,15 @@
-"""Manual answer saving and overwrite history, SCRUM-231."""
+"""Menyimpan jawaban manual, menimpanya, dan menyimpan jejak versi lama. SCRUM-231.
+
+Jawaban disimpan apa adanya di attempts dengan sumber manual: markdown utuh, tanpa
+batas panjang, tabel dan tautan tidak dibuang (AC4). Menimpa jawaban yang sudah ada
+butuh konfirmasi, dan versi lamanya pindah ke answer_history lengkap dengan pengisi,
+waktu isi, penimpa, dan waktu timpa (AC5).
+"""
 
 import uuid
 from datetime import UTC, datetime
 
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.modules.runs.manual_session_rules import (
@@ -72,12 +78,42 @@ def _find_attempt(
 
     attempt = db.scalar(query)
     if attempt is None:
-        raise ValidationError(
-            "Kasus atau percobaan tidak ditemukan pada sesi.",
-            code="MANUAL_ATTEMPT_NOT_FOUND",
-        )
+        raise _missing_attempt_error(db, session_id, snapshot_item_id)
 
     return attempt
+
+
+def _missing_attempt_error(
+    db: Session,
+    session_id: uuid.UUID,
+    snapshot_item_id: uuid.UUID,
+) -> ValidationError:
+    """Pisahkan dua validasi AC yang berbeda, supaya pengisi tahu mana yang salah.
+
+    "Kasus ada di snapshot sesi" dan "nomor percobaan dalam jumlah percobaan sesi"
+    adalah dua syarat terpisah di tiket, jadi keduanya tidak boleh keluar dengan
+    satu kode yang sama. Hitungan ini hanya jalan di jalur gagal.
+    """
+    kasus_ada = db.scalar(
+        select(func.count())
+        .select_from(Attempt)
+        .where(
+            Attempt.session_id == session_id,
+            Attempt.snapshot_item_id == snapshot_item_id,
+            Attempt.source == AttemptSource.MANUAL,
+        )
+    )
+
+    if not kasus_ada:
+        return ValidationError(
+            "Kasus tidak ada di snapshot sesi ini.",
+            code="MANUAL_CASE_NOT_IN_SNAPSHOT",
+        )
+
+    return ValidationError(
+        "Nomor percobaan di luar jumlah pengulangan sesi.",
+        code="MANUAL_ATTEMPT_NO_OUT_OF_RANGE",
+    )
 
 
 def save_manual_answer(
