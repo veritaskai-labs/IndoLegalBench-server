@@ -272,3 +272,15 @@ def test_jumlah_query_tidak_bertambah_per_sesi(as_role, db_session, produk, pemb
 
     # Assert
     assert lima_sesi == satu_sesi
+
+
+def test_sesi_otomatis_berlabel_automatic(as_role, db_session, produk, pembuat):
+    """Positif: PBI-22 AC9 (SCRUM-233), daftar sesi membawa jenis sesi; otomatis tetap automatic."""
+    # Arrange
+    _sesi(db_session, produk, pembuat)
+
+    # Act
+    (baris,) = as_role(Role.ADMIN).get(URL).json()
+
+    # Assert
+    assert baris["session_type"] == "automatic"
