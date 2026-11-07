@@ -12,8 +12,16 @@ from sqlalchemy.orm import Session
 from app.modules.providers.models import JudgeProvider
 
 
-def get_by_id(db: Session, judge_id: uuid.UUID) -> JudgeProvider | None:
-    return db.query(JudgeProvider).filter(JudgeProvider.id == judge_id).first()
+def get_by_id(db: Session, judge_id: uuid.UUID, *, for_share: bool = False) -> JudgeProvider | None:
+    """for_share mengunci baris (FOR SHARE) sampai transaksi pemanggil selesai.
+
+    Kunci hanya berdasarkan id, tidak menyaring is_active: nonaktifkan yang bersamaan
+    harus ditunggu lalu terbaca, bukan dilewati (pelajaran SCRUM-222).
+    """
+    query = db.query(JudgeProvider).filter(JudgeProvider.id == judge_id)
+    if for_share:
+        query = query.with_for_update(read=True).populate_existing()
+    return query.first()
 
 
 def get_by_name(db: Session, name: str) -> JudgeProvider | None:

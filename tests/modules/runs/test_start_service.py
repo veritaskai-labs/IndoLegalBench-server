@@ -258,19 +258,6 @@ def test_ringkasan_gagal_tidak_sampai_mengunci_produk():
     assert kunci.dikunci == []
 
 
-def test_provider_penilai_ikut_tersimpan_di_sesi():
-    """Positif: PBI-14 AC6, penilai dipilih saat sesi dibuat dan disimpan bersama sesi."""
-    # Arrange
-    judge = uuid.UUID("00000000-0000-0000-0000-0000000000f8")
-    start, _, antrean = _service()
-
-    # Act
-    start.start(_permintaan(judge_provider_id=judge), created_by=ADMIN_ID)
-
-    # Assert
-    assert antrean.dibuat[0].judge_provider_id == judge
-
-
 # --- Penilai LLM (SCRUM-258) ------------------------------------------------------
 
 

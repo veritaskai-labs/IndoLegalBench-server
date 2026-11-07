@@ -117,6 +117,12 @@ class ProductLock(Protocol):
         raise NotImplementedError
 
 
+class JudgeLock(Protocol):
+    def lock_available(self, judge_provider_id: uuid.UUID) -> bool:
+        """Kunci baris penilai sampai transaksi selesai, lalu True bila ada dan aktif (SCRUM-258)."""
+        raise NotImplementedError
+
+
 class SnapshotSource(Protocol):
     def approved_items(self, suite_ids: Sequence[uuid.UUID]) -> list[SnapshotItem]:
         """Versi disetujui terbaru setiap kasus di suite itu, urut suite lalu kode kasus."""

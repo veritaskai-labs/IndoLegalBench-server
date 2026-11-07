@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.auth import service as auth_service
 from app.modules.cases import service as cases_service
+from app.modules.providers import judge_service
 from app.modules.providers import service as providers_service
 from app.modules.runs import repository
 from app.modules.runs.call_log import month_start
@@ -140,6 +141,16 @@ class ProductLockAdapter:
 
     def lock_measurement_type(self, product_id: uuid.UUID) -> str:
         return providers_service.lock_for_new_session(self._db, product_id).value
+
+
+class JudgeLockAdapter:
+    """Kunci penilai lewat providers.judge_service, di session database yang sama dengan INSERT sesi."""
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def lock_available(self, judge_provider_id: uuid.UUID) -> bool:
+        return judge_service.lock_available_for_new_session(self._db, judge_provider_id)
 
 
 class CallLogSpend:

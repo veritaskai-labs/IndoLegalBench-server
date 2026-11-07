@@ -82,6 +82,17 @@ def set_active(db: Session, judge_id: uuid.UUID, *, is_active: bool) -> JudgePro
     return _tampilkan(judge_repository.save(db, judge))
 
 
+def lock_available_for_new_session(db: Session, judge_id: uuid.UUID) -> bool:
+    """Kunci baris penilai (FOR SHARE) untuk sesi yang akan dibuat, lalu ada dan aktifnya.
+
+    Untuk POST /measurements (SCRUM-258): kunci bertahan sampai transaksi pembuat sesi
+    selesai, jadi nonaktifkan yang belum commit ditunggu dan hasilnya terbaca, seperti
+    kunci produk #90.
+    """
+    judge = judge_repository.get_by_id(db, judge_id, for_share=True)
+    return judge is not None and judge.is_active
+
+
 def _wajib_ada(db: Session, judge_id: uuid.UUID) -> JudgeProvider:
     judge = judge_repository.get_by_id(db, judge_id)
     if judge is None:

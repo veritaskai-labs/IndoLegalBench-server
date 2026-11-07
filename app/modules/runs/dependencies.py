@@ -12,6 +12,7 @@ from app.modules.runs.adapters import (
     CallLogSpend,
     CaseCountAdapter,
     CaseTextAdapter,
+    JudgeLockAdapter,
     NameAdapter,
     ProductAdapter,
     ProductCopyAdapter,
@@ -109,7 +110,10 @@ def get_start_service(
 ) -> StartSessionService:
     """Ringkasan, kunci produk, dan INSERT sesi memakai satu session database (satu transaksi)."""
     return StartSessionService(
-        summary=summary, sessions=sessions, product_lock=ProductLockAdapter(db)
+        summary=summary,
+        sessions=sessions,
+        product_lock=ProductLockAdapter(db),
+        judge_lock=JudgeLockAdapter(db),
     )
 
 

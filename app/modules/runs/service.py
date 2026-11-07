@@ -41,6 +41,7 @@ from app.modules.runs.schemas import (
 from app.modules.runs.session_list import SessionListService
 from app.modules.runs.session_notice import Notifier, notify_session_ended
 from app.modules.runs.session_ports import (
+    JudgeLock,
     NewSession,
     ProductCopy,
     ProductCopySource,
@@ -65,6 +66,9 @@ logger = logging.getLogger(__name__)
 
 _CENT = Decimal("0.01")
 _PESAN_PRODUK_MANUAL = "Produk manual tidak bisa diukur otomatis. Catat jawabannya secara manual."
+_PESAN_PENILAI_TIDAK_ADA = (
+    "Provider penilai tidak ditemukan atau sudah nonaktif. Pilih penilai lain."
+)
 
 # Split tag yang dihitung untuk tiap pilihan. Pilihan baru cukup menambah baris.
 _SPLITS_FOR_FILTER: Mapping[CaseFilter, tuple[str, ...]] = {
@@ -351,11 +355,17 @@ class StartSessionService:
     """
 
     def __init__(
-        self, *, summary: SummaryService, sessions: SessionQueueStore, product_lock: ProductLock
+        self,
+        *,
+        summary: SummaryService,
+        sessions: SessionQueueStore,
+        product_lock: ProductLock,
+        judge_lock: JudgeLock,
     ) -> None:
         self._summary = summary
         self._sessions = sessions
         self._product_lock = product_lock
+        self._judge_lock = judge_lock
 
     def start(self, request: StartRequest, *, created_by: uuid.UUID) -> StartResponse:
         self._summary.summarize(request)
@@ -363,6 +373,16 @@ class StartSessionService:
         # INSERT sesi, supaya ganti jenis yang bersamaan tidak meloloskan sesi (D1 C6).
         if self._product_lock.lock_measurement_type(request.product_id) != "automatic":
             raise ValidationError(_PESAN_PRODUK_MANUAL, code="PRODUCT_NOT_AUTOMATIC")
+        # SCRUM-258: penilai dikunci dan dibaca ulang di transaksi yang sama, seperti produk,
+        # supaya penilai yang dinonaktifkan bersamaan tidak tersimpan di sesi. Kosong tetap
+        # boleh sampai form punya dropdown penilai (keputusan PO K2, 7 Nov).
+        judge_id = request.judge_provider_id
+        if judge_id is not None and not self._judge_lock.lock_available(judge_id):
+            raise ValidationError(
+                _PESAN_PENILAI_TIDAK_ADA,
+                code="JUDGE_PROVIDER_NOT_AVAILABLE",
+                field="judge_provider_id",
+            )
         queued = self._sessions.create_queued(
             NewSession(
                 label=request.label,
