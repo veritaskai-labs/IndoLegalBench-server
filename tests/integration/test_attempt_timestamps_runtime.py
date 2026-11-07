@@ -9,6 +9,7 @@ from app.modules.runs import dependencies
 from app.modules.runs.execution_store import TableSessionStore
 from app.modules.runs.models import Attempt, AttemptStatus, CallLog
 from app.modules.runs.ports import AttemptRecord
+from app.shared.security import Role
 from tests.modules.conftest import as_role, buat_pengguna
 from tests.modules.runs.test_execution_runtime import (
     Provider,
@@ -174,3 +175,58 @@ def test_save_without_reported_end_time_still_stamps_finished_at(siap):
     assert attempt.status == AttemptStatus.SUCCEEDED
     assert attempt.finished_at is not None
     assert before <= _utc(attempt.finished_at) <= datetime.now(UTC)
+
+
+def _stamps(attempts) -> dict:
+    return {
+        attempt.id: (_utc(attempt.started_at), _utc(attempt.finished_at)) for attempt in attempts
+    }
+
+
+def _failed_run(siap):
+    """Sesi mixed selesai: satu percobaan gagal, delapan berhasil."""
+    session_id = start(siap)
+    run = runner(siap, Provider("mixed"))
+    run()
+    siap.db.expire_all()
+    attempts = siap.db.scalars(select(Attempt).where(Attempt.session_id == session_id)).all()
+    failed = [a for a in attempts if a.status == AttemptStatus.TECHNICAL_FAILURE]
+    assert len(failed) == 1
+    return session_id, run, failed[0], [a for a in attempts if a.id != failed[0].id]
+
+
+def test_retry_clears_timestamps_of_reopened_attempt_and_keeps_the_others(siap):
+    # Arrange
+    session_id, _run, failed, succeeded = _failed_run(siap)
+    kept = _stamps(succeeded)
+
+    # Act
+    response = siap.sebagai(Role.ADMIN).post(
+        f"/measurements/{session_id}/retry", json={"all_failed": True}
+    )
+
+    # Assert
+    assert response.status_code == 202
+    siap.db.expire_all()
+    reopened = siap.db.get(Attempt, failed.id)
+    assert reopened.status == AttemptStatus.PENDING
+    assert (reopened.started_at, reopened.finished_at) == (None, None)
+    assert _stamps(siap.db.get(Attempt, attempt_id) for attempt_id in kept) == kept
+
+
+def test_rerun_gives_retried_attempt_fresh_timestamps_and_never_touches_successes(siap):
+    # Arrange
+    session_id, run, failed, succeeded = _failed_run(siap)
+    first_finish = _utc(failed.finished_at)
+    kept = _stamps(succeeded)
+    siap.sebagai(Role.ADMIN).post(f"/measurements/{session_id}/retry", json={"all_failed": True})
+
+    # Act
+    run()
+
+    # Assert
+    siap.db.expire_all()
+    retried = siap.db.get(Attempt, failed.id)
+    assert retried.status == AttemptStatus.SUCCEEDED
+    assert first_finish < _utc(retried.started_at) <= _utc(retried.finished_at)
+    assert _stamps(siap.db.get(Attempt, attempt_id) for attempt_id in kept) == kept
