@@ -5,7 +5,7 @@ import uuid
 from decimal import Decimal
 
 import pytest
-from sqlalchemy import create_engine, func, select
+from sqlalchemy import create_engine, func, select, text
 from sqlalchemy.orm import Session
 
 from app.modules.notifications.models import Notification
@@ -53,6 +53,14 @@ def db_session(request, db_session):
                         role=role,
                     )
                 )
+            # Some PG test files commit queued sessions. Hide them inside this rolled-back
+            # transaction so the queue and resume rules only see this test's sessions (SCRUM-267).
+            db.execute(
+                text(
+                    "UPDATE measurement_sessions SET archived_at = now(), archived_by = created_by "
+                    "WHERE status = 'queued' AND archived_at IS NULL"
+                )
+            )
             db.commit()
             yield db
         transaction.rollback()
