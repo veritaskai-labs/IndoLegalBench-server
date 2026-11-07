@@ -10409,34 +10409,6 @@
         "title": "ThreeScores",
         "description": "Tiga skor terpisah yang diminta PBI-11 AC9: dev, test, dan gabungan."
       },
-      "Trap": {
-        "properties": {
-          "description": {
-            "type": "string",
-            "maxLength": 2000,
-            "minLength": 1,
-            "title": "Description"
-          },
-          "expected_model_behavior": {
-            "anyOf": [
-              {
-                "type": "string",
-                "maxLength": 2000
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Expected Model Behavior"
-          }
-        },
-        "type": "object",
-        "required": [
-          "description"
-        ],
-        "title": "Trap",
-        "description": "An optionally included known mistake and how the model is expected to handle it."
-      },
       "UnreadCount": {
         "properties": {
           "count": {
