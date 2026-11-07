@@ -54,7 +54,7 @@ def _produk_manual(db, *, aktif: bool = True) -> AiProduct:
 
 
 @pytest.fixture
-def siap(as_role, buat_pengguna, db_session):
+def siap_manual(as_role, buat_pengguna, db_session):
     """Suite berisi 2 kasus dev dan 1 kasus test yang disetujui, plus satu produk manual."""
     client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
@@ -76,10 +76,10 @@ def siap(as_role, buat_pengguna, db_session):
     )
 
 
-def _badan(siap, **ubah) -> dict:
+def _badan(siap_manual, **ubah) -> dict:
     badan = {
-        "suite_ids": [siap.suite_id],
-        "product_id": str(siap.produk.id),
+        "suite_ids": [siap_manual.suite_id],
+        "product_id": str(siap_manual.produk.id),
         "repeat_count": 2,
         "case_filter": "both",
         "label": "LegalHero November",
@@ -93,124 +93,132 @@ def _jumlah(db, model) -> int:
     return db.scalar(select(func.count()).select_from(model))
 
 
-def test_admin_membuat_sesi_manual_yang_langsung_belum_terisi(siap):
+def test_admin_membuat_sesi_manual_yang_langsung_belum_terisi(siap_manual):
     """Positif: AC1, 201 dengan status not_filled dan N = 3 kasus x 2 percobaan."""
     # Act
-    respons = siap.sebagai(Role.ADMIN).post(URL, json=_badan(siap))
+    respons = siap_manual.sebagai(Role.ADMIN).post(URL, json=_badan(siap_manual))
 
     # Assert
     assert respons.status_code == 201, respons.text
     isi = respons.json()
     assert isi["status"] == "not_filled"
     assert (isi["case_count"], isi["repetitions"], isi["total_answers"]) == (3, 2, 6)
-    sesi = siap.db.get(MeasurementSession, uuid.UUID(isi["session_id"]))
+    sesi = siap_manual.db.get(MeasurementSession, uuid.UUID(isi["session_id"]))
     assert sesi.session_type == SessionType.MANUAL
     assert sesi.status == SessionStatus.NOT_FILLED
     # AC10: tanpa antrean, jadi tidak pernah punya waktu antre atau mulai.
     assert (sesi.queued_at, sesi.started_at) == (None, None)
-    assert siap.db.scalars(select(MeasurementSessionSuite.suite_id)).all() == [
-        uuid.UUID(siap.suite_id)
+    assert siap_manual.db.scalars(select(MeasurementSessionSuite.suite_id)).all() == [
+        uuid.UUID(siap_manual.suite_id)
     ]
 
 
-def test_snapshot_salinan_produk_dan_percobaan_kosong_dibuat_saat_itu_juga(siap):
+def test_snapshot_salinan_produk_dan_percobaan_kosong_dibuat_saat_itu_juga(siap_manual):
     """Positif: AC2, kasus dibekukan saat sesi dibuat; setiap kasus x percobaan belum terisi."""
     # Act
-    siap.sebagai(Role.ADMIN).post(URL, json=_badan(siap, case_filter="dev"))
+    siap_manual.sebagai(Role.ADMIN).post(URL, json=_badan(siap_manual, case_filter="dev"))
 
     # Assert
-    assert _jumlah(siap.db, CaseSnapshot) == 1
-    assert _jumlah(siap.db, CaseSnapshotItem) == 2
-    salinan = siap.db.scalars(select(SessionProductCopy)).one()
+    assert _jumlah(siap_manual.db, CaseSnapshot) == 1
+    assert _jumlah(siap_manual.db, CaseSnapshotItem) == 2
+    salinan = siap_manual.db.scalars(select(SessionProductCopy)).one()
     assert (salinan.measurement_type, salinan.vendor_name, salinan.site_url) == (
         "manual",
         "LegalHero",
         "https://legalhero.id",
     )
-    percobaan = siap.db.scalars(select(Attempt)).all()
+    percobaan = siap_manual.db.scalars(select(Attempt)).all()
     assert sorted(p.repetition_no for p in percobaan) == [1, 1, 2, 2]
     assert {(p.source, p.status, p.filled_at) for p in percobaan} == {
         (AttemptSource.MANUAL, AttemptStatus.PENDING, None)
     }
 
 
-def test_tanpa_jumlah_percobaan_memakai_satu(siap):
+def test_tanpa_jumlah_percobaan_memakai_satu(siap_manual):
     """Positif: AC1, standar 1 percobaan per kasus (beban awal 2 platform x 100 kasus x 1)."""
     # Arrange
-    badan = _badan(siap)
+    badan = _badan(siap_manual)
     del badan["repeat_count"]
 
     # Act
-    respons = siap.sebagai(Role.ADMIN).post(URL, json=badan)
+    respons = siap_manual.sebagai(Role.ADMIN).post(URL, json=badan)
 
     # Assert
     assert respons.json()["total_answers"] == 3
-    assert _jumlah(siap.db, Attempt) == 3
+    assert _jumlah(siap_manual.db, Attempt) == 3
 
 
 @pytest.mark.parametrize("peran", [Role.CONTRIBUTOR, Role.VIEWER, Role.DEVELOPER_AI])
-def test_selain_admin_tidak_bisa_membuat_sesi_manual(siap, peran):
+def test_selain_admin_tidak_bisa_membuat_sesi_manual(siap_manual, peran):
     """Negatif: AC1, hanya Admin yang membuat sesi manual."""
     # Act
-    respons = siap.sebagai(peran).post(URL, json=_badan(siap))
+    respons = siap_manual.sebagai(peran).post(URL, json=_badan(siap_manual))
 
     # Assert
     assert respons.status_code == 403
-    assert _jumlah(siap.db, MeasurementSession) == 0
+    assert _jumlah(siap_manual.db, MeasurementSession) == 0
 
 
-def test_produk_otomatis_ditolak(siap):
+def test_produk_otomatis_ditolak(siap_manual):
     """Negatif: AC1, produk otomatis diukur lewat Mulai pengukuran, bukan dicatat manual."""
     # Arrange
-    otomatis = _tambah_produk(siap.db)
+    otomatis = _tambah_produk(siap_manual.db)
 
     # Act
-    respons = siap.sebagai(Role.ADMIN).post(URL, json=_badan(siap, product_id=str(otomatis.id)))
+    respons = siap_manual.sebagai(Role.ADMIN).post(
+        URL, json=_badan(siap_manual, product_id=str(otomatis.id))
+    )
 
     # Assert
     assert respons.status_code == 422
     assert respons.json()["code"] == "PRODUCT_NOT_MANUAL"
-    assert _jumlah(siap.db, MeasurementSession) == 0
+    assert _jumlah(siap_manual.db, MeasurementSession) == 0
 
 
-def test_produk_manual_nonaktif_ditolak(siap):
+def test_produk_manual_nonaktif_ditolak(siap_manual):
     """Negatif: produk yang dinonaktifkan Admin tidak bisa dipakai untuk sesi baru."""
     # Arrange
-    nonaktif = _produk_manual(siap.db, aktif=False)
+    nonaktif = _produk_manual(siap_manual.db, aktif=False)
 
     # Act
-    respons = siap.sebagai(Role.ADMIN).post(URL, json=_badan(siap, product_id=str(nonaktif.id)))
+    respons = siap_manual.sebagai(Role.ADMIN).post(
+        URL, json=_badan(siap_manual, product_id=str(nonaktif.id))
+    )
 
     # Assert
     assert respons.status_code == 422
     assert respons.json()["code"] == "PRODUCT_INACTIVE"
-    assert _jumlah(siap.db, MeasurementSession) == 0
+    assert _jumlah(siap_manual.db, MeasurementSession) == 0
 
 
-def test_suite_tanpa_kasus_layak_ditolak_tanpa_sisa(siap):
+def test_suite_tanpa_kasus_layak_ditolak_tanpa_sisa(siap_manual):
     """Negatif: AC1, suite baru tanpa kasus disetujui tidak meninggalkan sesi setengah jadi."""
     # Arrange
-    suite_kosong = _suite(siap.sebagai(Role.CONTRIBUTOR), name="Suite kosong")
+    suite_kosong = _suite(siap_manual.sebagai(Role.CONTRIBUTOR), name="Suite kosong")
 
     # Act
-    respons = siap.sebagai(Role.ADMIN).post(URL, json=_badan(siap, suite_ids=[suite_kosong]))
+    respons = siap_manual.sebagai(Role.ADMIN).post(
+        URL, json=_badan(siap_manual, suite_ids=[suite_kosong])
+    )
 
     # Assert
     assert respons.status_code == 422
     assert respons.json()["code"] == "NO_ELIGIBLE_CASES"
-    assert _jumlah(siap.db, MeasurementSession) == 0
-    assert _jumlah(siap.db, CaseSnapshot) == 0
+    assert _jumlah(siap_manual.db, MeasurementSession) == 0
+    assert _jumlah(siap_manual.db, CaseSnapshot) == 0
 
 
 @pytest.mark.parametrize("jumlah", [0, 6])
-def test_jumlah_percobaan_di_luar_batas_ditolak(siap, jumlah):
+def test_jumlah_percobaan_di_luar_batas_ditolak(siap_manual, jumlah):
     """Negatif: AC1, percobaan 1 sampai 5."""
     # Act
-    respons = siap.sebagai(Role.ADMIN).post(URL, json=_badan(siap, repeat_count=jumlah))
+    respons = siap_manual.sebagai(Role.ADMIN).post(
+        URL, json=_badan(siap_manual, repeat_count=jumlah)
+    )
 
     # Assert
     assert respons.status_code == 422
-    assert _jumlah(siap.db, MeasurementSession) == 0
+    assert _jumlah(siap_manual.db, MeasurementSession) == 0
 
 
 def test_galat_di_tengah_pembuatan_tidak_meninggalkan_sesi(db_session, monkeypatch):
