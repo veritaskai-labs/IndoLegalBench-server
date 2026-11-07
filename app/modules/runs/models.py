@@ -73,10 +73,13 @@ class SplitFilter(StrEnum):
 
 
 class SessionStatus(StrEnum):
-    """Status sesi per D4. Perpindahan yang sah ada di session_transitions (SCRUM-214).
+    """Status sesi per D4 (otomatis) dan D8 (manual). Perpindahan sah di session_transitions.
 
     paused mencakup Jeda dari pengguna dan sesi yang dihentikan sistem (restart, deploy,
     anggaran habis); D4 tidak memisahkan Dihentikan dari Dijeda.
+
+    Lima status terakhir milik sesi manual (PBI-22 SCRUM-230, D9 menaruhnya di kolom yang
+    sama): Belum terisi, Terisi sebagian, Lengkap, Dinilai, Selesai.
     """
 
     QUEUED = "queued"
@@ -86,6 +89,11 @@ class SessionStatus(StrEnum):
     FINISHED = "finished"
     FINISHED_WITH_FAILURES = "finished_with_failures"
     FAILED = "failed"
+    NOT_FILLED = "not_filled"
+    PARTIALLY_FILLED = "partially_filled"
+    COMPLETE = "complete"
+    GRADED = "graded"
+    FINALIZED = "finalized"
 
 
 class StopReason(StrEnum):

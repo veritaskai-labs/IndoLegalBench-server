@@ -8933,10 +8933,15 @@
           "cancelled",
           "finished",
           "finished_with_failures",
-          "failed"
+          "failed",
+          "not_filled",
+          "partially_filled",
+          "complete",
+          "graded",
+          "finalized"
         ],
         "title": "SessionStatus",
-        "description": "Status sesi per D4. Perpindahan yang sah ada di session_transitions (SCRUM-214).\n\npaused mencakup Jeda dari pengguna dan sesi yang dihentikan sistem (restart, deploy,\nanggaran habis); D4 tidak memisahkan Dihentikan dari Dijeda."
+        "description": "Status sesi per D4 (otomatis) dan D8 (manual). Perpindahan sah di session_transitions.\n\npaused mencakup Jeda dari pengguna dan sesi yang dihentikan sistem (restart, deploy,\nanggaran habis); D4 tidak memisahkan Dihentikan dari Dijeda.\n\nLima status terakhir milik sesi manual (PBI-22 SCRUM-230, D9 menaruhnya di kolom yang\nsama): Belum terisi, Terisi sebagian, Lengkap, Dinilai, Selesai."
       },
       "SplitTag": {
         "type": "string",

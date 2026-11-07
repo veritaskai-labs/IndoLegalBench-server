@@ -13,8 +13,8 @@ from app.modules.runs.models import SessionStatus
 from app.shared.exceptions import ConflictError
 
 # Sesi yang sudah berakhir. Status PBI-12 (stopped, cancelled) belum ada di sini
-# sampai D4 memutuskan apakah boleh diarsipkan.
-_ENDED = frozenset({"finished", "finished_with_failures", "failed"})
+# sampai D4 memutuskan apakah boleh diarsipkan. Sesi manual berakhir saat Selesai (D8).
+_ENDED = frozenset({"finished", "finished_with_failures", "failed", "finalized"})
 
 # Percobaan yang sudah punya hasil akhir. Gagal teknis tetap selesai: coba ulang
 # menambah call_logs, bukan attempts (D2).
@@ -53,10 +53,11 @@ def is_report_eligible(status: SessionStatus | str, *, accepted_as_is_at: dateti
 
     finished layak. finished_with_failures layak hanya bila Admin menerimanya apa
     adanya. cancelled tidak layak sampai dilanjutkan dan selesai; status lain belum
-    berakhir atau gagal. Status di luar enum ditolak (ValueError), bukan dianggap tidak layak.
+    berakhir atau gagal. Sesi manual layak setelah Selesai (D8: "layak jadi dasar
+    laporan"). Status di luar enum ditolak (ValueError), bukan dianggap tidak layak.
     """
     status = SessionStatus(status)
-    if status is SessionStatus.FINISHED:
+    if status in (SessionStatus.FINISHED, SessionStatus.FINALIZED):
         return True
     return status is SessionStatus.FINISHED_WITH_FAILURES and accepted_as_is_at is not None
 
