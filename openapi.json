@@ -3262,7 +3262,7 @@
             }
           },
           "409": {
-            "description": "Resume ditolak: MODEL_VERSION_CHANGED (mulai sesi baru), MODEL_VERSION_CONFIRMATION_REQUIRED (konfirmasi Admin), ATTEMPT_RECOVERY_REQUIRED, ANOTHER_SESSION_RUNNING, SESSION_NOT_RESUMABLE, SESSION_ARCHIVED, SESSION_ACCEPTED, SESSION_NOT_AUTOMATIC.",
+            "description": "Resume ditolak: MODEL_VERSION_CHANGED (mulai sesi baru), MODEL_VERSION_CONFIRMATION_REQUIRED (konfirmasi Admin), ANOTHER_SESSION_RUNNING, SESSION_NOT_RESUMABLE, SESSION_ARCHIVED, SESSION_ACCEPTED, SESSION_NOT_AUTOMATIC.",
             "content": {
               "application/json": {
                 "schema": {
