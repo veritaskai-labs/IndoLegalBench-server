@@ -204,22 +204,23 @@ def aggregate_case_scores(
     Percobaan gangguan teknis (skor None) dilewati, sehingga tidak merusak
     skor rata-rata kasus (AC4).
     """
-    det_scores: list[Decimal | None] = []
-    judge_scores: list[Decimal | None] = []
-
-    for item in attempt_scores:
-        if item is not None:
-            if item.deterministic is not None:
-                det_scores.append(item.deterministic)
-            if item.judge is not None:
-                judge_scores.append(item.judge)
-
-    det_mean = mean_scores(det_scores)
-    judge_mean = mean_scores(judge_scores)
-
-    if det_mean is None and judge_mean is None:
+    valid_items = [item for item in attempt_scores if item is not None]
+    if not valid_items:
         return None
-    return ScorePair(deterministic=det_mean, judge=judge_mean)
+
+    det_mean = mean_scores(item.deterministic for item in valid_items)
+    qual_mean = mean_scores(item.quality for item in valid_items)
+    fmt_mean = mean_scores(item.format for item in valid_items)
+    judge_mean = mean_scores(item.judge for item in valid_items) or qual_mean
+
+    if det_mean is None and qual_mean is None and fmt_mean is None and judge_mean is None:
+        return None
+    return ScorePair(
+        deterministic=det_mean,
+        quality=qual_mean,
+        format=fmt_mean,
+        judge=judge_mean,
+    )
 
 
 def _case_tag(split_tag: SplitTag | str | None) -> str:
@@ -229,15 +230,15 @@ def _case_tag(split_tag: SplitTag | str | None) -> str:
 
 
 def _score_pair_from_cases(cases: Sequence[CaseGradeResult]) -> ScorePair:
-    det: list[Decimal | None] = []
-    judge: list[Decimal | None] = []
-    for c in cases:
-        if c.scores is not None:
-            if c.scores.deterministic is not None:
-                det.append(c.scores.deterministic)
-            if c.scores.judge is not None:
-                judge.append(c.scores.judge)
-    return ScorePair(deterministic=mean_scores(det), judge=mean_scores(judge))
+    valid_scores = [c.scores for c in cases if c.scores is not None]
+    qual_mean = mean_scores(s.quality for s in valid_scores)
+    judge_mean = mean_scores(s.judge for s in valid_scores) or qual_mean
+    return ScorePair(
+        deterministic=mean_scores(s.deterministic for s in valid_scores),
+        quality=qual_mean,
+        format=mean_scores(s.format for s in valid_scores),
+        judge=judge_mean,
+    )
 
 
 def compute_three_scores(cases: Sequence[CaseGradeResult]) -> ThreeScores:
@@ -495,6 +496,8 @@ class AttemptGradeInput:
     platform_refused: bool = False
     judge_error: str | None = None
     deterministic_score: Decimal | None = None
+    quality_score: Decimal | None = None
+    format_score: Decimal | None = None
     judge_score: Decimal | None = None
     explanation: str | None = None
     reasons: list[str] = field(default_factory=list)
@@ -739,27 +742,45 @@ class DbGradingStore:
             return runs[-1]
         return None
 
-    def _save_llm_judge_records(
+    def _save_criterion_records(
+        self,
+        judge_result_id: uuid.UUID,
+        criteria: list[dict[str, Any]],
+    ) -> None:
+        from app.modules.grading.models import LlmCriterionResult
+
+        for idx, c in enumerate(criteria):
+            c_is_met = bool(c.get("is_met"))
+            crit_obj = LlmCriterionResult(
+                id=uuid.uuid4(),
+                llm_judge_result_id=judge_result_id,
+                criterion_key=c.get("key") or f"crit_{idx + 1}",
+                criterion_text=c.get("text") or f"Kriteria {idx + 1}",
+                is_met=c_is_met,
+                explanation=c.get("explanation"),
+                reason_code=None if c_is_met else (c.get("reason_code") or "unmet"),
+            )
+            self.db.add(crit_obj)
+        self.db.flush()
+
+    def _save_quality_judge_record(
         self,
         grading_result_id: uuid.UUID,
         att: AttemptGradeResult,
         case_code: str,
+        rep_no: int,
+        score_val: Decimal,
     ) -> None:
         from app.modules.grading.models import (
             JudgeKind,
             JudgeStatus,
-            LlmCriterionResult,
             LlmJudgeResult,
         )
 
-        if att.is_technical_disruption or att.score is None or att.score.judge is None:
-            return
-
-        rep_no = max(1, min(5, att.repetition_no))
         crit_count = len(att.criteria)
         crit_met = sum(1 for c in att.criteria if c.get("is_met"))
         total = crit_count if crit_count > 0 else 1
-        met = crit_met if crit_count > 0 else (1 if att.score.judge >= Decimal("0.50") else 0)
+        met = crit_met if crit_count > 0 else (1 if score_val >= Decimal("0.50") else 0)
 
         judge_row = LlmJudgeResult(
             id=uuid.uuid4(),
@@ -770,7 +791,7 @@ class DbGradingStore:
             prompt=f"Penilaian kualitas jawaban untuk kasus {case_code}",
             criteria_met=met,
             criteria_total=total,
-            criteria_score=att.score.judge,
+            criteria_score=score_val,
             rubric_level=None,
             explanation=att.explanation,
             error=None,
@@ -778,20 +799,55 @@ class DbGradingStore:
         )
         self.db.add(judge_row)
         self.db.flush()
+        self._save_criterion_records(judge_row.id, att.criteria)
 
-        for idx, c in enumerate(att.criteria):
-            c_is_met = bool(c.get("is_met"))
-            crit_obj = LlmCriterionResult(
-                id=uuid.uuid4(),
-                llm_judge_result_id=judge_row.id,
-                criterion_key=c.get("key") or f"crit_{idx + 1}",
-                criterion_text=c.get("text") or f"Kriteria {idx + 1}",
-                is_met=c_is_met,
-                explanation=c.get("explanation"),
-                reason_code=None if c_is_met else (c.get("reason_code") or "unmet"),
-            )
-            self.db.add(crit_obj)
+    def _save_format_judge_record(
+        self,
+        grading_result_id: uuid.UUID,
+        case_code: str,
+        rep_no: int,
+        format_score: Decimal,
+    ) -> None:
+        from app.modules.grading.models import (
+            JudgeKind,
+            JudgeStatus,
+            LlmJudgeResult,
+        )
+
+        format_row = LlmJudgeResult(
+            id=uuid.uuid4(),
+            grading_result_id=grading_result_id,
+            judge_run_no=rep_no,
+            kind=JudgeKind.FORMAT,
+            status=JudgeStatus.SUCCEEDED,
+            prompt=f"Penilaian format jawaban untuk kasus {case_code}",
+            criteria_met=1 if format_score >= Decimal("0.50") else 0,
+            criteria_total=1,
+            criteria_score=format_score,
+            rubric_level=None,
+            explanation=None,
+            error=None,
+            failure_kind=None,
+        )
+        self.db.add(format_row)
         self.db.flush()
+
+    def _save_llm_judge_records(
+        self,
+        grading_result_id: uuid.UUID,
+        att: AttemptGradeResult,
+        case_code: str,
+    ) -> None:
+        if att.is_technical_disruption or att.score is None:
+            return
+
+        rep_no = max(1, min(5, att.repetition_no))
+        qual_score = att.score.quality if att.score.quality is not None else att.score.judge
+        if qual_score is not None:
+            self._save_quality_judge_record(grading_result_id, att, case_code, rep_no, qual_score)
+
+        if att.score.format is not None:
+            self._save_format_judge_record(grading_result_id, case_code, rep_no, att.score.format)
 
 
 def _populate_judge_details(
@@ -820,16 +876,20 @@ def _evaluate_attempt_score(
         else score_deterministic_citations(att.answer_text, case.legal_refs)
     )
 
-    if att.judge_score is not None:
-        jud = round_two_digits(att.judge_score)
+    if att.quality_score is not None:
+        qual = round_two_digits(att.quality_score)
+    elif att.judge_score is not None:
+        qual = round_two_digits(att.judge_score)
     else:
-        jud = _populate_judge_details(
+        qual = _populate_judge_details(
             att, evaluate_criteria_details(att.answer_text, case.answer_criteria)
         )
 
-    if det is None and jud is None:
+    fmt = round_two_digits(att.format_score) if att.format_score is not None else None
+
+    if det is None and qual is None and fmt is None:
         return None
-    return ScorePair(deterministic=det, judge=jud)
+    return ScorePair(deterministic=det, quality=qual, format=fmt, judge=qual)
 
 
 def _grade_single_attempt(
@@ -1085,6 +1145,31 @@ def _load_call_logs_metadata(
     return failure_kinds, judge_errors
 
 
+def _extract_criterion_info(
+    db: Session,
+    j_row_id: uuid.UUID,
+) -> tuple[list[dict[str, Any]], list[str]]:
+    from app.modules.grading.models import LlmCriterionResult
+
+    crit_rows = db.scalars(
+        select(LlmCriterionResult)
+        .where(LlmCriterionResult.llm_judge_result_id == j_row_id)
+        .order_by(LlmCriterionResult.id.asc())
+    ).all()
+    c_list = [
+        {
+            "key": cr.criterion_key,
+            "text": cr.criterion_text,
+            "is_met": cr.is_met,
+            "explanation": cr.explanation,
+            "reason_code": cr.reason_code,
+        }
+        for cr in crit_rows
+    ]
+    reasons = [cr.reason_code for cr in crit_rows if cr.reason_code and not cr.is_met]
+    return c_list, reasons
+
+
 def _load_judge_metadata_for_attempts(
     db: Session,
     attempt_ids: list[uuid.UUID],
@@ -1095,66 +1180,54 @@ def _load_judge_metadata_for_attempts(
         GradingResult,
         JudgeKind,
         JudgeStatus,
-        LlmCriterionResult,
         LlmJudgeResult,
     )
 
     rows = db.execute(
         select(GradingResult.attempt_id, LlmJudgeResult)
         .join(LlmJudgeResult, LlmJudgeResult.grading_result_id == GradingResult.id)
-        .where(
-            GradingResult.attempt_id.in_(attempt_ids),
-            LlmJudgeResult.kind == JudgeKind.QUALITY,
-        )
+        .where(GradingResult.attempt_id.in_(attempt_ids))
         .order_by(LlmJudgeResult.created_at.desc())
     ).all()
 
-    judge_data: dict[uuid.UUID, dict[str, Any]] = {}
+    judge_data: dict[uuid.UUID, dict[str, Any]] = defaultdict(dict)
     for att_id, j_row in rows:
-        if att_id in judge_data:
-            continue
-        crit_rows = db.scalars(
-            select(LlmCriterionResult)
-            .where(LlmCriterionResult.llm_judge_result_id == j_row.id)
-            .order_by(LlmCriterionResult.id.asc())
-        ).all()
-        c_list = [
-            {
-                "key": cr.criterion_key,
-                "text": cr.criterion_text,
-                "is_met": cr.is_met,
-                "explanation": cr.explanation,
-                "reason_code": cr.reason_code,
-            }
-            for cr in crit_rows
-        ]
-        reasons = [cr.reason_code for cr in crit_rows if cr.reason_code and not cr.is_met]
+        data = judge_data[att_id]
         is_succeeded = j_row.status == JudgeStatus.SUCCEEDED
-        judge_data[att_id] = {
-            "judge_score": j_row.criteria_score if is_succeeded else None,
-            "explanation": j_row.explanation,
-            "reasons": reasons,
-            "criteria": c_list,
-            "judge_error": (j_row.error or j_row.failure_kind) if not is_succeeded else None,
-        }
-    return judge_data
+        if j_row.kind == JudgeKind.FORMAT:
+            if "format_score" not in data and is_succeeded:
+                data["format_score"] = j_row.criteria_score
+        elif "judge_score" not in data:
+            c_list, reasons = _extract_criterion_info(db, j_row.id)
+            data["judge_score"] = j_row.criteria_score if is_succeeded else None
+            data["quality_score"] = j_row.criteria_score if is_succeeded else None
+            data["explanation"] = j_row.explanation
+            data["reasons"] = reasons
+            data["criteria"] = c_list
+            if not is_succeeded and "judge_error" not in data:
+                data["judge_error"] = j_row.error or j_row.failure_kind
+    return dict(judge_data)
 
 
 def _apply_judge_row_to_attempt(att: AttemptGradeInput, row: Any) -> None:
     if row.score is not None:
-        att.judge_score = row.score
-        att.explanation = row.explanation
-        att.reasons = [row.reason_id] if row.reason_id else []
-        att.criteria = [
-            {
-                "key": f"crit_{idx + 1}",
-                "text": c.criterion,
-                "is_met": c.met,
-                "explanation": c.explanation,
-                "reason_code": c.reason_id if not c.met else None,
-            }
-            for idx, c in enumerate(row.criteria)
-        ]
+        if getattr(row, "kind", None) == "format":
+            att.format_score = row.score
+        else:
+            att.quality_score = row.score
+            att.judge_score = row.score
+            att.explanation = row.explanation
+            att.reasons = [row.reason_id] if row.reason_id else []
+            att.criteria = [
+                {
+                    "key": f"crit_{idx + 1}",
+                    "text": c.criterion,
+                    "is_met": c.met,
+                    "explanation": c.explanation,
+                    "reason_code": c.reason_id if not c.met else None,
+                }
+                for idx, c in enumerate(row.criteria)
+            ]
     elif row.error or row.failure_kind:
         att.judge_error = row.error or row.failure_kind
 
@@ -1185,9 +1258,8 @@ def _execute_judge_for_attempt(
     )
     try:
         writer = run_judge(asker, judge_in, repetitions=1)
-        quality_rows = [r for r in writer.rows if r.kind == "quality"]
-        if quality_rows:
-            _apply_judge_row_to_attempt(att, quality_rows[0])
+        for row in writer.rows:
+            _apply_judge_row_to_attempt(att, row)
     except Exception as exc:
         att.judge_error = str(exc)
 
@@ -1198,6 +1270,28 @@ def _build_attempt_input(
     judge_errors: dict[uuid.UUID, str],
     judge_data: dict[uuid.UUID, dict[str, Any]] | None = None,
 ) -> AttemptGradeInput:
+    f_kind = failure_kinds.get(a.id)
+    j_err = judge_errors.get(a.id)
+    platform_refused = bool(a.answer_text and "[Platform menolak menjawab]" in a.answer_text) or (
+        f_kind == "platform_refused"
+    )
+    j_info = (judge_data or {}).get(a.id, {})
+    return AttemptGradeInput(
+        attempt_id=a.id,
+        repetition_no=a.repetition_no,
+        status=a.status,
+        source=a.source,
+        answer_text=a.answer_text,
+        failure_kind=f_kind,
+        platform_refused=platform_refused,
+        judge_error=j_err or j_info.get("judge_error"),
+        judge_score=j_info.get("judge_score"),
+        quality_score=j_info.get("quality_score"),
+        format_score=j_info.get("format_score"),
+        explanation=j_info.get("explanation"),
+        reasons=j_info.get("reasons") or [],
+        criteria=j_info.get("criteria") or [],
+    )
     f_kind = failure_kinds.get(a.id)
     j_err = judge_errors.get(a.id)
     platform_refused = bool(a.answer_text and "[Platform menolak menjawab]" in a.answer_text) or (
@@ -1325,6 +1419,7 @@ def _should_grade_with_judge(att: AttemptGradeInput) -> bool:
             platform_refused=att.platform_refused,
         )
         and att.judge_score is None
+        and att.quality_score is None
         and not att.criteria
     )
 

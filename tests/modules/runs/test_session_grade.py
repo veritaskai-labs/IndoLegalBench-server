@@ -1563,3 +1563,78 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
         db_session, sesi_judge.id, actor_id=pembuat.id, actor_role=Role.ADMIN
     )
     assert res_judge_prov2.status == "completed"
+
+    # 7. ScorePair quality, format, dan judge sync
+    sp_qual = ScorePair(quality=Decimal("4.00"))
+    assert sp_qual.judge == Decimal("4.00")
+    sp_judge = ScorePair(judge=Decimal("3.00"))
+    assert sp_judge.quality == Decimal("3.00")
+    sp_empty = ScorePair()
+    assert aggregate_case_scores([sp_empty]) is None
+
+    # 8. _load_judge_metadata_for_attempts dengan format dan status failed
+    from app.modules.grading.models import (
+        GradingResult,
+        JudgeKind,
+        JudgeStatus,
+        LlmJudgeResult,
+    )
+    from app.modules.runs.session_grade import _apply_judge_row_to_attempt
+
+    test_att_id = uuid.uuid4()
+    gr = GradingResult(
+        id=uuid.uuid4(),
+        grading_run_id=res_judge_prov2.grading_run_id,
+        attempt_id=test_att_id,
+        is_technical_disruption=True,
+    )
+    db_session.add(gr)
+    db_session.flush()
+
+    failed_j = LlmJudgeResult(
+        id=uuid.uuid4(),
+        grading_result_id=gr.id,
+        judge_run_no=1,
+        kind=JudgeKind.QUALITY,
+        status=JudgeStatus.FAILED,
+        prompt="prompt",
+        criteria_met=None,
+        criteria_total=None,
+        criteria_score=None,
+        error="timeout",
+        failure_kind="judge_timeout",
+    )
+    format_j = LlmJudgeResult(
+        id=uuid.uuid4(),
+        grading_result_id=gr.id,
+        judge_run_no=1,
+        kind=JudgeKind.FORMAT,
+        status=JudgeStatus.SUCCEEDED,
+        prompt="format prompt",
+        criteria_met=1,
+        criteria_total=1,
+        criteria_score=Decimal("0.90"),
+    )
+    db_session.add_all([failed_j, format_j])
+    db_session.flush()
+
+    loaded_data = _load_judge_metadata_for_attempts(db_session, [test_att_id])
+    assert loaded_data[test_att_id]["format_score"] == Decimal("0.90")
+    assert loaded_data[test_att_id]["judge_error"] == "timeout"
+
+    # 9. _save_format_judge_record
+    store._save_format_judge_record(gr.id, "CASE-01", 2, Decimal("0.85"))
+
+    # 10. _apply_judge_row_to_attempt dengan kind format
+    mock_fmt_row = MagicMock()
+    mock_fmt_row.kind = "format"
+    mock_fmt_row.score = Decimal("0.80")
+    mock_fmt_row.error = None
+    mock_fmt_row.failure_kind = None
+    att_fmt_test = AttemptGradeInput(
+        attempt_id=uuid.uuid4(),
+        repetition_no=1,
+        status=AttemptStatus.SUCCEEDED,
+    )
+    _apply_judge_row_to_attempt(att_fmt_test, mock_fmt_row)
+    assert att_fmt_test.format_score == Decimal("0.80")

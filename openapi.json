@@ -10568,6 +10568,32 @@
             "title": "Deterministic",
             "description": "Skor jalur deterministik (0.00-1.00 atau skala rubrik)"
           },
+          "quality": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Quality",
+            "description": "Skor kualitas substansi hukum berdasarkan rubrik (skala 0.00-5.00)"
+          },
+          "format": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Format",
+            "description": "Skor kepatuhan format dan struktur jawaban (skala 0.00-1.00)"
+          },
           "judge": {
             "anyOf": [
               {
@@ -10579,12 +10605,12 @@
               }
             ],
             "title": "Judge",
-            "description": "Skor jalur penilai LLM (skala 0.00-5.00)"
+            "description": "Skor jalur penilai LLM (alias backward-compatible untuk quality)"
           }
         },
         "type": "object",
         "title": "ScorePair",
-        "description": "Pasangan skor deterministik dan penilai LLM (PBI-14, SCRUM-225)."
+        "description": "Pasangan skor deterministik, kualitas rubrik, dan format (PBI-14, SCRUM-225)."
       },
       "SessionAcceptRequest": {
         "properties": {
