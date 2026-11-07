@@ -65,17 +65,21 @@ def detect_file_type(head: bytes, *, declared: str | None) -> str:
     return actual
 
 
+def too_large(limit_bytes: int) -> PayloadTooLargeError:
+    """Satu bentuk 413 untuk service dan router, yang menolak lebih awal (review #121)."""
+    return PayloadTooLargeError(
+        "Berkas bukti melebihi batas ukuran.",
+        code="EVIDENCE_TOO_LARGE",
+        field="file",
+        details={"limit_bytes": limit_bytes},
+    )
+
+
 def ensure_size(size: int, *, limit_bytes: int) -> None:
     if size <= 0:
         raise ValidationError("Berkas bukti kosong.", code="EVIDENCE_EMPTY", field="file")
     if size > limit_bytes:
-        # 413, sama dengan penolakan dari Content-Length di router (review #121).
-        raise PayloadTooLargeError(
-            "Berkas bukti melebihi batas ukuran.",
-            code="EVIDENCE_TOO_LARGE",
-            field="file",
-            details={"limit_bytes": limit_bytes},
-        )
+        raise too_large(limit_bytes)
 
 
 def ensure_room(existing: int) -> None:
