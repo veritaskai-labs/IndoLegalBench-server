@@ -177,15 +177,17 @@ def test_gangguan_teknis_tidak_dihitung_skor_0_dan_dilewati():
     """AC4: Percobaan gangguan teknis tanpa skor (None) dan dilewati dalam rata-rata kasus."""
     scores = [
         None,  # Gangguan teknis (jawaban kosong / AI menolak)
-        ScorePair(deterministic=Decimal("4.00"), judge=Decimal("5.00")),
-        ScorePair(deterministic=Decimal("2.00"), judge=Decimal("3.00")),
+        ScorePair(deterministic=Decimal("0.80"), quality=Decimal("5.00"), format=Decimal("1.00")),
+        ScorePair(deterministic=Decimal("0.40"), quality=Decimal("3.00"), format=Decimal("0.50")),
     ]
     avg = aggregate_case_scores(scores)
     assert avg is not None
-    # Rata-rata dari 4.00 dan 2.00 = 3.00 (bukan (0+4+2)/3 = 2.00!)
-    assert avg.deterministic == Decimal("3.00")
-    # Rata-rata dari 5.00 dan 3.00 = 4.00 (bukan (0+5+3)/3 = 2.67!)
-    assert avg.judge == Decimal("4.00")
+    # Rata-rata dari 0.80 dan 0.40 = 0.60
+    assert avg.deterministic == Decimal("0.60")
+    # Rata-rata dari 5.00 dan 3.00 = 4.00
+    assert avg.quality == Decimal("4.00")
+    # Rata-rata dari 1.00 dan 0.50 = 0.75
+    assert avg.format == Decimal("0.75")
 
 
 def test_kasus_semua_gangguan_teknis_menghasilkan_skor_none():
@@ -221,8 +223,9 @@ def _buat_kasus_sample():
                 status=AttemptStatus.SUCCEEDED,
                 source=AttemptSource.AUTOMATIC,
                 answer_text="Jawaban valid 1",
-                deterministic_score=Decimal("4.00"),
-                judge_score=Decimal("4.00"),
+                deterministic_score=Decimal("0.80"),
+                quality_score=Decimal("4.00"),
+                format_score=Decimal("0.75"),
             ),
             AttemptGradeInput(
                 attempt_id=uuid.uuid4(),
@@ -249,8 +252,9 @@ def _buat_kasus_sample():
                 status=AttemptStatus.SUCCEEDED,
                 source=AttemptSource.AUTOMATIC,
                 answer_text="Jawaban valid test",
-                deterministic_score=Decimal("5.00"),
-                judge_score=Decimal("5.00"),
+                deterministic_score=Decimal("1.00"),
+                quality_score=Decimal("5.00"),
+                format_score=Decimal("1.00"),
             )
         ],
     )
@@ -281,18 +285,23 @@ def test_grade_session_data_initial():
     # Periksa kasus dev
     c1 = next(c for c in res.cases if c.case_code == "PHK-001")
     assert c1.attempts[0].is_technical_disruption is False
-    assert c1.attempts[0].score == ScorePair(deterministic=Decimal("4.00"), judge=Decimal("4.00"))
+    assert c1.attempts[0].score == ScorePair(
+        deterministic=Decimal("0.80"), quality=Decimal("4.00"), format=Decimal("0.75")
+    )
     assert c1.attempts[1].is_technical_disruption is True
     assert c1.attempts[1].score is None
     # Skor kasus dev hanya dari attempt 1
-    assert c1.scores == ScorePair(deterministic=Decimal("4.00"), judge=Decimal("4.00"))
+    assert c1.scores == ScorePair(
+        deterministic=Decimal("0.80"), quality=Decimal("4.00"), format=Decimal("0.75")
+    )
 
     # ThreeScores
-    assert res.scores.dev.deterministic == Decimal("4.00")
-    assert res.scores.test.deterministic == Decimal("5.00")
-    # Combined mean = (4 + 5) / 2 = 4.50
-    assert res.scores.combined.deterministic == Decimal("4.50")
-    assert res.scores.combined.judge == Decimal("4.50")
+    assert res.scores.dev.deterministic == Decimal("0.80")
+    assert res.scores.test.deterministic == Decimal("1.00")
+    # Combined mean = (0.80 + 1.00) / 2 = 0.90
+    assert res.scores.combined.deterministic == Decimal("0.90")
+    assert res.scores.combined.quality == Decimal("4.50")
+    assert res.scores.combined.format == Decimal("0.88")
 
 
 def test_regrade_menandai_kind_regrade_dan_memperbarui_is_latest():
@@ -354,7 +363,8 @@ def test_penilaian_seragam_otomatis_dan_manual():
                 source=AttemptSource.MANUAL,
                 answer_text="Jawaban dari catatan tim legal",
                 deterministic_score=Decimal("4.50"),
-                judge_score=Decimal("4.50"),
+                quality_score=Decimal("4.50"),
+                format_score=Decimal("0.80"),
             ),
             AttemptGradeInput(
                 attempt_id=uuid.uuid4(),
@@ -378,7 +388,11 @@ def test_penilaian_seragam_otomatis_dan_manual():
     assert c.attempts[0].is_technical_disruption is False
     assert c.attempts[1].is_technical_disruption is True
     # Attempt 2 tidak merusak nilai attempt 1
-    assert c.scores == ScorePair(deterministic=Decimal("4.50"), judge=Decimal("4.50"))
+    assert c.scores == ScorePair(
+        deterministic=Decimal("4.50"),
+        quality=Decimal("4.50"),
+        format=Decimal("0.80"),
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -428,7 +442,11 @@ def test_visibilitas_sesi_selesai_admin_dan_viewer_melihat_lengkap():
         assert test_case.case_code == "CORP-002"
         assert test_case.title == "Tanggung Jawab Direksi"
         assert test_case.question == "Kapan direksi bertanggung jawab pribadi?"
-        assert test_case.scores == ScorePair(deterministic=Decimal("5.00"), judge=Decimal("5.00"))
+        assert test_case.scores == ScorePair(
+            deterministic=Decimal("1.00"),
+            quality=Decimal("5.00"),
+            format=Decimal("1.00"),
+        )
 
 
 def test_visibilitas_developer_ai_kasus_test_tersamar_dan_skor_agregat_terbuka():
@@ -447,7 +465,11 @@ def test_visibilitas_developer_ai_kasus_test_tersamar_dan_skor_agregat_terbuka()
     assert dev_case.case_code == "PHK-001"
     assert dev_case.title == "Uang Pesangon Pekerja"
     assert dev_case.question == "Bagaimana ketentuan pesangon?"
-    assert dev_case.scores == ScorePair(deterministic=Decimal("4.00"), judge=Decimal("4.00"))
+    assert dev_case.scores == ScorePair(
+        deterministic=Decimal("0.80"),
+        quality=Decimal("4.00"),
+        format=Decimal("0.75"),
+    )
     assert dev_case.attempts[0].answer_text == "Jawaban valid 1"
 
     # Kasus test tersamar di level kasus
@@ -461,10 +483,15 @@ def test_visibilitas_developer_ai_kasus_test_tersamar_dan_skor_agregat_terbuka()
     assert test_case.attempts[0].score is None
 
     # NAMUN skor agregat total test tetap terlihat di ThreeScores!
-    assert res.scores.test.deterministic == Decimal("5.00")
-    assert res.scores.test.judge == Decimal("5.00")
-    assert res.scores.dev.deterministic == Decimal("4.00")
-    assert res.scores.combined.deterministic == Decimal("4.50")
+    assert res.scores.test.deterministic == Decimal("1.00")
+    assert res.scores.test.quality == Decimal("5.00")
+    assert res.scores.test.format == Decimal("1.00")
+    assert res.scores.dev.deterministic == Decimal("0.80")
+    assert res.scores.dev.quality == Decimal("4.00")
+    assert res.scores.dev.format == Decimal("0.75")
+    assert res.scores.combined.deterministic == Decimal("0.90")
+    assert res.scores.combined.quality == Decimal("4.50")
+    assert res.scores.combined.format == Decimal("0.88")
 
 
 def test_kontributor_ditolak_melihat_hasil():
@@ -491,7 +518,11 @@ def test_kategori_tanpa_kategori_masuk_lain_lain():
         case_code="C1",
         title="T1",
         category="",
-        scores=ScorePair(deterministic=Decimal("3.00"), judge=Decimal("4.00")),
+        scores=ScorePair(
+            deterministic=Decimal("3.00"),
+            quality=Decimal("4.00"),
+            format=Decimal("0.80"),
+        ),
     )
     c2 = CaseGradeResult(
         snapshot_item_id=uuid.uuid4(),
@@ -499,7 +530,11 @@ def test_kategori_tanpa_kategori_masuk_lain_lain():
         case_code="C2",
         title="T2",
         category="Pidana",
-        scores=ScorePair(deterministic=Decimal("5.00"), judge=Decimal("5.00")),
+        scores=ScorePair(
+            deterministic=Decimal("5.00"),
+            quality=Decimal("5.00"),
+            format=Decimal("1.00"),
+        ),
     )
 
     cat_scores = compute_category_scores([c1, c2])
@@ -781,7 +816,8 @@ def test_get_results_sesi_selesai_developer_ai_masking(as_role, db_session, prod
 
     # Skor agregat test tetap terlihat di ThreeScores!
     assert dev_body["scores"]["test"]["deterministic"] is not None
-    assert dev_body["scores"]["test"]["judge"] is not None
+    assert dev_body["scores"]["test"]["quality"] is not None
+    assert dev_body["scores"]["test"]["format"] is not None
 
     # Tapi kasus test tersamar per-kasus
     dev_cases = dev_body["cases"]
@@ -871,7 +907,8 @@ def test_attempt_tanpa_skor_dan_tanpa_rujukan_tetap_none():
                 status=AttemptStatus.SUCCEEDED,
                 answer_text="Jawaban tanpa sitasi hukum dan tanpa kriteria",
                 deterministic_score=None,
-                judge_score=None,
+                quality_score=None,
+                format_score=None,
             )
         ],
     )
@@ -894,7 +931,11 @@ def test_developer_ai_category_scores_mengabaikan_kasus_test():
         split_tag=SplitTag.DEV,
         category="Hukum Perdata",
         question="Pertanyaan Dev",
-        scores=ScorePair(deterministic=Decimal("1.00"), judge=Decimal("5.00")),
+        scores=ScorePair(
+            deterministic=Decimal("1.00"),
+            quality=Decimal("5.00"),
+            format=Decimal("1.00"),
+        ),
     )
     test_case = CaseGradeResult(
         snapshot_item_id=uuid.uuid4(),
@@ -904,7 +945,11 @@ def test_developer_ai_category_scores_mengabaikan_kasus_test():
         split_tag=SplitTag.TEST,
         category="Hukum Pidana",
         question="Pertanyaan Test Rahasia",
-        scores=ScorePair(deterministic=Decimal("0.50"), judge=Decimal("2.00")),
+        scores=ScorePair(
+            deterministic=Decimal("0.50"),
+            quality=Decimal("2.00"),
+            format=Decimal("0.50"),
+        ),
     )
     grading = SessionGradingResponse(
         grading_run_id=uuid.uuid4(),
@@ -916,20 +961,40 @@ def test_developer_ai_category_scores_mengabaikan_kasus_test():
         triggered_at=datetime.now(UTC),
         is_latest=True,
         scores=ThreeScores(
-            dev=ScorePair(deterministic=Decimal("1.00"), judge=Decimal("5.00")),
-            test=ScorePair(deterministic=Decimal("0.50"), judge=Decimal("2.00")),
-            combined=ScorePair(deterministic=Decimal("0.75"), judge=Decimal("3.50")),
+            dev=ScorePair(
+                deterministic=Decimal("1.00"),
+                quality=Decimal("5.00"),
+                format=Decimal("1.00"),
+            ),
+            test=ScorePair(
+                deterministic=Decimal("0.50"),
+                quality=Decimal("2.00"),
+                format=Decimal("0.50"),
+            ),
+            combined=ScorePair(
+                deterministic=Decimal("0.75"),
+                quality=Decimal("3.50"),
+                format=Decimal("0.75"),
+            ),
         ),
         category_scores=[
             CategoryScore(
                 category="Hukum Perdata",
                 case_count=1,
-                scores=ScorePair(deterministic=Decimal("1.00"), judge=Decimal("5.00")),
+                scores=ScorePair(
+                    deterministic=Decimal("1.00"),
+                    quality=Decimal("5.00"),
+                    format=Decimal("1.00"),
+                ),
             ),
             CategoryScore(
                 category="Hukum Pidana",
                 case_count=1,
-                scores=ScorePair(deterministic=Decimal("0.50"), judge=Decimal("2.00")),
+                scores=ScorePair(
+                    deterministic=Decimal("0.50"),
+                    quality=Decimal("2.00"),
+                    format=Decimal("0.50"),
+                ),
             ),
         ],
         cases=[dev_case, test_case],
@@ -1419,8 +1484,9 @@ def test_llm_judge_integration_and_d6_persistence(db_session, produk, pembuat):
     dev_case = next(c for c in response.cases if c.case_code == "DEV-01")
     dev_att = dev_case.attempts[0]
     assert dev_att.score is not None
-    assert dev_att.score.judge is not None
-    assert dev_att.score.judge == Decimal("0.67")
+    assert dev_att.score.quality is not None
+    assert dev_att.score.quality == Decimal("3.35")
+    assert dev_att.score.format is not None
     assert "pesangon tidak disebutkan" in (dev_att.explanation or "")
     assert len(dev_att.criteria) == 3
 
@@ -1429,6 +1495,7 @@ def test_llm_judge_integration_and_d6_persistence(db_session, produk, pembuat):
     assert len(judge_rows) >= 1
     j_row = judge_rows[0]
     assert j_row.criteria_score == Decimal("0.67")
+    assert j_row.rubric_level == 3
     assert j_row.status.value == "succeeded"
 
     crit_rows = db_session.scalars(select(LlmCriterionResult)).all()
@@ -1444,7 +1511,8 @@ def test_llm_judge_integration_and_d6_persistence(db_session, produk, pembuat):
     inputs = _load_case_grade_inputs(db_session, sesi.id)
     dev_input = next(c for c in inputs if c.case_code == "DEV-01")
     att_in = dev_input.attempts[0]
-    assert att_in.judge_score == Decimal("0.67")
+    assert att_in.quality_score == Decimal("3.35")
+    assert att_in.format_score is not None
     assert "pesangon tidak disebutkan" in (att_in.explanation or "")
     assert len(att_in.criteria) == 3
 
@@ -1452,11 +1520,13 @@ def test_llm_judge_integration_and_d6_persistence(db_session, produk, pembuat):
 def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat, monkeypatch):
     """Memastikan 100% statement coverage untuk fungsi-fungsi helper di session_grade."""
     from app.modules.runs.session_grade import (
+        _calculate_db_quality_score,
         _execute_judge_for_attempt,
         _load_judge_metadata_for_attempts,
         _resolve_rubric_version,
         evaluate_criteria_details,
         is_ai_refusal,
+        score_format_structure,
     )
 
     # 1. is_ai_refusal dengan kata substansi hukum (line 155)
@@ -1539,7 +1609,7 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
     _execute_judge_for_attempt(
         _MockJudgeAsker(text="CRITERION: Kasus Tanpa Kriteria\nMET: yes\n"), att_empty, case_empty
     )
-    assert att_empty.judge_score == Decimal("1.00")
+    assert att_empty.quality_score == Decimal("5.00")
 
     # 6. grade_session dengan session.judge_provider_id aktif
     sesi_judge = _setup_sesi_lengkap(db_session, produk, pembuat)
@@ -1564,11 +1634,10 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
     )
     assert res_judge_prov2.status == "completed"
 
-    # 7. ScorePair quality, format, dan judge sync
-    sp_qual = ScorePair(quality=Decimal("4.00"))
-    assert sp_qual.judge == Decimal("4.00")
-    sp_judge = ScorePair(judge=Decimal("3.00"))
-    assert sp_judge.quality == Decimal("3.00")
+    # 7. ScorePair quality dan format
+    sp_qual = ScorePair(quality=Decimal("4.00"), format=Decimal("0.80"))
+    assert sp_qual.quality == Decimal("4.00")
+    assert sp_qual.format == Decimal("0.80")
     sp_empty = ScorePair()
     assert aggregate_case_scores([sp_empty]) is None
 
@@ -1638,3 +1707,16 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
     )
     _apply_judge_row_to_attempt(att_fmt_test, mock_fmt_row)
     assert att_fmt_test.format_score == Decimal("0.80")
+
+    # 11. score_format_structure branches
+    assert score_format_structure(None) is None
+    assert score_format_structure("Ringkasan perkara...") == Decimal("0.25")
+    assert score_format_structure("P1\n\nP2\n\nP3") == Decimal("0.50")
+
+    # 12. _calculate_db_quality_score branches
+    mock_db_j = MagicMock()
+    mock_db_j.criteria_score = None
+    mock_db_j.rubric_level = 4
+    assert _calculate_db_quality_score(mock_db_j, True) == Decimal("4.00")
+    mock_db_j.rubric_level = None
+    assert _calculate_db_quality_score(mock_db_j, True) is None

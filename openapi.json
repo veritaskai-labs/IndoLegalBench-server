@@ -10566,7 +10566,7 @@
               }
             ],
             "title": "Deterministic",
-            "description": "Skor jalur deterministik (0.00-1.00 atau skala rubrik)"
+            "description": "Skor jalur deterministik (proporsi sitasi 0.00-1.00)"
           },
           "quality": {
             "anyOf": [
@@ -10593,24 +10593,11 @@
             ],
             "title": "Format",
             "description": "Skor kepatuhan format dan struktur jawaban (skala 0.00-1.00)"
-          },
-          "judge": {
-            "anyOf": [
-              {
-                "type": "string",
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Judge",
-            "description": "Skor jalur penilai LLM (alias backward-compatible untuk quality)"
           }
         },
         "type": "object",
         "title": "ScorePair",
-        "description": "Pasangan skor deterministik, kualitas rubrik, dan format (PBI-14, SCRUM-225)."
+        "description": "Skor deterministik, kualitas rubrik, dan format penilai LLM (PBI-14, SCRUM-225)."
       },
       "SessionAcceptRequest": {
         "properties": {

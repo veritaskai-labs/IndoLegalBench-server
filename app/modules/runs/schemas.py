@@ -507,10 +507,10 @@ class SessionResumeResponse(BaseModel):
 
 
 class ScorePair(BaseModel):
-    """Pasangan skor deterministik, kualitas rubrik, dan format (PBI-14, SCRUM-225)."""
+    """Skor deterministik, kualitas rubrik, dan format penilai LLM (PBI-14, SCRUM-225)."""
 
     deterministic: Decimal | None = Field(
-        default=None, description="Skor jalur deterministik (0.00-1.00 atau skala rubrik)"
+        default=None, description="Skor jalur deterministik (proporsi sitasi 0.00-1.00)"
     )
     quality: Decimal | None = Field(
         default=None,
@@ -519,18 +519,6 @@ class ScorePair(BaseModel):
     format: Decimal | None = Field(
         default=None, description="Skor kepatuhan format dan struktur jawaban (skala 0.00-1.00)"
     )
-    judge: Decimal | None = Field(
-        default=None,
-        description="Skor jalur penilai LLM (alias backward-compatible untuk quality)",
-    )
-
-    @model_validator(mode="after")
-    def _sync_judge_and_quality(self) -> "ScorePair":
-        if self.quality is None and self.judge is not None:
-            self.quality = self.judge
-        elif self.judge is None and self.quality is not None:
-            self.judge = self.quality
-        return self
 
 
 class ThreeScores(BaseModel):

@@ -19,6 +19,7 @@ Fitur utama:
 
 from __future__ import annotations
 
+import re
 import threading
 import uuid
 from collections import defaultdict
@@ -211,15 +212,13 @@ def aggregate_case_scores(
     det_mean = mean_scores(item.deterministic for item in valid_items)
     qual_mean = mean_scores(item.quality for item in valid_items)
     fmt_mean = mean_scores(item.format for item in valid_items)
-    judge_mean = mean_scores(item.judge for item in valid_items) or qual_mean
 
-    if det_mean is None and qual_mean is None and fmt_mean is None and judge_mean is None:
+    if det_mean is None and qual_mean is None and fmt_mean is None:
         return None
     return ScorePair(
         deterministic=det_mean,
         quality=qual_mean,
         format=fmt_mean,
-        judge=judge_mean,
     )
 
 
@@ -231,13 +230,10 @@ def _case_tag(split_tag: SplitTag | str | None) -> str:
 
 def _score_pair_from_cases(cases: Sequence[CaseGradeResult]) -> ScorePair:
     valid_scores = [c.scores for c in cases if c.scores is not None]
-    qual_mean = mean_scores(s.quality for s in valid_scores)
-    judge_mean = mean_scores(s.judge for s in valid_scores) or qual_mean
     return ScorePair(
         deterministic=mean_scores(s.deterministic for s in valid_scores),
-        quality=qual_mean,
+        quality=mean_scores(s.quality for s in valid_scores),
         format=mean_scores(s.format for s in valid_scores),
-        judge=judge_mean,
     )
 
 
@@ -262,21 +258,15 @@ def compute_category_scores(cases: Sequence[CaseGradeResult]) -> list[CategorySc
 
     results: list[CategoryScore] = []
     for cat_name, cat_cases in sorted(groups.items()):
-        det_scores = [
-            c.scores.deterministic
-            for c in cat_cases
-            if c.scores and c.scores.deterministic is not None
-        ]
-        judge_scores = [
-            c.scores.judge for c in cat_cases if c.scores and c.scores.judge is not None
-        ]
+        valid_scores = [c.scores for c in cat_cases if c.scores is not None]
         results.append(
             CategoryScore(
                 category=cat_name,
                 case_count=len(cat_cases),
                 scores=ScorePair(
-                    deterministic=mean_scores(det_scores),
-                    judge=mean_scores(judge_scores),
+                    deterministic=mean_scores(s.deterministic for s in valid_scores),
+                    quality=mean_scores(s.quality for s in valid_scores),
+                    format=mean_scores(s.format for s in valid_scores),
                 ),
             )
         )
@@ -297,38 +287,44 @@ def _get_jenis_catalog(db: Session | None = None) -> dict[str, TypeName]:
         return {}
 
 
+def _normalize_ref_links(links: Iterable[Any]) -> list[dict[str, Any]]:
+    norm_links = []
+    for link in links:
+        ld = dict(link) if isinstance(link, dict) else getattr(link, "__dict__", {})
+        reg_type = str(ld.get("regulation_type") or "").strip().lower()
+        norm_links.append({**ld, "regulation_type": reg_type})
+    return norm_links
+
+
+def _normalize_flat_ref(ref_dict: dict[str, Any]) -> dict[str, Any]:
+    reg_type = str(ref_dict.get("regulation_type") or "uu").strip().lower()
+    num = str(ref_dict.get("number") or ref_dict.get("nomor") or "").strip()
+    year_val = ref_dict.get("year") or ref_dict.get("tahun")
+    year = int(year_val) if year_val else None
+    pasal = ref_dict.get("article") or ref_dict.get("pasal")
+    return {
+        "kind": "structured",
+        "free_text": None,
+        "links": [
+            {
+                "regulation_type": reg_type,
+                "number": num,
+                "year": year,
+                "pasal": str(pasal) if pasal is not None else None,
+            }
+        ],
+    }
+
+
 def normalize_legal_refs(refs: Sequence[Any]) -> list[dict[str, Any]]:
     """Normalisasi format rujukan acuan ke bentuk LegalRefStored untuk CitationScorer."""
     normalized: list[dict[str, Any]] = []
     for ref in refs:
         ref_dict = ref if isinstance(ref, dict) else getattr(ref, "__dict__", {})
         if "links" in ref_dict and isinstance(ref_dict["links"], (list, tuple)):
-            norm_links = []
-            for link in ref_dict["links"]:
-                ld = dict(link) if isinstance(link, dict) else getattr(link, "__dict__", {})
-                reg_type = str(ld.get("regulation_type") or "").strip().lower()
-                norm_links.append({**ld, "regulation_type": reg_type})
-            normalized.append({**ref_dict, "links": norm_links})
+            normalized.append({**ref_dict, "links": _normalize_ref_links(ref_dict["links"])})
         elif "number" in ref_dict or "nomor" in ref_dict:
-            reg_type = str(ref_dict.get("regulation_type") or "uu").strip().lower()
-            num = str(ref_dict.get("number") or ref_dict.get("nomor") or "").strip()
-            year_val = ref_dict.get("year") or ref_dict.get("tahun")
-            year = int(year_val) if year_val else None
-            pasal = ref_dict.get("article") or ref_dict.get("pasal")
-            normalized.append(
-                {
-                    "kind": "structured",
-                    "free_text": None,
-                    "links": [
-                        {
-                            "regulation_type": reg_type,
-                            "number": num,
-                            "year": year,
-                            "pasal": str(pasal) if pasal is not None else None,
-                        }
-                    ],
-                }
-            )
+            normalized.append(_normalize_flat_ref(ref_dict))
         else:
             normalized.append(ref_dict)
     return normalized
@@ -361,6 +357,16 @@ def score_deterministic_citations(
     return round_two_digits(score_obj.score)
 
 
+def _extract_dict_fallback_items(criteria: dict[str, Any]) -> list[str]:
+    raw_list = criteria.get("items") or criteria.get("kriteria")
+    if isinstance(raw_list, list):
+        return [str(x) for x in raw_list]
+    catatan = criteria.get("catatan")
+    if catatan:
+        return [str(catatan)]
+    return []
+
+
 def _extract_criteria_items(
     criteria: dict[str, Any] | Sequence[Any] | None,
 ) -> tuple[list[str], list[str], str | None]:
@@ -371,20 +377,11 @@ def _extract_criteria_items(
     if isinstance(criteria, dict):
         must_contain = [str(x) for x in criteria.get("must_contain", [])]
         must_not_contain = [str(x) for x in criteria.get("must_not_contain", [])]
-        expected_conclusion = (
-            str(criteria["expected_conclusion"]) if criteria.get("expected_conclusion") else None
-        )
+        concl = criteria.get("expected_conclusion")
+        expected_conclusion = str(concl) if concl else None
         if must_contain or must_not_contain or expected_conclusion:
             return must_contain, must_not_contain, expected_conclusion
-
-        items: list[str] = []
-        if "items" in criteria and isinstance(criteria["items"], list):
-            items = [str(x) for x in criteria["items"]]
-        elif "kriteria" in criteria and isinstance(criteria["kriteria"], list):
-            items = [str(x) for x in criteria["kriteria"]]
-        elif "catatan" in criteria and criteria["catatan"]:
-            items = [str(criteria["catatan"])]
-        return items, [], None
+        return _extract_dict_fallback_items(criteria), [], None
 
     if isinstance(criteria, (list, tuple)):
         return [str(x) for x in criteria], [], None
@@ -485,6 +482,28 @@ def score_judge_criteria(
     return res[0] if res is not None else None
 
 
+_FORMAT_SECTIONS: tuple[tuple[str, str], ...] = (
+    ("ringkasan", r"\b(ringkasan|ikhtisar)\b"),
+    ("pembahasan", r"\b(pembahasan|analisis)\b"),
+    ("penutup", r"\b(penutup|kesimpulan)\b"),
+    ("rujukan", r"\b(rujukan|dasar\s+hukum|referensi)\b"),
+)
+
+
+def score_format_structure(answer_text: str | None) -> Decimal | None:
+    """Menghitung skor kepatuhan format 4 bagian sesuai Format Jawaban Hukum (skala 0.00-1.00)."""
+    if is_empty_answer(answer_text):
+        return None
+    text_lower = (answer_text or "").lower()
+    matched = sum(1 for _, pat in _FORMAT_SECTIONS if re.search(pat, text_lower))
+    if matched > 0:
+        return round_two_digits(Decimal(matched) / Decimal(len(_FORMAT_SECTIONS)))
+    paragraphs = [p.strip() for p in (answer_text or "").split("\n\n") if p.strip()]
+    if len(paragraphs) >= 3:
+        return Decimal("0.50")
+    return Decimal("0.25")
+
+
 @dataclass
 class AttemptGradeInput:
     attempt_id: uuid.UUID
@@ -498,7 +517,6 @@ class AttemptGradeInput:
     deterministic_score: Decimal | None = None
     quality_score: Decimal | None = None
     format_score: Decimal | None = None
-    judge_score: Decimal | None = None
     explanation: str | None = None
     reasons: list[str] = field(default_factory=list)
     criteria: list[dict[str, Any]] = field(default_factory=list)
@@ -780,7 +798,9 @@ class DbGradingStore:
         crit_count = len(att.criteria)
         crit_met = sum(1 for c in att.criteria if c.get("is_met"))
         total = crit_count if crit_count > 0 else 1
-        met = crit_met if crit_count > 0 else (1 if score_val >= Decimal("0.50") else 0)
+        met = crit_met if crit_count > 0 else (1 if score_val >= Decimal("2.50") else 0)
+        crit_ratio = round_two_digits(score_val / Decimal("5.00"))
+        rub_level = max(0, min(5, int(round(score_val))))
 
         judge_row = LlmJudgeResult(
             id=uuid.uuid4(),
@@ -791,8 +811,8 @@ class DbGradingStore:
             prompt=f"Penilaian kualitas jawaban untuk kasus {case_code}",
             criteria_met=met,
             criteria_total=total,
-            criteria_score=score_val,
-            rubric_level=None,
+            criteria_score=crit_ratio,
+            rubric_level=rub_level,
             explanation=att.explanation,
             error=None,
             failure_kind=None,
@@ -842,9 +862,10 @@ class DbGradingStore:
             return
 
         rep_no = max(1, min(5, att.repetition_no))
-        qual_score = att.score.quality if att.score.quality is not None else att.score.judge
-        if qual_score is not None:
-            self._save_quality_judge_record(grading_result_id, att, case_code, rep_no, qual_score)
+        if att.score.quality is not None:
+            self._save_quality_judge_record(
+                grading_result_id, att, case_code, rep_no, att.score.quality
+            )
 
         if att.score.format is not None:
             self._save_format_judge_record(grading_result_id, case_code, rep_no, att.score.format)
@@ -878,18 +899,22 @@ def _evaluate_attempt_score(
 
     if att.quality_score is not None:
         qual = round_two_digits(att.quality_score)
-    elif att.judge_score is not None:
-        qual = round_two_digits(att.judge_score)
     else:
-        qual = _populate_judge_details(
+        prop = _populate_judge_details(
             att, evaluate_criteria_details(att.answer_text, case.answer_criteria)
         )
+        qual = round_two_digits(prop * Decimal("5.00")) if prop is not None else None
 
-    fmt = round_two_digits(att.format_score) if att.format_score is not None else None
+    if att.format_score is not None:
+        fmt = round_two_digits(att.format_score)
+    elif det is not None or qual is not None:
+        fmt = score_format_structure(att.answer_text)
+    else:
+        fmt = None
 
     if det is None and qual is None and fmt is None:
         return None
-    return ScorePair(deterministic=det, quality=qual, format=fmt, judge=qual)
+    return ScorePair(deterministic=det, quality=qual, format=fmt)
 
 
 def _grade_single_attempt(
@@ -1170,6 +1195,33 @@ def _extract_criterion_info(
     return c_list, reasons
 
 
+def _calculate_db_quality_score(j_row: Any, is_succeeded: bool) -> Decimal | None:
+    if not is_succeeded:
+        return None
+    if j_row.criteria_score is not None:
+        return round_two_digits(j_row.criteria_score * Decimal("5.00"))
+    if j_row.rubric_level is not None:
+        return round_two_digits(Decimal(j_row.rubric_level))
+    return None
+
+
+def _populate_attempt_judge_row(db: Session, data: dict[str, Any], j_row: Any) -> None:
+    from app.modules.grading.models import JudgeKind, JudgeStatus
+
+    is_succeeded = j_row.status == JudgeStatus.SUCCEEDED
+    if j_row.kind == JudgeKind.FORMAT:
+        if "format_score" not in data and is_succeeded:
+            data["format_score"] = j_row.criteria_score
+    elif "quality_score" not in data:
+        c_list, reasons = _extract_criterion_info(db, j_row.id)
+        data["quality_score"] = _calculate_db_quality_score(j_row, is_succeeded)
+        data["explanation"] = j_row.explanation
+        data["reasons"] = reasons
+        data["criteria"] = c_list
+        if not is_succeeded and "judge_error" not in data:
+            data["judge_error"] = j_row.error or j_row.failure_kind
+
+
 def _load_judge_metadata_for_attempts(
     db: Session,
     attempt_ids: list[uuid.UUID],
@@ -1178,8 +1230,6 @@ def _load_judge_metadata_for_attempts(
         return {}
     from app.modules.grading.models import (
         GradingResult,
-        JudgeKind,
-        JudgeStatus,
         LlmJudgeResult,
     )
 
@@ -1192,30 +1242,16 @@ def _load_judge_metadata_for_attempts(
 
     judge_data: dict[uuid.UUID, dict[str, Any]] = defaultdict(dict)
     for att_id, j_row in rows:
-        data = judge_data[att_id]
-        is_succeeded = j_row.status == JudgeStatus.SUCCEEDED
-        if j_row.kind == JudgeKind.FORMAT:
-            if "format_score" not in data and is_succeeded:
-                data["format_score"] = j_row.criteria_score
-        elif "judge_score" not in data:
-            c_list, reasons = _extract_criterion_info(db, j_row.id)
-            data["judge_score"] = j_row.criteria_score if is_succeeded else None
-            data["quality_score"] = j_row.criteria_score if is_succeeded else None
-            data["explanation"] = j_row.explanation
-            data["reasons"] = reasons
-            data["criteria"] = c_list
-            if not is_succeeded and "judge_error" not in data:
-                data["judge_error"] = j_row.error or j_row.failure_kind
+        _populate_attempt_judge_row(db, judge_data[att_id], j_row)
     return dict(judge_data)
 
 
 def _apply_judge_row_to_attempt(att: AttemptGradeInput, row: Any) -> None:
     if row.score is not None:
         if getattr(row, "kind", None) == "format":
-            att.format_score = row.score
+            att.format_score = round_two_digits(row.score)
         else:
-            att.quality_score = row.score
-            att.judge_score = row.score
+            att.quality_score = round_two_digits(row.score * Decimal("5.00"))
             att.explanation = row.explanation
             att.reasons = [row.reason_id] if row.reason_id else []
             att.criteria = [
@@ -1285,29 +1321,8 @@ def _build_attempt_input(
         failure_kind=f_kind,
         platform_refused=platform_refused,
         judge_error=j_err or j_info.get("judge_error"),
-        judge_score=j_info.get("judge_score"),
         quality_score=j_info.get("quality_score"),
         format_score=j_info.get("format_score"),
-        explanation=j_info.get("explanation"),
-        reasons=j_info.get("reasons") or [],
-        criteria=j_info.get("criteria") or [],
-    )
-    f_kind = failure_kinds.get(a.id)
-    j_err = judge_errors.get(a.id)
-    platform_refused = bool(a.answer_text and "[Platform menolak menjawab]" in a.answer_text) or (
-        f_kind == "platform_refused"
-    )
-    j_info = (judge_data or {}).get(a.id, {})
-    return AttemptGradeInput(
-        attempt_id=a.id,
-        repetition_no=a.repetition_no,
-        status=a.status,
-        source=a.source,
-        answer_text=a.answer_text,
-        failure_kind=f_kind,
-        platform_refused=platform_refused,
-        judge_error=j_err or j_info.get("judge_error"),
-        judge_score=j_info.get("judge_score"),
         explanation=j_info.get("explanation"),
         reasons=j_info.get("reasons") or [],
         criteria=j_info.get("criteria") or [],
@@ -1418,7 +1433,6 @@ def _should_grade_with_judge(att: AttemptGradeInput) -> bool:
             failure_kind=att.failure_kind,
             platform_refused=att.platform_refused,
         )
-        and att.judge_score is None
         and att.quality_score is None
         and not att.criteria
     )
