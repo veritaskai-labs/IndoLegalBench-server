@@ -1655,14 +1655,14 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
 
     store = DbGradingStore(db_session)
     # Saat versi tidak cocok tetapi ada versi aktif
-    resolved_id = store._resolve_db_rubric_version_id("v9999", pembuat.id)
+    resolved_id = store._resolve_db_rubric_version_id("v9999")
     assert resolved_id == v_act.id
 
     # Saat tidak ada versi aktif di DB sama sekali: ConflictError RUBRIC_NOT_ACTIVE
     db_session.query(RubricVersion).delete()
     db_session.commit()
     with pytest.raises(ConflictError) as exc_info:
-        store._resolve_db_rubric_version_id("v9999", pembuat.id)
+        store._resolve_db_rubric_version_id("v9999")
     assert exc_info.value.code == "RUBRIC_NOT_ACTIVE"
 
     # _resolve_rubric_version saat tidak ada versi aktif -> ConflictError RUBRIC_NOT_ACTIVE

@@ -845,9 +845,7 @@ class DbGradingStore:
 
         return self._get_grading_runs_from_audit(session_id)
 
-    def _resolve_db_rubric_version_id(
-        self, rubric_ver_str: str | None, triggered_by: uuid.UUID
-    ) -> uuid.UUID:
+    def _resolve_db_rubric_version_id(self, rubric_ver_str: str | None) -> uuid.UUID:
         from app.modules.grading.models import RubricVersion
 
         ver_str = (rubric_ver_str or "v1").lower().lstrip("v")
@@ -955,7 +953,7 @@ class DbGradingStore:
             GradingRunStatus,
         )
 
-        rubric_version_id = self._resolve_db_rubric_version_id(run.rubric_version, run.triggered_by)
+        rubric_version_id = self._resolve_db_rubric_version_id(run.rubric_version)
 
         if run.is_latest:
             self._deactivate_previous_latest_runs(run.session_id)
