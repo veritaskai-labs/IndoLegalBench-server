@@ -108,6 +108,28 @@ def test_daftar_penilai_menyimpan_kredensial_terenkripsi_dan_hanya_hint(admin, d
     assert baris.credential_encrypted != _SECRET.encode()
 
 
+def test_kredensial_tempelan_dengan_spasi_di_ujung_dibersihkan(admin, db_session):
+    """Edge: review #118, kunci yang ditempel dengan baris baru tidak menjadi hint berspasi
+    dan tidak gagal autentikasi nanti."""
+    body = _buat(admin, credential=f"  {_SECRET}\n")
+
+    assert body["credential_hint"] == _SECRET[-4:]
+    assert decrypt_credential(_baris(db_session, body["id"]).credential_encrypted) == _SECRET
+
+
+def test_ganti_kredensial_juga_dibersihkan(admin, db_session):
+    dibuat = _buat(admin)
+
+    body = admin.patch(
+        f"{ADMIN_URL}/{dibuat['id']}", json={"credential": f"{_OTHER_SECRET} "}
+    ).json()
+
+    assert body["credential_hint"] == _OTHER_SECRET[-4:]
+    assert decrypt_credential(_baris(db_session, dibuat["id"]).credential_encrypted) == (
+        _OTHER_SECRET
+    )
+
+
 def test_daftar_penilai_nonaktif_sejak_awal(admin):
     """Edge: Admin boleh menyiapkan penilai tanpa langsung muncul di dropdown."""
     assert _buat(admin, is_active=False)["is_active"] is False
@@ -152,7 +174,8 @@ def test_isian_wajib_tidak_boleh_hilang(admin, field):
         ("model_name", "   "),
         ("base_url", "ftp://judge.example.test"),
         ("base_url", "bukan url"),
-        ("credential", "abc"),
+        ("credential", "abcdefg"),
+        ("credential", " abcdefg\n"),
         ("price_input_usd_per_mtok", "-0.0001"),
         ("price_output_usd_per_mtok", "0.00001"),
         ("monthly_budget_idr", "0"),
@@ -166,7 +189,8 @@ def test_isian_wajib_tidak_boleh_hilang(admin, field):
         "model-spasi",
         "url-ftp",
         "url-salah",
-        "kredensial-3",
+        "kredensial-7",
+        "kredensial-7-setelah-strip",
         "harga-negatif",
         "harga-5-desimal",
         "anggaran-nol",
@@ -425,12 +449,12 @@ def test_patch_di_luar_cakupan_ditolak(admin, isi):
 @pytest.mark.parametrize(
     ("isi", "sah"),
     [
-        ({"credential": "abc"}, False),
-        ({"credential": "abcd"}, True),
+        ({"credential": "abcdefg"}, False),
+        ({"credential": "abcdefgh"}, True),
         ({"monthly_budget_idr": "0"}, False),
         ({"price_input_usd_per_mtok": "-1"}, False),
     ],
-    ids=["kredensial-3", "kredensial-4", "anggaran-nol", "harga-negatif"],
+    ids=["kredensial-7", "kredensial-8", "anggaran-nol", "harga-negatif"],
 )
 def test_batas_isian_patch(admin, isi, sah):
     dibuat = _buat(admin)
