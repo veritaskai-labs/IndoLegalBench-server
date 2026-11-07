@@ -586,5 +586,5 @@ class ManualAnswerHistoryEntry(BaseModel):
     obtained_at: UtcDateTime | None
     platform_refused: bool
     note: str | None
+    overwritten_by: uuid.UUID
     overwritten_at: UtcDateTime
-    overwritten_at: datetime

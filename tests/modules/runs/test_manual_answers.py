@@ -293,3 +293,29 @@ def test_waktu_jawaban_manual_keluar_sebagai_iso_8601_utc():
 
     assert terkirim["obtained_at"] == "2026-11-07T14:00:00Z"
     assert terkirim["filled_at"] == "2026-11-07T14:00:00Z"
+
+
+def test_riwayat_memuat_penimpa_dan_waktu_timpa_dalam_utc(manual):
+    """Positif: riwayat wajib menyebut siapa yang menimpa dan kapan, ISO 8601 UTC (AC5).
+
+    Dua field ini mudah hilang tanpa terdeteksi: ruff tidak mengeluh kalau nama
+    field Pydantic kembar, dan tes lain hanya memeriksa baris database, bukan
+    respons HTTP-nya.
+    """
+    ctx, session_id, attempts = manual
+    client = ctx.sebagai(Role.ADMIN)
+    attempt = attempts[0]
+
+    client.put(path(session_id), json=payload(attempt, answer_md="Jawaban lama"))
+    client.put(
+        path(session_id),
+        json=payload(attempt, answer_md="Jawaban baru", requires_confirmation=True),
+    )
+
+    response = client.get(f"{path(session_id)}/{attempt.snapshot_item_id}/1/history")
+
+    assert response.status_code == 200, response.text
+    catatan = response.json()[0]
+    assert catatan["overwritten_by"]
+    assert catatan["overwritten_at"].endswith("Z")
+    assert catatan["filled_at"].endswith("Z")

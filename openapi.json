@@ -8647,6 +8647,11 @@
             ],
             "title": "Note"
           },
+          "overwritten_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Overwritten By"
+          },
           "overwritten_at": {
             "type": "string",
             "format": "date-time",
@@ -8663,6 +8668,7 @@
           "obtained_at",
           "platform_refused",
           "note",
+          "overwritten_by",
           "overwritten_at"
         ],
         "title": "ManualAnswerHistoryEntry"
