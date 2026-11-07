@@ -14,6 +14,7 @@ Urutan diatur dengan threading.Event dan pg_stat_activity, tanpa jeda waktu.
 import os
 import threading
 import uuid
+from collections.abc import Iterator
 from decimal import Decimal
 
 import pytest
@@ -60,8 +61,12 @@ def buat_sesi(engine):
 
 
 @pytest.fixture
-def siap(buat_sesi) -> dict[str, uuid.UUID]:
-    """Produk Otomatis, satu suite, dan satu penilai aktif, semuanya di-commit."""
+def siap(buat_sesi) -> Iterator[dict[str, uuid.UUID]]:
+    """Produk Otomatis, satu suite, dan satu penilai aktif, di-commit; penilai dihapus di akhir.
+
+    Sesi dengan penilai sungguhan (FK) sudah diuji di test_judge_providers_pg.py di dalam
+    transaksi yang di-rollback, jadi di sini tidak ada sesi yang tersimpan.
+    """
     with buat_sesi() as db:
         admin = pengguna(db)
         suite_id = uuid.uuid4()
@@ -87,12 +92,18 @@ def siap(buat_sesi) -> dict[str, uuid.UUID]:
             ),
             created_by=admin,
         )
-        return {
+        isi = {
             "produk": daftar_otomatis(db, admin),
             "admin": admin,
             "suite": suite_id,
             "penilai": penilai.id,
         }
+    yield isi
+    # Penilai yang di-commit menahan downgrade migrasi 4f844618b782 di database bersama,
+    # jadi dihapus lagi. Tes ini tidak pernah menyimpan sesi yang merujuknya.
+    with buat_sesi() as db:
+        db.execute(text("DELETE FROM judge_providers WHERE id = :id"), {"id": isi["penilai"]})
+        db.commit()
 
 
 def _mulai(db, siap) -> schemas.StartResponse:
@@ -111,23 +122,6 @@ def _mulai(db, siap) -> schemas.StartResponse:
         judge_provider_id=siap["penilai"],
     )
     return start.start(permintaan, created_by=siap["admin"])
-
-
-def _penilai_sesi(engine, sesi_id) -> uuid.UUID | None:
-    with engine.connect() as conn:
-        return conn.scalar(
-            text("SELECT judge_provider_id FROM measurement_sessions WHERE id = :id"),
-            {"id": sesi_id},
-        )
-
-
-def test_mulai_dengan_penilai_aktif_menyimpan_fk(engine, buat_sesi, siap):
-    """Positif: FK sungguhan terpenuhi; sesi menyimpan penilai yang dipilih."""
-    with buat_sesi() as db:
-        hasil = _mulai(db, siap)
-
-    assert hasil.status == "queued"
-    assert _penilai_sesi(engine, hasil.session_id) == siap["penilai"]
 
 
 def test_mulai_menunggu_nonaktifkan_penilai_lalu_menolak(engine, buat_sesi, siap, monkeypatch):
