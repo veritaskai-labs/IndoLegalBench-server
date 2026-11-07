@@ -25,18 +25,23 @@ _DEFAULT_FILE_NAME = "bukti"
 
 EvidenceVisibility = Literal["session_viewers", "admin_only"]
 
+# D9 mime_type: tiga tipe yang diizinkan, sama dengan CHECK ck_attempt_evidence_mime_type.
+MIME_PNG = "image/png"
+MIME_JPEG = "image/jpeg"
+MIME_PDF = "application/pdf"
+
 # Signature resmi tiap format; cukup beberapa byte pertama.
 _SIGNATURES = (
-    (b"\x89PNG\r\n\x1a\n", "image/png"),
-    (b"\xff\xd8\xff", "image/jpeg"),
-    (b"%PDF-", "application/pdf"),
+    (b"\x89PNG\r\n\x1a\n", MIME_PNG),
+    (b"\xff\xd8\xff", MIME_JPEG),
+    (b"%PDF-", MIME_PDF),
 )
 # Content-Type yang dikirim browser untuk tiap tipe. image/jpg dipakai browser lama.
 _DECLARED = {
-    "image/png": "image/png",
-    "image/jpeg": "image/jpeg",
-    "image/jpg": "image/jpeg",
-    "application/pdf": "application/pdf",
+    MIME_PNG: MIME_PNG,
+    MIME_JPEG: MIME_JPEG,
+    "image/jpg": MIME_JPEG,
+    MIME_PDF: MIME_PDF,
 }
 # D10: Admin dan Kontributor bisa membuka sesi manual milik siapa pun.
 _SESSION_VIEWERS = frozenset({Role.ADMIN, Role.CONTRIBUTOR})

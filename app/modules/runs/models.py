@@ -119,10 +119,6 @@ class EvidenceKind(StrEnum):
     LINK = "link"
 
 
-# D9: tipe berkas bukti yang diizinkan. Dibaca dari isi berkas (manual_evidence_rules).
-EVIDENCE_MIME_TYPES = ("image/png", "image/jpeg", "application/pdf")
-
-
 class AttemptStatus(StrEnum):
     PENDING = "pending"
     RUNNING = "running"
