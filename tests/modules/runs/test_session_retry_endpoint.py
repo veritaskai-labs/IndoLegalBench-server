@@ -363,13 +363,13 @@ def _jalankan_lagi(db_session, sesi: MeasurementSession, status: SessionStatus) 
 
 
 @pytest.mark.parametrize("status", [SessionStatus.RUNNING, SessionStatus.QUEUED])
-def test_developer_ai_tidak_melihat_respons_mentah_sesi_yang_belum_berakhir(
+def test_developer_ai_melihat_respons_mentah_kasus_dev_saat_sesi_belum_berakhir(
     as_role, db_session, sesi_gagal, status
 ):
-    """Negatif: D10 seperti detail sesi (#91), hasil sesi yang belum berakhir hanya untuk Admin.
+    """Positif: AC9 jawaban kasus dev terbaca selama sesi berjalan, termasuk respons mentahnya.
 
-    raw_response memuat jawaban mentah penyedia, dan coba ulang membuat sesi running
-    lagi, jadi kasus dev pun disamarkan sampai sesi berakhir (review #99).
+    Aturan lama (review #99) menutupnya sampai sesi berakhir; sekarang hanya kasus
+    test yang tertutup, apa pun status sesinya.
     """
     # Arrange
     sesi, gagal_dev, _ = sesi_gagal
@@ -381,12 +381,33 @@ def test_developer_ai_tidak_melihat_respons_mentah_sesi_yang_belum_berakhir(
     # Assert
     assert response.status_code == 200
     body = response.json()
+    assert body["masked"] is False
+    assert body["calls"][0]["raw_response"]["error"] == RAW_PENYEDIA["error"]
+    assert body["calls"][0]["error_summary"] == "timeout 240 s"
+
+
+@pytest.mark.parametrize("status", [SessionStatus.RUNNING, SessionStatus.QUEUED])
+def test_developer_ai_tidak_melihat_respons_mentah_kasus_test_saat_sesi_belum_berakhir(
+    as_role, db_session, sesi_gagal, status
+):
+    """Negatif: kasus test tetap tertutup di sesi berjalan, hanya jenis kegagalan dan waktu."""
+    # Arrange
+    sesi, _, gagal_test = sesi_gagal
+    _jalankan_lagi(db_session, sesi, status)
+
+    # Act
+    response = as_role(Role.DEVELOPER_AI).get(_calls(sesi.id, gagal_test.id))
+
+    # Assert
+    assert response.status_code == 200
+    body = response.json()
     assert body["masked"] is True
     for upaya in body["calls"]:
         assert upaya["raw_response"] is None
         assert upaya["error_summary"] is None
         assert upaya["failure_kind"] == "no_response"
     assert "overloaded" not in response.text
+    assert "timeout 240 s" not in response.text
 
 
 def test_admin_tetap_melihat_respons_mentah_sesi_yang_berjalan(as_role, db_session, sesi_gagal):
