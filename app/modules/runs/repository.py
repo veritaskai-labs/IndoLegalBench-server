@@ -38,6 +38,9 @@ from app.modules.runs.schemas import CaseFilter, MeasurementPurpose
 from app.modules.runs.session_detail import AttemptRow, CaseRow, SessionDetailRow
 from app.modules.runs.session_list import SessionRow
 from app.modules.runs.session_ports import (
+    ManualAttemptRow,
+    ManualCaseRow,
+    ManualSessionRow,
     NewSession,
     ProductCopy,
     QueuedSession,
@@ -768,7 +771,11 @@ class SessionQueueRepository:
 
 
 class ManualSessionRepository:
-    """Sesi manual di tabel D2 (PBI-22 SCRUM-230), memenuhi port ManualSessionStore."""
+    """Sesi manual di tabel D2 (PBI-22 SCRUM-230).
+
+    Memenuhi port ManualSessionStore (membuat sesi) dan ManualStatusStore (status, Selesai,
+    halaman sesi), supaya service tidak menulis query sendiri (review #116).
+    """
 
     def __init__(self, db: Session) -> None:
         self._db = db
@@ -801,6 +808,96 @@ class ManualSessionRepository:
             self._db.rollback()
             raise
         return session.id
+
+    def lock_manual(self, session_id: uuid.UUID) -> SessionStatus | None:
+        session = get_session_for_update(self._db, session_id)
+        if session is None or session.session_type != SessionType.MANUAL:
+            return None
+        return SessionStatus(session.status)
+
+    def manual_attempts(self, session_id: uuid.UUID) -> list[ManualAttemptRow]:
+        rows = self._db.execute(
+            select(
+                Attempt.id,
+                Attempt.snapshot_item_id,
+                Attempt.repetition_no,
+                Attempt.filled_at,
+                Attempt.answered_at_platform,
+            )
+            .where(Attempt.session_id == session_id)
+            .order_by(Attempt.snapshot_item_id, Attempt.repetition_no)
+        )
+        return [
+            ManualAttemptRow(
+                id=attempt_id,
+                snapshot_item_id=item_id,
+                repetition_no=nomor,
+                filled=filled_at is not None,
+                answered_at_platform=diperoleh,
+            )
+            for attempt_id, item_id, nomor, filled_at, diperoleh in rows
+        ]
+
+    def set_answer_dates(
+        self, session_id: uuid.UUID, start: datetime | None, end: datetime | None
+    ) -> None:
+        self._db.execute(
+            update(MeasurementSession)
+            .where(MeasurementSession.id == session_id)
+            .values(answer_date_from=start, answer_date_to=end)
+            .execution_options(synchronize_session=False)
+        )
+
+    def change_status(
+        self,
+        session_id: uuid.UUID,
+        target: SessionStatus,
+        *,
+        at: datetime,
+        finalized_by: uuid.UUID | None = None,
+        commit: bool,
+    ) -> None:
+        SessionStatusRepository(self._db).change_status(
+            session_id, target, at=at, finalized_by=finalized_by, commit=commit
+        )
+
+    def read_manual(self, session_id: uuid.UUID) -> ManualSessionRow | None:
+        session = self._db.get(MeasurementSession, session_id)
+        if session is None or session.session_type != SessionType.MANUAL:
+            return None
+        # Baris manual lama tanpa salinan produk tetap terbaca, bukan 500 (review #116).
+        product = self._db.scalars(
+            select(SessionProductCopy).where(SessionProductCopy.session_id == session_id)
+        ).first()
+        return ManualSessionRow(
+            id=session.id,
+            label=session.label,
+            purpose=SessionPurpose(session.purpose).value,
+            status=SessionStatus(session.status),
+            case_filter=SplitFilter(session.split_filter).value,
+            repetitions=session.repetitions,
+            created_by=session.created_by,
+            created_at=session.created_at,
+            answer_date_from=session.answer_date_from,
+            answer_date_to=session.answer_date_to,
+            finalized_at=session.finalized_at,
+            finalized_by=session.finalized_by,
+            product_name=product.name if product else "",
+            vendor_name=product.vendor_name if product else None,
+            site_url=product.site_url if product else None,
+            manual_params=product.manual_params if product else None,
+        )
+
+    def snapshot_cases(self, session_id: uuid.UUID) -> list[ManualCaseRow]:
+        rows = self._db.execute(
+            select(CaseSnapshotItem.id, CaseSnapshotItem.case_id, CaseSnapshotItem.body)
+            .join(CaseSnapshot, CaseSnapshot.id == CaseSnapshotItem.snapshot_id)
+            .where(CaseSnapshot.session_id == session_id)
+        )
+        return [
+            ManualCaseRow(snapshot_item_id=item_id, case_id=case_id, body=body)
+            for item_id, case_id, body in rows
+        ]
 
 
 def _freeze(

@@ -27,6 +27,7 @@ from app.modules.runs.exchange_rate import (
     JisdorExchangeRate,
 )
 from app.modules.runs.manual_session import ManualSessionService
+from app.modules.runs.manual_session_status import ManualSessionStatusService
 from app.modules.runs.pricing import ConfigPriceCatalog
 from app.modules.runs.repository import (
     CallLogRepository,
@@ -125,6 +126,11 @@ def get_manual_session_service(db: Session = Depends(get_db)) -> ManualSessionSe
         product_lock=ProductLockAdapter(db),
         suites=SuiteGuardAdapter(db),
     )
+
+
+def get_manual_status_service(db: Session = Depends(get_db)) -> ManualSessionStatusService:
+    """Status, Selesai, dan halaman sesi manual lewat repository (review #116)."""
+    return ManualSessionStatusService(ManualSessionRepository(db))
 
 
 def build_session_queue(db: Session) -> SessionQueue:

@@ -8,13 +8,14 @@ import uuid
 from datetime import UTC, datetime
 
 from fastapi import APIRouter, Depends, Query, status
-from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
-from app.modules.runs.dependencies import get_manual_session_service
+from app.modules.runs.dependencies import (
+    get_manual_session_service,
+    get_manual_status_service,
+)
 from app.modules.runs.manual_session import ManualSessionService
-from app.modules.runs.manual_session_detail import manual_session_detail
-from app.modules.runs.manual_session_status import finalize_manual_session
+from app.modules.runs.manual_session_status import ManualSessionStatusService
 from app.modules.runs.schemas import (
     ManualFinalizeResponse,
     ManualSessionDetail,
@@ -22,7 +23,6 @@ from app.modules.runs.schemas import (
     ManualStartResponse,
 )
 from app.shared.config import Settings, get_settings
-from app.shared.database import get_db
 from app.shared.security import CurrentUser, Role, require_roles
 
 router = APIRouter(prefix="/manual-measurements", tags=["manual-measurements"])
@@ -85,10 +85,10 @@ def finalize_manual(
     session_id: uuid.UUID,
     # Siapa yang boleh menandai Selesai masih TBA; standar tiket: Admin (AC8).
     user: CurrentUser = Depends(_admin),
-    db: Session = Depends(get_db),
+    service: ManualSessionStatusService = Depends(get_manual_status_service),
 ) -> ManualFinalizeResponse:
-    return finalize_manual_session(
-        db, session_id, finalized_by=uuid.UUID(str(user.user_id)), now=datetime.now(UTC)
+    return service.finalize(
+        session_id, finalized_by=uuid.UUID(str(user.user_id)), now=datetime.now(UTC)
     )
 
 
@@ -109,11 +109,10 @@ def read_manual_session(
         default=False, description="Filter 'belum terisi': hanya kasus yang masih kosong"
     ),
     _user: CurrentUser = Depends(_viewers),
-    db: Session = Depends(get_db),
+    service: ManualSessionStatusService = Depends(get_manual_status_service),
     settings: Settings = Depends(get_settings),
 ) -> ManualSessionDetail:
-    return manual_session_detail(
-        db,
+    return service.detail(
         session_id,
         unfilled_only=unfilled,
         warning_days=settings.manual_answer_date_warning_days,
