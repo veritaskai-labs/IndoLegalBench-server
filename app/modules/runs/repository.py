@@ -584,6 +584,7 @@ def reopen_for_retry(
 
     Status sesi lewat change_status (SCRUM-214). Bila sesi otomatis lain sedang
     running, partial index #89 menolak dan percobaan ikut dibatalkan.
+    Waktu mulai dan selesai dikosongkan; riwayat tiap upaya tetap ada di call_logs.
     """
     try:
         db.execute(
@@ -593,7 +594,7 @@ def reopen_for_retry(
                 Attempt.id.in_(attempt_ids),
                 Attempt.status == AttemptStatus.TECHNICAL_FAILURE,
             )
-            .values(status=AttemptStatus.PENDING)
+            .values(status=AttemptStatus.PENDING, started_at=None, finished_at=None)
             .execution_options(synchronize_session=False)
         )
         SessionStatusRepository(db).change_status(
