@@ -156,6 +156,11 @@ class MeasurementSession(Base):
             "(stopped_at IS NULL) = (stop_reason IS NULL)",
             name="ck_measurement_sessions_stop_complete",
         ),
+        # D9: Selesai (PBI-22 AC8) selalu tercatat bersama pelakunya.
+        CheckConstraint(
+            "(finalized_at IS NULL) = (finalized_by IS NULL)",
+            name="ck_measurement_sessions_finalized_complete",
+        ),
         Index("ix_measurement_sessions_product_id", "product_id"),
         # Satu sesi otomatis berjalan (AC3). Parsial di kedua dialek: tanpa
         # sqlite_where, SQLite membuatnya UNIQUE penuh pada session_type.
@@ -231,6 +236,16 @@ class MeasurementSession(Base):
         Uuid(as_uuid=True), ForeignKey(_USER_FK), nullable=True
     )
     accepted_as_is_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    # D9, sesi manual (PBI-22 SCRUM-230). Rentang tanggal jawaban dari platform untuk
+    # peringatan rentang (AC13) dan laporan PBI-15; diperbarui setiap jawaban disimpan.
+    answer_date_from: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
+    answer_date_to: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finalized_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finalized_by: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey(_USER_FK), nullable=True
+    )
 
 
 class MeasurementSessionSuite(Base):
@@ -355,6 +370,12 @@ class Attempt(Base):
     # Jawaban mentah markdown. Sekali terisi tidak bisa diubah (trigger).
     answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_version: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # D9, percobaan manual (PBI-22). filled_at kosong = belum terisi (status D8 dihitung
+    # dari sini); answered_at_platform = kapan jawaban diperoleh dari platform (AC7, AC13).
+    filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    answered_at_platform: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )
