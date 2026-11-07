@@ -16,6 +16,7 @@ import pytest
 from app.modules.runs import session_ports
 from app.modules.runs.models import SessionStatus
 from app.shared.exceptions import ConflictError, NotFoundError
+from app.shared.security import Role
 
 SESI = uuid.UUID("00000000-0000-0000-0000-0000000000e5")
 ADMIN = uuid.UUID("00000000-0000-0000-0000-0000000000d4")
@@ -25,6 +26,8 @@ HARI_1 = datetime(2026, 11, 1, 9, 0, tzinfo=UTC)
 HARI_3 = datetime(2026, 11, 3, 9, 0, tzinfo=UTC)
 HARI_8 = datetime(2026, 11, 8, 9, 0, tzinfo=UTC)
 JAM = datetime(2026, 11, 7, 10, 0, tzinfo=UTC)
+# Peran dan flag yang boleh melihat bukti (review Elision #121).
+TERLIHAT = {"role": Role.ADMIN, "evidence_visibility": "session_viewers"}
 
 
 def _percobaan(item, nomor, diperoleh=None):
@@ -188,7 +191,7 @@ def test_halaman_sesi_disusun_dari_baris_penyimpanan(layanan):
     penyimpan = _Penyimpan(percobaan=[_percobaan(ITEM_A, 1, HARI_1), _percobaan(ITEM_B, 1)])
 
     # Act
-    hasil = layanan(penyimpan).detail(SESI, unfilled_only=False, warning_days=2)
+    hasil = layanan(penyimpan).detail(SESI, unfilled_only=False, warning_days=2, **TERLIHAT)
 
     # Assert
     assert [kasus.case_code for kasus in hasil.cases] == ["PHK-001", "PHK-002"]
@@ -204,7 +207,7 @@ def test_filter_belum_terisi_tidak_mengubah_progres(layanan):
     penyimpan = _Penyimpan(percobaan=[_percobaan(ITEM_A, 1, HARI_1), _percobaan(ITEM_B, 1)])
 
     # Act
-    hasil = layanan(penyimpan).detail(SESI, unfilled_only=True, warning_days=None)
+    hasil = layanan(penyimpan).detail(SESI, unfilled_only=True, warning_days=None, **TERLIHAT)
 
     # Assert
     assert [kasus.case_code for kasus in hasil.cases] == ["PHK-002"]
@@ -215,7 +218,43 @@ def test_halaman_sesi_yang_tidak_ada_404(layanan):
     """Negatif: id yang bukan sesi manual."""
     # Act
     with pytest.raises(NotFoundError) as galat:
-        layanan(_Penyimpan(ada=False)).detail(SESI, unfilled_only=False, warning_days=None)
+        layanan(_Penyimpan(ada=False)).detail(
+            SESI, unfilled_only=False, warning_days=None, **TERLIHAT
+        )
 
     # Assert
     assert galat.value.code == "MANUAL_SESSION_NOT_FOUND"
+
+
+@pytest.mark.parametrize(
+    ("role", "flag", "jumlah"),
+    [
+        # Positif: yang boleh melihat bukti mendapat angkanya.
+        (Role.ADMIN, "admin_only", 2),
+        (Role.CONTRIBUTOR, "session_viewers", 2),
+        # Negatif: bukti tersembunyi, angkanya null (bukan 0) supaya tidak membocorkan.
+        (Role.CONTRIBUTOR, "admin_only", None),
+    ],
+    ids=["admin-admin_only", "kontributor-session_viewers", "kontributor-admin_only"],
+)
+def test_jumlah_bukti_mengikuti_flag_visibilitas(layanan, role, flag, jumlah):
+    """Positif dan negatif: review Elision #121, evidence_count tunduk pada MANUAL_EVIDENCE_VISIBILITY."""
+    # Arrange
+    baris = session_ports.ManualAttemptRow(
+        id=uuid.uuid4(),
+        snapshot_item_id=ITEM_A,
+        repetition_no=1,
+        filled=True,
+        answered_at_platform=HARI_1,
+        evidence_count=2,
+    )
+    penyimpan = _Penyimpan(percobaan=[baris])
+
+    # Act
+    hasil = layanan(penyimpan).detail(
+        SESI, unfilled_only=False, warning_days=None, role=role, evidence_visibility=flag
+    )
+
+    # Assert
+    (kasus,) = [kasus for kasus in hasil.cases if kasus.attempts]
+    assert [slot.evidence_count for slot in kasus.attempts] == [jumlah]

@@ -442,3 +442,46 @@ def test_unggahan_chunked_raksasa_ditolak_tanpa_menyimpan_apa_pun(manual, setela
     assert respons.status_code == 413
     assert respons.json()["code"] == "EVIDENCE_TOO_LARGE"
     assert ctx.db.scalars(select(EvidenceFile)).all() == []
+
+
+# Review Elision #121.
+
+
+def _jumlah_bukti(respons) -> list:
+    return [
+        slot["evidence_count"] for kasus in respons.json()["cases"] for slot in kasus["attempts"]
+    ]
+
+
+def test_jumlah_bukti_disembunyikan_dari_kontributor_saat_flag_admin_saja(manual, setelan):
+    """Negatif: review Elision #121, admin_only juga berlaku untuk evidence_count.
+
+    Tanpa ini Kontributor bisa menebak keberadaan bukti dari angkanya, padahal daftar dan
+    unduhannya 404. null, bukan 0, supaya tidak terbaca "belum ada bukti".
+    """
+    # Arrange
+    ctx, sesi_id, percobaan = manual
+    _unggah(ctx.sebagai(Role.ADMIN), sesi_id, percobaan[0])
+    setelan(manual_evidence_visibility="admin_only")
+
+    # Act
+    respons = ctx.sebagai(Role.CONTRIBUTOR).get(f"/manual-measurements/{sesi_id}")
+
+    # Assert
+    assert respons.status_code == 200, respons.text
+    assert set(_jumlah_bukti(respons)) == {None}
+
+
+def test_admin_tetap_melihat_jumlah_bukti_saat_flag_admin_saja(manual, setelan):
+    """Positif: review Elision #121, Admin yang boleh melihat bukti tetap mendapat angkanya."""
+    # Arrange
+    ctx, sesi_id, percobaan = manual
+    _unggah(ctx.sebagai(Role.ADMIN), sesi_id, percobaan[0])
+    setelan(manual_evidence_visibility="admin_only")
+
+    # Act
+    respons = ctx.sebagai(Role.ADMIN).get(f"/manual-measurements/{sesi_id}")
+
+    # Assert
+    assert respons.status_code == 200, respons.text
+    assert sorted(_jumlah_bukti(respons)) == [0, 0, 1]
