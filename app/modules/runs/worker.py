@@ -156,7 +156,9 @@ def _run_repeats(
             failed += 1
         else:
             completed += 1
-        record = _attempt_record(session_id, case_index, repeat_index, prompt, response, attempt_id)
+        record = _attempt_record(
+            session_id, case_index, repeat_index, prompt, response, attempt_id, ended_at
+        )
         rate = _bill_before_save(pace, record)
         _save(session_id, store, record, completed, failed)
         _record_call(pace, record, started_at, ended_at, rate)
@@ -207,6 +209,7 @@ def _attempt_record(
     prompt: str,
     response: ProviderResponse,
     attempt_id: uuid.UUID | None = None,
+    ended_at: datetime | None = None,
 ) -> AttemptRecord:
     kind = response.failure_kind
     return AttemptRecord(
@@ -228,6 +231,7 @@ def _attempt_record(
         failure_kind=None if kind is None else str(kind),
         input_tokens=response.input_tokens,
         output_tokens=response.output_tokens,
+        ended_at=ended_at,
     )
 
 

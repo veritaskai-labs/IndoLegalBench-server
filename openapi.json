@@ -6476,6 +6476,32 @@
               }
             ],
             "title": "Model Version"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At",
+            "description": "Waktu worker mulai memanggil produk (ISO 8601 UTC) pada upaya terakhir. null untuk data lama dan percobaan yang belum jalan"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At",
+            "description": "Waktu respons diterima atau gagal (ISO 8601 UTC) pada upaya terakhir. null bila belum selesai, setelah coba ulang dibuka, atau data lama"
           }
         },
         "type": "object",
@@ -6484,7 +6510,9 @@
           "repetition_no",
           "status",
           "answer_text",
-          "model_version"
+          "model_version",
+          "started_at",
+          "finished_at"
         ],
         "title": "AttemptResult",
         "description": "Satu percobaan: jawaban mentah apa adanya dari produk (PBI-11 AC8)."

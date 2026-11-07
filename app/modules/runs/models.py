@@ -357,6 +357,12 @@ class Attempt(Base):
     __tablename__ = "attempts"
     __table_args__ = (
         CheckConstraint("repetition_no BETWEEN 1 AND 5", name="ck_attempts_repetition_no"),
+        # Selesai tanpa mulai tidak masuk akal. Urutan waktunya sengaja tidak dicek
+        # supaya jam mundur tidak menggagalkan simpan setelah panggilan berbayar.
+        CheckConstraint(
+            "finished_at IS NULL OR started_at IS NOT NULL",
+            name="ck_attempts_finished_needs_started",
+        ),
         UniqueConstraint(
             "session_id", "snapshot_item_id", "repetition_no", name="uq_attempts_repetition"
         ),
@@ -382,6 +388,10 @@ class Attempt(Base):
     # Jawaban mentah markdown. Sekali terisi tidak bisa diubah (trigger).
     answer_text: Mapped[str | None] = mapped_column(Text, nullable=True)
     model_version: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    # Jejak waktu upaya terakhir. Coba ulang mengosongkan lalu mengisinya lagi; riwayat
+    # tiap upaya ada di call_logs. NULL untuk data lama dan percobaan yang belum jalan.
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
     # D9, percobaan manual (PBI-22). filled_at kosong = belum terisi (status D8 dihitung
     # dari sini); answered_at_platform = kapan jawaban diperoleh dari platform (AC7, AC13).
     filled_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)

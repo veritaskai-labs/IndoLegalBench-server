@@ -82,7 +82,7 @@ class TableSessionStore(SessionStore):
                 Attempt.id == row.id,
                 Attempt.status == AttemptStatus.PENDING,
             )
-            .values(status=AttemptStatus.RUNNING)
+            .values(status=AttemptStatus.RUNNING, started_at=datetime.now(UTC), finished_at=None)
         ).rowcount
         self.db.commit()
         if claimed != 1:
@@ -108,6 +108,7 @@ class TableSessionStore(SessionStore):
         # Partial failed answers belong to the call evidence; successful answers are immutable.
         row.answer_text = None if failed else record.text
         row.model_version = record.model_version
+        row.finished_at = record.ended_at or datetime.now(UTC)
         # The copy trigger reads the attempt as evidence; persist it before queuing that update.
         self.db.flush()
         copy = self.db.scalar(
