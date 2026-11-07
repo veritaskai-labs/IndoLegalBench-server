@@ -178,7 +178,7 @@ def _simpan(client, sesi_id, attempt, **ubah):
         "attempt_no": attempt.repetition_no,
         "answer_md": JAWABAN_RAHASIA,
         "platform_refused": False,
-        "requires_confirmation": False,
+        "confirm": False,
     }
     badan.update(ubah)
     return client.put(f"/manual-measurements/{sesi_id}/answers", json=badan)
@@ -207,7 +207,7 @@ def test_simpan_lalu_timpa_jawaban_tercatat_dengan_pelakunya(manual):
         answer_md=None,
         platform_refused=True,
         note="Platform menolak",
-        requires_confirmation=True,
+        confirm=True,
     )
 
     # Assert

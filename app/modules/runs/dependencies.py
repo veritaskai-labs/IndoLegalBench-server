@@ -27,6 +27,7 @@ from app.modules.runs.exchange_rate import (
     ExchangeRateProvider,
     JisdorExchangeRate,
 )
+from app.modules.runs.manual_answers import ManualAnswerService
 from app.modules.runs.manual_evidence import ManualEvidenceService
 from app.modules.runs.manual_evidence_repository import DbEvidenceStorage, EvidenceRepository
 from app.modules.runs.manual_session import ManualSessionService
@@ -133,6 +134,11 @@ def get_manual_session_service(db: Session = Depends(get_db)) -> ManualSessionSe
         suites=SuiteGuardAdapter(db),
         judge_lock=JudgeLockAdapter(db),
     )
+
+
+def get_manual_answer_service(db: Session = Depends(get_db)) -> ManualAnswerService:
+    """Simpan jawaban, timpa, dan riwayatnya lewat repository (review #119)."""
+    return ManualAnswerService(ManualSessionRepository(db))
 
 
 def get_manual_status_service(db: Session = Depends(get_db)) -> ManualSessionStatusService:

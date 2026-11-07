@@ -53,7 +53,7 @@ def _isi(client, sesi_id, percobaan) -> None:
                 "attempt_no": attempt.repetition_no,
                 "answer_md": "Berdasarkan Pasal 156 UU 13/2003, pesangon wajib dibayar.",
                 "platform_refused": False,
-                "requires_confirmation": False,
+                "confirm": False,
             },
         )
         assert respons.status_code == 200, respons.text

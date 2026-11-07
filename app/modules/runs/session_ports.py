@@ -212,6 +212,22 @@ class ManualAttemptRow:
     evidence_count: int = 0
 
 
+@dataclass(frozen=True)
+class ManualAnswerHistoryRow:
+    """Satu versi jawaban manual yang sudah ditimpa (answer_history, PBI-22 AC5)."""
+
+    id: uuid.UUID
+    attempt_id: uuid.UUID
+    answer_md: str | None
+    filled_by: uuid.UUID | None
+    filled_at: datetime
+    obtained_at: datetime | None
+    platform_refused: bool
+    note: str | None
+    overwritten_by: uuid.UUID
+    overwritten_at: datetime
+
+
 class ManualStatusStore(Protocol):
     """Penyimpanan status sesi manual (PBI-22 SCRUM-230, review #116)."""
 
@@ -244,6 +260,67 @@ class ManualStatusStore(Protocol):
         raise NotImplementedError
 
     def snapshot_cases(self, session_id: uuid.UUID) -> list[ManualCaseRow]:
+        raise NotImplementedError
+
+
+class ManualAnswerStore(ManualStatusStore, Protocol):
+    """Penyimpanan jawaban manual dan riwayat timpanya (PBI-22 AC4 sampai AC7, SCRUM-231).
+
+    Tidak ada metode ubah atau hapus riwayat: versi lama hanya bisa ditambah, jadi
+    aturan simpan-saja terjaga oleh tipe, bukan oleh kesepakatan.
+    """
+
+    def is_manual_session(self, session_id: uuid.UUID) -> bool:
+        """True hanya bila sesinya ada dan bertipe manual."""
+        raise NotImplementedError
+
+    def answer_slot(
+        self,
+        session_id: uuid.UUID,
+        snapshot_item_id: uuid.UUID,
+        attempt_no: int,
+        *,
+        lock: bool = False,
+    ) -> ManualAttemptRow | None:
+        """Satu percobaan manual sesi; None bila kasus atau nomornya tidak ada."""
+        raise NotImplementedError
+
+    def case_attempt_count(self, session_id: uuid.UUID, snapshot_item_id: uuid.UUID) -> int:
+        """Jumlah percobaan manual untuk satu kasus, untuk memisahkan dua galat AC."""
+        raise NotImplementedError
+
+    def archive_answer(
+        self,
+        attempt_id: uuid.UUID,
+        *,
+        overwritten_by: uuid.UUID,
+        overwritten_at: datetime,
+    ) -> None:
+        """Pindahkan jawaban yang sekarang ke answer_history sebelum ditimpa (AC5)."""
+        raise NotImplementedError
+
+    def write_answer(
+        self,
+        attempt_id: uuid.UUID,
+        *,
+        answer_md: str | None,
+        platform_refused: bool,
+        note: str | None,
+        obtained_at: datetime,
+        filled_by: uuid.UUID,
+        filled_at: datetime,
+    ) -> ManualAttemptRow:
+        """Tulis jawaban apa adanya dan catat pengisi serta waktunya (AC4, AC7)."""
+        raise NotImplementedError
+
+    def answer_history(self, attempt_id: uuid.UUID) -> list[ManualAnswerHistoryRow]:
+        """Versi lama satu jawaban, terlama dulu (AC5)."""
+        raise NotImplementedError
+
+    def commit(self) -> None:
+        raise NotImplementedError
+
+    def rollback(self) -> None:
         raise NotImplementedError
 
 

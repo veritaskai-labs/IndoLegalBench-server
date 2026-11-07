@@ -555,10 +555,13 @@ class ManualAnswerSaveRequest(BaseModel):
         default=None,
         description="Wajib berisi teks bila platform_refused true (AC6)",
     )
-    requires_confirmation: bool = Field(
+    confirm: bool = Field(
         default=False,
         strict=True,
-        description="Konfirmasi menimpa jawaban yang sudah ada (AC5)",
+        description=(
+            "Wajib true untuk menimpa jawaban yang sudah ada. Tanpa itu jawabannya 409 "
+            "CONFIRMATION_REQUIRED (AC5)."
+        ),
     )
 
     @field_validator("obtained_at")
