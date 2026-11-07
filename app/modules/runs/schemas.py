@@ -170,6 +170,13 @@ class SessionArchiveResponse(BaseModel):
     archived_by: uuid.UUID = Field(description="Pengguna yang mengarsipkan sesi")
 
 
+class SessionUnarchiveResponse(BaseModel):
+    """Hasil unarchive. Sesinya tampil lagi di GET /measurements, status tidak berubah (AC10)."""
+
+    id: uuid.UUID
+    status: SessionStatus
+
+
 class SessionAcceptRequest(BaseModel):
     """Terima apa adanya (PBI-12 AC9). Alasan wajib; dicek di server supaya kodenya REASON_REQUIRED."""
 

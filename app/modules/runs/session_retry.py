@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 from app.modules.runs import repository
 from app.modules.runs.models import AttemptStatus, SessionStatus, SessionType
 from app.modules.runs.schemas import SessionRetryRequest, SessionRetryResponse
-from app.modules.runs.session_archive import NOT_YOUR_SESSION
+from app.modules.runs.session_rules import NOT_YOUR_SESSION
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
 from app.shared.security import Role
 
