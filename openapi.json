@@ -5768,7 +5768,7 @@
           "masked": {
             "type": "boolean",
             "title": "Masked",
-            "description": "true bila Developer AI membuka kasus selain dev atau sesi yang belum berakhir: hanya jenis kegagalan dan waktu"
+            "description": "true bila Developer AI membuka kasus selain dev (apa pun status sesinya): hanya jenis kegagalan dan waktu"
           },
           "calls": {
             "items": {
@@ -5814,7 +5814,7 @@
               }
             ],
             "title": "Answer Text",
-            "description": "Jawaban mentah. null bila belum ada, gagal teknis, disamarkan, atau sesi belum berakhir untuk Developer AI"
+            "description": "Jawaban mentah. null bila belum ada, gagal teknis, atau disamarkan. Developer AI menerima jawaban kasus dev segera setelah percobaannya selesai, tanpa menunggu sesi berakhir"
           },
           "model_version": {
             "anyOf": [

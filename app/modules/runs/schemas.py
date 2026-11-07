@@ -226,7 +226,7 @@ class AttemptCalls(BaseModel):
     status: AttemptStatus
     masked: bool = Field(
         description=(
-            "true bila Developer AI membuka kasus selain dev atau sesi yang belum berakhir: "
+            "true bila Developer AI membuka kasus selain dev (apa pun status sesinya): "
             "hanya jenis kegagalan dan waktu"
         )
     )
@@ -246,8 +246,8 @@ class AttemptResult(BaseModel):
     status: AttemptStatus
     answer_text: str | None = Field(
         description=(
-            "Jawaban mentah. null bila belum ada, gagal teknis, disamarkan, atau sesi "
-            "belum berakhir untuk Developer AI"
+            "Jawaban mentah. null bila belum ada, gagal teknis, atau disamarkan. Developer AI "
+            "menerima jawaban kasus dev segera setelah percobaannya selesai, tanpa menunggu sesi berakhir"
         )
     )
     model_version: str | None
