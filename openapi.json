@@ -4561,6 +4561,135 @@
           }
         }
       }
+    },
+    "/admin/rubrics": {
+      "get": {
+        "tags": [
+          "grading"
+        ],
+        "summary": "Daftar versi rubrik",
+        "description": "Semua versi, terbaru di atas. Prompt penilai hanya ada di detail.",
+        "operationId": "list_versions_admin_rubrics_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/RubricVersionSummary"
+                  },
+                  "type": "array",
+                  "title": "Response List Versions Admin Rubrics Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "grading"
+        ],
+        "summary": "Buat versi rubrik baru dan jadikan aktif",
+        "description": "Versi baru bernomor berikutnya langsung aktif; versi lama tetap tersimpan (AC7, D7).",
+        "operationId": "create_version_admin_rubrics_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/RubricVersionCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricVersionRead"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Versi lain baru saja disimpan (`RUBRIC_VERSION_CONFLICT`); muat ulang.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Isi melanggar aturan rubrik (`RUBRIC_*`, dengan `field`), atau detail Pydantic untuk batas per field.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/rubrics/{version_id}": {
+      "get": {
+        "tags": [
+          "grading"
+        ],
+        "summary": "Detail satu versi rubrik",
+        "operationId": "get_version_admin_rubrics__version_id__get",
+        "parameters": [
+          {
+            "name": "version_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Version Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/RubricVersionRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Versi rubrik tidak ada (`RUBRIC_VERSION_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -5730,7 +5859,8 @@
           "ai_product",
           "user",
           "call_log",
-          "measurement_session"
+          "measurement_session",
+          "rubric_version"
         ],
         "title": "AuditEntityType",
         "description": "Jenis objek yang dicatat, sesuai katalog event D6a."
@@ -6839,6 +6969,15 @@
           "pdf"
         ],
         "title": "ExportFormat"
+      },
+      "GraderPath": {
+        "type": "string",
+        "enum": [
+          "deterministic",
+          "llm"
+        ],
+        "title": "GraderPath",
+        "description": "Jalur penilaian satu dimensi rubrik (D6): deterministik atau LLM judge."
       },
       "HTTPValidationError": {
         "properties": {
@@ -8231,6 +8370,504 @@
         ],
         "title": "RoundStatus",
         "description": "awaiting_assignment sampai dua reviewer aktif terpasang (SCRUM-144)."
+      },
+      "RubricAspectIn": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Name"
+          },
+          "grader_path": {
+            "$ref": "#/components/schemas/GraderPath"
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "type": "number",
+                "maximum": 100.0,
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,3}|(?=[\\d.]{1,6}0*$)\\d{0,3}\\.\\d{0,2}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight"
+          },
+          "definition": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Definition"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "grader_path",
+          "definition"
+        ],
+        "title": "RubricAspectIn",
+        "description": "Satu dimensi rubrik. Bobot boleh kosong untuk rubrik holistik (K1)."
+      },
+      "RubricAspectRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "grader_path": {
+            "$ref": "#/components/schemas/GraderPath"
+          },
+          "weight": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Weight"
+          },
+          "definition": {
+            "type": "string",
+            "title": "Definition"
+          },
+          "sort_order": {
+            "type": "integer",
+            "title": "Sort Order"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "grader_path",
+          "weight",
+          "definition",
+          "sort_order"
+        ],
+        "title": "RubricAspectRead"
+      },
+      "RubricDescriptorIn": {
+        "properties": {
+          "aspect_name": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Aspect Name"
+          },
+          "descriptor": {
+            "type": "string",
+            "maxLength": 2000,
+            "title": "Descriptor"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "aspect_name",
+          "descriptor"
+        ],
+        "title": "RubricDescriptorIn",
+        "description": "Deskriptor satu level untuk satu dimensi, dirujuk lewat nama dimensinya."
+      },
+      "RubricDescriptorRead": {
+        "properties": {
+          "aspect_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Aspect Id"
+          },
+          "aspect_name": {
+            "type": "string",
+            "title": "Aspect Name"
+          },
+          "descriptor": {
+            "type": "string",
+            "title": "Descriptor"
+          }
+        },
+        "type": "object",
+        "required": [
+          "aspect_id",
+          "aspect_name",
+          "descriptor"
+        ],
+        "title": "RubricDescriptorRead"
+      },
+      "RubricLevelIn": {
+        "properties": {
+          "score": {
+            "type": "integer",
+            "maximum": 5.0,
+            "minimum": 0.0,
+            "title": "Score"
+          },
+          "label": {
+            "type": "string",
+            "maxLength": 100,
+            "title": "Label"
+          },
+          "is_passing": {
+            "type": "boolean",
+            "title": "Is Passing"
+          },
+          "descriptors": {
+            "items": {
+              "$ref": "#/components/schemas/RubricDescriptorIn"
+            },
+            "type": "array",
+            "title": "Descriptors"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "score",
+          "label",
+          "is_passing"
+        ],
+        "title": "RubricLevelIn",
+        "description": "Satu level skor 0–5 dengan penanda lulus (jawaban klien No. 48: lulus 4–5)."
+      },
+      "RubricLevelRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "score": {
+            "type": "integer",
+            "title": "Score"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "is_passing": {
+            "type": "boolean",
+            "title": "Is Passing"
+          },
+          "descriptors": {
+            "items": {
+              "$ref": "#/components/schemas/RubricDescriptorRead"
+            },
+            "type": "array",
+            "title": "Descriptors"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "score",
+          "label",
+          "is_passing",
+          "descriptors"
+        ],
+        "title": "RubricLevelRead"
+      },
+      "RubricVersionCreate": {
+        "properties": {
+          "effective_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective Date"
+          },
+          "judge_prompt_quality": {
+            "type": "string",
+            "maxLength": 10000,
+            "title": "Judge Prompt Quality"
+          },
+          "judge_prompt_format": {
+            "type": "string",
+            "maxLength": 10000,
+            "title": "Judge Prompt Format"
+          },
+          "approved_by_name": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 200
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By Name"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "aspects": {
+            "items": {
+              "$ref": "#/components/schemas/RubricAspectIn"
+            },
+            "type": "array",
+            "maxItems": 20,
+            "minItems": 1,
+            "title": "Aspects"
+          },
+          "levels": {
+            "items": {
+              "$ref": "#/components/schemas/RubricLevelIn"
+            },
+            "type": "array",
+            "maxItems": 6,
+            "minItems": 1,
+            "title": "Levels"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "effective_date",
+          "judge_prompt_quality",
+          "judge_prompt_format",
+          "aspects",
+          "levels"
+        ],
+        "title": "RubricVersionCreate",
+        "description": "Isi lengkap versi rubrik baru. Prompt penilai ikut versi (K4), hanya untuk Admin."
+      },
+      "RubricVersionRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "version_no": {
+            "type": "integer",
+            "title": "Version No"
+          },
+          "effective_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective Date"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Created By"
+          },
+          "created_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "approved_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By Name"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "aspect_count": {
+            "type": "integer",
+            "title": "Aspect Count"
+          },
+          "level_count": {
+            "type": "integer",
+            "title": "Level Count"
+          },
+          "locked_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Locked At"
+          },
+          "judge_prompt_quality": {
+            "type": "string",
+            "title": "Judge Prompt Quality"
+          },
+          "judge_prompt_format": {
+            "type": "string",
+            "title": "Judge Prompt Format"
+          },
+          "aspects": {
+            "items": {
+              "$ref": "#/components/schemas/RubricAspectRead"
+            },
+            "type": "array",
+            "title": "Aspects"
+          },
+          "levels": {
+            "items": {
+              "$ref": "#/components/schemas/RubricLevelRead"
+            },
+            "type": "array",
+            "title": "Levels"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "version_no",
+          "effective_date",
+          "is_active",
+          "created_by",
+          "created_by_name",
+          "created_at",
+          "approved_by_name",
+          "approved_at",
+          "aspect_count",
+          "level_count",
+          "locked_at",
+          "judge_prompt_quality",
+          "judge_prompt_format",
+          "aspects",
+          "levels"
+        ],
+        "title": "RubricVersionRead",
+        "description": "Isi lengkap satu versi. Berisi prompt penilai, jadi hanya untuk Admin (K4, K7)."
+      },
+      "RubricVersionSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "version_no": {
+            "type": "integer",
+            "title": "Version No"
+          },
+          "effective_date": {
+            "type": "string",
+            "format": "date",
+            "title": "Effective Date"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Created By"
+          },
+          "created_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created By Name"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "approved_by_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved By Name"
+          },
+          "approved_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Approved At"
+          },
+          "aspect_count": {
+            "type": "integer",
+            "title": "Aspect Count"
+          },
+          "level_count": {
+            "type": "integer",
+            "title": "Level Count"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "version_no",
+          "effective_date",
+          "is_active",
+          "created_by",
+          "created_by_name",
+          "created_at",
+          "approved_by_name",
+          "approved_at",
+          "aspect_count",
+          "level_count"
+        ],
+        "title": "RubricVersionSummary",
+        "description": "Satu baris daftar versi (SCRUM-228): nomor, tanggal, pembuat, penyetuju."
       },
       "SessionAcceptRequest": {
         "properties": {
