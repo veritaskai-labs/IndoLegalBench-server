@@ -67,6 +67,7 @@ from app.shared.security import Role
 _DUA_DIGIT = Decimal("0.01")
 LAIN_LAIN = "Lain-lain"
 DEFAULT_RUBRIC_VERSION = "v1"
+MEASUREMENT_NOT_FOUND_MESSAGE = "Pengukuran tidak ditemukan."
 ACTION_MEASUREMENT_SESSION_GRADED = "measurement_session.graded"
 ACTION_MEASUREMENT_SESSION_REGRADED = "measurement_session.regraded"
 REASON_CRITERION_UNMET = "criterion_unmet"
@@ -1765,7 +1766,7 @@ def grade_session(
 
     session = db.get(MeasurementSession, session_id)
     if session is None:
-        raise NotFoundError("Pengukuran tidak ditemukan.", code="MEASUREMENT_NOT_FOUND")
+        raise NotFoundError(MEASUREMENT_NOT_FOUND_MESSAGE, code="MEASUREMENT_NOT_FOUND")
 
     ensure_session_gradable(session)
 
@@ -1810,7 +1811,7 @@ def get_session_results(
     """Mengambil hasil penilaian terbaru dengan filter visibilitas per peran (AC8)."""
     session = db.get(MeasurementSession, session_id)
     if session is None:
-        raise NotFoundError("Pengukuran tidak ditemukan.", code="MEASUREMENT_NOT_FOUND")
+        raise NotFoundError(MEASUREMENT_NOT_FOUND_MESSAGE, code="MEASUREMENT_NOT_FOUND")
 
     grading_store = store or DbGradingStore(db)
     latest_run = grading_store.get_latest_grading_run(session_id)
@@ -1863,7 +1864,7 @@ def list_grading_runs(
     tetap dalam urutan simpan, karena sort Python stabil juga saat dibalik.
     """
     if db.get(MeasurementSession, session_id) is None:
-        raise NotFoundError("Pengukuran tidak ditemukan.", code="MEASUREMENT_NOT_FOUND")
+        raise NotFoundError(MEASUREMENT_NOT_FOUND_MESSAGE, code="MEASUREMENT_NOT_FOUND")
 
     grading_store = store or DbGradingStore(db)
     runs = sorted(
