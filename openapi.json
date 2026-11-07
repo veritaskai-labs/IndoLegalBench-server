@@ -4413,7 +4413,7 @@
             }
           },
           "409": {
-            "description": "Sesi sudah Selesai (`MANUAL_SESSION_FINALIZED`) atau sudah 3 bukti (`EVIDENCE_LIMIT_REACHED`).",
+            "description": "Sesi sudah Selesai (`MANUAL_SESSION_FINALIZED`) atau masih berstatus sesi otomatis (`MANUAL_SESSION_STATUS_INVALID`), atau sudah 3 bukti (`EVIDENCE_LIMIT_REACHED`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -4646,7 +4646,7 @@
             }
           },
           "409": {
-            "description": "Sesi sudah Selesai (`MANUAL_SESSION_FINALIZED`) atau sudah 3 bukti (`EVIDENCE_LIMIT_REACHED`).",
+            "description": "Sesi sudah Selesai (`MANUAL_SESSION_FINALIZED`) atau masih berstatus sesi otomatis (`MANUAL_SESSION_STATUS_INVALID`).",
             "content": {
               "application/json": {
                 "schema": {

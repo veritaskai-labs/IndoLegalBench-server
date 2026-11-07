@@ -196,10 +196,16 @@ _EVIDENCE_404 = {
         "bukti (`MANUAL_SESSION_NOT_FOUND`, `MANUAL_ATTEMPT_NOT_FOUND`, `EVIDENCE_NOT_FOUND`)."
     ),
 }
+_CLOSED_SESSION = (
+    "Sesi sudah Selesai (`MANUAL_SESSION_FINALIZED`) atau masih berstatus sesi otomatis "
+    "(`MANUAL_SESSION_STATUS_INVALID`)"
+)
 _EVIDENCE_409 = {
     "model": ErrorBody,
-    "description": "Sesi sudah Selesai (`MANUAL_SESSION_FINALIZED`) atau sudah 3 bukti (`EVIDENCE_LIMIT_REACHED`).",
+    "description": f"{_CLOSED_SESSION}, atau sudah 3 bukti (`EVIDENCE_LIMIT_REACHED`).",
 }
+# DELETE tidak pernah kena batas 3 bukti (re-review #121).
+_DELETE_409 = {"model": ErrorBody, "description": f"{_CLOSED_SESSION}."}
 
 
 # Ruang untuk boundary dan header multipart di atas batas berkas.
@@ -375,7 +381,7 @@ def download_manual_evidence(
     status_code=status.HTTP_204_NO_CONTENT,
     response_class=Response,
     summary="Hapus bukti jawaban manual yang salah",
-    responses={404: _EVIDENCE_404, 409: _EVIDENCE_409},
+    responses={404: _EVIDENCE_404, 409: _DELETE_409},
 )
 def delete_manual_evidence(
     session_id: uuid.UUID,
