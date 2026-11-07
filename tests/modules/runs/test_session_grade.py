@@ -603,6 +603,21 @@ def _buat_body_kasus(code: str, tag: str, question: str) -> dict:
 
 
 def _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED):
+    rubric = db_session.scalars(select(RubricVersion).where(RubricVersion.version_no == 1)).first()
+    if rubric is None:
+        rubric = RubricVersion(
+            id=uuid.uuid4(),
+            version_no=1,
+            effective_date=date.today(),
+            is_active=True,
+            locked_at=datetime.now(UTC),
+            judge_prompt_quality="Default quality prompt",
+            judge_prompt_format="Default format prompt",
+            created_by=pembuat.id,
+        )
+        db_session.add(rubric)
+        db_session.flush()
+
     sesi = _sesi(db_session, produk, pembuat, label="Sesi Grade Uji", status=status)
     snapshot = CaseSnapshot(session_id=sesi.id)
     db_session.add(snapshot)
@@ -795,29 +810,21 @@ def test_regrade_via_api(as_role, db_session, produk, pembuat):
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
     admin = as_role(Role.ADMIN)
 
-    # Seed versi v1 dan v2 di tabel rubric_versions
-    v1 = RubricVersion(
-        id=uuid.uuid4(),
-        version_no=1,
-        effective_date=date.today(),
-        is_active=True,
-        locked_at=datetime.now(UTC),
-        judge_prompt_quality="Quality prompt v1",
-        judge_prompt_format="Format prompt v1",
-        created_by=pembuat.id,
-    )
-    v2 = RubricVersion(
-        id=uuid.uuid4(),
-        version_no=2,
-        effective_date=date.today(),
-        is_active=False,
-        locked_at=datetime.now(UTC),
-        judge_prompt_quality="Quality prompt v2",
-        judge_prompt_format="Format prompt v2",
-        created_by=pembuat.id,
-    )
-    db_session.add_all([v1, v2])
-    db_session.commit()
+    # Seed versi v2 di tabel rubric_versions (v1 sudah dibuat oleh _setup_sesi_lengkap)
+    v2 = db_session.scalars(select(RubricVersion).where(RubricVersion.version_no == 2)).first()
+    if v2 is None:
+        v2 = RubricVersion(
+            id=uuid.uuid4(),
+            version_no=2,
+            effective_date=date.today(),
+            is_active=False,
+            locked_at=datetime.now(UTC),
+            judge_prompt_quality="Quality prompt v2",
+            judge_prompt_format="Format prompt v2",
+            created_by=pembuat.id,
+        )
+        db_session.add(v2)
+        db_session.commit()
 
     res1 = admin.post(f"/measurements/{sesi.id}/grade", json={"rubric_version": "v1"})
     assert res1.status_code == 200
@@ -1046,24 +1053,24 @@ def test_edge_cases_and_error_handling(db_session, produk, pembuat, monkeypatch)
     assert score_judge_criteria(
         "Badan hukum perseroan ini sah menurut undang-undang.",
         real_crit,
-    ) == Decimal("5.00")
+    ) == Decimal("1.00")
     assert score_judge_criteria(
         "Badan hukum ini sah namun ilegal.",
         real_crit,
-    ) == Decimal("2.50")
+    ) == Decimal("0.50")
 
     crit_a = "kriteria pertama harus dipenuhi sepenuhnya"
     crit_b = "kriteria kedua harus dipenuhi sepenuhnya"
     assert score_judge_criteria(
         "jawaban di sini kriteria pertama harus dipenuhi sepenuhnya",
         {"items": [crit_a, crit_b]},
-    ) == Decimal("2.50")
+    ) == Decimal("0.50")
     assert score_judge_criteria(
         "kriteria pertama harus dipenuhi sepenuhnya", {"kriteria": [crit_a]}
-    ) == Decimal("5.00")
+    ) == Decimal("1.00")
     assert score_judge_criteria(
         "jawaban di sini kriteria pertama harus dipenuhi sepenuhnya", [crit_a, crit_b]
-    ) == Decimal("2.50")
+    ) == Decimal("0.50")
     assert score_judge_criteria("jawaban", {"catatan": ""}) is None
     assert score_judge_criteria(
         "jawaban acak tanpa kata kunci",
@@ -1072,7 +1079,7 @@ def test_edge_cases_and_error_handling(db_session, produk, pembuat, monkeypatch)
     assert score_judge_criteria(
         "jawaban memuat kata singkat di sini",
         {"items": ["singkat", "dua kata"]},
-    ) == Decimal("2.50")
+    ) == Decimal("0.50")
 
     # Real LegalRefStored deterministic scoring & refusal with disclaimer
     real_ref = {
@@ -1217,11 +1224,13 @@ def test_edge_cases_and_error_handling(db_session, produk, pembuat, monkeypatch)
     assert score_judge_criteria("jawaban", None) is None
     assert score_judge_criteria(
         "jawaban catatan penting", {"catatan": "catatan penting"}
-    ) == Decimal("5.00")
+    ) == Decimal("1.00")
     assert _extract_criteria_items(None) == ([], [], None)
     assert _extract_criteria_items(12345) == ([], [], None)
 
     # 14. _resolve_rubric_version UUID and non-digit lookups
+    db_session.query(RubricVersion).filter(RubricVersion.is_active).update({"is_active": False})
+    db_session.commit()
     active_rubric = RubricVersion(
         id=uuid.uuid4(),
         version_no=12,
@@ -1243,6 +1252,7 @@ def test_edge_cases_and_error_handling(db_session, produk, pembuat, monkeypatch)
     assert _resolve_rubric_version(db_session, None) == "v12"
 
     # 15. grade_session with non-DbGradingStore
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat)
     mem_store_custom = MemoryGradingStore()
     resp_mem = grade_session(
         db_session,
@@ -1282,9 +1292,11 @@ def test_list_graded_sessions_logic(db_session, produk, pembuat):
     # 1. Saat belum ada sesi selesai dinilai -> []
     assert list_graded_sessions(db_session, viewer_role=Role.VIEWER) == []
 
-    # 2. Peran Kontributor ditolak
+    # 2. Peran Kontributor & Developer AI ditolak
     with pytest.raises(ForbiddenError, match="tidak berwenang"):
         list_graded_sessions(db_session, viewer_role=Role.CONTRIBUTOR)
+    with pytest.raises(ForbiddenError, match="tidak berwenang"):
+        list_graded_sessions(db_session, viewer_role=Role.DEVELOPER_AI)
 
     # 3. Sesi running tidak masuk
     _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.RUNNING)
@@ -1348,6 +1360,206 @@ def test_list_graded_sessions_api_endpoints(as_role, db_session, produk, pembuat
     data2 = res2.json()
     assert data2 == data1
 
-    # Contributor is rejected with 403
+    # Contributor & Developer AI are rejected with 403
     res3 = as_role(Role.CONTRIBUTOR).get("/results/sessions")
     assert res3.status_code == 403
+    res4 = as_role(Role.DEVELOPER_AI).get("/results/sessions")
+    assert res4.status_code == 403
+
+
+class _MockJudgeAsker:
+    """Mock asker untuk penilai LLM SCRUM-224."""
+
+    def __init__(
+        self,
+        text: str = "",
+        error: str | None = None,
+        failure_kind: str | None = None,
+        raise_exc: bool = False,
+    ) -> None:
+        self.text = text
+        self.error = error
+        self.failure_kind = failure_kind
+        self.raise_exc = raise_exc
+        self.input_tokens = 25
+        self.output_tokens = 30
+
+    def ask(self, prompt: str):
+        if self.raise_exc:
+            raise RuntimeError("API timeout simulation")
+        return self
+
+
+def test_llm_judge_integration_and_d6_persistence(db_session, produk, pembuat):
+    """Integrasi SCRUM-224 run_judge, persistensi tabel D6, dan pembacaan ulang metadata."""
+    from app.modules.grading.models import LlmCriterionResult, LlmJudgeResult
+
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    reply_text = (
+        "CRITERION: badan hukum\n"
+        "MET: yes\n"
+        "CRITERION: pesangon\n"
+        "MET: no\n"
+        "EXPLANATION: pesangon tidak disebutkan secara eksplisit\n"
+        "CRITERION: Conclusion: sah\n"
+        "MET: yes\n"
+    )
+    asker = _MockJudgeAsker(text=reply_text)
+
+    # 1. Grade sesi dengan judge_asker
+    response = grade_session(
+        db_session,
+        sesi.id,
+        actor_id=pembuat.id,
+        actor_role=Role.ADMIN,
+        judge_asker=asker,
+    )
+    assert response.status == "completed"
+
+    dev_case = next(c for c in response.cases if c.case_code == "DEV-01")
+    dev_att = dev_case.attempts[0]
+    assert dev_att.score is not None
+    assert dev_att.score.judge is not None
+    assert dev_att.score.judge == Decimal("0.67")
+    assert "pesangon tidak disebutkan" in (dev_att.explanation or "")
+    assert len(dev_att.criteria) == 3
+
+    # 2. Verifikasi baris tersimpan di D6 tabel llm_judge_results dan llm_criterion_results
+    judge_rows = db_session.scalars(select(LlmJudgeResult)).all()
+    assert len(judge_rows) >= 1
+    j_row = judge_rows[0]
+    assert j_row.criteria_score == Decimal("0.67")
+    assert j_row.status.value == "succeeded"
+
+    crit_rows = db_session.scalars(select(LlmCriterionResult)).all()
+    assert len(crit_rows) >= 3
+    unmet_c = next(c for c in crit_rows if not c.is_met)
+    assert unmet_c.reason_code == "unmet"
+    met_c = next(c for c in crit_rows if c.is_met)
+    assert met_c.reason_code is None  # ck_llm_criterion_results_reason_unmet
+
+    # 3. Pembacaan ulang dari database oleh _load_case_grade_inputs
+    from app.modules.runs.session_grade import _load_case_grade_inputs
+
+    inputs = _load_case_grade_inputs(db_session, sesi.id)
+    dev_input = next(c for c in inputs if c.case_code == "DEV-01")
+    att_in = dev_input.attempts[0]
+    assert att_in.judge_score == Decimal("0.67")
+    assert "pesangon tidak disebutkan" in (att_in.explanation or "")
+    assert len(att_in.criteria) == 3
+
+
+def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat, monkeypatch):
+    """Memastikan 100% statement coverage untuk fungsi-fungsi helper di session_grade."""
+    from app.modules.runs.session_grade import (
+        _execute_judge_for_attempt,
+        _load_judge_metadata_for_attempts,
+        _resolve_rubric_version,
+        evaluate_criteria_details,
+        is_ai_refusal,
+    )
+
+    # 1. is_ai_refusal dengan kata substansi hukum (line 155)
+    disclaimer_with_legal = (
+        "Saya tidak dapat memberikan nasihat hukum. Berdasarkan Pasal 156 UU Ketenagakerjaan..."
+    )
+    assert is_ai_refusal(disclaimer_with_legal) is False
+
+    # 2. evaluate_criteria_details dengan kesimpulan tidak terpenuhi (lines 464-465)
+    crit_concl = {"expected_conclusion": "bersalah"}
+    res_concl = evaluate_criteria_details("Terdakwa dinyatakan bebas murni.", crit_concl)
+    assert res_concl is not None
+    score, exp, reasons, c_list = res_concl
+    assert score == Decimal("0.00")
+    assert exp is not None and "Kesimpulan tidak memuat" in exp
+    assert reasons == ["unmet"]
+
+    # 3. DbGradingStore._resolve_db_rubric_version_id cabang fallback
+    store = DbGradingStore(db_session)
+    # Saat versi tidak cocok tetapi ada versi aktif
+    resolved_id = store._resolve_db_rubric_version_id("v9999", pembuat.id)
+    assert resolved_id is not None
+    # Saat tidak ada versi di DB sama sekali
+    db_session.query(RubricVersion).delete()
+    db_session.commit()
+    created_id = store._resolve_db_rubric_version_id("v9999", pembuat.id)
+    assert created_id is not None
+    # _resolve_rubric_version saat tidak ada versi aktif -> DEFAULT_RUBRIC_VERSION ("v1")
+    db_session.query(RubricVersion).filter(RubricVersion.is_active).update({"is_active": False})
+    db_session.commit()
+    assert _resolve_rubric_version(db_session, None) == "v1"
+
+    # 4. _load_judge_metadata_for_attempts dengan daftar kosong (line 1084)
+    assert _load_judge_metadata_for_attempts(db_session, []) == {}
+
+    # 5. _execute_judge_for_attempt error handling
+    case_in = CaseGradeInput(
+        snapshot_item_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        case_code="ERR-01",
+        title="Kasus Error",
+        answer_criteria={"must_contain": ["kriteria"]},
+    )
+    att_fail = AttemptGradeInput(
+        attempt_id=uuid.uuid4(),
+        repetition_no=1,
+        status=AttemptStatus.SUCCEEDED,
+        answer_text="Jawaban",
+    )
+    # Penilai mengembalikan error
+    err_asker = _MockJudgeAsker(error="provider timeout", failure_kind="timeout")
+    _execute_judge_for_attempt(err_asker, att_fail, case_in)
+    assert att_fail.judge_error is not None
+
+    # Penilai memicu exception
+    att_exc = AttemptGradeInput(
+        attempt_id=uuid.uuid4(),
+        repetition_no=1,
+        status=AttemptStatus.SUCCEEDED,
+        answer_text="Jawaban",
+    )
+    exc_asker = _MockJudgeAsker(raise_exc=True)
+    _execute_judge_for_attempt(exc_asker, att_exc, case_in)
+    assert att_exc.judge_error is not None
+
+    # Case tanpa kriteria khusus
+    case_empty = CaseGradeInput(
+        snapshot_item_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        case_code="EMPTY-01",
+        title="Kasus Tanpa Kriteria",
+        answer_criteria={},
+    )
+    att_empty = AttemptGradeInput(
+        attempt_id=uuid.uuid4(),
+        repetition_no=1,
+        status=AttemptStatus.SUCCEEDED,
+        answer_text="Jawaban",
+    )
+    _execute_judge_for_attempt(
+        _MockJudgeAsker(text="CRITERION: Kasus Tanpa Kriteria\nMET: yes\n"), att_empty, case_empty
+    )
+    assert att_empty.judge_score == Decimal("1.00")
+
+    # 6. grade_session dengan session.judge_provider_id aktif
+    sesi_judge = _setup_sesi_lengkap(db_session, produk, pembuat)
+    sesi_judge.judge_provider_id = uuid.uuid4()
+    db_session.commit()
+    # build_judge akan gagal karena judge_provider_id acak, fallback ke active_asker = None
+    res_judge_prov = grade_session(
+        db_session, sesi_judge.id, actor_id=pembuat.id, actor_role=Role.ADMIN
+    )
+    assert res_judge_prov.status == "completed"
+
+    # build_judge sukses memuat asker
+    from unittest.mock import MagicMock
+
+    mock_binding = MagicMock()
+    mock_binding.asker = _MockJudgeAsker(text="CRITERION: badan hukum\nMET: yes\n")
+    monkeypatch.setattr(
+        "app.modules.providers.judge_service.build_judge", lambda db, j_id: mock_binding
+    )
+    res_judge_prov2 = grade_session(
+        db_session, sesi_judge.id, actor_id=pembuat.id, actor_role=Role.ADMIN
+    )
+    assert res_judge_prov2.status == "completed"

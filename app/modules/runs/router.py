@@ -401,7 +401,7 @@ def list_graded_sessions_alias_endpoint(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[GradedSessionListItem]:
-    """Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin, Viewer, dan Developer AI."""
+    """Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin dan Viewer."""
     return list_graded_sessions(db, viewer_role=user.role)
 
 
@@ -414,7 +414,7 @@ def list_graded_sessions_endpoint(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[GradedSessionListItem]:
-    """Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin, Viewer, dan Developer AI."""
+    """Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin dan Viewer."""
     return list_graded_sessions(db, viewer_role=user.role)
 
 

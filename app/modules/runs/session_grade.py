@@ -73,11 +73,22 @@ _REFUSAL_PHRASES = (
     "maaf, sebagai model ai",
     "maaf, sebagai asisten ai",
     "maaf, saya tidak berwenang",
-    "saya tidak dapat memberikan nasihat hukum",
-    "saya tidak memiliki wewenang untuk memberikan pertimbangan hukum",
     "as an ai, i cannot",
     "i cannot assist with this request",
+    "saya tidak dapat memberikan nasihat hukum",
+    "saya tidak memiliki wewenang untuk memberikan pertimbangan hukum",
     "i am unable to provide legal advice",
+)
+
+_LEGAL_SUBSTANCE_KEYWORDS = (
+    "pasal",
+    "undang-undang",
+    "peraturan",
+    "nomor",
+    "kuhp",
+    "kuhper",
+    "putusan",
+    "uu ",
 )
 
 _DISCLAIMER_TRANSITIONS = (
@@ -121,12 +132,13 @@ def is_ai_refusal(text: str | None, failure_kind: str | None = None) -> bool:
     """Deteksi model AI menolak menjawab (AC4).
 
     Penolakan teknis terjadi jika:
-    1. failure_kind == 'ai_refused'
+    1. failure_kind == 'ai_refused' (dari provider AI)
     2. Teks mengandung penanda eksplisit '[Platform menolak menjawab]'
-    3. Teks memuat frasa penolakan DAN berukuran pendek (<= 250 karakter)
-       atau tanpa kata kunci transisi jawaban substantif. Jawaban panjang yang
-       hanya diawali disclaimer hukum ("Sebagai AI ... namun...") tidak dihitung
-       sebagai gangguan teknis penolakan.
+    3. Teks memuat frasa penolakan, tidak memuat substansi/kutipan hukum,
+       dan berukuran sangat pendek (<= 25 kata).
+    Jawaban yang diawali disclaimer hukum ("Sebagai model AI, saya tidak dapat
+    memberikan nasihat hukum resmi...") namun tetap memberikan analisis/jawaban
+    hukum tidak dihitung sebagai gangguan teknis penolakan.
     """
     if failure_kind == "ai_refused":
         return True
@@ -139,9 +151,9 @@ def is_ai_refusal(text: str | None, failure_kind: str | None = None) -> bool:
     if any(phrase in text_lower for phrase in _REFUSAL_PHRASES):
         if any(tr in text_lower for tr in _DISCLAIMER_TRANSITIONS):
             return False
-        if len(text_lower) <= _MAX_REFUSAL_LENGTH:
-            return True
-        return len(text_lower.split()) <= 40
+        if any(kw in text_lower for kw in _LEGAL_SUBSTANCE_KEYWORDS):
+            return False
+        return len(text_lower.split()) <= 25
     return False
 
 
@@ -379,15 +391,14 @@ def _extract_criteria_items(
     return [], [], None
 
 
-def score_judge_criteria(
+def evaluate_criteria_details(
     answer_text: str | None,
     criteria: dict[str, Any] | Sequence[Any] | None,
-) -> Decimal | None:
-    """Menghitung skor judge berbasis kriteria jawaban pada kasus secara proporsional (AC3, AC5).
+) -> tuple[Decimal, str | None, list[str], list[dict[str, Any]]] | None:
+    """Evaluasi kriteria jawaban secara proporsional skala 0.00 - 1.00 (AC3, AC5).
 
     Mendukung AnswerCriteria dari cases/schemas.py (must_contain, must_not_contain, expected_conclusion).
-    Jika tidak ada kriteria yang dapat dinilai, mengembalikan None.
-    Skala mengikuti dokumen rubrik: skor proporsional dikalikan skala 5.00 (lulus >= 4.00).
+    Mengembalikan tuple (skor, penjelasan_kriteria_tidak_terpenuhi, reasons, criteria_details).
     """
     if not criteria or not answer_text or not answer_text.strip():
         return None
@@ -398,14 +409,79 @@ def score_judge_criteria(
         return None
 
     text_lower = answer_text.lower()
-    met_count = sum(1 for item in must_contain if item.lower() in text_lower)
-    met_count += sum(1 for item in must_not_contain if item.lower() not in text_lower)
-    if conclusion and conclusion.lower() in text_lower:
-        met_count += 1
+    criteria_list: list[dict[str, Any]] = []
+    unmet_exps: list[str] = []
+    reasons: list[str] = []
 
-    prop = Decimal(met_count) / Decimal(total_count)
-    score = prop * Decimal("5.00")
-    return round_two_digits(score)
+    for idx, item in enumerate(must_contain):
+        is_met = item.lower() in text_lower
+        exp = None if is_met else f"Tidak memuat: {item}"
+        reason = None if is_met else "unmet"
+        criteria_list.append(
+            {
+                "key": f"must_contain_{idx + 1}",
+                "text": item,
+                "is_met": is_met,
+                "explanation": exp,
+                "reason_code": reason,
+            }
+        )
+        if not is_met:
+            unmet_exps.append(exp)
+            reasons.append(reason)
+
+    for idx, item in enumerate(must_not_contain):
+        is_met = item.lower() not in text_lower
+        exp = None if is_met else f"Memuat teks yang dilarang: {item}"
+        reason = None if is_met else "unmet"
+        criteria_list.append(
+            {
+                "key": f"must_not_contain_{idx + 1}",
+                "text": f"Tidak memuat: {item}",
+                "is_met": is_met,
+                "explanation": exp,
+                "reason_code": reason,
+            }
+        )
+        if not is_met:
+            unmet_exps.append(exp)
+            reasons.append(reason)
+
+    if conclusion:
+        is_met = conclusion.lower() in text_lower
+        exp = None if is_met else f"Kesimpulan tidak memuat: {conclusion}"
+        reason = None if is_met else "unmet"
+        criteria_list.append(
+            {
+                "key": "expected_conclusion",
+                "text": f"Kesimpulan: {conclusion}",
+                "is_met": is_met,
+                "explanation": exp,
+                "reason_code": reason,
+            }
+        )
+        if not is_met:
+            unmet_exps.append(exp)
+            reasons.append(reason)
+
+    met_count = sum(1 for c in criteria_list if c["is_met"])
+    score = round_two_digits(Decimal(met_count) / Decimal(total_count))
+    explanation = " ".join(unmet_exps) if unmet_exps else None
+    return score, explanation, reasons, criteria_list
+
+
+def score_judge_criteria(
+    answer_text: str | None,
+    criteria: dict[str, Any] | Sequence[Any] | None,
+) -> Decimal | None:
+    """Menghitung skor judge berbasis kriteria jawaban pada kasus secara proporsional (AC3, AC5).
+
+    Mendukung AnswerCriteria dari cases/schemas.py (must_contain, must_not_contain, expected_conclusion).
+    Jika tidak ada kriteria yang dapat dinilai, mengembalikan None.
+    Skala proporsional 0.00 - 1.00 sesuai constraints DB llm_judge_results.criteria_score.
+    """
+    res = evaluate_criteria_details(answer_text, criteria)
+    return res[0] if res is not None else None
 
 
 @dataclass
@@ -570,10 +646,14 @@ class DbGradingStore:
                 old_run.is_latest = False
             self.db.flush()
 
+        session = self.db.get(MeasurementSession, run.session_id)
+        judge_provider_id = session.judge_provider_id if session else None
+
         grading_run_row = GradingRun(
             id=run.grading_run_id,
             session_id=run.session_id,
             rubric_version_id=rubric_version_id,
+            judge_provider_id=judge_provider_id,
             kind=GradingRunKind.REGRADE if run.kind == "regrade" else GradingRunKind.INITIAL,
             status=GradingRunStatus.FINISHED,
             is_latest=run.is_latest,
@@ -633,6 +713,7 @@ class DbGradingStore:
                     )
                 self.db.add(g_result)
                 self.db.flush()
+                self._save_llm_judge_records(g_result.id, att, case.case_code)
 
         action = (
             "measurement_session.graded"
@@ -658,20 +739,93 @@ class DbGradingStore:
             return runs[-1]
         return None
 
+    def _save_llm_judge_records(
+        self,
+        grading_result_id: uuid.UUID,
+        att: AttemptGradeResult,
+        case_code: str,
+    ) -> None:
+        from app.modules.grading.models import (
+            JudgeKind,
+            JudgeStatus,
+            LlmCriterionResult,
+            LlmJudgeResult,
+        )
+
+        if att.is_technical_disruption or att.score is None or att.score.judge is None:
+            return
+
+        rep_no = max(1, min(5, att.repetition_no))
+        crit_count = len(att.criteria)
+        crit_met = sum(1 for c in att.criteria if c.get("is_met"))
+        total = crit_count if crit_count > 0 else 1
+        met = crit_met if crit_count > 0 else (1 if att.score.judge >= Decimal("0.50") else 0)
+
+        judge_row = LlmJudgeResult(
+            id=uuid.uuid4(),
+            grading_result_id=grading_result_id,
+            judge_run_no=rep_no,
+            kind=JudgeKind.QUALITY,
+            status=JudgeStatus.SUCCEEDED,
+            prompt=f"Penilaian kualitas jawaban untuk kasus {case_code}",
+            criteria_met=met,
+            criteria_total=total,
+            criteria_score=att.score.judge,
+            rubric_level=None,
+            explanation=att.explanation,
+            error=None,
+            failure_kind=None,
+        )
+        self.db.add(judge_row)
+        self.db.flush()
+
+        for idx, c in enumerate(att.criteria):
+            c_is_met = bool(c.get("is_met"))
+            crit_obj = LlmCriterionResult(
+                id=uuid.uuid4(),
+                llm_judge_result_id=judge_row.id,
+                criterion_key=c.get("key") or f"crit_{idx + 1}",
+                criterion_text=c.get("text") or f"Kriteria {idx + 1}",
+                is_met=c_is_met,
+                explanation=c.get("explanation"),
+                reason_code=None if c_is_met else (c.get("reason_code") or "unmet"),
+            )
+            self.db.add(crit_obj)
+        self.db.flush()
+
+
+def _populate_judge_details(
+    att: AttemptGradeInput,
+    details: tuple[Decimal, str | None, list[str], list[dict[str, Any]]] | None,
+) -> Decimal | None:
+    if details is None:
+        return None
+    jud, exp, r_list, c_list = details
+    if not att.explanation:
+        att.explanation = exp
+    if not att.reasons:
+        att.reasons = r_list
+    if not att.criteria:
+        att.criteria = c_list
+    return jud
+
 
 def _evaluate_attempt_score(
     att: AttemptGradeInput,
     case: CaseGradeInput,
 ) -> ScorePair | None:
-    if att.deterministic_score is not None:
-        det = round_two_digits(att.deterministic_score)
-    else:
-        det = score_deterministic_citations(att.answer_text, case.legal_refs)
+    det = (
+        round_two_digits(att.deterministic_score)
+        if att.deterministic_score is not None
+        else score_deterministic_citations(att.answer_text, case.legal_refs)
+    )
 
     if att.judge_score is not None:
         jud = round_two_digits(att.judge_score)
     else:
-        jud = score_judge_criteria(att.answer_text, case.answer_criteria)
+        jud = _populate_judge_details(
+            att, evaluate_criteria_details(att.answer_text, case.answer_criteria)
+        )
 
     if det is None and jud is None:
         return None
@@ -931,16 +1085,125 @@ def _load_call_logs_metadata(
     return failure_kinds, judge_errors
 
 
+def _load_judge_metadata_for_attempts(
+    db: Session,
+    attempt_ids: list[uuid.UUID],
+) -> dict[uuid.UUID, dict[str, Any]]:
+    if not attempt_ids:
+        return {}
+    from app.modules.grading.models import (
+        GradingResult,
+        JudgeKind,
+        JudgeStatus,
+        LlmCriterionResult,
+        LlmJudgeResult,
+    )
+
+    rows = db.execute(
+        select(GradingResult.attempt_id, LlmJudgeResult)
+        .join(LlmJudgeResult, LlmJudgeResult.grading_result_id == GradingResult.id)
+        .where(
+            GradingResult.attempt_id.in_(attempt_ids),
+            LlmJudgeResult.kind == JudgeKind.QUALITY,
+        )
+        .order_by(LlmJudgeResult.created_at.desc())
+    ).all()
+
+    judge_data: dict[uuid.UUID, dict[str, Any]] = {}
+    for att_id, j_row in rows:
+        if att_id in judge_data:
+            continue
+        crit_rows = db.scalars(
+            select(LlmCriterionResult)
+            .where(LlmCriterionResult.llm_judge_result_id == j_row.id)
+            .order_by(LlmCriterionResult.id.asc())
+        ).all()
+        c_list = [
+            {
+                "key": cr.criterion_key,
+                "text": cr.criterion_text,
+                "is_met": cr.is_met,
+                "explanation": cr.explanation,
+                "reason_code": cr.reason_code,
+            }
+            for cr in crit_rows
+        ]
+        reasons = [cr.reason_code for cr in crit_rows if cr.reason_code and not cr.is_met]
+        is_succeeded = j_row.status == JudgeStatus.SUCCEEDED
+        judge_data[att_id] = {
+            "judge_score": j_row.criteria_score if is_succeeded else None,
+            "explanation": j_row.explanation,
+            "reasons": reasons,
+            "criteria": c_list,
+            "judge_error": (j_row.error or j_row.failure_kind) if not is_succeeded else None,
+        }
+    return judge_data
+
+
+def _apply_judge_row_to_attempt(att: AttemptGradeInput, row: Any) -> None:
+    if row.score is not None:
+        att.judge_score = row.score
+        att.explanation = row.explanation
+        att.reasons = [row.reason_id] if row.reason_id else []
+        att.criteria = [
+            {
+                "key": f"crit_{idx + 1}",
+                "text": c.criterion,
+                "is_met": c.met,
+                "explanation": c.explanation,
+                "reason_code": c.reason_id if not c.met else None,
+            }
+            for idx, c in enumerate(row.criteria)
+        ]
+    elif row.error or row.failure_kind:
+        att.judge_error = row.error or row.failure_kind
+
+
+def _execute_judge_for_attempt(
+    asker: object,
+    att: AttemptGradeInput,
+    case: CaseGradeInput,
+) -> None:
+    """Menjalankan evaluasi penilai LLM (SCRUM-224 run_judge) untuk percobaan non-gangguan."""
+    from app.modules.runs.judge import JudgeInputs, run_judge
+
+    must_contain, must_not_contain, conclusion = _extract_criteria_items(case.answer_criteria)
+    crit_lines = list(must_contain) + [f"Not: {x}" for x in must_not_contain]
+    if conclusion:
+        crit_lines.append(f"Conclusion: {conclusion}")
+    if not crit_lines:
+        crit_lines = [case.title or "Jawaban substantif"]
+
+    ground_truth = conclusion or (
+        must_contain[0] if must_contain else (case.title or "Jawaban hukum")
+    )
+    judge_in = JudgeInputs(
+        criteria="\n".join(crit_lines),
+        ground_truth=ground_truth,
+        question=case.question or case.title or "Pertanyaan kasus",
+        provider_answer=att.answer_text or "",
+    )
+    try:
+        writer = run_judge(asker, judge_in, repetitions=1)
+        quality_rows = [r for r in writer.rows if r.kind == "quality"]
+        if quality_rows:
+            _apply_judge_row_to_attempt(att, quality_rows[0])
+    except Exception as exc:
+        att.judge_error = str(exc)
+
+
 def _build_attempt_input(
     a: Attempt,
     failure_kinds: dict[uuid.UUID, str],
     judge_errors: dict[uuid.UUID, str],
+    judge_data: dict[uuid.UUID, dict[str, Any]] | None = None,
 ) -> AttemptGradeInput:
     f_kind = failure_kinds.get(a.id)
     j_err = judge_errors.get(a.id)
     platform_refused = bool(a.answer_text and "[Platform menolak menjawab]" in a.answer_text) or (
         f_kind == "platform_refused"
     )
+    j_info = (judge_data or {}).get(a.id, {})
     return AttemptGradeInput(
         attempt_id=a.id,
         repetition_no=a.repetition_no,
@@ -949,7 +1212,11 @@ def _build_attempt_input(
         answer_text=a.answer_text,
         failure_kind=f_kind,
         platform_refused=platform_refused,
-        judge_error=j_err,
+        judge_error=j_err or j_info.get("judge_error"),
+        judge_score=j_info.get("judge_score"),
+        explanation=j_info.get("explanation"),
+        reasons=j_info.get("reasons") or [],
+        criteria=j_info.get("criteria") or [],
     )
 
 
@@ -989,11 +1256,12 @@ def _load_case_grade_inputs(db: Session, session_id: uuid.UUID) -> list[CaseGrad
 
     attempt_ids = [a.id for a in attempts_db]
     call_failure_kinds, call_judge_errors = _load_call_logs_metadata(db, attempt_ids)
+    judge_data = _load_judge_metadata_for_attempts(db, attempt_ids)
 
     attempts_by_item: dict[uuid.UUID, list[AttemptGradeInput]] = defaultdict(list)
     for a in attempts_db:
         attempts_by_item[a.snapshot_item_id].append(
-            _build_attempt_input(a, call_failure_kinds, call_judge_errors)
+            _build_attempt_input(a, call_failure_kinds, call_judge_errors, judge_data)
         )
 
     return [_build_case_grade_input(item, attempts_by_item.get(item.id, [])) for item in items]
@@ -1018,19 +1286,59 @@ def _resolve_rubric_version(db: Session, requested_version: str | None) -> str:
 
         ver = db.scalars(query).first()
         if ver is None:
-            has_any = db.scalars(select(RubricVersion.id).limit(1)).first() is not None
-            if has_any:
-                raise NotFoundError(
-                    f"Versi rubrik '{requested_version}' tidak ditemukan.",
-                    code="RUBRIC_VERSION_NOT_FOUND",
-                )
-            return requested_version
+            raise NotFoundError(
+                f"Versi rubrik '{requested_version}' tidak ditemukan.",
+                code="RUBRIC_VERSION_NOT_FOUND",
+            )
         return f"v{ver.version_no}"
 
     active_ver = db.scalars(select(RubricVersion).where(RubricVersion.is_active)).first()
     if active_ver is not None:
         return f"v{active_ver.version_no}"
     return DEFAULT_RUBRIC_VERSION
+
+
+def _resolve_active_judge_asker(
+    db: Session,
+    session: MeasurementSession,
+    judge_asker: object | None,
+) -> object | None:
+    if judge_asker is not None:
+        return judge_asker
+    if session.judge_provider_id is None:
+        return None
+    try:
+        from app.modules.providers.judge_service import build_judge
+
+        binding = build_judge(db, session.judge_provider_id)
+        return binding.asker
+    except Exception:
+        return None
+
+
+def _should_grade_with_judge(att: AttemptGradeInput) -> bool:
+    return (
+        not check_technical_disruption(
+            status=att.status,
+            answer_text=att.answer_text,
+            failure_kind=att.failure_kind,
+            platform_refused=att.platform_refused,
+        )
+        and att.judge_score is None
+        and not att.criteria
+    )
+
+
+def _execute_judge_for_all_cases(
+    asker: object | None,
+    cases: Sequence[CaseGradeInput],
+) -> None:
+    if asker is None:
+        return
+    for case in cases:
+        for att in case.attempts:
+            if _should_grade_with_judge(att):
+                _execute_judge_for_attempt(asker, att, case)
 
 
 def grade_session(
@@ -1042,6 +1350,7 @@ def grade_session(
     actor_role: Role,
     store: GradingStore | None = None,
     now: datetime | None = None,
+    judge_asker: object | None = None,
 ) -> SessionGradingResponse:
     """Memicu penilaian manual untuk sesi pengukuran (AC6, AC7)."""
     if actor_role != Role.ADMIN:
@@ -1062,6 +1371,9 @@ def grade_session(
 
     p_names = providers_service.product_names(db, {session.product_id})
     product_name = p_names.get(session.product_id, "")
+
+    active_asker = _resolve_active_judge_asker(db, session, judge_asker)
+    _execute_judge_for_all_cases(active_asker, cases)
 
     response = grade_session_data(
         session_id=session_id,
@@ -1128,7 +1440,7 @@ def list_graded_sessions(
     Hanya sesi yang sudah selesai, tidak diarsipkan, dan memiliki hasil penilaian.
     """
     role = Role(viewer_role) if isinstance(viewer_role, str) else viewer_role
-    if role not in (Role.ADMIN, Role.VIEWER, Role.DEVELOPER_AI):
+    if role not in (Role.ADMIN, Role.VIEWER):
         raise ForbiddenError(
             "Peran Anda tidak berwenang melihat daftar hasil penilaian.",
             code="FORBIDDEN",
