@@ -320,3 +320,40 @@ def test_jawaban_kosong_belum_dihitung_tertulis(conn, sesi_id, item_id, kosong):
     _jawab(conn, percobaan_id)
 
     assert _baris(conn, percobaan_id) == ("succeeded", JAWABAN)
+
+
+def test_finished_at_without_started_at_is_rejected(conn, sesi_id, item_id):
+    # Arrange
+    percobaan_id = _percobaan(conn, sesi_id, item_id)
+
+    # Act
+    sqlstate = sqlstate_penolakan(
+        conn,
+        "UPDATE attempts SET finished_at = now() WHERE id = :id",
+        {"id": percobaan_id},
+    )
+
+    # Assert
+    assert sqlstate == CHECK_VIOLATION
+
+
+def test_legacy_attempt_keeps_null_timestamps_and_both_can_be_set_together(conn, sesi_id, item_id):
+    # Arrange
+    percobaan_id = _percobaan(conn, sesi_id, item_id)
+    awal = conn.execute(
+        text("SELECT started_at, finished_at FROM attempts WHERE id = :id"), {"id": percobaan_id}
+    ).one()
+
+    # Act
+    conn.execute(
+        text("UPDATE attempts SET started_at = now(), finished_at = now() WHERE id = :id"),
+        {"id": percobaan_id},
+    )
+    akhir = conn.execute(
+        text("SELECT started_at IS NOT NULL, finished_at IS NOT NULL FROM attempts WHERE id = :id"),
+        {"id": percobaan_id},
+    ).one()
+
+    # Assert
+    assert tuple(awal) == (None, None)
+    assert tuple(akhir) == (True, True)

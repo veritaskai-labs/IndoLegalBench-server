@@ -167,6 +167,8 @@ def test_admin_melihat_jawaban_mentah_per_percobaan(as_role, db_session, sesi_ca
             "status": "succeeded",
             "answer_text": "Jawaban dev 1",
             "model_version": "model-uji-2026",
+            "started_at": None,
+            "finished_at": None,
         },
         {
             "id": str(id_dev[1]),
@@ -174,6 +176,8 @@ def test_admin_melihat_jawaban_mentah_per_percobaan(as_role, db_session, sesi_ca
             "status": "technical_failure",
             "answer_text": None,
             "model_version": None,
+            "started_at": None,
+            "finished_at": None,
         },
     ]
 
