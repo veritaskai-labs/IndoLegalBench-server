@@ -481,7 +481,8 @@ def test_galat_selain_integrity_juga_dibatalkan_dan_sesi_tetap_menunggu(
     def putus(*_args, **_kwargs):
         raise OperationalError("INSERT INTO case_snapshots", {}, Exception("koneksi putus"))
 
-    monkeypatch.setattr(antrean, "_freeze", putus)
+    # _freeze dipakai bersama sesi manual (SCRUM-230), jadi fungsi modul, bukan method.
+    monkeypatch.setattr(repository, "_freeze", putus)
 
     # Act
     with pytest.raises(OperationalError):
