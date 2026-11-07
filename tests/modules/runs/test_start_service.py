@@ -318,3 +318,10 @@ def test_produk_manual_ditolak_sebelum_penilai_diperiksa():
     # Assert
     assert tertangkap.value.code == "PRODUCT_NOT_AUTOMATIC"
     assert penilai.dikunci == []
+
+
+def test_port_penilai_wajib_diisi_adapter():
+    """Edge: JudgeLock hanya kontrak; memanggilnya tanpa adapter langsung gagal, bukan
+    diam-diam meloloskan penilai."""
+    with pytest.raises(NotImplementedError):
+        session_ports.JudgeLock.lock_available(object(), JUDGE_ID)
