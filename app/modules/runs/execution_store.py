@@ -82,7 +82,7 @@ class TableSessionStore(SessionStore):
                 Attempt.id == row.id,
                 Attempt.status == AttemptStatus.PENDING,
             )
-            .values(status=AttemptStatus.RUNNING)
+            .values(status=AttemptStatus.RUNNING, started_at=datetime.now(UTC), finished_at=None)
         ).rowcount
         self.db.commit()
         if claimed != 1:
