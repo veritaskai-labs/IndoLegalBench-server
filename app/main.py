@@ -32,6 +32,8 @@ from app.modules.grading.router import router as grading_router
 from app.modules.health.router import router as health_router
 from app.modules.legal_refs.router import router as legal_refs_router
 from app.modules.notifications.router import router as notifications_router
+from app.modules.providers.judge_router import options_router as judge_options_router
+from app.modules.providers.judge_router import router as judge_providers_router
 from app.modules.providers.router import options_router as product_options_router
 from app.modules.providers.router import router as providers_router
 from app.modules.reports.router import router as reports_router
@@ -200,3 +202,5 @@ app.include_router(audit_router)  # PBI-18
 app.include_router(legal_refs_router)  # PBI-21
 app.include_router(dashboard_router)  # PBI-19
 app.include_router(grading_router)  # PBI-14
+app.include_router(judge_providers_router)  # PBI-14 SCRUM-258
+app.include_router(judge_options_router)  # PBI-14 SCRUM-258

@@ -95,6 +95,7 @@ def _mulai(db, produk: tuple[uuid.UUID, uuid.UUID, uuid.UUID]) -> schemas.StartR
         summary=_RingkasanLolos(),
         sessions=repository.SessionQueueRepository(db),
         product_lock=adapters.ProductLockAdapter(db),
+        judge_lock=adapters.JudgeLockAdapter(db),
     )
     product_id, admin_id, suite_id = produk
     permintaan = schemas.StartRequest(
