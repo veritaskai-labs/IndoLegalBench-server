@@ -121,6 +121,8 @@ def _known_split(split_tag: object) -> SplitTag | None:
 def _case(case: CaseRow, *, viewer_role: Role) -> SessionCaseResult:
     sections = case.body.get("sections") or {}
     split_tag = sections.get("split_tag")
+    # Masking must read the raw split_tag: _known_split maps an unknown tag to None, which
+    # would make it look like a dev case.
     masked = not can_view_case_content(viewer_role, split_tag)
     return SessionCaseResult(
         snapshot_item_id=case.snapshot_item_id,
