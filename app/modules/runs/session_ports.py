@@ -80,6 +80,7 @@ class ProductCopy:
     # bertanya. Kosong untuk produk otomatis.
     vendor_name: str | None = None
     site_url: str | None = None
+    manual_params: str | None = None
 
 
 class SessionQueueStore(Protocol):

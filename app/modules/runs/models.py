@@ -299,6 +299,9 @@ class SessionProductCopy(Base):
     # Produk manual (PBI-23 AC3). access_note tidak disalin, sama seperti kredensial.
     vendor_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
     site_url: Mapped[str | None] = mapped_column(String(2048), nullable=True)
+    # Paket produk manual saat sesi dibuat (PBI-22 SCRUM-230, review #116): laporan PBI-15
+    # tetap tahu paket mana yang menjawab walau Admin mengubah produknya kemudian.
+    manual_params: Mapped[str | None] = mapped_column(Text, nullable=True)
     copied_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
     )

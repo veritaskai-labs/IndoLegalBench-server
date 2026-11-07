@@ -420,6 +420,7 @@ class ManualSessionDetail(BaseModel):
     product_name: str
     vendor_name: str | None
     site_url: str | None
+    manual_params: str | None = Field(description="Paket produk manual saat sesi dibuat (PBI-23)")
     case_filter: CaseFilter
     repetitions: int = Field(description="Percobaan per kasus (AC12, penanda PBI-15)")
     filled_answers: int = Field(description="X pada 'X dari N jawaban terisi', seluruh sesi")

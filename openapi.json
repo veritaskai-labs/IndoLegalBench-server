@@ -7768,6 +7768,18 @@
             ],
             "title": "Site Url"
           },
+          "manual_params": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Manual Params",
+            "description": "Paket produk manual saat sesi dibuat (PBI-23)"
+          },
           "case_filter": {
             "$ref": "#/components/schemas/CaseFilter"
           },
@@ -7867,6 +7879,7 @@
           "product_name",
           "vendor_name",
           "site_url",
+          "manual_params",
           "case_filter",
           "repetitions",
           "filled_answers",

@@ -11,6 +11,9 @@ D9 (manual answer ERD) adds to the D2 tables:
 - attempts.filled_at: a manual attempt is filled once this is set, so the D8 status is
   counted from it. attempts.answered_at_platform: when the answer was taken (AC7).
   The other manual answer columns of D9 belong to SCRUM-231.
+- session_product_copies.manual_params: the manual product's plan when the session was
+  created (PBI-23 AC3), so PBI-15 still knows which plan answered after the product is
+  edited (review on #116).
 
 There is no CHECK tying statuses to session_type: existing rows and tests hold manual
 sessions with D4 statuses, so the service keeps manual sessions on D8 statuses.
@@ -71,6 +74,7 @@ def upgrade():
         )
     op.add_column("attempts", sa.Column("filled_at", _TS, nullable=True))
     op.add_column("attempts", sa.Column("answered_at_platform", _TS, nullable=True))
+    op.add_column("session_product_copies", sa.Column("manual_params", sa.Text(), nullable=True))
 
 
 def downgrade():
@@ -86,6 +90,7 @@ def downgrade():
                 "by hand before downgrading."
             )
 
+    op.drop_column("session_product_copies", "manual_params")
     op.drop_column("attempts", "answered_at_platform")
     op.drop_column("attempts", "filled_at")
     with op.batch_alter_table("measurement_sessions") as batch:

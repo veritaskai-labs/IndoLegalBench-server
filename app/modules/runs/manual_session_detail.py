@@ -72,6 +72,7 @@ def manual_session_detail(
         product_name=product.name,
         vendor_name=product.vendor_name,
         site_url=product.site_url,
+        manual_params=product.manual_params,
         case_filter=CaseFilter(session.split_filter.value),
         repetitions=session.repetitions,
         filled_answers=sum(slot.filled for slot in all_slots),

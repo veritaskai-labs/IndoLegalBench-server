@@ -860,4 +860,5 @@ def _product_copy_row(session_id: uuid.UUID, product: ProductCopy) -> SessionPro
         monthly_budget_idr=product.monthly_budget_idr,
         vendor_name=product.vendor_name,
         site_url=product.site_url,
+        manual_params=product.manual_params,
     )

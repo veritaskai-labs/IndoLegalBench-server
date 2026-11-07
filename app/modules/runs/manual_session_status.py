@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.runs import repository
 from app.modules.runs.manual_session_rules import (
+    MANUAL_STATUSES,
     ManualProgress,
     answer_date_range,
     ensure_finalizable,
@@ -20,7 +21,7 @@ from app.modules.runs.manual_session_rules import (
 )
 from app.modules.runs.models import Attempt, MeasurementSession, SessionStatus, SessionType
 from app.modules.runs.schemas import ManualFinalizeResponse
-from app.shared.exceptions import NotFoundError
+from app.shared.exceptions import ConflictError, NotFoundError
 
 
 def _manual_for_update(db: Session, session_id: uuid.UUID) -> MeasurementSession:
@@ -40,6 +41,12 @@ def recompute_manual_status(db: Session, session_id: uuid.UUID, *, now: datetime
     """
     session = _manual_for_update(db, session_id)
     current = session.status
+    if current not in MANUAL_STATUSES:
+        # Baris manual lama dengan status D4 (sebelum SCRUM-230): 409, bukan 500 (review #116).
+        raise ConflictError(
+            "Sesi manual ini masih berstatus sesi otomatis dan tidak bisa diisi.",
+            code="MANUAL_SESSION_STATUS_INVALID",
+        )
     milik_sesi = Attempt.session_id == session_id
     total, filled = db.execute(
         select(func.count(), func.count(Attempt.filled_at)).where(milik_sesi)

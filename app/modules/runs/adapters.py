@@ -141,6 +141,7 @@ class ProductCopyAdapter:
             monthly_budget_idr=product.monthly_budget_idr,
             vendor_name=product.vendor_name,
             site_url=product.site_url,
+            manual_params=product.manual_params,
         )
 
 

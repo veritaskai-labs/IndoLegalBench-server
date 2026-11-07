@@ -18,6 +18,9 @@ from app.shared.exceptions import ConflictError
 
 _S = SessionStatus
 
+MANUAL_STATUSES = frozenset(
+    {_S.NOT_FILLED, _S.PARTIALLY_FILLED, _S.COMPLETE, _S.GRADED, _S.FINALIZED}
+)
 # Dihitung dari jumlah jawaban; Dinilai dan Selesai tidak.
 _FILLING = frozenset({_S.NOT_FILLED, _S.PARTIALLY_FILLED, _S.COMPLETE})
 _STILL_FILLING = frozenset({_S.NOT_FILLED, _S.PARTIALLY_FILLED, _S.COMPLETE, _S.GRADED})
