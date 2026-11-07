@@ -61,8 +61,15 @@ It reopens a prepared session as `running`; the same leased dispatcher processes
 pending attempts and preserves successful/failed attempts. A cancelled session
 that never started returns to `queued`, so original preparation creates its first
 snapshot/copy. Its new queued_at intentionally puts it at the back of the queue.
-An occupied running slot returns 409 `ANOTHER_SESSION_RUNNING` with
-no partial writes. Repeated resume is 409 `SESSION_NOT_RESUMABLE`. An uncertain
+SCRUM-267: a prepared session also returns to `queued` when another automatic session
+is running or waiting, so a resume never runs beside another session or jumps the
+queue (PBI-11 AC3, PBI-12 AC8). The worker reopens it on its turn with the original
+snapshot, product copy and started_at; it is never frozen again or marked failed by a
+reopen error. If the worker takes the slot between the check and the commit, the
+unique index rejects the resume, which retries once as a queue-only resume (202
+`queued`, no partial writes). Paused and cancelled sessions hold no slot, so the next
+waiting session starts on the next worker tick. A waiting resumed session can be
+cancelled but not paused. Repeated resume is 409 `SESSION_NOT_RESUMABLE`. An uncertain
 running attempt without a live dispatcher lease is 409 `ATTEMPT_RECOVERY_REQUIRED`;
 SCRUM-217 must reconcile it first. No automatic retry is introduced.
 
