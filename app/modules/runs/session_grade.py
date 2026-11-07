@@ -68,6 +68,7 @@ LAIN_LAIN = "Lain-lain"
 DEFAULT_RUBRIC_VERSION = "v1"
 ACTION_MEASUREMENT_SESSION_GRADED = "measurement_session.graded"
 ACTION_MEASUREMENT_SESSION_REGRADED = "measurement_session.regraded"
+REASON_CRITERION_UNMET = "criterion_unmet"
 _MAX_REFUSAL_LENGTH = 250
 
 _REFUSAL_PHRASES = (
@@ -400,7 +401,7 @@ def _evaluate_contain_criteria(
     for idx, item in enumerate(items):
         is_met = item.lower() in text_lower
         exp = None if is_met else f"Tidak memuat: {item}"
-        reason = None if is_met else "unmet"
+        reason = None if is_met else REASON_CRITERION_UNMET
         c_list.append(
             {
                 "key": f"must_contain_{idx + 1}",
@@ -425,7 +426,7 @@ def _evaluate_not_contain_criteria(
     for idx, item in enumerate(items):
         is_met = item.lower() not in text_lower
         exp = None if is_met else f"Memuat teks yang dilarang: {item}"
-        reason = None if is_met else "unmet"
+        reason = None if is_met else REASON_CRITERION_UNMET
         c_list.append(
             {
                 "key": f"must_not_contain_{idx + 1}",
@@ -446,7 +447,7 @@ def _evaluate_conclusion_criterion(
 ) -> tuple[dict[str, Any], str | None, str | None]:
     is_met = conclusion.lower() in text_lower
     exp = None if is_met else f"Kesimpulan tidak memuat: {conclusion}"
-    reason = None if is_met else "unmet"
+    reason = None if is_met else REASON_CRITERION_UNMET
     crit = {
         "key": "expected_conclusion",
         "text": f"Kesimpulan: {conclusion}",
@@ -955,34 +956,52 @@ class DbGradingStore:
 
         rubric_version_id = self._resolve_db_rubric_version_id(run.rubric_version)
 
-        if run.is_latest:
-            self._deactivate_previous_latest_runs(run.session_id)
-
         session = self.db.get(MeasurementSession, run.session_id)
         judge_provider_id = session.judge_provider_id if session else None
+
+        has_earlier = bool(
+            self.db.scalar(
+                select(
+                    select(GradingRun.id).where(GradingRun.session_id == run.session_id).exists()
+                )
+            )
+        )
+        run_kind = GradingRunKind.REGRADE if has_earlier else GradingRunKind.INITIAL
 
         grading_run_row = GradingRun(
             id=run.grading_run_id,
             session_id=run.session_id,
             rubric_version_id=rubric_version_id,
             judge_provider_id=judge_provider_id,
-            kind=GradingRunKind.REGRADE if run.kind == "regrade" else GradingRunKind.INITIAL,
-            status=GradingRunStatus.FINISHED,
-            is_latest=run.is_latest,
+            kind=run_kind,
+            status=GradingRunStatus.QUEUED,
+            is_latest=False,
             triggered_by=run.triggered_by,
             triggered_at=run.triggered_at,
-            finished_at=run.triggered_at,
+            finished_at=None,
         )
         self.db.add(grading_run_row)
+        self.db.flush()
+
+        grading_run_row.status = GradingRunStatus.RUNNING
         self.db.flush()
 
         catalog = _get_jenis_catalog(self.db)
         scorer = CitationScorer(catalog)
         self._save_case_results(run.grading_run_id, run.cases, cases_input, scorer)
 
+        if run.is_latest:
+            self._deactivate_previous_latest_runs(run.session_id)
+
+        grading_run_row.status = GradingRunStatus.FINISHED
+        grading_run_row.finished_at = run.triggered_at
+        if run.is_latest:
+            grading_run_row.is_latest = True
+        self.db.flush()
+
         action = (
             ACTION_MEASUREMENT_SESSION_GRADED
-            if run.kind == "initial"
+            if run_kind == GradingRunKind.INITIAL
             else ACTION_MEASUREMENT_SESSION_REGRADED
         )
         log_entry = AuditLog(
@@ -1000,7 +1019,7 @@ class DbGradingStore:
             reason=f"Rubrik {run.rubric_version} - {run.kind}",
         )
         self.db.add(log_entry)
-        self.db.commit()
+        self.db.flush()
 
     def get_latest_grading_run(self, session_id: uuid.UUID) -> SessionGradingResponse | None:
         runs = self.get_grading_runs(session_id)
@@ -1017,6 +1036,13 @@ class DbGradingStore:
 
         for idx, c in enumerate(criteria):
             c_is_met = bool(c.get("is_met"))
+            if c_is_met:
+                reason_code = None
+            else:
+                raw_code = c.get("reason_code")
+                reason_code = (
+                    REASON_CRITERION_UNMET if (not raw_code or raw_code == "unmet") else raw_code
+                )
             crit_obj = LlmCriterionResult(
                 id=uuid.uuid4(),
                 llm_judge_result_id=judge_result_id,
@@ -1024,7 +1050,7 @@ class DbGradingStore:
                 criterion_text=c.get("text") or f"Kriteria {idx + 1}",
                 is_met=c_is_met,
                 explanation=c.get("explanation"),
-                reason_code=None if c_is_met else (c.get("reason_code") or "unmet"),
+                reason_code=reason_code,
             )
             self.db.add(crit_obj)
         self.db.flush()
@@ -1070,32 +1096,6 @@ class DbGradingStore:
         self.db.flush()
         self._save_criterion_records(judge_row.id, att.criteria)
 
-    def _save_failed_judge_record(
-        self,
-        grading_result_id: uuid.UUID,
-        case_code: str,
-        rep_no: int,
-        error_msg: str,
-    ) -> None:
-        from app.modules.grading.models import (
-            JudgeKind,
-            JudgeStatus,
-            LlmJudgeResult,
-        )
-
-        row = LlmJudgeResult(
-            id=uuid.uuid4(),
-            grading_result_id=grading_result_id,
-            judge_run_no=rep_no,
-            kind=JudgeKind.QUALITY,
-            status=JudgeStatus.FAILED,
-            prompt=f"Penilaian kualitas jawaban untuk kasus {case_code}",
-            error=error_msg,
-            failure_kind=error_msg,
-        )
-        self.db.add(row)
-        self.db.flush()
-
     def _save_format_judge_record(
         self,
         grading_result_id: uuid.UUID,
@@ -1134,14 +1134,7 @@ class DbGradingStore:
         case_code: str,
     ) -> None:
         rep_no = max(1, min(5, att.repetition_no))
-        if att.is_technical_disruption:
-            if att.explanation and "judge" in att.explanation.lower():
-                self._save_failed_judge_record(
-                    grading_result_id, case_code, rep_no, att.explanation
-                )
-            return
-
-        if att.score is None:
+        if att.is_technical_disruption or att.score is None:
             return
 
         if att.score.quality is not None:
@@ -1518,16 +1511,34 @@ def _load_judge_metadata_for_attempts(
 
 
 def _apply_judge_criteria_records(row: Any) -> list[dict[str, Any]]:
-    return [
-        {
-            "key": f"crit_{idx + 1}",
-            "text": c.criterion,
-            "is_met": c.met,
-            "explanation": c.explanation,
-            "reason_code": c.reason_id if not c.met else None,
-        }
-        for idx, c in enumerate(row.criteria)
-    ]
+    records = []
+    for idx, c in enumerate(row.criteria):
+        if c.met:
+            r_code = None
+        else:
+            r_code = (
+                REASON_CRITERION_UNMET
+                if (not c.reason_id or c.reason_id == "unmet")
+                else c.reason_id
+            )
+        records.append(
+            {
+                "key": f"crit_{idx + 1}",
+                "text": c.criterion,
+                "is_met": c.met,
+                "explanation": c.explanation,
+                "reason_code": r_code,
+            }
+        )
+    return records
+
+
+def _apply_judge_quality(att: AttemptGradeInput, row: Any) -> None:
+    att.quality_score = round_two_digits(row.score)
+    att.explanation = row.explanation
+    r_id = REASON_CRITERION_UNMET if row.reason_id == "unmet" else row.reason_id
+    att.reasons = [r_id] if r_id else []
+    att.criteria = _apply_judge_criteria_records(row)
 
 
 def _apply_judge_row_to_attempt(att: AttemptGradeInput, row: Any) -> None:
@@ -1535,10 +1546,7 @@ def _apply_judge_row_to_attempt(att: AttemptGradeInput, row: Any) -> None:
         if getattr(row, "kind", None) == "format":
             att.format_score = round_two_digits(row.score)
         else:
-            att.quality_score = round_two_digits(row.score)
-            att.explanation = row.explanation
-            att.reasons = [row.reason_id] if row.reason_id else []
-            att.criteria = _apply_judge_criteria_records(row)
+            _apply_judge_quality(att, row)
     elif row.error or row.failure_kind:
         att.judge_error = row.error or row.failure_kind
 

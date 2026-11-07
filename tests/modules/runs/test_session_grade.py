@@ -1526,7 +1526,7 @@ def test_llm_judge_integration_and_d6_persistence(db_session, produk, pembuat):
     crit_rows = db_session.scalars(select(LlmCriterionResult)).all()
     assert len(crit_rows) >= 3
     unmet_c = next(c for c in crit_rows if not c.is_met)
-    assert unmet_c.reason_code == "unmet"
+    assert unmet_c.reason_code == "criterion_unmet"
     met_c = next(c for c in crit_rows if c.is_met)
     assert met_c.reason_code is None  # ck_llm_criterion_results_reason_unmet
 
@@ -1635,7 +1635,7 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
     score, exp, reasons, c_list = res_concl
     assert score == Decimal("0.00")
     assert exp is not None and "Kesimpulan tidak memuat" in exp
-    assert reasons == ["unmet"]
+    assert reasons == ["criterion_unmet"]
 
     # 3. DbGradingStore._resolve_db_rubric_version_id cabang fallback
     v_act = db_session.scalars(select(RubricVersion).where(RubricVersion.is_active)).first()
