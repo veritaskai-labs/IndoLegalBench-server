@@ -213,6 +213,15 @@ class SessionListRepository:
         ).all()
         return self._rows(sessions)
 
+    def archived_sessions(self) -> list[SessionRow]:
+        """Sesi arsip, yang terakhir diarsipkan di atas (AC10)."""
+        sessions = self._db.scalars(
+            select(MeasurementSession)
+            .where(MeasurementSession.archived_at.is_not(None))
+            .order_by(MeasurementSession.archived_at.desc(), MeasurementSession.id)
+        ).all()
+        return self._rows(sessions)
+
     def latest_active(self) -> SessionRow | None:
         """Sesi terbaru yang belum diarsipkan, untuk latest_run di dashboard (PBI-19 AC1)."""
         session = self._db.scalars(
