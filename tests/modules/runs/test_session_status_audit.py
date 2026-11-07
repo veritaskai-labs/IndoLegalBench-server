@@ -97,9 +97,11 @@ def test_setiap_perpindahan_d4_menulis_satu_catatan(asal, tujuan, status_repo, s
     # Arrange
     sesi_id = sesi(asal)
     penyebab = _PENYEBAB.get(SessionStatus(tujuan))
+    # D9: Selesai sesi manual (SCRUM-230) wajib mencatat pelakunya.
+    pelaku = uuid.uuid4() if tujuan == SessionStatus.FINALIZED else None
 
     # Act
-    status_repo.change_status(sesi_id, tujuan, at=JAM, stop_reason=penyebab)
+    status_repo.change_status(sesi_id, tujuan, at=JAM, stop_reason=penyebab, finalized_by=pelaku)
 
     # Assert
     (catatan,) = _catatan(db_session, sesi_id)
