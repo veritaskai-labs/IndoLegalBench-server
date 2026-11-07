@@ -2,15 +2,19 @@
 
 from datetime import UTC, datetime
 
+import pytest
 from sqlalchemy import select
 
 from app.modules.runs import dependencies
 from app.modules.runs.execution_store import TableSessionStore
-from app.modules.runs.models import Attempt, AttemptStatus
+from app.modules.runs.models import Attempt, AttemptStatus, CallLog
+from app.modules.runs.ports import AttemptRecord
 from tests.modules.conftest import as_role, buat_pengguna
 from tests.modules.runs.test_execution_runtime import (
+    Provider,
     db_session,
     jenis_peraturan,
+    runner,
     start,
 )
 from tests.modules.runs.test_start_endpoint import siap
@@ -90,3 +94,83 @@ def test_claim_skips_finished_attempt_without_changing_its_timestamps(siap):
     kept = _attempt(siap.db, store)
     assert claimed is None
     assert (_utc(kept.started_at), _utc(kept.finished_at)) == (stamp, stamp)
+
+
+@pytest.mark.parametrize(
+    "behavior,expected",
+    [
+        ("ok", {AttemptStatus.SUCCEEDED}),
+        ("error", {AttemptStatus.TECHNICAL_FAILURE}),
+        ("mixed", {AttemptStatus.SUCCEEDED, AttemptStatus.TECHNICAL_FAILURE}),
+    ],
+)
+def test_every_finished_attempt_has_ordered_timestamps_for_success_and_failure(
+    siap, behavior, expected
+):
+    # Arrange
+    session_id = start(siap)
+    run = runner(siap, Provider(behavior))
+    before = datetime.now(UTC)
+
+    # Act
+    run()
+
+    # Assert
+    after = datetime.now(UTC)
+    siap.db.expire_all()
+    attempts = siap.db.scalars(select(Attempt).where(Attempt.session_id == session_id)).all()
+    assert len(attempts) == 9
+    assert {attempt.status for attempt in attempts} == expected
+    for attempt in attempts:
+        assert attempt.started_at is not None
+        assert attempt.finished_at is not None
+        assert before <= _utc(attempt.started_at) <= _utc(attempt.finished_at) <= after
+
+
+def test_finished_at_is_the_instant_the_response_arrived_in_the_call_log(siap):
+    # Arrange
+    session_id = start(siap)
+    run = runner(siap, Provider("mixed"))
+
+    # Act
+    run()
+
+    # Assert
+    siap.db.expire_all()
+    attempts = siap.db.scalars(select(Attempt).where(Attempt.session_id == session_id)).all()
+    logs = {log.attempt_id: log for log in siap.db.scalars(select(CallLog))}
+    assert len(logs) == 9
+    for attempt in attempts:
+        assert attempt.finished_at is not None
+        assert _utc(attempt.finished_at) == _utc(logs[attempt.id].ended_at)
+        assert _utc(attempt.started_at) <= _utc(logs[attempt.id].started_at)
+
+
+def test_save_without_reported_end_time_still_stamps_finished_at(siap):
+    # Arrange
+    store = _claimed_store(siap)
+    attempt_id = store.prepare_attempt(0, 0)
+    record = AttemptRecord(
+        session_id=store.session_id,
+        attempt_id=attempt_id,
+        case_index=0,
+        repeat_index=0,
+        prompt="p",
+        text="jawaban",
+        model_version="model-v1",
+        latency_ms=5,
+        raw={},
+        error=None,
+        failure_kind=None,
+    )
+    before = datetime.now(UTC)
+
+    # Act
+    store.save_attempt(record)
+    siap.db.commit()
+
+    # Assert
+    attempt = _attempt(siap.db, store)
+    assert attempt.status == AttemptStatus.SUCCEEDED
+    assert attempt.finished_at is not None
+    assert before <= _utc(attempt.finished_at) <= datetime.now(UTC)
