@@ -1,10 +1,11 @@
 """Test formula kelengkapan kasus (SCRUM-107)."""
 
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
 
-from app.modules.cases.completeness import evaluate, review_blockers
+from app.modules.cases.completeness import evaluate, review_blockers, row_data
 from tests.legal_refs import rujukan_ac10, rujukan_ktk_001, rujukan_pasal
 
 
@@ -23,12 +24,6 @@ def payload(**overrides: Any) -> dict[str, Any]:
             "must_not_contain": [],
             "expected_conclusion": "PHK tidak sah",
         },
-        "traps": [
-            {
-                "description": "Menyebut pasal yang sudah dicabut",
-                "expected_model_behavior": "Menolak memakai pasal itu",
-            }
-        ],
         "split_tag": "dev",
     }
     data.update(overrides)
@@ -45,7 +40,7 @@ def test_kasus_lengkap_siap_review():
     assert hasil["is_complete"] is True
     assert hasil["ready_for_review"] is True
     assert hasil["missing"] == []
-    assert hasil["trap_count"] == 1
+    assert "trap_count" not in hasil
     assert hasil["legal_ref_count"] == 1
     assert hasil["pct"] == 100
 
@@ -129,21 +124,73 @@ def test_hanya_must_not_contain_sudah_dihitung():
     assert "answer_criteria" not in missing_fields(hasil)
 
 
-def test_tanpa_jebakan_siap_review():
-    hasil = evaluate(payload(traps=[]))
+LEGACY_TRAPS = [
+    {
+        "description": "Menyebut pasal yang sudah dicabut",
+        "expected_model_behavior": "Menolak memakai pasal itu",
+    }
+]
 
-    assert hasil["trap_count"] == 0
+
+def test_kasus_baru_tanpa_jebakan_siap_review():
+    hasil = evaluate(payload())
+
+    assert "trap_count" not in hasil
     assert hasil["is_complete"] is True
     assert hasil["ready_for_review"] is True
-    assert "traps" not in missing_fields(hasil)
     assert hasil["pct"] == 100
 
 
-def test_jebakan_tanpa_deskripsi_tidak_dihitung():
-    hasil = evaluate(payload(traps=[{"expected_model_behavior": "Menolak"}]))
+@pytest.mark.parametrize(
+    "traps",
+    [LEGACY_TRAPS, [], None, [{"expected_model_behavior": "Menolak"}], "bukan daftar"],
+)
+def test_traps_legacy_tidak_mengubah_kelengkapan(traps):
+    # Arrange
+    tanpa = evaluate(payload())
 
-    assert hasil["trap_count"] == 0
+    # Act
+    dengan = evaluate(payload(traps=traps))
+
+    # Assert
+    assert dengan == tanpa
+    assert "trap_count" not in dengan
+    assert "traps" not in missing_fields(dengan)
+
+
+def test_traps_legacy_tidak_menutupi_bagian_yang_kurang():
+    hasil = evaluate(payload(traps=LEGACY_TRAPS, legal_refs=[]))
+
+    assert hasil["is_complete"] is False
+    assert "legal_refs" in missing_fields(hasil)
     assert "traps" not in missing_fields(hasil)
+
+
+def test_traps_legacy_tidak_menghalangi_pengajuan_review():
+    assert review_blockers(payload(traps=LEGACY_TRAPS)) == []
+
+
+def test_row_data_tidak_membawa_traps_dari_versi_lama():
+    # Arrange: versi lama masih menyimpan traps di content JSON
+    kasus = SimpleNamespace(case_code="PHK-001")
+    versi = SimpleNamespace(
+        content={
+            "title": "PHK",
+            "question": "Sah?",
+            "answer_criteria": {"must_contain": ["surat"]},
+            "traps": LEGACY_TRAPS,
+        },
+        split_tag="dev",
+    )
+
+    # Act
+    data = row_data(kasus, versi, [rujukan_pasal("151")])
+
+    # Assert
+    assert "traps" not in data
+    assert evaluate(data)["is_complete"] is True
+    # data lama di versi tidak disentuh
+    assert versi.content["traps"] == LEGACY_TRAPS
 
 
 def test_split_tag_kosong_dilaporkan():
@@ -184,7 +231,7 @@ def test_draft_kosong_melaporkan_semua_bagian():
 
 
 def test_setengah_terisi_memberi_persentase_di_antaranya():
-    hasil = evaluate(payload(traps=[], answer_criteria={}))
+    hasil = evaluate(payload(answer_criteria={}))
 
     assert 0 < hasil["pct"] < 100
 

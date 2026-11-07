@@ -14,6 +14,7 @@ from datetime import datetime
 from typing import Any, Literal, Self
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
+from pydantic.json_schema import SkipJsonSchema
 
 from app.modules.auth.schemas import ErrorBody
 from app.modules.cases.models import CaseStatus, SplitTag
@@ -221,19 +222,6 @@ class AnswerCriteria(BaseModel):
     expected_conclusion: str | None = None
 
 
-class Trap(BaseModel):
-    """An optionally included known mistake and how the model is expected to handle it."""
-
-    description: str = Field(min_length=1, max_length=2000)
-    expected_model_behavior: str | None = Field(default=None, max_length=2000)
-
-    @field_validator("description")
-    @classmethod
-    def require_text(cls, nilai: str) -> str:
-        """Strip the trap description. A blank string fails min_length."""
-        return _strip_whitespace(nilai)
-
-
 class CaseWrite(BaseModel):
     """Body for create and update. The server sets status; clients cannot send it."""
 
@@ -254,7 +242,11 @@ class CaseWrite(BaseModel):
         description="Minimal satu rujukan. Isi wajib tiap link mengikuti bentuknya (PBI-21).",
     )
     answer_criteria: AnswerCriteria = Field(default_factory=AnswerCriteria)
-    traps: list[Trap] = Field(default_factory=list)
+    # SCRUM-256: dicabut dari kontrak. Klien lama yang masih mengirim traps tetap
+    # diterima, nilainya dibuang dan tidak disimpan (lihat legacy_payload.py).
+    # SkipJsonSchema menyembunyikannya dari OpenAPI supaya gen-zod di client tidak
+    # menghasilkan field untuk sesuatu yang sudah dicabut.
+    traps: SkipJsonSchema[list[Any] | None] = Field(default=None, exclude=True)
     split_tag: SplitTag
 
     @field_validator("case_code", mode="before")
@@ -283,7 +275,6 @@ class CaseRead(BaseModel):
     identity: CaseIdentity
     legal_refs: list[LegalRefRead]
     answer_criteria: AnswerCriteria
-    traps: list[Trap]
     split_tag: SplitTag
     status: CaseStatus
     was_dev: bool = Field(
@@ -328,7 +319,6 @@ class CaseCompleteness(BaseModel):
     ready_for_review: bool
     pct: int = Field(ge=0, le=100)
     missing: list[CompletenessIssue]
-    trap_count: int
     legal_ref_count: int
 
 
@@ -350,7 +340,7 @@ class VersionSummary(BaseModel):
 
 
 class VersionSections(BaseModel):
-    """One version split into the eight SCRUM-137 sections.
+    """One version split into the seven SCRUM-137 sections.
 
     The dotted names are the API keys. See app/modules/cases/sections.py.
     """
@@ -364,11 +354,10 @@ class VersionSections(BaseModel):
     split_tag: str
     legal_refs: list[LegalRefRead]
     answer_criteria: dict[str, Any]
-    traps: list[Any]
 
 
 class VersionSide(BaseModel):
-    """One side of a compare. sections uses the eight section names."""
+    """One side of a compare. sections uses the seven section names."""
 
     version_no: int
     status: CaseStatus
@@ -420,7 +409,6 @@ class ReviewCopy(BaseModel):
     identity: CaseIdentity
     legal_refs: list[LegalRefRead]
     answer_criteria: dict[str, Any]
-    traps: list[dict[str, Any]]
 
 
 class SplitTagChange(BaseModel):
