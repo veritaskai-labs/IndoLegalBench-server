@@ -12,7 +12,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
-from app.modules.runs.models import AttemptSource
+from app.modules.runs.models import AttemptSource, EvidenceKind
 from app.modules.runs.schemas import CaseFilter, MeasurementPurpose, SessionStatus
 
 
@@ -240,4 +240,91 @@ class ManualStatusStore(Protocol):
         raise NotImplementedError
 
     def snapshot_cases(self, session_id: uuid.UUID) -> list[ManualCaseRow]:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class EvidenceTarget:
+    """Percobaan manual yang dituju bukti (PBI-22 SCRUM-233)."""
+
+    attempt_id: uuid.UUID
+    snapshot_item_id: uuid.UUID
+    repetition_no: int
+
+
+@dataclass(frozen=True)
+class EvidenceRow:
+    """Satu baris attempt_evidence (D9)."""
+
+    id: uuid.UUID
+    attempt_id: uuid.UUID
+    kind: EvidenceKind
+    file_key: str | None
+    file_name: str | None
+    mime_type: str | None
+    size_bytes: int | None
+    url: str | None
+    uploaded_by: uuid.UUID
+    uploaded_at: datetime
+
+
+@dataclass(frozen=True)
+class NewEvidence:
+    attempt_id: uuid.UUID
+    kind: EvidenceKind
+    uploaded_by: uuid.UUID
+    file_key: str | None = None
+    file_name: str | None = None
+    mime_type: str | None = None
+    size_bytes: int | None = None
+    url: str | None = None
+
+
+class EvidenceStore(Protocol):
+    """Baris bukti jawaban manual dan audit-nya (PBI-22 SCRUM-233)."""
+
+    def session_status(self, session_id: uuid.UUID, *, lock: bool) -> SessionStatus | None:
+        """Status sesi manual; lock=True menahan Tandai selesai sampai commit. None = bukan sesi manual."""
+        raise NotImplementedError
+
+    def find_attempt(
+        self, session_id: uuid.UUID, snapshot_item_id: uuid.UUID, attempt_no: int
+    ) -> EvidenceTarget | None:
+        raise NotImplementedError
+
+    def evidence_for(self, attempt_id: uuid.UUID) -> list[EvidenceRow]:
+        """Bukti satu percobaan, urut waktu unggah."""
+        raise NotImplementedError
+
+    def add(self, new: NewEvidence) -> EvidenceRow:
+        raise NotImplementedError
+
+    def find_evidence(
+        self, session_id: uuid.UUID, evidence_id: uuid.UUID
+    ) -> tuple[EvidenceRow, EvidenceTarget] | None:
+        """Bukti beserta percobaannya, hanya bila milik sesi ini."""
+        raise NotImplementedError
+
+    def remove(self, evidence_id: uuid.UUID) -> None:
+        raise NotImplementedError
+
+    def record(self, session_id: uuid.UUID, action: str, payload: dict[str, Any]) -> None:
+        """Satu baris audit_logs untuk sesi, di transaksi yang sama (PBI-18, D6b)."""
+        raise NotImplementedError
+
+    def commit(self) -> None:
+        raise NotImplementedError
+
+
+class EvidenceStorage(Protocol):
+    """Isi berkas bukti. Sekarang tabel evidence_files; bisa diganti object storage."""
+
+    def put(self, content: bytes) -> str:
+        """Simpan isi berkas, kembalikan file_key."""
+        raise NotImplementedError
+
+    def read(self, key: str) -> bytes | None:
+        raise NotImplementedError
+
+    def delete(self, key: str) -> None:
         raise NotImplementedError

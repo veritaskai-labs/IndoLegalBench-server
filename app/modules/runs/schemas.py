@@ -20,7 +20,13 @@ from app.modules.cases.models import SplitTag
 from app.modules.cases.schemas import VersionSections
 
 # Satu enum status sesi untuk tabel (#89) dan kontrak API, supaya keduanya tidak menyimpang.
-from app.modules.runs.models import AttemptSource, AttemptStatus, SessionStatus, StopReason
+from app.modules.runs.models import (
+    AttemptSource,
+    AttemptStatus,
+    EvidenceKind,
+    SessionStatus,
+    StopReason,
+)
 from app.shared.text import strip_blank
 
 # PBI-11 AC3: satu angka pengulangan untuk seluruh pengukuran.
@@ -567,3 +573,20 @@ class ManualAnswerHistoryEntry(BaseModel):
     note: str | None
     overwritten_by: uuid.UUID
     overwritten_at: datetime
+
+
+class EvidenceRead(BaseModel):
+    """Satu bukti jawaban manual (D9 attempt_evidence). PBI-22 AC7, SCRUM-233."""
+
+    id: uuid.UUID
+    kind: EvidenceKind
+    file_name: str | None = Field(
+        description="Nama asli berkas yang sudah dirapikan; null untuk tautan"
+    )
+    mime_type: str | None = Field(
+        description="Tipe dari isi berkas: image/png, image/jpeg, application/pdf"
+    )
+    size_bytes: int | None
+    url: str | None = Field(description="Tautan bukti; null untuk berkas")
+    uploaded_by: uuid.UUID
+    uploaded_at: datetime

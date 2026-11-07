@@ -9,6 +9,7 @@ Siapa yang boleh melihat bukti masih TBA (D9 [PENDING]): default semua yang bisa
 sesi manual, dipersempit ke Admin lewat MANUAL_EVIDENCE_VISIBILITY=admin_only.
 """
 
+import re
 from typing import Literal
 from urllib.parse import urlsplit
 
@@ -18,6 +19,9 @@ from app.shared.security import Role
 MAX_EVIDENCE_PER_ATTEMPT = 3
 # D9: url varchar(2048).
 MAX_LINK_LENGTH = 2048
+# Kolom file_name varchar(255) [USULAN SA].
+MAX_FILE_NAME_LENGTH = 255
+_DEFAULT_FILE_NAME = "bukti"
 
 EvidenceVisibility = Literal["session_viewers", "admin_only"]
 
@@ -95,3 +99,21 @@ def can_view_evidence(role: Role | str, *, policy: EvidenceVisibility) -> bool:
     if policy == "admin_only":
         return role is Role.ADMIN
     return role in _SESSION_VIEWERS
+
+
+def safe_file_name(name: str | None) -> str:
+    """Nama asli berkas tanpa jalur folder, karakter kontrol, atau tanda kutip.
+
+    Dipakai di header Content-Disposition saat unduh, jadi CR/LF dan kutip yang bisa
+    memecah header dibuang. Nama yang kepanjangan dipotong dengan ekstensi tetap ada.
+    """
+    base = re.split(r"[\\/]", name or "")[-1]
+    base = "".join(ch for ch in base if ch.isprintable() and ch != '"').strip()
+    if not base:
+        return _DEFAULT_FILE_NAME
+    if len(base) <= MAX_FILE_NAME_LENGTH:
+        return base
+    stem, dot, ext = base.rpartition(".")
+    if dot and stem and len(ext) < 16:
+        return stem[: MAX_FILE_NAME_LENGTH - len(ext) - 1] + "." + ext
+    return base[:MAX_FILE_NAME_LENGTH]
