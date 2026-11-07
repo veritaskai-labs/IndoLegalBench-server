@@ -86,18 +86,16 @@ def test_perubahan_harga_dan_anggaran_tercatat_sebelum_dan_sesudah():
 
 
 def test_ganti_kredensial_hanya_penanda_tanpa_nilai():
-    """Negatif: ciphertext lama/baru dan hint tidak ikut; cukup penanda "rotated"."""
-    events = tracker_for("judge_providers").updated(
-        _baris(),
-        {
-            "credential_encrypted": Change(b"lama", b"baru"),
-            "credential_hint": Change("aaaa", "bbbb"),
-        },
-    )
+    """Negatif: ciphertext lama/baru tidak ikut; cukup penanda "rotated". Hint tidak
+    dipantau sama sekali (listener hanya membaca tracker.fields)."""
+    tracker = tracker_for("judge_providers")
+
+    events = tracker.updated(_baris(), {"credential_encrypted": Change(b"lama", b"baru")})
 
     assert [(e.action, e.before, e.after) for e in events] == [
         ("judge_provider.credential_rotated", None, dict(CREDENTIAL_ROTATED))
     ]
+    assert "credential_hint" not in tracker.fields
 
 
 @pytest.mark.parametrize(

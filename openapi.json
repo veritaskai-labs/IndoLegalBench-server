@@ -6192,7 +6192,8 @@
           "user",
           "call_log",
           "measurement_session",
-          "rubric_version"
+          "rubric_version",
+          "judge_provider"
         ],
         "title": "AuditEntityType",
         "description": "Jenis objek yang dicatat, sesuai katalog event D6a."

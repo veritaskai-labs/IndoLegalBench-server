@@ -28,6 +28,11 @@ def get_by_name(db: Session, name: str) -> JudgeProvider | None:
     return db.query(JudgeProvider).filter(JudgeProvider.name == name).first()
 
 
+def names_by_ids(db: Session, judge_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    rows = db.query(JudgeProvider.id, JudgeProvider.name).filter(JudgeProvider.id.in_(judge_ids))
+    return dict(rows.all())
+
+
 def list_all(db: Session) -> list[JudgeProvider]:
     """Semua penilai: yang aktif lebih dulu, lalu urut nama."""
     return (

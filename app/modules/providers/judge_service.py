@@ -82,6 +82,13 @@ def set_active(db: Session, judge_id: uuid.UUID, *, is_active: bool) -> JudgePro
     return _tampilkan(judge_repository.save(db, judge))
 
 
+def judge_names(db: Session, judge_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Nama penilai untuk kolom Objek audit log (PBI-18 F-06), termasuk yang nonaktif."""
+    if not judge_ids:
+        return {}
+    return judge_repository.names_by_ids(db, judge_ids)
+
+
 def lock_available_for_new_session(db: Session, judge_id: uuid.UUID) -> bool:
     """Kunci baris penilai (FOR SHARE) untuk sesi yang akan dibuat, lalu ada dan aktifnya.
 
