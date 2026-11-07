@@ -129,6 +129,8 @@ class ProductCopyAdapter:
             price_input_usd_per_mtok=product.price_input_usd_per_mtok,
             price_output_usd_per_mtok=product.price_output_usd_per_mtok,
             monthly_budget_idr=product.monthly_budget_idr,
+            vendor_name=product.vendor_name,
+            site_url=product.site_url,
         )
 
 

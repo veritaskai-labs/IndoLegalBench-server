@@ -708,7 +708,7 @@ class SessionQueueRepository:
             if dimulai != 1:
                 self._db.rollback()
                 return False
-            self._freeze(session_id, items, product)
+            _freeze(self._db, session_id, items, product, AttemptSource.AUTOMATIC)
             _catat_status(self._db, session_id, SessionStatus.QUEUED, SessionStatus.RUNNING, None)
             self._db.commit()
         except Exception as exc:
@@ -751,39 +751,81 @@ class SessionQueueRepository:
             raise
         return gagal == 1
 
-    def _freeze(
-        self, session_id: uuid.UUID, items: Sequence[SnapshotItem], product: ProductCopy
-    ) -> None:
-        snapshot = CaseSnapshot(session_id=session_id)
-        self._db.add(snapshot)
-        self._db.flush()
-        rows = [
-            CaseSnapshotItem(
-                snapshot_id=snapshot.id,
-                case_id=item.case_id,
-                case_version_id=item.case_version_id,
-                body=item.content,
+
+class ManualSessionRepository:
+    """Sesi manual di tabel D2 (PBI-22 SCRUM-230), memenuhi port ManualSessionStore."""
+
+    def __init__(self, db: Session) -> None:
+        self._db = db
+
+    def create_manual(
+        self, new: NewSession, *, items: Sequence[SnapshotItem], product: ProductCopy
+    ) -> uuid.UUID:
+        """D8 "Admin membuat sesi": semua tersimpan dalam satu transaksi, atau tidak sama sekali."""
+        try:
+            session = MeasurementSession(
+                label=new.label,
+                purpose=SessionPurpose(new.purpose.value),
+                session_type=SessionType.MANUAL,
+                product_id=new.product_id,
+                repetitions=new.repetitions,
+                split_filter=SplitFilter(new.case_filter.value),
+                status=SessionStatus.NOT_FILLED,
+                created_by=new.created_by,
+                judge_provider_id=new.judge_provider_id,
             )
-            for item in items
-        ]
-        self._db.add_all(rows)
-        self._db.add(_product_copy_row(session_id, product))
-        self._db.flush()
-        repetitions = self._db.scalar(
-            select(MeasurementSession.repetitions).where(MeasurementSession.id == session_id)
-        )
-        self._db.add_all(
-            Attempt(
-                session_id=session_id,
-                snapshot_item_id=row.id,
-                repetition_no=nomor,
-                source=AttemptSource.AUTOMATIC,
-                status=AttemptStatus.PENDING,
+            self._db.add(session)
+            self._db.flush()
+            self._db.add_all(
+                MeasurementSessionSuite(session_id=session.id, suite_id=suite_id)
+                for suite_id in new.suite_ids
             )
-            for row in rows
-            for nomor in range(1, repetitions + 1)
+            _freeze(self._db, session.id, items, product, AttemptSource.MANUAL)
+            self._db.commit()
+        except Exception:
+            self._db.rollback()
+            raise
+        return session.id
+
+
+def _freeze(
+    db: Session,
+    session_id: uuid.UUID,
+    items: Sequence[SnapshotItem],
+    product: ProductCopy,
+    source: AttemptSource,
+) -> None:
+    """Snapshot, salinan produk, dan percobaan pending (D3 langkah 26-28, D8 sesi manual)."""
+    snapshot = CaseSnapshot(session_id=session_id)
+    db.add(snapshot)
+    db.flush()
+    rows = [
+        CaseSnapshotItem(
+            snapshot_id=snapshot.id,
+            case_id=item.case_id,
+            case_version_id=item.case_version_id,
+            body=item.content,
         )
-        self._db.flush()
+        for item in items
+    ]
+    db.add_all(rows)
+    db.add(_product_copy_row(session_id, product))
+    db.flush()
+    repetitions = db.scalar(
+        select(MeasurementSession.repetitions).where(MeasurementSession.id == session_id)
+    )
+    db.add_all(
+        Attempt(
+            session_id=session_id,
+            snapshot_item_id=row.id,
+            repetition_no=nomor,
+            source=source,
+            status=AttemptStatus.PENDING,
+        )
+        for row in rows
+        for nomor in range(1, repetitions + 1)
+    )
+    db.flush()
 
 
 def _product_copy_row(session_id: uuid.UUID, product: ProductCopy) -> SessionProductCopy:
@@ -801,4 +843,6 @@ def _product_copy_row(session_id: uuid.UUID, product: ProductCopy) -> SessionPro
         price_input_usd_per_mtok=product.price_input_usd_per_mtok,
         price_output_usd_per_mtok=product.price_output_usd_per_mtok,
         monthly_budget_idr=product.monthly_budget_idr,
+        vendor_name=product.vendor_name,
+        site_url=product.site_url,
     )

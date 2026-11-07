@@ -25,9 +25,11 @@ from app.modules.runs.exchange_rate import (
     ExchangeRateProvider,
     JisdorExchangeRate,
 )
+from app.modules.runs.manual_session import ManualSessionService
 from app.modules.runs.pricing import ConfigPriceCatalog
 from app.modules.runs.repository import (
     CallLogRepository,
+    ManualSessionRepository,
     SessionListRepository,
     SessionQueueRepository,
 )
@@ -110,6 +112,16 @@ def get_start_service(
     """Ringkasan, kunci produk, dan INSERT sesi memakai satu session database (satu transaksi)."""
     return StartSessionService(
         summary=summary, sessions=sessions, product_lock=ProductLockAdapter(db)
+    )
+
+
+def get_manual_session_service(db: Session = Depends(get_db)) -> ManualSessionService:
+    """Kunci produk, snapshot, dan INSERT sesi manual memakai satu session database (PBI-22)."""
+    return ManualSessionService(
+        sessions=ManualSessionRepository(db),
+        snapshots=SnapshotSourceAdapter(db),
+        products=ProductCopyAdapter(db),
+        product_lock=ProductLockAdapter(db),
     )
 
 

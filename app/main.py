@@ -36,6 +36,7 @@ from app.modules.providers.router import router as providers_router
 from app.modules.reports.router import router as reports_router
 from app.modules.reviews.router import router as reviews_router
 from app.modules.reviews.validation import verdict_error_from_pydantic
+from app.modules.runs.manual_router import router as manual_runs_router
 from app.modules.runs.router import router as runs_router
 from app.modules.suites.router import router as suites_router
 from app.shared.config import get_settings
@@ -192,6 +193,7 @@ app.include_router(product_options_router)  # PBI-23 SCRUM-201
 app.include_router(reviews_router)  # PBI-6
 app.include_router(notifications_router)  # PBI-19 SCRUM-153
 app.include_router(runs_router)  # Sprint 3
+app.include_router(manual_runs_router)  # PBI-22
 app.include_router(reports_router)  # Sprint 4
 app.include_router(audit_router)  # PBI-18
 app.include_router(legal_refs_router)  # PBI-21
