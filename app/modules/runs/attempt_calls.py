@@ -5,11 +5,10 @@ ini, urut try_no, termasuk upaya dari Coba ulang. raw_response adalah respons as
 penyedia sebagai bukti; ringkasan galat diambil dari catatan worker (#98,
 raw._execution.error), karena call_logs belum punya kolom error_summary.
 
-D10 untuk Developer AI, ditegakkan di server: detail teknis disamarkan kecuali
-kasus dev pada sesi yang sudah berakhir. Kasus test (bagian C) dan tag yang tidak
-dikenal tertutup (fail-closed), dan hasil sesi yang belum berakhir hanya untuk
-Admin seperti detail sesi (#91), karena raw_response memuat jawaban mentah dan
-coba ulang membuat sesi running lagi. Yang tersisa hanya jenis kegagalan dan
+D10 untuk Developer AI, ditegakkan di server lewat case_visibility: detail teknis
+kasus dev terbuka sejak percobaannya selesai, termasuk saat sesi masih berjalan
+(PBI-11 AC9, SCRUM-261). Kasus test dan tag yang tidak dikenal tertutup
+(fail-closed) di semua status sesi. Yang tersisa hanya jenis kegagalan dan
 waktunya (D5 langkah 37).
 """
 
@@ -18,9 +17,9 @@ import uuid
 from sqlalchemy.orm import Session
 
 from app.modules.runs import repository
+from app.modules.runs.case_visibility import can_view_case_content
 from app.modules.runs.models import CallLog
 from app.modules.runs.schemas import AttemptCalls, CallAttemptLog
-from app.modules.runs.session_rules import has_ended
 from app.shared.exceptions import NotFoundError
 from app.shared.security import Role
 
@@ -36,7 +35,7 @@ def attempt_calls(
         raise NotFoundError("Percobaan tidak ditemukan di sesi ini.", code="ATTEMPT_NOT_FOUND")
     attempt, body, calls = found
     split_tag = (body.get("sections") or {}).get("split_tag")
-    masked = viewer_role == Role.DEVELOPER_AI and (split_tag != "dev" or not has_ended(status))
+    masked = not can_view_case_content(viewer_role, split_tag)
     return AttemptCalls(
         attempt_id=attempt.id,
         repetition_no=attempt.repetition_no,

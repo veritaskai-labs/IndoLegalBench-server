@@ -7,12 +7,12 @@ TODO(PBI-11, PBI-12, PBI-13): definisikan schema sesuai kontrak.
 """
 
 import uuid
-from datetime import datetime
+from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Any, Literal
+from typing import Annotated, Any, Literal
 
-from pydantic import BaseModel, Field, field_validator, model_validator
+from pydantic import AfterValidator, BaseModel, Field, field_validator, model_validator
 
 from app.modules.cases.models import SplitTag
 
@@ -34,6 +34,15 @@ MAX_REPEATS = 5
 DEFAULT_REPEATS = 3
 # PBI-22 AC1: sesi manual standar 1 percobaan (beban awal 2 platform x 100 kasus x 1).
 MANUAL_DEFAULT_REPEATS = 1
+
+
+def _as_utc(value: datetime) -> datetime:
+    """Waktu dari database tanpa zona (SQLite) dibaca sebagai UTC, supaya selalu bertanda zona."""
+    return value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
+
+
+# Waktu keluar sebagai ISO 8601 UTC; tampilan WIB diatur FE.
+UtcDateTime = Annotated[datetime, AfterValidator(_as_utc)]
 
 
 class CaseFilter(StrEnum):
@@ -233,7 +242,7 @@ class AttemptCalls(BaseModel):
     status: AttemptStatus
     masked: bool = Field(
         description=(
-            "true bila Developer AI membuka kasus selain dev atau sesi yang belum berakhir: "
+            "true bila Developer AI membuka kasus selain dev (apa pun status sesinya): "
             "hanya jenis kegagalan dan waktu"
         )
     )
@@ -253,11 +262,23 @@ class AttemptResult(BaseModel):
     status: AttemptStatus
     answer_text: str | None = Field(
         description=(
-            "Jawaban mentah. null bila belum ada, gagal teknis, disamarkan, atau sesi "
-            "belum berakhir untuk Developer AI"
+            "Jawaban mentah. null bila belum ada, gagal teknis, atau disamarkan. Developer AI "
+            "menerima jawaban kasus dev segera setelah percobaannya selesai, tanpa menunggu sesi berakhir"
         )
     )
     model_version: str | None
+    started_at: UtcDateTime | None = Field(
+        description=(
+            "Waktu worker mulai memanggil produk (ISO 8601 UTC) pada upaya terakhir. "
+            "null untuk data lama dan percobaan yang belum jalan"
+        )
+    )
+    finished_at: UtcDateTime | None = Field(
+        description=(
+            "Waktu respons diterima atau gagal (ISO 8601 UTC) pada upaya terakhir. "
+            "null bila belum selesai, setelah coba ulang dibuka, atau data lama"
+        )
+    )
 
 
 class SessionCaseResult(BaseModel):
@@ -337,9 +358,14 @@ class StartRequest(SummaryRequest):
         min_length=1, max_length=_PANJANG_LABEL, description="Nama sesi, wajib, maksimal 200"
     )
     purpose: MeasurementPurpose = Field(description="official = Pengukuran Resmi, trial = Uji Coba")
-    # AC1, D3 langkah 19. Opsional dan belum divalidasi: tabel judge_providers datang di PBI-14.
+    # AC1, D3 langkah 19. Opsional sampai form punya dropdown penilai (keputusan PO K2, 7 Nov);
+    # kalau diisi, StartSessionService memeriksa penilai ada dan aktif (SCRUM-258).
     judge_provider_id: uuid.UUID | None = Field(
-        default=None, description="Provider penilai (LLM judge) yang dipilih; kosong sampai PBI-14"
+        default=None,
+        description=(
+            "Provider penilai (LLM judge) dari GET /judge-providers. Boleh kosong; penilai yang "
+            "tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
+        ),
     )
 
     @field_validator("label", mode="before")

@@ -24,7 +24,6 @@ from app.modules.providers.schemas import (
     AiProductCreate,
     AiProductUpdate,
     ModelParams,
-    _teks_bersih,
 )
 from app.modules.providers.service import (
     _as_bytes,
@@ -35,6 +34,7 @@ from app.modules.providers.service import (
 from app.modules.providers.service import (
     test_connection as service_test_connection,
 )
+from app.modules.providers.validators import required_text
 from app.modules.runs.models import (
     MeasurementSession,
     SessionPurpose,
@@ -480,7 +480,7 @@ def test_schemas_whitespace_and_update_base_url():
         AiProductUpdate(vendor_name="   ")
 
     with pytest.raises(ValueError, match="tidak boleh kosong"):
-        _teks_bersih("   ")
+        required_text("   ")
 
     update_none_url = AiProductUpdate(base_url=None)
     assert update_none_url.base_url is None

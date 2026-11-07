@@ -8,6 +8,7 @@ sampai itu ada, worker hanya berbicara lewat port ini.
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 from typing import Protocol
 
 from app.modules.runs.models import SessionStatus, StopReason
@@ -30,6 +31,8 @@ class AttemptRecord:
     input_tokens: int | None = None
     output_tokens: int | None = None
     attempt_id: uuid.UUID | None = None
+    # Saat respons diterima atau gagal. None untuk store lama; store tabel mengisi saat simpan.
+    ended_at: datetime | None = None
 
 
 class SessionStore(Protocol):

@@ -170,4 +170,5 @@ def test_jenis_objek_sesuai_katalog():
         "call_log",
         "measurement_session",
         "rubric_version",  # SCRUM-222 PR B: versi rubrik
+        "judge_provider",  # SCRUM-258: provider penilai
     }

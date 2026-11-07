@@ -28,6 +28,7 @@ SUITE_B = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
 PRODUCT_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c3")
 ADMIN_ID = uuid.UUID("00000000-0000-0000-0000-0000000000d4")
 SESSION_ID = uuid.UUID("00000000-0000-0000-0000-0000000000e5")
+JUDGE_ID = uuid.UUID("00000000-0000-0000-0000-0000000000f6")
 JAM = datetime(2026, 11, 2, 3, 0, tzinfo=UTC)
 
 
@@ -86,11 +87,26 @@ class _Kunci:
         return self.jenis
 
 
-def _service(ringkasan=None, antrean=None, kunci=None):
+class _Penilai:
+    """Kunci penilai palsu (SCRUM-258): tersedia bila id ada di daftar penilai aktif."""
+
+    def __init__(self, aktif: frozenset[uuid.UUID] = frozenset({JUDGE_ID})) -> None:
+        self.aktif = aktif
+        self.dikunci: list[uuid.UUID] = []
+
+    def lock_available(self, judge_provider_id):
+        self.dikunci.append(judge_provider_id)
+        return judge_provider_id in self.aktif
+
+
+def _service(ringkasan=None, antrean=None, kunci=None, penilai=None):
     ringkasan = ringkasan or _Ringkasan()
     antrean = antrean or _Antrean()
     start = service.StartSessionService(
-        summary=ringkasan, sessions=antrean, product_lock=kunci or _Kunci()
+        summary=ringkasan,
+        sessions=antrean,
+        product_lock=kunci or _Kunci(),
+        judge_lock=penilai or _Penilai(),
     )
     return start, ringkasan, antrean
 
@@ -242,14 +258,70 @@ def test_ringkasan_gagal_tidak_sampai_mengunci_produk():
     assert kunci.dikunci == []
 
 
-def test_provider_penilai_ikut_tersimpan_di_sesi():
-    """Positif: PBI-14 AC6, penilai dipilih saat sesi dibuat dan disimpan bersama sesi."""
+# --- Penilai LLM (SCRUM-258) ------------------------------------------------------
+
+
+def test_tanpa_penilai_tidak_mengunci_penilai():
+    """Edge: keputusan PO K2, judge_provider_id kosong tetap boleh sampai dropdown FE ada."""
     # Arrange
-    judge = uuid.UUID("00000000-0000-0000-0000-0000000000f8")
-    start, _, antrean = _service()
+    penilai = _Penilai()
+    start, _, antrean = _service(penilai=penilai)
 
     # Act
-    start.start(_permintaan(judge_provider_id=judge), created_by=ADMIN_ID)
+    start.start(_permintaan(), created_by=ADMIN_ID)
 
     # Assert
-    assert antrean.dibuat[0].judge_provider_id == judge
+    assert penilai.dikunci == []
+    assert antrean.dibuat[0].judge_provider_id is None
+
+
+def test_penilai_aktif_dikunci_lalu_disimpan_di_sesi():
+    """Positif: AC6, penilai yang dipilih diperiksa sebelum INSERT dan tersimpan di sesi."""
+    # Arrange
+    penilai = _Penilai()
+    start, _, antrean = _service(penilai=penilai)
+
+    # Act
+    start.start(_permintaan(judge_provider_id=JUDGE_ID), created_by=ADMIN_ID)
+
+    # Assert
+    assert penilai.dikunci == [JUDGE_ID]
+    assert antrean.dibuat[0].judge_provider_id == JUDGE_ID
+
+
+def test_penilai_tidak_tersedia_ditolak_422_tanpa_sesi():
+    """Negatif: penilai tidak dikenal atau nonaktif menjadi 422 dengan code dan field,
+    bukan 500 dari FK (SCRUM-258)."""
+    # Arrange
+    start, _, antrean = _service(penilai=_Penilai(aktif=frozenset()))
+
+    # Act
+    with pytest.raises(ValidationError) as tertangkap:
+        start.start(_permintaan(judge_provider_id=JUDGE_ID), created_by=ADMIN_ID)
+
+    # Assert
+    assert tertangkap.value.code == "JUDGE_PROVIDER_NOT_AVAILABLE"
+    assert tertangkap.value.field == "judge_provider_id"
+    assert antrean.dibuat == []
+
+
+def test_produk_manual_ditolak_sebelum_penilai_diperiksa():
+    """Edge: galat produk lebih dulu, jadi Admin memperbaiki pilihan dari atas form."""
+    # Arrange
+    penilai = _Penilai()
+    start, _, _ = _service(kunci=_Kunci(jenis="manual"), penilai=penilai)
+
+    # Act
+    with pytest.raises(ValidationError) as tertangkap:
+        start.start(_permintaan(judge_provider_id=JUDGE_ID), created_by=ADMIN_ID)
+
+    # Assert
+    assert tertangkap.value.code == "PRODUCT_NOT_AUTOMATIC"
+    assert penilai.dikunci == []
+
+
+def test_port_penilai_wajib_diisi_adapter():
+    """Edge: JudgeLock hanya kontrak; memanggilnya tanpa adapter langsung gagal, bukan
+    diam-diam meloloskan penilai."""
+    with pytest.raises(NotImplementedError):
+        session_ports.JudgeLock.lock_available(object(), JUDGE_ID)

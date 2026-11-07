@@ -7,6 +7,7 @@ import pytest
 from app.modules.providers import service
 from app.modules.providers.adapters import dispatch
 from app.modules.providers.adapters.base import ProviderResponse
+from app.modules.providers.adapters.safe import SafeProviderAdapter
 from app.modules.providers.crypto import CredentialError
 from app.shared.exceptions import InternalError
 
@@ -67,9 +68,7 @@ def test_unexpected_provider_exception_is_recorded_without_secret():
         def ask(self, *_, **kwargs):
             raise RuntimeError("secret-token https://private.example")
 
-    result = service._SafeMeasurementAdapter(
-        Broken(), "secret-token", "https://private.example"
-    ).ask("q")
+    result = SafeProviderAdapter(Broken(), "secret-token", "https://private.example").ask("q")
     assert result.failure_kind == "provider_error"
     assert "secret-token" not in repr(result) and "private.example" not in repr(result)
 

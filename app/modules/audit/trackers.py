@@ -383,6 +383,40 @@ class AiProductTracker(Tracker):
         return self._field_event(row, verb, field, change)
 
 
+class JudgeProviderTracker(Tracker):
+    """Provider penilai (SCRUM-258). Pola AiProductTracker: credential_encrypted dan
+    credential_hint tidak pernah dicatat (PBI-10 AC2, L5); hint selalu berubah bersama
+    ciphertext, jadi penggantian kredensial cukup satu penanda tetap."""
+
+    entity_type = AuditEntityType.JUDGE_PROVIDER
+    prefix = "judge_provider"
+    created_action = "registered"
+    created_fields = (
+        "name",
+        "provider_type",
+        "base_url",
+        "model_name",
+        "price_input_usd_per_mtok",
+        "price_output_usd_per_mtok",
+        "monthly_budget_idr",
+        "is_active",
+    )
+    fields = (
+        "price_input_usd_per_mtok",
+        "price_output_usd_per_mtok",
+        "monthly_budget_idr",
+        "credential_encrypted",
+        "is_active",
+    )
+    special = frozenset({"credential_encrypted", "is_active"})
+
+    def _special_event(self, row: Any, field: str, change: Change) -> AuditEvent:
+        if field == "credential_encrypted":
+            return self._event(row, "credential_rotated", after=dict(CREDENTIAL_ROTATED))
+        verb = "activated" if change.new else "deactivated"
+        return self._field_event(row, verb, field, change)
+
+
 class UserTracker(Tracker):
     entity_type = AuditEntityType.USER
     prefix = "user"
@@ -518,6 +552,7 @@ TRACKERS: dict[str, Tracker] = {
     "call_logs": CallLogTracker(),
     "measurement_sessions": MeasurementSessionTracker(),
     "rubric_versions": RubricVersionTracker(),
+    "judge_providers": JudgeProviderTracker(),
 }
 
 

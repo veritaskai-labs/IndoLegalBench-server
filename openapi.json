@@ -5086,6 +5086,338 @@
           }
         }
       }
+    },
+    "/admin/judge-providers": {
+      "get": {
+        "tags": [
+          "judge-providers"
+        ],
+        "summary": "Daftar provider penilai",
+        "description": "Semua penilai termasuk yang nonaktif; yang aktif lebih dulu, lalu urut nama.",
+        "operationId": "list_judges_admin_judge_providers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/JudgeProviderRead"
+                  },
+                  "type": "array",
+                  "title": "Response List Judges Admin Judge Providers Get"
+                }
+              }
+            }
+          }
+        }
+      },
+      "post": {
+        "tags": [
+          "judge-providers"
+        ],
+        "summary": "Daftarkan provider penilai",
+        "operationId": "create_judge_admin_judge_providers_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JudgeProviderCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgeProviderRead"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Nama sudah dipakai (`JUDGE_PROVIDER_NAME_TAKEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/judge-providers/{judge_id}": {
+      "get": {
+        "tags": [
+          "judge-providers"
+        ],
+        "summary": "Detail provider penilai",
+        "operationId": "get_judge_admin_judge_providers__judge_id__get",
+        "parameters": [
+          {
+            "name": "judge_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Judge Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgeProviderRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Penilai tidak ditemukan (`JUDGE_PROVIDER_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      },
+      "patch": {
+        "tags": [
+          "judge-providers"
+        ],
+        "summary": "Ganti kredensial, harga, atau anggaran penilai",
+        "description": "Hanya credential, harga, dan monthly_budget_idr. Nama, jenis, URL, dan model tidak bisa diganti karena dirujuk sesi lama; null eksplisit ditolak.",
+        "operationId": "update_judge_admin_judge_providers__judge_id__patch",
+        "parameters": [
+          {
+            "name": "judge_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Judge Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "required": true,
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/JudgeProviderUpdate"
+              }
+            }
+          }
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgeProviderRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Penilai tidak ditemukan (`JUDGE_PROVIDER_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/judge-providers/{judge_id}/deactivate": {
+      "post": {
+        "tags": [
+          "judge-providers"
+        ],
+        "summary": "Nonaktifkan provider penilai",
+        "operationId": "deactivate_judge_admin_judge_providers__judge_id__deactivate_post",
+        "parameters": [
+          {
+            "name": "judge_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Judge Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgeProviderRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Penilai tidak ditemukan (`JUDGE_PROVIDER_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/admin/judge-providers/{judge_id}/activate": {
+      "post": {
+        "tags": [
+          "judge-providers"
+        ],
+        "summary": "Aktifkan provider penilai",
+        "operationId": "activate_judge_admin_judge_providers__judge_id__activate_post",
+        "parameters": [
+          {
+            "name": "judge_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Judge Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/JudgeProviderRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Penilai tidak ditemukan (`JUDGE_PROVIDER_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/judge-providers": {
+      "get": {
+        "tags": [
+          "judge-providers"
+        ],
+        "summary": "Daftar pilihan provider penilai aktif",
+        "description": "Untuk dropdown penilai di form pengukuran (Admin dan Developer AI). Hanya id, nama, jenis, dan model; tanpa URL, hint kredensial, harga, atau anggaran.",
+        "operationId": "list_judge_options_judge_providers_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "items": {
+                    "$ref": "#/components/schemas/JudgeProviderOption"
+                  },
+                  "type": "array",
+                  "title": "Response List Judge Options Judge Providers Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Peran tidak berwenang.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -6164,7 +6496,7 @@
           "masked": {
             "type": "boolean",
             "title": "Masked",
-            "description": "true bila Developer AI membuka kasus selain dev atau sesi yang belum berakhir: hanya jenis kegagalan dan waktu"
+            "description": "true bila Developer AI membuka kasus selain dev (apa pun status sesinya): hanya jenis kegagalan dan waktu"
           },
           "calls": {
             "items": {
@@ -6300,7 +6632,7 @@
               }
             ],
             "title": "Answer Text",
-            "description": "Jawaban mentah. null bila belum ada, gagal teknis, disamarkan, atau sesi belum berakhir untuk Developer AI"
+            "description": "Jawaban mentah. null bila belum ada, gagal teknis, atau disamarkan. Developer AI menerima jawaban kasus dev segera setelah percobaannya selesai, tanpa menunggu sesi berakhir"
           },
           "model_version": {
             "anyOf": [
@@ -6312,6 +6644,32 @@
               }
             ],
             "title": "Model Version"
+          },
+          "started_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Started At",
+            "description": "Waktu worker mulai memanggil produk (ISO 8601 UTC) pada upaya terakhir. null untuk data lama dan percobaan yang belum jalan"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At",
+            "description": "Waktu respons diterima atau gagal (ISO 8601 UTC) pada upaya terakhir. null bila belum selesai, setelah coba ulang dibuka, atau data lama"
           }
         },
         "type": "object",
@@ -6320,7 +6678,9 @@
           "repetition_no",
           "status",
           "answer_text",
-          "model_version"
+          "model_version",
+          "started_at",
+          "finished_at"
         ],
         "title": "AttemptResult",
         "description": "Satu percobaan: jawaban mentah apa adanya dari produk (PBI-11 AC8)."
@@ -6354,7 +6714,8 @@
           "user",
           "call_log",
           "measurement_session",
-          "rubric_version"
+          "rubric_version",
+          "judge_provider"
         ],
         "title": "AuditEntityType",
         "description": "Jenis objek yang dicatat, sesuai katalog event D6a."
@@ -7710,6 +8071,276 @@
         "description": "GET /reviews/in-review: satu kasus yang round terakhirnya belum diputuskan (AC3).\n\nTermasuk versi baru dari kasus yang sudah disetujui; status kasusnya tetap\napproved selama versi itu direview (temuan Pra-UAT F-02). version_no di atas 1\nberarti ada versi lama yang disetujui dan masih berlaku."
       },
       "JsonValue": {},
+      "JudgeProviderCreate": {
+        "properties": {
+          "name": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Name"
+          },
+          "provider_type": {
+            "$ref": "#/components/schemas/ProviderType"
+          },
+          "base_url": {
+            "type": "string",
+            "maxLength": 2048,
+            "title": "Base Url"
+          },
+          "model_name": {
+            "type": "string",
+            "maxLength": 200,
+            "title": "Model Name"
+          },
+          "credential": {
+            "type": "string",
+            "minLength": 8,
+            "title": "Credential",
+            "description": "Hanya ditulis, spasi di ujung dibuang; respons memuat hint 4 karakter"
+          },
+          "price_input_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              }
+            ],
+            "title": "Price Input Usd Per Mtok"
+          },
+          "price_output_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              }
+            ],
+            "title": "Price Output Usd Per Mtok"
+          },
+          "monthly_budget_idr": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,16}|(?=[\\d.]{1,19}0*$)\\d{0,16}\\.\\d{0,2}0*$)"
+              }
+            ],
+            "title": "Monthly Budget Idr",
+            "description": "Anggaran bulanan penilai, terpisah dari produk (klien No. 63 A)"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active",
+            "default": true
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "name",
+          "provider_type",
+          "base_url",
+          "model_name",
+          "credential",
+          "price_input_usd_per_mtok",
+          "price_output_usd_per_mtok",
+          "monthly_budget_idr"
+        ],
+        "title": "JudgeProviderCreate",
+        "description": "Pendaftaran penilai oleh Admin. Isian di luar D6 ditolak, tidak dibuang diam-diam."
+      },
+      "JudgeProviderOption": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "provider_type": {
+            "$ref": "#/components/schemas/ProviderType"
+          },
+          "model_name": {
+            "type": "string",
+            "title": "Model Name"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "provider_type",
+          "model_name"
+        ],
+        "title": "JudgeProviderOption",
+        "description": "Satu pilihan penilai di form pengukuran (SCRUM-211). Tanpa URL, hint, dan harga."
+      },
+      "JudgeProviderRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "name": {
+            "type": "string",
+            "title": "Name"
+          },
+          "provider_type": {
+            "$ref": "#/components/schemas/ProviderType"
+          },
+          "base_url": {
+            "type": "string",
+            "title": "Base Url"
+          },
+          "model_name": {
+            "type": "string",
+            "title": "Model Name"
+          },
+          "credential_hint": {
+            "type": "string",
+            "title": "Credential Hint"
+          },
+          "has_credential": {
+            "type": "boolean",
+            "title": "Has Credential"
+          },
+          "price_input_usd_per_mtok": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Price Input Usd Per Mtok"
+          },
+          "price_output_usd_per_mtok": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Price Output Usd Per Mtok"
+          },
+          "monthly_budget_idr": {
+            "type": "string",
+            "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$",
+            "title": "Monthly Budget Idr"
+          },
+          "is_active": {
+            "type": "boolean",
+            "title": "Is Active"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Created By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "name",
+          "provider_type",
+          "base_url",
+          "model_name",
+          "credential_hint",
+          "has_credential",
+          "price_input_usd_per_mtok",
+          "price_output_usd_per_mtok",
+          "monthly_budget_idr",
+          "is_active",
+          "created_by",
+          "created_at",
+          "updated_at"
+        ],
+        "title": "JudgeProviderRead",
+        "description": "Satu penilai untuk Admin. Kredensial tidak ada di sini, hanya hint."
+      },
+      "JudgeProviderUpdate": {
+        "properties": {
+          "credential": {
+            "anyOf": [
+              {
+                "type": "string",
+                "minLength": 8
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Credential",
+            "description": "Hanya ditulis, spasi di ujung dibuang; respons memuat hint 4 karakter"
+          },
+          "price_input_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Input Usd Per Mtok"
+          },
+          "price_output_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Output Usd Per Mtok"
+          },
+          "monthly_budget_idr": {
+            "anyOf": [
+              {
+                "type": "number",
+                "exclusiveMinimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,16}|(?=[\\d.]{1,19}0*$)\\d{0,16}\\.\\d{0,2}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Monthly Budget Idr"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "title": "JudgeProviderUpdate",
+        "description": "PATCH dibatasi kredensial, harga, dan anggaran (keputusan PO K5, 7 Nov).\n\nNama, jenis, URL, dan model dirujuk sesi lama, jadi tidak bisa diganti; aktif atau\nnonaktif lewat endpoint sendiri. Kolomnya NOT NULL, jadi null eksplisit ditolak."
+      },
       "LastTestStatus": {
         "type": "string",
         "enum": [
@@ -8559,7 +9190,7 @@
               }
             ],
             "title": "Judge Provider Id",
-            "description": "Provider penilai (LLM judge) yang dipilih; kosong sampai PBI-14"
+            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Boleh kosong; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
           }
         },
         "type": "object",
@@ -10855,7 +11486,7 @@
               }
             ],
             "title": "Judge Provider Id",
-            "description": "Provider penilai (LLM judge) yang dipilih; kosong sampai PBI-14"
+            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Boleh kosong; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
           }
         },
         "type": "object",
