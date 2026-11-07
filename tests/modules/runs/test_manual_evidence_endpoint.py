@@ -380,15 +380,65 @@ def test_pengunggah_menghapus_buktinya_sendiri_saat_flag_admin_saja(manual, sete
     assert ctx.db.scalars(select(AttemptEvidence)).all() == []
 
 
-@pytest.mark.parametrize(
-    "header", [{}, {"content-length": "bukan-angka"}], ids=["chunked", "rusak"]
-)
-def test_tanpa_content_length_yang_sah_batas_dicek_saat_berkas_dibaca(header):
-    """Edge: review #121, unggahan chunked tidak ditolak di depan; batas tetap dijaga service."""
+def test_body_tanpa_content_length_dipotong_begitu_melewati_batas():
+    """Negatif: re-review #121, unggahan chunked dihitung saat diterima dan dihentikan dengan 413.
+
+    Starlette tidak membatasi part berkas: tanpa penghitung ini unggahan chunked raksasa
+    ditampung utuh ke disk dulu, walau akhirnya ditolak service. receive palsu menghitung
+    berapa potongan yang sempat ditarik.
+    """
     # Arrange
-    from types import SimpleNamespace
+    import anyio
+    from starlette.requests import Request
 
-    from app.modules.runs.manual_router import _reject_oversized
+    from app.modules.runs.manual_router import _capped_body
+    from app.shared.exceptions import PayloadTooLargeError
 
-    # Act / Assert: tidak melempar
-    _reject_oversized(SimpleNamespace(headers=header), 1024)
+    ditarik = []
+
+    async def receive():
+        ditarik.append(1)
+        return {"type": "http.request", "body": b"\x00" * 64 * 1024, "more_body": True}
+
+    capped = _capped_body(Request({"type": "http", "headers": []}, receive), 1024)
+
+    async def baca_semua():
+        async for _ in capped.stream():
+            pass
+
+    # Act
+    with pytest.raises(PayloadTooLargeError) as galat:
+        anyio.run(baca_semua)
+
+    # Assert: batas 1 KB + 64 KB ruang multipart terlewati di potongan kedua, lalu berhenti.
+    assert galat.value.code == "EVIDENCE_TOO_LARGE"
+    assert len(ditarik) == 2
+
+
+def test_unggahan_chunked_raksasa_ditolak_tanpa_menyimpan_apa_pun(manual, setelan):
+    """Negatif: re-review #121, jalur HTTP tanpa Content-Length tetap berakhir 413 dan kosong."""
+    # Arrange
+    ctx, sesi_id, percobaan = manual
+    setelan(manual_evidence_max_bytes=1024)
+    kepala = (
+        b'--batas\r\nContent-Disposition: form-data; name="file"; filename="b.png"\r\n'
+        b"Content-Type: image/png\r\n\r\n"
+    )
+
+    def body():
+        # Generator: httpx mengirim Transfer-Encoding chunked tanpa Content-Length.
+        yield kepala + PNG
+        yield b"\x00" * (512 * 1024)
+        yield b"\r\n--batas--\r\n"
+
+    # Act
+    respons = ctx.sebagai(Role.ADMIN).post(
+        _url(sesi_id, percobaan[0]),
+        content=body(),
+        headers={"content-type": "multipart/form-data; boundary=batas"},
+    )
+
+    # Assert
+    assert respons.status_code == 413
+    assert respons.json()["code"] == "EVIDENCE_TOO_LARGE"
+    assert ctx.db.scalars(select(EvidenceFile)).all() == []
