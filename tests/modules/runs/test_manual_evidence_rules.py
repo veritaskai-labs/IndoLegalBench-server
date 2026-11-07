@@ -174,3 +174,40 @@ def test_siapa_boleh_melihat_bukti_mengikuti_flag(aturan, kebijakan, peran, bole
     """Positif: AC7, siapa yang boleh melihat bukti masih TBA, jadi dibuat flag."""
     # Act / Assert
     assert aturan.can_view_evidence(peran, policy=kebijakan) is boleh
+
+
+@pytest.mark.parametrize(
+    ("nama", "hasil"),
+    [
+        ("tangkapan layar 1.png", "tangkapan layar 1.png"),
+        # Negatif: jalur folder dibuang, hanya nama berkasnya.
+        ("../../etc/passwd.pdf", "passwd.pdf"),
+        ("C:\\Users\\tim\\bukti.jpg", "bukti.jpg"),
+        # Negatif: karakter kontrol dan tanda kutip bisa memecah header Content-Disposition.
+        ('bu"k\r\nti.png', "bukti.png"),
+        # Edge: nama kosong diganti nama baku.
+        ("", "bukti"),
+        (None, "bukti"),
+    ],
+    ids=["biasa", "jalur-unix", "jalur-windows", "kontrol", "kosong", "none"],
+)
+def test_nama_berkas_dirapikan_untuk_unduhan(aturan, nama, hasil):
+    """Positif/Negatif: AC7, nama asli berkas aman dipakai di header unduhan."""
+    # Act / Assert
+    assert aturan.safe_file_name(nama) == hasil
+
+
+def test_nama_berkas_panjang_dipotong_tanpa_kehilangan_ekstensi(aturan):
+    """Edge: kolom file_name varchar(255); ekstensi tetap ada supaya berkas bisa dibuka."""
+    # Act
+    hasil = aturan.safe_file_name("a" * 400 + ".pdf")
+
+    # Assert
+    assert len(hasil) == 255
+    assert hasil.endswith(".pdf")
+
+
+def test_nama_berkas_panjang_tanpa_ekstensi_dipotong(aturan):
+    """Edge: tanpa ekstensi yang wajar, nama cukup dipotong ke 255 karakter."""
+    # Act / Assert
+    assert aturan.safe_file_name("b" * 300) == "b" * 255
