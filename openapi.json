@@ -3940,32 +3940,6 @@
         }
       }
     },
-    "/measurements/results/sessions": {
-      "get": {
-        "tags": [
-          "measurements"
-        ],
-        "summary": "Daftar sesi selesai yang telah dinilai untuk Admin dan Viewer (SCRUM-226)",
-        "description": "Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin dan Viewer.",
-        "operationId": "list_graded_sessions_endpoint_measurements_results_sessions_get",
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "items": {
-                    "$ref": "#/components/schemas/GradedSessionListItem"
-                  },
-                  "type": "array",
-                  "title": "Response List Graded Sessions Endpoint Measurements Results Sessions Get"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
     "/measurements/{session_id}/grade": {
       "post": {
         "tags": [
@@ -4128,7 +4102,7 @@
         ],
         "summary": "Daftar sesi selesai yang telah dinilai untuk Admin dan Viewer (SCRUM-226)",
         "description": "Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin dan Viewer.",
-        "operationId": "list_graded_sessions_alias_endpoint_results_sessions_get",
+        "operationId": "list_graded_sessions_endpoint_results_sessions_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -4139,7 +4113,7 @@
                     "$ref": "#/components/schemas/GradedSessionListItem"
                   },
                   "type": "array",
-                  "title": "Response List Graded Sessions Alias Endpoint Results Sessions Get"
+                  "title": "Response List Graded Sessions Endpoint Results Sessions Get"
                 }
               }
             }
@@ -10579,7 +10553,7 @@
               }
             ],
             "title": "Quality",
-            "description": "Skor kualitas substansi hukum berdasarkan rubrik (skala 0.00-5.00)"
+            "description": "Skor kualitas substansi hukum berdasarkan kriteria rubrik (skala 0.00-1.00)"
           },
           "format": {
             "anyOf": [

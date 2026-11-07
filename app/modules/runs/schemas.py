@@ -514,7 +514,7 @@ class ScorePair(BaseModel):
     )
     quality: Decimal | None = Field(
         default=None,
-        description="Skor kualitas substansi hukum berdasarkan rubrik (skala 0.00-5.00)",
+        description="Skor kualitas substansi hukum berdasarkan kriteria rubrik (skala 0.00-1.00)",
     )
     format: Decimal | None = Field(
         default=None, description="Skor kepatuhan format dan struktur jawaban (skala 0.00-1.00)"

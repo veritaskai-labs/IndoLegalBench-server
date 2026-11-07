@@ -25,7 +25,7 @@ import uuid
 from collections import defaultdict
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
-from datetime import UTC, date, datetime
+from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from typing import Any, Protocol
 
@@ -601,6 +601,53 @@ class MemoryGradingStore:
             return history[-1] if history else None
 
 
+def _extract_d6_criteria(crits: list[Any]) -> tuple[list[dict[str, Any]], list[str]]:
+    crit_dicts: list[dict[str, Any]] = []
+    reasons: list[str] = []
+    for c in crits:
+        crit_dicts.append(
+            {
+                "key": c.criterion_key,
+                "text": c.criterion_text,
+                "is_met": c.is_met,
+                "explanation": c.explanation,
+                "reason_code": c.reason_code,
+            }
+        )
+        if not c.is_met and c.reason_code:
+            reasons.append(c.reason_code)
+    return crit_dicts, reasons
+
+
+def _resolve_d6_judge_score(judge_row: Any | None) -> Decimal | None:
+    from app.modules.grading.models import JudgeStatus
+
+    if judge_row is not None and judge_row.status == JudgeStatus.SUCCEEDED:
+        return judge_row.criteria_score
+    return None
+
+
+def _resolve_d6_attempt_score(
+    g: Any | None,
+    q_j: Any | None,
+    f_j: Any | None,
+) -> tuple[bool, ScorePair | None]:
+    if g is None or g.is_technical_disruption:
+        return True, None
+    det = g.det_score
+    qual = _resolve_d6_judge_score(q_j)
+    fmt = _resolve_d6_judge_score(f_j)
+    if det is None and qual is None and fmt is None:
+        return False, None
+    return False, ScorePair(deterministic=det, quality=qual, format=fmt)
+
+
+def _extract_d6_explanation(q_j: Any | None) -> str | None:
+    if q_j is None:
+        return None
+    return q_j.explanation or q_j.error
+
+
 class DbGradingStore:
     """Implementasi GradingStore berbasis database tabel D6 (grading_runs, grading_results) dan AuditLog.
 
@@ -611,7 +658,150 @@ class DbGradingStore:
     def __init__(self, db: Session) -> None:
         self.db = db
 
-    def get_grading_runs(self, session_id: uuid.UUID) -> list[SessionGradingResponse]:
+    def _build_attempt_grade_from_d6(
+        self,
+        att_in: AttemptGradeInput,
+        g: Any | None,
+        j_by_res: dict[tuple[uuid.UUID, Any], Any],
+        crits_by_judge_id: dict[uuid.UUID, list[Any]],
+    ) -> AttemptGradeResult:
+        from app.modules.grading.models import JudgeKind
+
+        q_j = j_by_res.get((g.id, JudgeKind.QUALITY)) if g else None
+        f_j = j_by_res.get((g.id, JudgeKind.FORMAT)) if g else None
+        crits = crits_by_judge_id.get(q_j.id, []) if q_j else []
+
+        is_disrupted, sc = _resolve_d6_attempt_score(g, q_j, f_j)
+        crit_dicts, reasons = _extract_d6_criteria(crits)
+        exp = _extract_d6_explanation(q_j)
+
+        return AttemptGradeResult(
+            attempt_id=att_in.attempt_id,
+            repetition_no=att_in.repetition_no,
+            status=att_in.status,
+            source=att_in.source,
+            is_technical_disruption=is_disrupted,
+            score=sc,
+            answer_text=att_in.answer_text,
+            explanation=exp,
+            reasons=reasons,
+            criteria=crit_dicts,
+        )
+
+    def _build_case_grade_from_d6(
+        self,
+        case_in: CaseGradeInput,
+        g_by_att: dict[uuid.UUID, Any],
+        j_by_res: dict[tuple[uuid.UUID, Any], Any],
+        crits_by_judge_id: dict[uuid.UUID, list[Any]],
+    ) -> CaseGradeResult:
+        att_results = [
+            self._build_attempt_grade_from_d6(
+                att_in, g_by_att.get(att_in.attempt_id), j_by_res, crits_by_judge_id
+            )
+            for att_in in case_in.attempts
+        ]
+        case_scores = aggregate_case_scores([a.score for a in att_results])
+        tag = (
+            case_in.split_tag
+            if isinstance(case_in.split_tag, SplitTag) or case_in.split_tag is None
+            else SplitTag(str(case_in.split_tag))
+        )
+        return CaseGradeResult(
+            snapshot_item_id=case_in.snapshot_item_id,
+            case_id=case_in.case_id,
+            case_code=case_in.case_code,
+            title=case_in.title,
+            split_tag=tag,
+            category=case_in.category,
+            question=case_in.question,
+            masked=False,
+            scores=case_scores,
+            attempts=att_results,
+        )
+
+    def _build_run_from_d6(
+        self,
+        run_db: Any,
+        session: MeasurementSession | None,
+    ) -> SessionGradingResponse:
+        from app.modules.grading.models import (
+            GradingResult,
+            JudgeKind,
+            JudgeStatus,
+            LlmCriterionResult,
+            LlmJudgeResult,
+            RubricVersion,
+        )
+
+        rubric_ver = self.db.get(RubricVersion, run_db.rubric_version_id)
+        rubric_version_str = f"v{rubric_ver.version_no}" if rubric_ver else DEFAULT_RUBRIC_VERSION
+        session_id = run_db.session_id
+        session_label = session.label if session else None
+        p_name = ""
+        if session:
+            p_names = providers_service.product_names(self.db, {session.product_id})
+            p_name = p_names.get(session.product_id, "")
+
+        g_results = self.db.scalars(
+            select(GradingResult).where(GradingResult.grading_run_id == run_db.id)
+        ).all()
+        g_by_att = {g.attempt_id: g for g in g_results}
+        g_ids = [g.id for g in g_results]
+
+        judge_rows = (
+            self.db.scalars(
+                select(LlmJudgeResult).where(LlmJudgeResult.grading_result_id.in_(g_ids))
+            ).all()
+            if g_ids
+            else []
+        )
+        j_by_res: dict[tuple[uuid.UUID, Any], Any] = {
+            (j.grading_result_id, j.kind): j for j in judge_rows
+        }
+
+        q_judge_ids = [
+            j.id
+            for j in judge_rows
+            if j.kind == JudgeKind.QUALITY and j.status == JudgeStatus.SUCCEEDED
+        ]
+        crit_rows = (
+            self.db.scalars(
+                select(LlmCriterionResult).where(
+                    LlmCriterionResult.llm_judge_result_id.in_(q_judge_ids)
+                )
+            ).all()
+            if q_judge_ids
+            else []
+        )
+        crits_by_judge_id: dict[uuid.UUID, list[Any]] = defaultdict(list)
+        for cr in crit_rows:
+            crits_by_judge_id[cr.llm_judge_result_id].append(cr)
+
+        cases_input = _load_case_grade_inputs(self.db, session_id)
+        cases_result = [
+            self._build_case_grade_from_d6(c, g_by_att, j_by_res, crits_by_judge_id)
+            for c in cases_input
+        ]
+
+        kind_str = run_db.kind.value if hasattr(run_db.kind, "value") else str(run_db.kind)
+        return SessionGradingResponse(
+            grading_run_id=run_db.id,
+            session_id=session_id,
+            session_label=session_label,
+            product_name=p_name,
+            rubric_version=rubric_version_str,
+            kind=kind_str,
+            status="completed",
+            triggered_by=run_db.triggered_by,
+            triggered_at=run_db.triggered_at,
+            is_latest=run_db.is_latest,
+            scores=compute_three_scores(cases_result),
+            category_scores=compute_category_scores(cases_result),
+            cases=cases_result,
+        )
+
+    def _get_grading_runs_from_audit(self, session_id: uuid.UUID) -> list[SessionGradingResponse]:
         from app.modules.audit.models import AuditEntityType, AuditLog
 
         logs = self.db.scalars(
@@ -628,7 +818,7 @@ class DbGradingStore:
 
         runs: list[SessionGradingResponse] = []
         for log in logs:
-            if log.after and isinstance(log.after, dict):
+            if log.after and isinstance(log.after, dict) and "cases" in log.after:
                 try:
                     runs.append(SessionGradingResponse.model_validate(log.after))
                 except Exception:
@@ -639,6 +829,21 @@ class DbGradingStore:
                 r.is_latest = i == len(runs) - 1
             return runs
         return []
+
+    def get_grading_runs(self, session_id: uuid.UUID) -> list[SessionGradingResponse]:
+        from app.modules.grading.models import GradingRun
+
+        runs_db = self.db.scalars(
+            select(GradingRun)
+            .where(GradingRun.session_id == session_id)
+            .order_by(GradingRun.triggered_at.asc(), GradingRun.id.asc())
+        ).all()
+
+        if runs_db:
+            session = self.db.get(MeasurementSession, session_id)
+            return [self._build_run_from_d6(r, session) for r in runs_db]
+
+        return self._get_grading_runs_from_audit(session_id)
 
     def _resolve_db_rubric_version_id(
         self, rubric_ver_str: str | None, triggered_by: uuid.UUID
@@ -655,18 +860,10 @@ class DbGradingStore:
                 select(RubricVersion).where(RubricVersion.is_active)
             ).first()
         if rubric_ver is None:
-            rubric_ver = RubricVersion(
-                id=uuid.uuid4(),
-                version_no=1,
-                effective_date=date.today(),
-                is_active=True,
-                locked_at=datetime.now(UTC),
-                judge_prompt_quality="Default quality prompt",
-                judge_prompt_format="Default format prompt",
-                created_by=triggered_by,
+            raise ConflictError(
+                "Tidak ada versi rubrik yang aktif.",
+                code="RUBRIC_NOT_ACTIVE",
             )
-            self.db.add(rubric_ver)
-            self.db.flush()
         return rubric_ver.id
 
     def _deactivate_previous_latest_runs(self, session_id: uuid.UUID) -> None:
@@ -797,7 +994,11 @@ class DbGradingStore:
             action=action,
             entity_type=AuditEntityType.MEASUREMENT_SESSION,
             entity_id=run.session_id,
-            after=run.model_dump(mode="json"),
+            after={
+                "grading_run_id": str(run.grading_run_id),
+                "rubric_version": run.rubric_version,
+                "kind": run.kind,
+            },
             reason=f"Rubrik {run.rubric_version} - {run.kind}",
         )
         self.db.add(log_entry)
@@ -850,9 +1051,7 @@ class DbGradingStore:
             met = sum(1 for c in att.criteria if c.get("is_met"))
         else:
             total = 1
-            met = 1 if score_val >= Decimal("2.50") else 0
-        crit_ratio = round_two_digits(score_val / Decimal("5.00"))
-        rub_level = max(0, min(5, int(round(score_val))))
+            met = 1 if score_val >= Decimal("0.50") else 0
 
         judge_row = LlmJudgeResult(
             id=uuid.uuid4(),
@@ -863,8 +1062,8 @@ class DbGradingStore:
             prompt=f"Penilaian kualitas jawaban untuk kasus {case_code}",
             criteria_met=met,
             criteria_total=total,
-            criteria_score=crit_ratio,
-            rubric_level=rub_level,
+            criteria_score=score_val,
+            rubric_level=None,
             explanation=att.explanation,
             error=None,
             failure_kind=None,
@@ -872,6 +1071,32 @@ class DbGradingStore:
         self.db.add(judge_row)
         self.db.flush()
         self._save_criterion_records(judge_row.id, att.criteria)
+
+    def _save_failed_judge_record(
+        self,
+        grading_result_id: uuid.UUID,
+        case_code: str,
+        rep_no: int,
+        error_msg: str,
+    ) -> None:
+        from app.modules.grading.models import (
+            JudgeKind,
+            JudgeStatus,
+            LlmJudgeResult,
+        )
+
+        row = LlmJudgeResult(
+            id=uuid.uuid4(),
+            grading_result_id=grading_result_id,
+            judge_run_no=rep_no,
+            kind=JudgeKind.QUALITY,
+            status=JudgeStatus.FAILED,
+            prompt=f"Penilaian kualitas jawaban untuk kasus {case_code}",
+            error=error_msg,
+            failure_kind=error_msg,
+        )
+        self.db.add(row)
+        self.db.flush()
 
     def _save_format_judge_record(
         self,
@@ -910,10 +1135,17 @@ class DbGradingStore:
         att: AttemptGradeResult,
         case_code: str,
     ) -> None:
-        if att.is_technical_disruption or att.score is None:
+        rep_no = max(1, min(5, att.repetition_no))
+        if att.is_technical_disruption:
+            if att.explanation and "judge" in att.explanation.lower():
+                self._save_failed_judge_record(
+                    grading_result_id, case_code, rep_no, att.explanation
+                )
             return
 
-        rep_no = max(1, min(5, att.repetition_no))
+        if att.score is None:
+            return
+
         if att.score.quality is not None:
             self._save_quality_judge_record(
                 grading_result_id, att, case_code, rep_no, att.score.quality
@@ -921,22 +1153,6 @@ class DbGradingStore:
 
         if att.score.format is not None:
             self._save_format_judge_record(grading_result_id, case_code, rep_no, att.score.format)
-
-
-def _populate_judge_details(
-    att: AttemptGradeInput,
-    details: tuple[Decimal, str | None, list[str], list[dict[str, Any]]] | None,
-) -> Decimal | None:
-    if details is None:
-        return None
-    jud, exp, r_list, c_list = details
-    if not att.explanation:
-        att.explanation = exp
-    if not att.reasons:
-        att.reasons = r_list
-    if not att.criteria:
-        att.criteria = c_list
-    return jud
 
 
 def _evaluate_attempt_score(
@@ -948,21 +1164,8 @@ def _evaluate_attempt_score(
         if att.deterministic_score is not None
         else score_deterministic_citations(att.answer_text, case.legal_refs)
     )
-
-    if att.quality_score is not None:
-        qual = round_two_digits(att.quality_score)
-    else:
-        prop = _populate_judge_details(
-            att, evaluate_criteria_details(att.answer_text, case.answer_criteria)
-        )
-        qual = round_two_digits(prop * Decimal("5.00")) if prop is not None else None
-
-    if att.format_score is not None:
-        fmt = round_two_digits(att.format_score)
-    elif det is not None or qual is not None:
-        fmt = score_format_structure(att.answer_text)
-    else:
-        fmt = None
+    qual = round_two_digits(att.quality_score) if att.quality_score is not None else None
+    fmt = round_two_digits(att.format_score) if att.format_score is not None else None
 
     if det is None and qual is None and fmt is None:
         return None
@@ -987,6 +1190,7 @@ def _grade_single_attempt(
     att_source = (
         att.source if isinstance(att.source, AttemptSource) else AttemptSource(str(att.source))
     )
+    exp = att.explanation or (att.judge_error if disrupted else None)
     result = AttemptGradeResult(
         attempt_id=att.attempt_id,
         repetition_no=att.repetition_no,
@@ -995,7 +1199,7 @@ def _grade_single_attempt(
         is_technical_disruption=disrupted,
         score=score,
         answer_text=att.answer_text,
-        explanation=att.explanation,
+        explanation=exp,
         reasons=att.reasons,
         criteria=att.criteria,
     )
@@ -1129,6 +1333,19 @@ def _mask_for_developer_ai(grading: SessionGradingResponse) -> SessionGradingRes
     )
 
 
+def _mask_for_viewer(grading: SessionGradingResponse) -> SessionGradingResponse:
+    masked_cases = [
+        c.model_copy(
+            update={
+                "question": None,
+                "attempts": [att.model_copy(update={"answer_text": None}) for att in c.attempts],
+            }
+        )
+        for c in grading.cases
+    ]
+    return grading.model_copy(update={"cases": masked_cases})
+
+
 def apply_visibility_mask(
     grading: SessionGradingResponse,
     viewer_role: Role,
@@ -1137,8 +1354,9 @@ def apply_visibility_mask(
     """Menegakkan aturan visibilitas dan penyamaran server (AC8, D10).
 
     - Sesi berjalan: HANYA Admin. Viewer dan Developer AI ditolak (403).
-    - Sesi selesai: Admin & Viewer melihat lengkap. Developer AI melihat kasus dev,
-      sedangkan kasus test disamarkan per-kasus (isi & skor kasus disembunyikan),
+    - Sesi selesai: Admin melihat lengkap. Viewer melihat skor, alasan, penjelasan, dan kriteria,
+      namun question dan raw answer_text disamarkan (null) sesuai keputusan PO (SCRUM-227).
+      Developer AI melihat kasus dev, sedangkan kasus test disamarkan per-kasus (isi & skor kasus disembunyikan),
       namun skor total agregat test tetap terlihat di ThreeScores.
     - Kontributor: ditolak (403).
     """
@@ -1160,8 +1378,11 @@ def apply_visibility_mask(
             code="FORBIDDEN",
         )
 
-    if viewer_role in (Role.ADMIN, Role.VIEWER):
+    if viewer_role == Role.ADMIN:
         return grading
+
+    if viewer_role == Role.VIEWER:
+        return _mask_for_viewer(grading)
 
     if viewer_role == Role.DEVELOPER_AI:
         return _mask_for_developer_ai(grading)
@@ -1251,7 +1472,7 @@ def _calculate_db_quality_score(j_row: Any, is_succeeded: bool) -> Decimal | Non
     if not is_succeeded:
         return None
     if j_row.criteria_score is not None:
-        return round_two_digits(j_row.criteria_score * Decimal("5.00"))
+        return round_two_digits(j_row.criteria_score)
     if j_row.rubric_level is not None:
         return round_two_digits(Decimal(j_row.rubric_level))
     return None
@@ -1298,24 +1519,28 @@ def _load_judge_metadata_for_attempts(
     return dict(judge_data)
 
 
+def _apply_judge_criteria_records(row: Any) -> list[dict[str, Any]]:
+    return [
+        {
+            "key": f"crit_{idx + 1}",
+            "text": c.criterion,
+            "is_met": c.met,
+            "explanation": c.explanation,
+            "reason_code": c.reason_id if not c.met else None,
+        }
+        for idx, c in enumerate(row.criteria)
+    ]
+
+
 def _apply_judge_row_to_attempt(att: AttemptGradeInput, row: Any) -> None:
     if row.score is not None:
         if getattr(row, "kind", None) == "format":
             att.format_score = round_two_digits(row.score)
         else:
-            att.quality_score = round_two_digits(row.score * Decimal("5.00"))
+            att.quality_score = round_two_digits(row.score)
             att.explanation = row.explanation
             att.reasons = [row.reason_id] if row.reason_id else []
-            att.criteria = [
-                {
-                    "key": f"crit_{idx + 1}",
-                    "text": c.criterion,
-                    "is_met": c.met,
-                    "explanation": c.explanation,
-                    "reason_code": c.reason_id if not c.met else None,
-                }
-                for idx, c in enumerate(row.criteria)
-            ]
+            att.criteria = _apply_judge_criteria_records(row)
     elif row.error or row.failure_kind:
         att.judge_error = row.error or row.failure_kind
 
@@ -1425,12 +1650,11 @@ def _load_case_grade_inputs(db: Session, session_id: uuid.UUID) -> list[CaseGrad
 
     attempt_ids = [a.id for a in attempts_db]
     call_failure_kinds, call_judge_errors = _load_call_logs_metadata(db, attempt_ids)
-    judge_data = _load_judge_metadata_for_attempts(db, attempt_ids)
 
     attempts_by_item: dict[uuid.UUID, list[AttemptGradeInput]] = defaultdict(list)
     for a in attempts_db:
         attempts_by_item[a.snapshot_item_id].append(
-            _build_attempt_input(a, call_failure_kinds, call_judge_errors, judge_data)
+            _build_attempt_input(a, call_failure_kinds, call_judge_errors, None)
         )
 
     return [_build_case_grade_input(item, attempts_by_item.get(item.id, [])) for item in items]
@@ -1464,25 +1688,25 @@ def _resolve_rubric_version(db: Session, requested_version: str | None) -> str:
     active_ver = db.scalars(select(RubricVersion).where(RubricVersion.is_active)).first()
     if active_ver is not None:
         return f"v{active_ver.version_no}"
-    return DEFAULT_RUBRIC_VERSION
+    raise ConflictError("Tidak ada versi rubrik yang aktif.", code="RUBRIC_NOT_ACTIVE")
 
 
 def _resolve_active_judge_asker(
     db: Session,
     session: MeasurementSession,
     judge_asker: object | None,
-) -> object | None:
+) -> tuple[object | None, str | None]:
     if judge_asker is not None:
-        return judge_asker
+        return judge_asker, None
     if session.judge_provider_id is None:
-        return None
+        return None, None
     try:
         from app.modules.providers.judge_service import build_judge
 
         binding = build_judge(db, session.judge_provider_id)
-        return binding.asker
+        return binding.asker, None
     except Exception:
-        return None
+        return None, "judge_unavailable"
 
 
 def _should_grade_with_judge(att: AttemptGradeInput) -> bool:
@@ -1491,13 +1715,24 @@ def _should_grade_with_judge(att: AttemptGradeInput) -> bool:
         answer_text=att.answer_text,
         failure_kind=att.failure_kind,
         platform_refused=att.platform_refused,
+        judge_error=att.judge_error,
     ) and (att.quality_score is None or att.format_score is None)
+
+
+def _set_cases_judge_error(cases: Sequence[CaseGradeInput], error: str) -> None:
+    for case in cases:
+        for att in case.attempts:
+            att.judge_error = error
 
 
 def _execute_judge_for_all_cases(
     asker: object | None,
+    judge_load_error: str | None,
     cases: Sequence[CaseGradeInput],
 ) -> None:
+    if judge_load_error:
+        _set_cases_judge_error(cases, judge_load_error)
+        return
     if asker is None:
         return
     for case in cases:
@@ -1537,8 +1772,8 @@ def grade_session(
     p_names = providers_service.product_names(db, {session.product_id})
     product_name = p_names.get(session.product_id, "")
 
-    active_asker = _resolve_active_judge_asker(db, session, judge_asker)
-    _execute_judge_for_all_cases(active_asker, cases)
+    active_asker, judge_load_error = _resolve_active_judge_asker(db, session, judge_asker)
+    _execute_judge_for_all_cases(active_asker, judge_load_error, cases)
 
     response = grade_session_data(
         session_id=session_id,

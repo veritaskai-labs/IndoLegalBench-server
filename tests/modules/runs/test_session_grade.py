@@ -429,25 +429,40 @@ def test_visibilitas_sesi_berjalan_hanya_admin():
 
 
 def test_visibilitas_sesi_selesai_admin_dan_viewer_melihat_lengkap():
-    """AC8: Hasil sesi selesai dapat dilihat Admin dan Viewer tanpa penyamaran."""
+    """AC8, SCRUM-227: Admin melihat lengkap; Viewer melihat skor & alasan, question & answer disamarkan."""
     grading = grade_session_data(
         session_id=uuid.uuid4(),
         cases_input=_buat_kasus_sample(),
         triggered_by=uuid.uuid4(),
     )
 
-    for role in (Role.ADMIN, Role.VIEWER):
-        res = apply_visibility_mask(grading, viewer_role=role, session_status="finished")
-        test_case = next(c for c in res.cases if c.split_tag == SplitTag.TEST)
-        assert test_case.masked is False
-        assert test_case.case_code == "CORP-002"
-        assert test_case.title == "Tanggung Jawab Direksi"
-        assert test_case.question == "Kapan direksi bertanggung jawab pribadi?"
-        assert test_case.scores == ScorePair(
-            deterministic=Decimal("1.00"),
-            quality=Decimal("5.00"),
-            format=Decimal("1.00"),
-        )
+    # Admin melihat utuh tanpa penyamaran
+    res_admin = apply_visibility_mask(grading, viewer_role=Role.ADMIN, session_status="finished")
+    admin_test_case = next(c for c in res_admin.cases if c.split_tag == SplitTag.TEST)
+    assert admin_test_case.masked is False
+    assert admin_test_case.case_code == "CORP-002"
+    assert admin_test_case.title == "Tanggung Jawab Direksi"
+    assert admin_test_case.question == "Kapan direksi bertanggung jawab pribadi?"
+    assert admin_test_case.attempts[0].answer_text is not None
+    assert admin_test_case.scores == ScorePair(
+        deterministic=Decimal("1.00"),
+        quality=Decimal("5.00"),
+        format=Decimal("1.00"),
+    )
+
+    # Viewer melihat skor dan alasan, namun question dan answer_text disamarkan (null)
+    res_viewer = apply_visibility_mask(grading, viewer_role=Role.VIEWER, session_status="finished")
+    viewer_test_case = next(c for c in res_viewer.cases if c.split_tag == SplitTag.TEST)
+    assert viewer_test_case.masked is False
+    assert viewer_test_case.case_code == "CORP-002"
+    assert viewer_test_case.title == "Tanggung Jawab Direksi"
+    assert viewer_test_case.question is None
+    assert viewer_test_case.attempts[0].answer_text is None
+    assert viewer_test_case.scores == ScorePair(
+        deterministic=Decimal("1.00"),
+        quality=Decimal("5.00"),
+        format=Decimal("1.00"),
+    )
 
 
 def test_visibilitas_developer_ai_kasus_test_tersamar_dan_skor_agregat_terbuka():
@@ -800,25 +815,35 @@ def test_get_results_sesi_selesai_developer_ai_masking(as_role, db_session, prod
     # Nilai dulu
     assert as_role(Role.ADMIN).post(f"/measurements/{sesi.id}/grade", json={}).status_code == 200
 
-    # Admin & Viewer dapat melihat semua unmasked
-    for role in (Role.ADMIN, Role.VIEWER):
-        res = as_role(role).get(f"/measurements/{sesi.id}/results")
-        assert res.status_code == 200
-        cases = res.json()["cases"]
-        test_case = next(c for c in cases if c["case_code"] == "TEST-02")
-        assert test_case["masked"] is False
-        assert test_case["question"] == "Pertanyaan Rahasia Test"
-        assert test_case["scores"] is not None
+    # Admin dapat melihat semua unmasked
+    res_admin = as_role(Role.ADMIN).get(f"/measurements/{sesi.id}/results")
+    assert res_admin.status_code == 200
+    admin_cases = res_admin.json()["cases"]
+    admin_test_case = next(c for c in admin_cases if c["case_code"] == "TEST-02")
+    assert admin_test_case["masked"] is False
+    assert admin_test_case["question"] == "Pertanyaan Rahasia Test"
+    assert admin_test_case["attempts"][0]["answer_text"] is not None
+    assert admin_test_case["scores"] is not None
+
+    # Viewer melihat skor dan alasan, namun question dan answer_text disamarkan
+    res_viewer = as_role(Role.VIEWER).get(f"/measurements/{sesi.id}/results")
+    assert res_viewer.status_code == 200
+    viewer_cases = res_viewer.json()["cases"]
+    viewer_test_case = next(c for c in viewer_cases if c["case_code"] == "TEST-02")
+    assert viewer_test_case["masked"] is False
+    assert viewer_test_case["question"] is None
+    assert viewer_test_case["attempts"][0]["answer_text"] is None
+    assert viewer_test_case["scores"] is not None
 
     # Developer AI
     res_dev = as_role(Role.DEVELOPER_AI).get(f"/measurements/{sesi.id}/results")
     assert res_dev.status_code == 200
     dev_body = res_dev.json()
 
-    # Skor agregat test tetap terlihat di ThreeScores!
+    # Skor agregat test tetap terlihat di ThreeScores (sesi tanpa judge: quality & format null)
     assert dev_body["scores"]["test"]["deterministic"] is not None
-    assert dev_body["scores"]["test"]["quality"] is not None
-    assert dev_body["scores"]["test"]["format"] is not None
+    assert dev_body["scores"]["test"]["quality"] is None
+    assert dev_body["scores"]["test"]["format"] is None
 
     # Tapi kasus test tersamar per-kasus
     dev_cases = dev_body["cases"]
@@ -879,8 +904,8 @@ def test_regrade_via_api(as_role, db_session, produk, pembuat):
     assert res_unknown.status_code == 404
 
 
-def test_get_grade_alias(as_role, db_session, produk, pembuat):
-    """GET /measurements/{id}/grade bekerja sebagai alias ke GET /results."""
+def test_get_grade_endpoint_is_not_allowed_for_read(as_role, db_session, produk, pembuat):
+    """GET /measurements/{id}/grade tidak tersedia sebagai alias baca hasil (hanya GET /results)."""
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
     admin = as_role(Role.ADMIN)
     admin.post(f"/measurements/{sesi.id}/grade", json={})
@@ -888,8 +913,7 @@ def test_get_grade_alias(as_role, db_session, produk, pembuat):
     res_results = admin.get(f"/measurements/{sesi.id}/results")
     res_grade = admin.get(f"/measurements/{sesi.id}/grade")
     assert res_results.status_code == 200
-    assert res_grade.status_code == 200
-    assert res_results.json() == res_grade.json()
+    assert res_grade.status_code == 405
 
 
 def test_attempt_tanpa_skor_dan_tanpa_rujukan_tetap_none():
@@ -1092,7 +1116,9 @@ def test_grade_session_commits_trigger_and_timestamp_audit_record(
         "Z", "+00:00"
     )
     assert audit_entry.after is not None
-    assert audit_entry.after["session_id"] == str(sesi.id)
+    assert audit_entry.after["grading_run_id"] == data["grading_run_id"]
+    assert audit_entry.after["rubric_version"] == "v1"
+    assert audit_entry.after["kind"] == "initial"
 
 
 def test_edge_cases_and_error_handling(db_session, produk, pembuat, monkeypatch):
@@ -1407,24 +1433,22 @@ def test_list_graded_sessions_logic(db_session, produk, pembuat):
 
 
 def test_list_graded_sessions_api_endpoints(as_role, db_session, produk, pembuat):
-    """Memastikan endpoint GET /measurements/results/sessions dan GET /results/sessions dapat diakses Viewer."""
+    """Memastikan endpoint canonical GET /results/sessions dapat diakses Viewer, alias lama 404."""
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
     grade_session(db_session, sesi.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
 
-    # Viewer can access /measurements/results/sessions
-    res1 = as_role(Role.VIEWER).get("/measurements/results/sessions")
-    assert res1.status_code == 200
-    data1 = res1.json()
-    assert len(data1) >= 1
-    assert data1[0]["session_id"] == str(sesi.id)
-    assert data1[0]["label"] == sesi.label
-    assert data1[0]["product_name"] == produk.name
+    # Viewer can access canonical GET /results/sessions
+    res = as_role(Role.VIEWER).get("/results/sessions")
+    assert res.status_code == 200
+    data = res.json()
+    assert len(data) >= 1
+    assert data[0]["session_id"] == str(sesi.id)
+    assert data[0]["label"] == sesi.label
+    assert data[0]["product_name"] == produk.name
 
-    # Viewer can access /results/sessions alias
-    res2 = as_role(Role.VIEWER).get("/results/sessions")
-    assert res2.status_code == 200
-    data2 = res2.json()
-    assert data2 == data1
+    # Endpoint non-canonical /measurements/results/sessions tidak lagi tersedia (404)
+    res_old = as_role(Role.VIEWER).get("/measurements/results/sessions")
+    assert res_old.status_code == 404
 
     # Contributor & Developer AI are rejected with 403
     res3 = as_role(Role.CONTRIBUTOR).get("/results/sessions")
@@ -1486,7 +1510,7 @@ def test_llm_judge_integration_and_d6_persistence(db_session, produk, pembuat):
     dev_att = dev_case.attempts[0]
     assert dev_att.score is not None
     assert dev_att.score.quality is not None
-    assert dev_att.score.quality == Decimal("3.35")
+    assert dev_att.score.quality == Decimal("0.67")
     assert dev_att.score.format is not None
     assert "pesangon tidak disebutkan" in (dev_att.explanation or "")
     assert len(dev_att.criteria) == 3
@@ -1496,7 +1520,7 @@ def test_llm_judge_integration_and_d6_persistence(db_session, produk, pembuat):
     assert len(judge_rows) >= 1
     j_row = judge_rows[0]
     assert j_row.criteria_score == Decimal("0.67")
-    assert j_row.rubric_level == 3
+    assert j_row.rubric_level is None
     assert j_row.status.value == "succeeded"
 
     crit_rows = db_session.scalars(select(LlmCriterionResult)).all()
@@ -1506,16 +1530,82 @@ def test_llm_judge_integration_and_d6_persistence(db_session, produk, pembuat):
     met_c = next(c for c in crit_rows if c.is_met)
     assert met_c.reason_code is None  # ck_llm_criterion_results_reason_unmet
 
-    # 3. Pembacaan ulang dari database oleh _load_case_grade_inputs
-    from app.modules.runs.session_grade import _load_case_grade_inputs
+    # 3. Rekonstruksi hasil penilaian langsung dari tabel D6
+    runs_d6 = DbGradingStore(db_session).get_grading_runs(sesi.id)
+    assert len(runs_d6) == 1
+    reconstructed_run = runs_d6[0]
+    rec_case = next(c for c in reconstructed_run.cases if c.case_code == "DEV-01")
+    rec_att = rec_case.attempts[0]
+    assert rec_att.score is not None
+    assert rec_att.score.quality == Decimal("0.67")
+    assert rec_att.score.format is not None
+    assert "pesangon tidak disebutkan" in (rec_att.explanation or "")
+    assert len(rec_att.criteria) == 3
 
-    inputs = _load_case_grade_inputs(db_session, sesi.id)
-    dev_input = next(c for c in inputs if c.case_code == "DEV-01")
-    att_in = dev_input.attempts[0]
-    assert att_in.quality_score == Decimal("3.35")
-    assert att_in.format_score is not None
-    assert "pesangon tidak disebutkan" in (att_in.explanation or "")
-    assert len(att_in.criteria) == 3
+    # Verifikasi _load_judge_metadata_for_attempts untuk pembacaan metadata D6
+    from app.modules.runs.session_grade import _load_judge_metadata_for_attempts
+
+    meta = _load_judge_metadata_for_attempts(db_session, [dev_att.attempt_id])
+    assert dev_att.attempt_id in meta
+    assert meta[dev_att.attempt_id]["quality_score"] == Decimal("0.67")
+    assert meta[dev_att.attempt_id]["format_score"] is not None
+
+
+def test_regrade_calls_judge_again_with_new_responses(db_session, produk, pembuat):
+    """AC7: Regrade memanggil LLM judge kembali dan tidak menyalin skor run sebelumnya."""
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+
+    # Run 1: Semua kriteria MET: yes -> quality = 1.00
+    yes_reply = (
+        "CRITERION: badan hukum\n"
+        "MET: yes\n"
+        "CRITERION: pesangon\n"
+        "MET: yes\n"
+        "CRITERION: Conclusion: sah\n"
+        "MET: yes\n"
+    )
+    asker1 = _MockJudgeAsker(text=yes_reply)
+    run1 = grade_session(
+        db_session,
+        sesi.id,
+        actor_id=pembuat.id,
+        actor_role=Role.ADMIN,
+        judge_asker=asker1,
+    )
+    assert run1.kind == "initial"
+    dev_att1 = next(c for c in run1.cases if c.case_code == "DEV-01").attempts[0]
+    assert dev_att1.score.quality == Decimal("1.00")
+
+    # Run 2: Semua kriteria MET: no -> quality = 0.00
+    no_reply = (
+        "CRITERION: badan hukum\n"
+        "MET: no\n"
+        "EXPLANATION: tidak ada badan hukum\n"
+        "CRITERION: pesangon\n"
+        "MET: no\n"
+        "EXPLANATION: tidak ada pesangon\n"
+        "CRITERION: Conclusion: sah\n"
+        "MET: no\n"
+        "EXPLANATION: kesimpulan salah\n"
+    )
+    asker2 = _MockJudgeAsker(text=no_reply)
+    run2 = grade_session(
+        db_session,
+        sesi.id,
+        actor_id=pembuat.id,
+        actor_role=Role.ADMIN,
+        judge_asker=asker2,
+    )
+    assert run2.kind == "regrade"
+    dev_att2 = next(c for c in run2.cases if c.case_code == "DEV-01").attempts[0]
+    assert dev_att2.score.quality == Decimal("0.00")
+
+    # Pastikan data di database juga mencatat regrade dengan skor 0.00
+    store = DbGradingStore(db_session)
+    runs = store.get_grading_runs(sesi.id)
+    assert len(runs) == 2
+    assert runs[0].cases[0].attempts[0].score.quality == Decimal("1.00")
+    assert runs[1].cases[0].attempts[0].score.quality == Decimal("0.00")
 
 
 def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat, monkeypatch):
@@ -1548,19 +1638,37 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
     assert reasons == ["unmet"]
 
     # 3. DbGradingStore._resolve_db_rubric_version_id cabang fallback
+    v_act = db_session.scalars(select(RubricVersion).where(RubricVersion.is_active)).first()
+    if v_act is None:
+        v_act = RubricVersion(
+            id=uuid.uuid4(),
+            version_no=1,
+            effective_date=date.today(),
+            is_active=True,
+            locked_at=datetime.now(UTC),
+            judge_prompt_quality="Quality prompt",
+            judge_prompt_format="Format prompt",
+            created_by=pembuat.id,
+        )
+        db_session.add(v_act)
+        db_session.commit()
+
     store = DbGradingStore(db_session)
     # Saat versi tidak cocok tetapi ada versi aktif
     resolved_id = store._resolve_db_rubric_version_id("v9999", pembuat.id)
-    assert resolved_id is not None
-    # Saat tidak ada versi di DB sama sekali
+    assert resolved_id == v_act.id
+
+    # Saat tidak ada versi aktif di DB sama sekali: ConflictError RUBRIC_NOT_ACTIVE
     db_session.query(RubricVersion).delete()
     db_session.commit()
-    created_id = store._resolve_db_rubric_version_id("v9999", pembuat.id)
-    assert created_id is not None
-    # _resolve_rubric_version saat tidak ada versi aktif -> DEFAULT_RUBRIC_VERSION ("v1")
-    db_session.query(RubricVersion).filter(RubricVersion.is_active).update({"is_active": False})
-    db_session.commit()
-    assert _resolve_rubric_version(db_session, None) == "v1"
+    with pytest.raises(ConflictError) as exc_info:
+        store._resolve_db_rubric_version_id("v9999", pembuat.id)
+    assert exc_info.value.code == "RUBRIC_NOT_ACTIVE"
+
+    # _resolve_rubric_version saat tidak ada versi aktif -> ConflictError RUBRIC_NOT_ACTIVE
+    with pytest.raises(ConflictError) as exc_info2:
+        _resolve_rubric_version(db_session, None)
+    assert exc_info2.value.code == "RUBRIC_NOT_ACTIVE"
 
     # 4. _load_judge_metadata_for_attempts dengan daftar kosong (line 1084)
     assert _load_judge_metadata_for_attempts(db_session, []) == {}
@@ -1628,17 +1736,21 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
     _execute_judge_for_attempt(
         _MockJudgeAsker(text="CRITERION: Kasus Tanpa Kriteria\nMET: yes\n"), att_empty, case_empty
     )
-    assert att_empty.quality_score == Decimal("5.00")
+    assert att_empty.quality_score == Decimal("1.00")
 
     # 6. grade_session dengan session.judge_provider_id aktif
     sesi_judge = _setup_sesi_lengkap(db_session, produk, pembuat)
     sesi_judge.judge_provider_id = uuid.uuid4()
     db_session.commit()
-    # build_judge akan gagal karena judge_provider_id acak, fallback ke active_asker = None
+    # build_judge akan gagal karena judge_provider_id acak, ditandai judge_unavailable sebagai gangguan teknis (AC4)
     res_judge_prov = grade_session(
         db_session, sesi_judge.id, actor_id=pembuat.id, actor_role=Role.ADMIN
     )
     assert res_judge_prov.status == "completed"
+    disrupted_att = res_judge_prov.cases[0].attempts[0]
+    assert disrupted_att.is_technical_disruption is True
+    assert disrupted_att.score is None
+    assert "judge" in (disrupted_att.explanation or "").lower()
 
     # build_judge sukses memuat asker
     from unittest.mock import MagicMock
@@ -1719,7 +1831,7 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
         is_technical_disruption=False,
         criteria=[],
     )
-    store._save_quality_judge_record(gr.id, att_qual_empty, "CASE-01", 2, Decimal("4.00"))
+    store._save_quality_judge_record(gr.id, att_qual_empty, "CASE-01", 2, Decimal("0.80"))
 
     # 10. _apply_judge_row_to_attempt dengan kind format
     mock_fmt_row = MagicMock()
@@ -1739,6 +1851,7 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
     assert score_format_structure(None) is None
     assert score_format_structure("Ringkasan perkara...") == Decimal("0.25")
     assert score_format_structure("P1\n\nP2\n\nP3") == Decimal("0.50")
+    assert score_format_structure("Hanya satu paragraf tanpa kata kunci format") == Decimal("0.25")
 
     # 12. _calculate_db_quality_score branches
     mock_db_j = MagicMock()
@@ -1747,3 +1860,48 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
     assert _calculate_db_quality_score(mock_db_j, True) == Decimal("4.00")
     mock_db_j.rubric_level = None
     assert _calculate_db_quality_score(mock_db_j, True) is None
+
+    # 13. _resolve_d6_attempt_score saat det, qual, fmt semua None
+    from app.modules.runs.session_grade import _resolve_d6_attempt_score
+
+    mock_g_unscored = MagicMock()
+    mock_g_unscored.is_technical_disruption = False
+    mock_g_unscored.det_score = None
+    assert _resolve_d6_attempt_score(mock_g_unscored, None, None) == (False, None)
+
+    # 14. _save_llm_judge_records saat att.score is None
+    att_no_sc = AttemptGradeResult(
+        attempt_id=uuid.uuid4(),
+        repetition_no=1,
+        status=AttemptStatus.SUCCEEDED,
+        is_technical_disruption=False,
+        score=None,
+    )
+    store._save_llm_judge_records(gr.id, att_no_sc, "CASE-01")
+
+    # 15. _get_grading_runs_from_audit dengan log valid dan korup
+    sesi_audit_id = uuid.uuid4()
+    audit_valid = AuditLog(
+        occurred_at=datetime.now(UTC),
+        actor_user_id=pembuat.id,
+        actor_role=Role.ADMIN.value,
+        action="measurement_session.graded",
+        entity_type="measurement_session",
+        entity_id=sesi_audit_id,
+        after=res_judge_prov.model_dump(mode="json"),
+    )
+    audit_corrupt = AuditLog(
+        occurred_at=datetime.now(UTC),
+        actor_user_id=pembuat.id,
+        actor_role=Role.ADMIN.value,
+        action="measurement_session.regraded",
+        entity_type="measurement_session",
+        entity_id=sesi_audit_id,
+        after={"cases": "bukan daftar kasus"},
+    )
+    db_session.add(audit_valid)
+    db_session.add(audit_corrupt)
+    db_session.commit()
+    runs_from_audit = store._get_grading_runs_from_audit(sesi_audit_id)
+    assert len(runs_from_audit) == 1
+    assert runs_from_audit[0].is_latest is True

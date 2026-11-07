@@ -397,19 +397,6 @@ results_router = APIRouter(prefix="/results", tags=["results"])
     response_model=list[GradedSessionListItem],
     summary="Daftar sesi selesai yang telah dinilai untuk Admin dan Viewer (SCRUM-226)",
 )
-def list_graded_sessions_alias_endpoint(
-    user: CurrentUser = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> list[GradedSessionListItem]:
-    """Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin dan Viewer."""
-    return list_graded_sessions(db, viewer_role=user.role)
-
-
-@router.get(
-    "/results/sessions",
-    response_model=list[GradedSessionListItem],
-    summary="Daftar sesi selesai yang telah dinilai untuk Admin dan Viewer (SCRUM-226)",
-)
 def list_graded_sessions_endpoint(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
@@ -454,25 +441,6 @@ def get_results_endpoint(
     db: Session = Depends(get_db),
 ) -> SessionGradingResponse:
     """Hasil sesi berjalan hanya untuk Admin. Sesi selesai untuk Admin dan Viewer. Developer AI mendapat kasus test tersamar (PBI-14 AC8, PBI-11 AC9)."""
-    return get_session_results(
-        db,
-        session_id,
-        viewer_role=user.role,
-    )
-
-
-@router.get(
-    "/{session_id}/grade",
-    response_model=SessionGradingResponse,
-    summary="Alias untuk hasil penilaian sesi pengukuran (GET /measurements/{id}/results)",
-    responses=_RESPONS_RESULTS,
-    include_in_schema=False,
-)
-def get_grade_alias_endpoint(
-    session_id: uuid.UUID,
-    user: CurrentUser = Depends(get_current_user),
-    db: Session = Depends(get_db),
-) -> SessionGradingResponse:
     return get_session_results(
         db,
         session_id,
