@@ -37,6 +37,7 @@ from app.modules.runs.models import (
     StopReason,
 )
 from app.modules.runs.recovery import (
+    RecoveryService,
     check_worker_liveness,
     record_heartbeat,
     recover_after_restart,
@@ -570,3 +571,52 @@ async def test_lifespan_startup_hook_skips_recovery_when_worker_lease_held(
     assert baris.status == SessionStatus.RUNNING
     attempt = db_session.scalar(select(Attempt).where(Attempt.session_id == sesi_id))
     assert attempt.status == AttemptStatus.RUNNING
+
+
+class _StatusGagal:
+    """Pengganti SessionStatusRepository yang selalu gagal, untuk jalur rollback."""
+
+    def change_status(self, *args, **kwargs):
+        raise RuntimeError("database write failed")
+
+
+def test_recover_after_restart_rolls_back_attempt_when_pause_fails(
+    db_session, produk_otomatis, admin_user
+):
+    """Negatif: bila pause sesi gagal, penandaan gagal teknis ikut dibatalkan (satu transaksi)."""
+    # Arrange
+    sesi = _buat_sesi(db_session, produk_otomatis, admin_user, status=SessionStatus.RUNNING)
+    (attempt,) = _tambah_snapshot_dan_attempts(db_session, sesi, [AttemptStatus.RUNNING])
+    service = RecoveryService(
+        db_session, clock=lambda: WAKTU_RESTART, status_repository=_StatusGagal()
+    )
+
+    # Act
+    recovered = service.recover_after_restart()
+
+    # Assert
+    assert recovered == []
+    db_session.expire_all()
+    assert db_session.get(Attempt, attempt.id).status == AttemptStatus.RUNNING
+    assert db_session.get(MeasurementSession, sesi.id).status == SessionStatus.RUNNING
+
+
+def test_check_worker_liveness_skips_session_when_pause_fails(
+    db_session, produk_otomatis, admin_user
+):
+    """Negatif: kegagalan pause satu sesi stale tidak menghentikan pemeriksaan liveness."""
+    # Arrange
+    sesi = _buat_sesi(db_session, produk_otomatis, admin_user, status=SessionStatus.RUNNING)
+    service = RecoveryService(
+        db_session,
+        clock=lambda: WAKTU_MULAI + timedelta(minutes=10),
+        status_repository=_StatusGagal(),
+    )
+
+    # Act
+    stale = service.check_worker_liveness()
+
+    # Assert
+    assert stale == []
+    db_session.expire_all()
+    assert db_session.get(MeasurementSession, sesi.id).status == SessionStatus.RUNNING
