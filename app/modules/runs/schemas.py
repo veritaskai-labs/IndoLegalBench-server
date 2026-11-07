@@ -386,6 +386,58 @@ class ManualStartResponse(BaseModel):
     total_answers: int = Field(description="N pada progres 'X dari N jawaban terisi'")
 
 
+class ManualAttemptSlot(BaseModel):
+    """Satu kotak jawaban (Percobaan n) di kartu kasus sesi manual (PBI-22 AC4)."""
+
+    attempt_id: uuid.UUID
+    repetition_no: int
+    filled: bool = Field(description="Teks jawaban atau 'Platform menolak menjawab' tersimpan")
+    answered_at_platform: datetime | None = Field(
+        description="Kapan jawaban diperoleh dari platform (AC7)"
+    )
+
+
+class ManualCaseProgress(BaseModel):
+    """Satu kartu kasus: pertanyaan untuk disalin (AC3) dan slot per percobaan (AC4)."""
+
+    snapshot_item_id: uuid.UUID
+    case_id: uuid.UUID
+    case_code: str
+    title: str
+    question: str
+    split_tag: str
+    filled: bool = Field(description="Semua percobaan kasus ini sudah terisi (AC8)")
+    attempts: list[ManualAttemptSlot]
+
+
+class ManualSessionDetail(BaseModel):
+    """Halaman sesi manual (PBI-22 AC8, AC11-AC13). Tanpa biaya dan anggaran (AC10)."""
+
+    id: uuid.UUID
+    label: str
+    purpose: MeasurementPurpose
+    status: SessionStatus
+    product_name: str
+    vendor_name: str | None
+    site_url: str | None
+    case_filter: CaseFilter
+    repetitions: int = Field(description="Percobaan per kasus (AC12, penanda PBI-15)")
+    filled_answers: int = Field(description="X pada 'X dari N jawaban terisi', seluruh sesi")
+    total_answers: int = Field(description="N: kasus x percobaan")
+    answer_date_from: datetime | None
+    answer_date_to: datetime | None
+    date_range_warning: bool = Field(
+        description="Rentang tanggal jawaban melebihi batas hari (AC13; batas TBA, bawaan mati)"
+    )
+    created_by: uuid.UUID
+    created_at: datetime
+    finalized_at: datetime | None
+    finalized_by: uuid.UUID | None
+    cases: list[ManualCaseProgress] = Field(
+        description="Kartu kasus urut kode; disaring bila unfilled=true"
+    )
+
+
 class ManualFinalizeResponse(BaseModel):
     """Jawaban Tandai selesai sesi manual (PBI-22 AC8, D9 finalized_at/finalized_by)."""
 

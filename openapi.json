@@ -4064,6 +4064,71 @@
         }
       }
     },
+    "/manual-measurements/{session_id}": {
+      "get": {
+        "tags": [
+          "manual-measurements"
+        ],
+        "summary": "Progres sesi manual: X dari N jawaban terisi dan kartu per kasus",
+        "operationId": "read_manual_session_manual_measurements__session_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "unfilled",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Filter 'belum terisi': hanya kasus yang masih kosong",
+              "default": false,
+              "title": "Unfilled"
+            },
+            "description": "Filter 'belum terisi': hanya kasus yang masih kosong"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ManualSessionDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sesi manual tidak ditemukan (`MANUAL_SESSION_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit-logs": {
       "get": {
         "tags": [
@@ -7533,6 +7598,101 @@
         "title": "LegalRefWrite",
         "description": "One citation as the editor sends it. Links are in chain order."
       },
+      "ManualAttemptSlot": {
+        "properties": {
+          "attempt_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Attempt Id"
+          },
+          "repetition_no": {
+            "type": "integer",
+            "title": "Repetition No"
+          },
+          "filled": {
+            "type": "boolean",
+            "title": "Filled",
+            "description": "Teks jawaban atau 'Platform menolak menjawab' tersimpan"
+          },
+          "answered_at_platform": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answered At Platform",
+            "description": "Kapan jawaban diperoleh dari platform (AC7)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "attempt_id",
+          "repetition_no",
+          "filled",
+          "answered_at_platform"
+        ],
+        "title": "ManualAttemptSlot",
+        "description": "Satu kotak jawaban (Percobaan n) di kartu kasus sesi manual (PBI-22 AC4)."
+      },
+      "ManualCaseProgress": {
+        "properties": {
+          "snapshot_item_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Snapshot Item Id"
+          },
+          "case_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Case Id"
+          },
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "question": {
+            "type": "string",
+            "title": "Question"
+          },
+          "split_tag": {
+            "type": "string",
+            "title": "Split Tag"
+          },
+          "filled": {
+            "type": "boolean",
+            "title": "Filled",
+            "description": "Semua percobaan kasus ini sudah terisi (AC8)"
+          },
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/ManualAttemptSlot"
+            },
+            "type": "array",
+            "title": "Attempts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "snapshot_item_id",
+          "case_id",
+          "case_code",
+          "title",
+          "question",
+          "split_tag",
+          "filled",
+          "attempts"
+        ],
+        "title": "ManualCaseProgress",
+        "description": "Satu kartu kasus: pertanyaan untuk disalin (AC3) dan slot per percobaan (AC4)."
+      },
       "ManualFinalizeResponse": {
         "properties": {
           "id": {
@@ -7564,6 +7724,164 @@
         ],
         "title": "ManualFinalizeResponse",
         "description": "Jawaban Tandai selesai sesi manual (PBI-22 AC8, D9 finalized_at/finalized_by)."
+      },
+      "ManualSessionDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/MeasurementPurpose"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          },
+          "product_name": {
+            "type": "string",
+            "title": "Product Name"
+          },
+          "vendor_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Vendor Name"
+          },
+          "site_url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Site Url"
+          },
+          "case_filter": {
+            "$ref": "#/components/schemas/CaseFilter"
+          },
+          "repetitions": {
+            "type": "integer",
+            "title": "Repetitions",
+            "description": "Percobaan per kasus (AC12, penanda PBI-15)"
+          },
+          "filled_answers": {
+            "type": "integer",
+            "title": "Filled Answers",
+            "description": "X pada 'X dari N jawaban terisi', seluruh sesi"
+          },
+          "total_answers": {
+            "type": "integer",
+            "title": "Total Answers",
+            "description": "N: kasus x percobaan"
+          },
+          "answer_date_from": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Date From"
+          },
+          "answer_date_to": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Answer Date To"
+          },
+          "date_range_warning": {
+            "type": "boolean",
+            "title": "Date Range Warning",
+            "description": "Rentang tanggal jawaban melebihi batas hari (AC13; batas TBA, bawaan mati)"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Created By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "finalized_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finalized At"
+          },
+          "finalized_by": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finalized By"
+          },
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/ManualCaseProgress"
+            },
+            "type": "array",
+            "title": "Cases",
+            "description": "Kartu kasus urut kode; disaring bila unfilled=true"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "purpose",
+          "status",
+          "product_name",
+          "vendor_name",
+          "site_url",
+          "case_filter",
+          "repetitions",
+          "filled_answers",
+          "total_answers",
+          "answer_date_from",
+          "answer_date_to",
+          "date_range_warning",
+          "created_by",
+          "created_at",
+          "finalized_at",
+          "finalized_by",
+          "cases"
+        ],
+        "title": "ManualSessionDetail",
+        "description": "Halaman sesi manual (PBI-22 AC8, AC11-AC13). Tanpa biaya dan anggaran (AC10)."
       },
       "ManualStartRequest": {
         "properties": {

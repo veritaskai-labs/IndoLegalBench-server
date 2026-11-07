@@ -7,25 +7,29 @@ biaya, anggaran, maupun antrean sesi otomatis (AC10).
 import uuid
 from datetime import UTC, datetime
 
-from fastapi import APIRouter, Depends, status
+from fastapi import APIRouter, Depends, Query, status
 from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
 from app.modules.runs.dependencies import get_manual_session_service
 from app.modules.runs.manual_session import ManualSessionService
+from app.modules.runs.manual_session_detail import manual_session_detail
 from app.modules.runs.manual_session_status import finalize_manual_session
 from app.modules.runs.schemas import (
     ManualFinalizeResponse,
+    ManualSessionDetail,
     ManualStartRequest,
     ManualStartResponse,
 )
+from app.shared.config import Settings, get_settings
 from app.shared.database import get_db
 from app.shared.security import CurrentUser, Role, require_roles
 
 router = APIRouter(prefix="/manual-measurements", tags=["manual-measurements"])
 
-# AC1: Admin membuat sesi manual. Melihat dan mengisinya diatur SCRUM-231/235 (AC11).
+# AC1: Admin membuat sesi manual. AC11: semua Admin dan Kontributor melihat sesi orang lain.
 _admin = require_roles(Role.ADMIN)
+_viewers = require_roles(Role.ADMIN, Role.CONTRIBUTOR)
 
 
 @router.post(
@@ -85,4 +89,32 @@ def finalize_manual(
 ) -> ManualFinalizeResponse:
     return finalize_manual_session(
         db, session_id, finalized_by=uuid.UUID(str(user.user_id)), now=datetime.now(UTC)
+    )
+
+
+@router.get(
+    "/{session_id}",
+    response_model=ManualSessionDetail,
+    summary="Progres sesi manual: X dari N jawaban terisi dan kartu per kasus",
+    responses={
+        404: {
+            "model": ErrorBody,
+            "description": "Sesi manual tidak ditemukan (`MANUAL_SESSION_NOT_FOUND`).",
+        },
+    },
+)
+def read_manual_session(
+    session_id: uuid.UUID,
+    unfilled: bool = Query(
+        default=False, description="Filter 'belum terisi': hanya kasus yang masih kosong"
+    ),
+    _user: CurrentUser = Depends(_viewers),
+    db: Session = Depends(get_db),
+    settings: Settings = Depends(get_settings),
+) -> ManualSessionDetail:
+    return manual_session_detail(
+        db,
+        session_id,
+        unfilled_only=unfilled,
+        warning_days=settings.manual_answer_date_warning_days,
     )
