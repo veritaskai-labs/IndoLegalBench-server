@@ -27,7 +27,7 @@ from app.modules.runs.models import (
     SessionStatus,
     SessionType,
 )
-from app.shared.exceptions import NotFoundError, ValidationError
+from app.shared.exceptions import ConflictError, NotFoundError, ValidationError
 from app.shared.security import Role
 from tests.modules.cases.test_cases import ADMIN_LAIN
 from tests.modules.runs.test_manual_session_endpoint import URL, _badan
@@ -181,6 +181,21 @@ def test_dinilai_dan_selesai_tidak_dihitung_ulang(modul, siap_manual, tetap):
     # Assert
     assert hasil == tetap
     assert _catatan(siap_manual.db, sesi_id) == []
+
+
+@pytest.mark.parametrize("lama", [SessionStatus.QUEUED, SessionStatus.RUNNING])
+def test_sesi_manual_berstatus_d4_ditolak_409(modul, siap_manual, lama):
+    """Negatif: review #116, baris manual lama berstatus D4 tidak boleh membuat 500 di SCRUM-231."""
+    # Arrange
+    sesi_id = _sesi_manual(siap_manual)
+    _ubah_status(siap_manual.db, sesi_id, lama)
+
+    # Act
+    with pytest.raises(ConflictError) as galat:
+        modul.recompute_manual_status(siap_manual.db, sesi_id, now=JAM)
+
+    # Assert
+    assert galat.value.code == "MANUAL_SESSION_STATUS_INVALID"
 
 
 def test_sesi_otomatis_atau_tidak_ada_bukan_sesi_manual(modul, siap_manual):

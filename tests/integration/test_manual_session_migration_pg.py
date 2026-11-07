@@ -7,6 +7,8 @@ D9 (ERD Jawaban Manual) menambah ke tabel D2:
   finalized_by (AC8), dengan CHECK keduanya terisi bersama.
 - attempts: filled_at (status D8 dihitung dari sini) dan answered_at_platform (sumber
   rentang tanggal). Kolom jawaban manual lain milik SCRUM-231.
+- session_product_copies.manual_params: paket produk manual saat sesi dibuat (PBI-23 AC3,
+  review #116), supaya laporan tetap tahu paketnya walau produk diubah kemudian.
 
 downgrade() dijalankan langsung di koneksi tes lewat Operations.context, jadi semua DDL
 ikut di-rollback fixture. Sesi tidak bisa dihapus (trigger SCRUM-205), maka data uji
@@ -123,6 +125,7 @@ def test_head_punya_kolom_d9_bertipe_waktu_berzona(conn):
         "finalized_by": "uuid",
     }
     assert percobaan == dict.fromkeys(KOLOM_PERCOBAAN, "timestamp with time zone")
+    assert _kolom(conn, "session_product_copies", {"manual_params"}) == {"manual_params": "text"}
 
 
 def test_sesi_bisa_ditandai_selesai_dengan_waktu_dan_pelakunya(conn):
@@ -185,6 +188,7 @@ def test_downgrade_tanpa_sesi_d8_mengembalikan_tujuh_status_dan_membuang_kolom(c
     assert _nilai_enum(conn) == STATUS_D4
     assert _kolom(conn, "measurement_sessions", KOLOM_SESI) == {}
     assert _kolom(conn, "attempts", KOLOM_PERCOBAAN) == {}
+    assert _kolom(conn, "session_product_copies", {"manual_params"}) == {}
     assert (
         conn.execute(
             text("SELECT status::text FROM measurement_sessions WHERE id = :id"), {"id": sesi_id}

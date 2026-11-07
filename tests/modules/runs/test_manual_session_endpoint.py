@@ -45,6 +45,8 @@ def _produk_manual(db, *, aktif: bool = True) -> AiProduct:
         measurement_type=MeasurementType.MANUAL,
         vendor_name="LegalHero",
         site_url="https://legalhero.id",
+        # PBI-23 AC3, catatan klien: paket yang dipakai tim legal di platform itu.
+        manual_params="Premium, Rp299.000 per bulan",
         is_active=aktif,
         created_by=ADMIN_LAIN,
     )
@@ -122,11 +124,14 @@ def test_snapshot_salinan_produk_dan_percobaan_kosong_dibuat_saat_itu_juga(siap_
     assert _jumlah(siap_manual.db, CaseSnapshot) == 1
     assert _jumlah(siap_manual.db, CaseSnapshotItem) == 2
     salinan = siap_manual.db.scalars(select(SessionProductCopy)).one()
-    assert (salinan.measurement_type, salinan.vendor_name, salinan.site_url) == (
-        "manual",
-        "LegalHero",
-        "https://legalhero.id",
-    )
+    # Review #116: paket disalin juga, supaya laporan PBI-15 tahu paket mana yang menjawab
+    # walau Admin mengubahnya nanti.
+    assert (
+        salinan.measurement_type,
+        salinan.vendor_name,
+        salinan.site_url,
+        salinan.manual_params,
+    ) == ("manual", "LegalHero", "https://legalhero.id", "Premium, Rp299.000 per bulan")
     percobaan = siap_manual.db.scalars(select(Attempt)).all()
     assert sorted(p.repetition_no for p in percobaan) == [1, 1, 2, 2]
     assert {(p.source, p.status, p.filled_at) for p in percobaan} == {

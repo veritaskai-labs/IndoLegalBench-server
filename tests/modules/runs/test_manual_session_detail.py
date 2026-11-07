@@ -84,10 +84,11 @@ def test_sesi_baru_menampilkan_semua_kasus_belum_terisi(siap_manual):
     assert respons.status_code == 200, respons.text
     isi = respons.json()
     assert (isi["status"], isi["filled_answers"], isi["total_answers"]) == ("not_filled", 0, 3)
-    assert (isi["product_name"], isi["vendor_name"], isi["site_url"]) == (
+    assert (isi["product_name"], isi["vendor_name"], isi["site_url"], isi["manual_params"]) == (
         siap_manual.produk.name,
         "LegalHero",
         "https://legalhero.id",
+        "Premium, Rp299.000 per bulan",
     )
     assert [kasus["case_code"] for kasus in isi["cases"]] == ["PHK-001", "PHK-002", "PHK-003"]
     assert all(kasus["question"] for kasus in isi["cases"])
