@@ -9,6 +9,7 @@ import uuid
 from app.modules.cases import sections, service
 from app.modules.cases.models import Case
 from app.shared.security import Role
+from tests.modules.cases.legacy_traps import tanam_traps_lama
 from tests.modules.cases.test_cases import _badan, _buat, _setujui, _suite
 
 TRAPS_LAMA = [{"description": "Mencampur upah dan pesangon", "expected_model_behavior": "menolak"}]
@@ -31,13 +32,6 @@ def _isi(**tambahan):
         "answer_criteria": {"must_contain": ["surat"]},
         **tambahan,
     }
-
-
-def _tanam_traps_lama(db_session, case_id: str, traps: list) -> None:
-    kasus = db_session.get(Case, uuid.UUID(case_id))
-    versi = kasus.current_version
-    versi.content = {**versi.content, "traps": traps}
-    db_session.commit()
 
 
 def test_bagian_kasus_tinggal_tujuh_tanpa_traps():
@@ -94,7 +88,7 @@ def test_salinan_approved_suite_tidak_memuat_traps_dan_versi_tetap_utuh(as_role,
     client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
-    _tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
+    tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
     _setujui(db_session, case_id)
 
     # Act
@@ -111,10 +105,10 @@ def test_bandingkan_versi_mengabaikan_traps_lama(as_role, db_session):
     # Arrange: v1 approved dengan traps lama, v2 draf dengan traps lain dan judul baru
     client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
-    _tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
+    tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
     _setujui(db_session, case_id)
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
-    _tanam_traps_lama(db_session, case_id, [{"description": "Jebakan lain"}])
+    tanam_traps_lama(db_session, case_id, [{"description": "Jebakan lain"}])
     client.put(
         f"/cases/{case_id}",
         json=_badan(identity={**_badan()["identity"], "title": "Judul baru"}),
@@ -135,10 +129,10 @@ def test_bandingkan_versi_yang_hanya_beda_traps_tidak_menandai_perubahan(as_role
     # Arrange
     client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
-    _tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
+    tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
     _setujui(db_session, case_id)
     assert client.post(f"/cases/{case_id}/versions").status_code == 201
-    _tanam_traps_lama(db_session, case_id, [])
+    tanam_traps_lama(db_session, case_id, [])
 
     # Act
     respons = client.get(f"/cases/{case_id}/versions/compare", params={"a": 1, "b": 2})

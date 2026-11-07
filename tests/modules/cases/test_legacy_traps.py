@@ -21,21 +21,10 @@ from app.modules.cases.schemas import (
     VersionSections,
 )
 from app.shared.security import Role
+from tests.modules.cases.legacy_traps import TRAPS_LAMA, tanam_traps_lama
 from tests.modules.cases.test_cases import _badan, _buat, _setujui, _suite
 
 LOGGER_LEGACY = "app.modules.cases.legacy_payload"
-TRAPS_LAMA = [
-    {"description": "Mencampur upah dan pesangon", "expected_model_behavior": "menolak"},
-    {"description": "Menyebut pasal yang dicabut", "expected_model_behavior": None},
-]
-
-
-def _tanam_traps_lama(db_session, case_id: str, traps: list) -> None:
-    """Simulasikan versi yang disimpan sebelum traps dicabut."""
-    kasus = db_session.get(Case, uuid.UUID(case_id))
-    versi = kasus.current_version
-    versi.content = {**versi.content, "traps": traps}
-    db_session.commit()
 
 
 def _isi_versi(db_session, case_id: str) -> dict:
@@ -155,7 +144,7 @@ def test_kasus_lama_berisi_traps_bisa_dibuka_diedit_dan_diajukan(as_role, db_ses
     # Arrange
     client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
-    _tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
+    tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
 
     # Act
     dibuka = client.get(f"/cases/{case_id}")
@@ -177,7 +166,7 @@ def test_kasus_lama_berisi_traps_tetap_lengkap_di_daftar_dan_completeness(as_rol
     client = as_role(Role.CONTRIBUTOR)
     suite_id = _suite(client)
     case_id = _buat(client, suite_id).json()["id"]
-    _tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
+    tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
 
     ringkasan = client.get(f"/suites/{suite_id}/cases").json()[0]
     kelengkapan = client.get(f"/cases/{case_id}/completeness").json()
@@ -191,7 +180,7 @@ def test_versi_approved_lama_menyimpan_traps_utuh_setelah_draf_baru(as_role, db_
     # Arrange
     client = as_role(Role.CONTRIBUTOR)
     case_id = _buat(client, _suite(client)).json()["id"]
-    _tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
+    tanam_traps_lama(db_session, case_id, TRAPS_LAMA)
     _setujui(db_session, case_id)
 
     # Act
