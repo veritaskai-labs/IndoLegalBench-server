@@ -10,7 +10,7 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 from enum import StrEnum
-from typing import Annotated, Literal
+from typing import Annotated, Any, Literal
 
 from pydantic import AfterValidator, BaseModel, Field, field_validator, model_validator
 
@@ -435,15 +435,15 @@ class ManualAttemptSlot(BaseModel):
     attempt_id: uuid.UUID
     repetition_no: int
     filled: bool = Field(description="Teks jawaban atau 'Platform menolak menjawab' tersimpan")
-    answered_at_platform: datetime | None = Field(
-        description="Kapan jawaban diperoleh dari platform (AC7)"
+    answered_at_platform: UtcDateTime | None = Field(
+        description="Kapan jawaban diperoleh dari platform, ISO 8601 UTC (AC7)"
     )
-    source: AttemptSource = AttemptSource.MANUAL
+    source: AttemptSource
     answer_md: str | None = None
     platform_refused: bool = False
     note: str | None = None
     filled_by: uuid.UUID | None = None
-    filled_at: datetime | None = None
+    filled_at: UtcDateTime | None = None
     evidence_count: int = Field(default=0, description="Jumlah bukti jawaban ini, maks 3 (AC7)")
 
 
@@ -475,8 +475,8 @@ class ManualSessionDetail(BaseModel):
     repetitions: int = Field(description="Percobaan per kasus (AC12, penanda PBI-15)")
     filled_answers: int = Field(description="X pada 'X dari N jawaban terisi', seluruh sesi")
     total_answers: int = Field(description="N: kasus x percobaan")
-    answer_date_from: datetime | None
-    answer_date_to: datetime | None
+    answer_date_from: UtcDateTime | None
+    answer_date_to: UtcDateTime | None
     date_range_warning: bool = Field(
         description="Rentang tanggal jawaban melebihi batas hari (AC13; batas TBA, bawaan mati)"
     )
@@ -523,33 +523,54 @@ class SessionResumeResponse(BaseModel):
 
 
 class ManualAnswerSaveRequest(BaseModel):
-    """Request menyimpan jawaban manual."""
+    """Simpan atau timpa satu jawaban manual (AC4 sampai AC7).
+
+    Batas atas attempt_no di sini hanya pagar global PBI-11. Apakah nomornya
+    masuk jumlah pengulangan sesi diperiksa saat penyimpanan, karena jumlah itu
+    milik sesi, bukan milik kontrak.
+    """
 
     snapshot_item_id: uuid.UUID
-    attempt_no: int = Field(ge=1, le=5)
-    answer_md: str | None = None
-    obtained_at: datetime | None = None
+    attempt_no: int = Field(
+        ge=MIN_REPEATS,
+        le=MAX_REPEATS,
+        description="Nomor percobaan, harus masuk jumlah pengulangan sesi",
+    )
+    answer_md: str | None = Field(
+        default=None,
+        description="Jawaban markdown apa adanya, tanpa batas panjang (AC4)",
+    )
+    obtained_at: datetime | None = Field(
+        default=None,
+        description="Kapan jawaban diperoleh dari platform; kosong berarti sekarang (AC7)",
+    )
     platform_refused: bool = Field(default=False, strict=True)
     note: str | None = Field(
         default=None,
-        description="Required nonblank when platform_refused is true",
+        description="Wajib berisi teks bila platform_refused true (AC6)",
     )
-    requires_confirmation: bool = Field(default=False, strict=True)
+    requires_confirmation: bool = Field(
+        default=False,
+        strict=True,
+        description="Konfirmasi menimpa jawaban yang sudah ada (AC5)",
+    )
 
     @field_validator("obtained_at")
     @classmethod
     def validate_obtained_at(cls, value: datetime | None) -> datetime | None:
+        """Tolak waktu tanpa zona, lalu simpan dalam UTC."""
         if value is not None and value.utcoffset() is None:
-            raise ValueError("obtained_at must include a timezone")
+            raise ValueError("obtained_at harus menyertakan zona waktu")
 
         return value.astimezone(UTC) if value is not None else None
 
     @model_validator(mode="after")
     def validate_answer(self):
+        """Jawaban kosong ditolak, kecuali platform menolak menjawab dan ada catatan (AC6)."""
         if not self.platform_refused and (self.answer_md is None or not self.answer_md.strip()):
-            raise ValueError("answer_md must contain text unless platform_refused is true")
+            raise ValueError("answer_md harus berisi teks kecuali platform_refused true")
         if self.platform_refused and (self.note is None or not self.note.strip()):
-            raise ValueError("note must contain text when platform_refused is true")
+            raise ValueError("note harus berisi teks bila platform_refused true")
         return self
 
 
@@ -559,11 +580,11 @@ class ManualAnswerResponse(BaseModel):
     attempt_no: int
     source: AttemptSource
     answer_md: str | None
-    obtained_at: datetime
+    obtained_at: UtcDateTime
     platform_refused: bool
     note: str | None
     filled_by: uuid.UUID
-    filled_at: datetime
+    filled_at: UtcDateTime
     session_status: SessionStatus
 
 
@@ -572,12 +593,152 @@ class ManualAnswerHistoryEntry(BaseModel):
     attempt_id: uuid.UUID
     answer_md: str | None
     filled_by: uuid.UUID | None
-    filled_at: datetime
-    obtained_at: datetime | None
+    filled_at: UtcDateTime
+    obtained_at: UtcDateTime | None
     platform_refused: bool
     note: str | None
     overwritten_by: uuid.UUID
-    overwritten_at: datetime
+    overwritten_at: UtcDateTime
+
+
+# PBI-14 SCRUM-226: Penilaian, pemicu manual, penanganan gangguan teknis & visibilitas hasil.
+
+
+class ScorePair(BaseModel):
+    """Skor deterministik, kualitas rubrik, dan format penilai LLM (PBI-14, SCRUM-225)."""
+
+    deterministic: Decimal | None = Field(
+        default=None, description="Skor jalur deterministik (proporsi sitasi 0.00-1.00)"
+    )
+    quality: Decimal | None = Field(
+        default=None,
+        description="Skor kualitas substansi hukum berdasarkan kriteria rubrik (skala 0.00-1.00)",
+    )
+    format: Decimal | None = Field(
+        default=None, description="Skor kepatuhan format dan struktur jawaban (skala 0.00-1.00)"
+    )
+
+
+class ThreeScores(BaseModel):
+    """Tiga skor terpisah yang diminta PBI-11 AC9: dev, test, dan gabungan."""
+
+    dev: ScorePair = Field(description="Skor kasus dev")
+    test: ScorePair = Field(description="Skor kasus test (agregat)")
+    combined: ScorePair = Field(description="Skor gabungan seluruh kasus")
+
+
+class CategoryScore(BaseModel):
+    """Pecahan skor per kategori kasus (PBI-14 AC10)."""
+
+    category: str = Field(description="Nama kategori, atau 'Lain-lain' bila kosong")
+    case_count: int = Field(description="Jumlah kasus dalam kategori ini")
+    scores: ScorePair = Field(description="Rata-rata skor kategori")
+
+
+class GradeSessionRequest(BaseModel):
+    """Pemicu penilaian manual oleh Admin (PBI-14 AC6, AC7)."""
+
+    rubric_version: str | None = Field(
+        default=None,
+        description="Versi rubrik yang dipilih Admin. Bila kosong, memakai versi aktif (default 'v1').",
+    )
+
+
+class AttemptGradeResult(BaseModel):
+    """Hasil penilaian satu percobaan."""
+
+    attempt_id: uuid.UUID = Field(description="ID percobaan")
+    repetition_no: int = Field(description="Nomor pengulangan (1-5)")
+    status: AttemptStatus = Field(description="Status percobaan")
+    source: AttemptSource = Field(
+        default=AttemptSource.AUTOMATIC,
+        description="Asal percobaan: automatic atau manual (PBI-12)",
+    )
+    is_technical_disruption: bool = Field(
+        description="True bila jawaban kosong, AI menolak, atau judge error (AC4)"
+    )
+    score: ScorePair | None = Field(
+        default=None,
+        description="Skor percobaan desimal 2 digit. null bila gangguan teknis atau disamarkan",
+    )
+    answer_text: str | None = Field(
+        default=None,
+        description="Jawaban mentah. null bila disamarkan untuk Developer AI pada kasus test",
+    )
+    explanation: str | None = Field(
+        default=None,
+        description="Penjelasan evaluasi penilai LLM (llm_judge_results.explanation)",
+    )
+    reasons: list[str] = Field(
+        default_factory=list,
+        description="Daftar kode alasan standar per jalur (grading_result_reasons)",
+    )
+    criteria: list[dict[str, Any]] = Field(
+        default_factory=list,
+        description="Hasil penilaian per kriteria (llm_criterion_results)",
+    )
+
+
+class CaseGradeResult(BaseModel):
+    """Hasil penilaian satu kasus per baris tabel (AC8)."""
+
+    snapshot_item_id: uuid.UUID
+    case_id: uuid.UUID
+    case_code: str
+    title: str
+    split_tag: SplitTag | None = None
+    category: str | None = None
+    question: str | None = Field(
+        default=None, description="null bila disamarkan untuk Developer AI pada kasus test"
+    )
+    masked: bool = Field(
+        default=False, description="true untuk kasus test yang dilihat Developer AI"
+    )
+    scores: ScorePair | None = Field(
+        default=None,
+        description="Rata-rata skor percobaan kasus. null bila disamarkan untuk Developer AI pada kasus test",
+    )
+    attempts: list[AttemptGradeResult] = Field(default_factory=list)
+
+
+class SessionGradingResponse(BaseModel):
+    """Hasil penilaian sesi pengukuran (PBI-14 AC3, AC6, AC7, AC8)."""
+
+    grading_run_id: uuid.UUID
+    session_id: uuid.UUID
+    session_label: str | None = Field(default=None, description="Label sesi pengukuran yang diuji")
+    product_name: str | None = Field(default=None, description="Nama produk AI yang diuji")
+    rubric_version: str = Field(description="Versi rubrik yang digunakan (mis. 'v1')")
+    kind: Literal["initial", "regrade"] = Field(
+        description="initial untuk penilaian pertama, regrade untuk nilai ulang"
+    )
+    status: str = Field(description="completed bila sudah selesai dinilai")
+    triggered_by: uuid.UUID = Field(description="Admin yang memicu penilaian")
+    triggered_at: datetime = Field(description="Waktu pemicuan penilaian")
+    is_latest: bool = Field(
+        default=True, description="True bila merupakan hasil penilaian terbaru untuk sesi ini"
+    )
+    scores: ThreeScores = Field(description="Tiga skor terpisah: dev, test, dan gabungan")
+    category_scores: list[CategoryScore] = Field(
+        default_factory=list, description="Pecahan skor per kategori kasus"
+    )
+    cases: list[CaseGradeResult] = Field(
+        default_factory=list, description="Daftar kasus beserta hasil penilaian per percobaan"
+    )
+
+
+class GradedSessionListItem(BaseModel):
+    """Ringkasan sesi pengukuran selesai yang telah dinilai untuk Admin dan Viewer (PBI-14, SCRUM-226, SCRUM-227)."""
+
+    session_id: uuid.UUID = Field(description="ID sesi pengukuran")
+    label: str = Field(description="Label sesi pengukuran")
+    product_name: str = Field(description="Nama produk AI yang diuji")
+    finished_at: datetime | None = Field(
+        default=None, description="Waktu sesi selesai (null bila belum tercatat)"
+    )
+    rubric_version: str | None = Field(
+        default=None, description="Versi rubrik yang digunakan pada penilaian terbaru (mis. 'v1')"
+    )
 
 
 class EvidenceRead(BaseModel):
@@ -594,4 +755,4 @@ class EvidenceRead(BaseModel):
     size_bytes: int | None
     url: str | None = Field(description="Tautan bukti; null untuk berkas")
     uploaded_by: uuid.UUID
-    uploaded_at: datetime
+    uploaded_at: UtcDateTime

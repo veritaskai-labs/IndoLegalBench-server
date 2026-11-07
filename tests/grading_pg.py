@@ -129,9 +129,14 @@ def buat_versi_aktif(conn: Connection, admin_id: uuid.UUID, **ubah) -> uuid.UUID
     return versi_id
 
 
-def buat_percobaan(conn: Connection, sesi_id: uuid.UUID, admin_id: uuid.UUID) -> uuid.UUID:
+def buat_percobaan(
+    conn: Connection,
+    sesi_id: uuid.UUID,
+    admin_id: uuid.UUID,
+    body: dict[str, object] | None = None,
+) -> uuid.UUID:
     """Satu percobaan otomatis untuk satu kasus baru di snapshot sesi."""
-    item_id = buat_item_snapshot(conn, sesi_id, admin_id)
+    item_id = buat_item_snapshot(conn, sesi_id, admin_id, body=body)
     return conn.execute(
         text(
             "INSERT INTO attempts (id, session_id, snapshot_item_id, repetition_no, source) "

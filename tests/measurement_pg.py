@@ -7,6 +7,7 @@ Tes negatif memeriksa SQLSTATE, bukan sekadar "ada error": sebelum tabel ada,
 setiap perintah juga gagal (undefined_table), dan itu tidak boleh terhitung lulus.
 """
 
+import json
 import uuid
 from collections.abc import Callable
 
@@ -150,7 +151,12 @@ def buat_kasus(
     return case_id, version_id
 
 
-def buat_item_snapshot(conn: Connection, sesi_id: uuid.UUID, admin_id: uuid.UUID) -> uuid.UUID:
+def buat_item_snapshot(
+    conn: Connection,
+    sesi_id: uuid.UUID,
+    admin_id: uuid.UUID,
+    body: dict[str, object] | None = None,
+) -> uuid.UUID:
     """Snapshot sesi (dibuat kalau belum ada) dengan satu item kasus baru."""
     snapshot_id = conn.execute(
         text(
@@ -167,7 +173,13 @@ def buat_item_snapshot(conn: Connection, sesi_id: uuid.UUID, admin_id: uuid.UUID
     return conn.execute(
         text(
             "INSERT INTO case_snapshot_items (id, snapshot_id, case_id, case_version_id, body) "
-            "VALUES (:id, :snapshot, :kasus, :versi, '{}'::jsonb) RETURNING id"
+            "VALUES (:id, :snapshot, :kasus, :versi, CAST(:body AS jsonb)) RETURNING id"
         ),
-        {"id": uuid.uuid4(), "snapshot": snapshot_id, "kasus": case_id, "versi": version_id},
+        {
+            "id": uuid.uuid4(),
+            "snapshot": snapshot_id,
+            "kasus": case_id,
+            "versi": version_id,
+            "body": json.dumps(body or {}),
+        },
     ).scalar_one()

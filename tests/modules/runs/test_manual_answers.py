@@ -1,12 +1,14 @@
 """TDD untuk penyimpanan jawaban manual SCRUM-231."""
 
+import json
 import uuid
 from datetime import datetime
 
 import pytest
 from sqlalchemy import select
 
-from app.modules.runs.models import AnswerHistory, Attempt
+from app.modules.runs.models import AnswerHistory, Attempt, AttemptSource, SessionStatus
+from app.modules.runs.schemas import ManualAnswerResponse
 from app.shared.security import Role
 from tests.modules.runs.test_manual_session_detail import _sesi_manual
 
@@ -141,6 +143,7 @@ def test_waktu_diperoleh_bisa_diubah(manual):
 
 
 def test_attempt_bukan_milik_sesi_ditolak(manual):
+    """Negatif: kasus di luar snapshot sesi ditolak dengan kodenya sendiri."""
     ctx, session_id, attempts = manual
 
     response = ctx.sebagai(Role.ADMIN).put(
@@ -152,6 +155,24 @@ def test_attempt_bukan_milik_sesi_ditolak(manual):
     )
 
     assert response.status_code == 422
+    assert response.json()["code"] == "MANUAL_CASE_NOT_IN_SNAPSHOT"
+
+
+def test_nomor_percobaan_di_luar_pengulangan_sesi_ditolak(manual):
+    """Negatif: sesi ini satu pengulangan, jadi percobaan kedua tidak ada (AC4).
+
+    Kodenya harus beda dari kasus di luar snapshot, karena tiket menyebut keduanya
+    sebagai syarat terpisah.
+    """
+    ctx, session_id, attempts = manual
+
+    response = ctx.sebagai(Role.ADMIN).put(
+        path(session_id),
+        json=payload(attempts[0], attempt_no=2),
+    )
+
+    assert response.status_code == 422
+    assert response.json()["code"] == "MANUAL_ATTEMPT_NO_OUT_OF_RANGE"
 
 
 def test_tidak_boleh_mengubah_setelah_finalized(manual):
@@ -244,3 +265,57 @@ def test_save_recomputes_progress_and_date_range(manual):
         datetime.fromisoformat(detail["answer_date_to"]).timestamp()
         == datetime.fromisoformat(dates[1]).timestamp()
     )
+
+
+def test_waktu_jawaban_manual_keluar_sebagai_iso_8601_utc():
+    """Edge: waktu di respons wajib berakhiran Z, supaya FE tahu itu UTC (AC7).
+
+    Tes suite memakai SQLite yang membuang zona waktu, jadi tanpa anotasi
+    UtcDateTime nilainya keluar polos tanpa penanda dan FE salah menghitung WIB.
+    """
+    polos = datetime(2026, 11, 7, 14, 0)
+
+    jawaban = ManualAnswerResponse(
+        attempt_id=uuid.uuid4(),
+        snapshot_item_id=uuid.uuid4(),
+        attempt_no=1,
+        source=AttemptSource.MANUAL,
+        answer_md="**jawaban**",
+        obtained_at=polos,
+        platform_refused=False,
+        note=None,
+        filled_by=uuid.uuid4(),
+        filled_at=polos,
+        session_status=SessionStatus.PARTIALLY_FILLED,
+    )
+
+    terkirim = json.loads(jawaban.model_dump_json())
+
+    assert terkirim["obtained_at"] == "2026-11-07T14:00:00Z"
+    assert terkirim["filled_at"] == "2026-11-07T14:00:00Z"
+
+
+def test_riwayat_memuat_penimpa_dan_waktu_timpa_dalam_utc(manual):
+    """Positif: riwayat wajib menyebut siapa yang menimpa dan kapan, ISO 8601 UTC (AC5).
+
+    Dua field ini mudah hilang tanpa terdeteksi: ruff tidak mengeluh kalau nama
+    field Pydantic kembar, dan tes lain hanya memeriksa baris database, bukan
+    respons HTTP-nya.
+    """
+    ctx, session_id, attempts = manual
+    client = ctx.sebagai(Role.ADMIN)
+    attempt = attempts[0]
+
+    client.put(path(session_id), json=payload(attempt, answer_md="Jawaban lama"))
+    client.put(
+        path(session_id),
+        json=payload(attempt, answer_md="Jawaban baru", requires_confirmation=True),
+    )
+
+    response = client.get(f"{path(session_id)}/{attempt.snapshot_item_id}/1/history")
+
+    assert response.status_code == 200, response.text
+    catatan = response.json()[0]
+    assert catatan["overwritten_by"]
+    assert catatan["overwritten_at"].endswith("Z")
+    assert catatan["filled_at"].endswith("Z")
