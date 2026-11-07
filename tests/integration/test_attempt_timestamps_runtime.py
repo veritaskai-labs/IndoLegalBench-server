@@ -230,3 +230,38 @@ def test_rerun_gives_retried_attempt_fresh_timestamps_and_never_touches_successe
     assert retried.status == AttemptStatus.SUCCEEDED
     assert first_finish < _utc(retried.started_at) <= _utc(retried.finished_at)
     assert _stamps(siap.db.get(Attempt, attempt_id) for attempt_id in kept) == kept
+
+
+MARKDOWN = (
+    "\n## Jawaban\r\n\r\n**Pesangon** diatur dalam *Pasal 156*.\n\n"
+    "| Masa kerja | Uang |\n|---|---|\n| < 1 tahun | 1 bulan |\n\n"
+    "```python\nprint('§ 156')\n```\n\n<script>alert('x')</script> 😀\n\n   \n"
+)
+
+
+class MarkdownProvider(Provider):
+    def ask(self, prompt, **kwargs):
+        response = super().ask(prompt, **kwargs)
+        response.text = MARKDOWN
+        return response
+
+
+def test_markdown_answer_is_stored_and_returned_by_the_detail_api_unchanged(siap):
+    # Arrange
+    session_id = start(siap)
+    run = runner(siap, MarkdownProvider("ok"))
+
+    # Act
+    run()
+    response = siap.sebagai(Role.ADMIN).get(f"/measurements/{session_id}")
+
+    # Assert
+    siap.db.expire_all()
+    stored = siap.db.scalars(select(Attempt).where(Attempt.session_id == session_id)).all()
+    assert len(stored) == 9
+    assert {attempt.answer_text for attempt in stored} == {MARKDOWN}
+    assert response.status_code == 200
+    returned = [
+        attempt["answer_text"] for case in response.json()["cases"] for attempt in case["attempts"]
+    ]
+    assert returned == [MARKDOWN] * 9
