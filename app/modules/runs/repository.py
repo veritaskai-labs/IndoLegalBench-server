@@ -828,26 +828,27 @@ class ManualSessionRepository:
         return SessionStatus(session.status)
 
     def manual_attempts(self, session_id: uuid.UUID) -> list[ManualAttemptRow]:
-        rows = self._db.execute(
-            select(
-                Attempt.id,
-                Attempt.snapshot_item_id,
-                Attempt.repetition_no,
-                Attempt.filled_at,
-                Attempt.answered_at_platform,
-            )
+        rows = self._db.scalars(
+            select(Attempt)
             .where(Attempt.session_id == session_id)
             .order_by(Attempt.snapshot_item_id, Attempt.repetition_no)
-        )
+        ).all()
+
         return [
             ManualAttemptRow(
-                id=attempt_id,
-                snapshot_item_id=item_id,
-                repetition_no=nomor,
-                filled=filled_at is not None,
-                answered_at_platform=diperoleh,
+                id=row.id,
+                snapshot_item_id=row.snapshot_item_id,
+                repetition_no=row.repetition_no,
+                filled=row.filled_at is not None,
+                answered_at_platform=row.answered_at_platform,
+                source=row.source,
+                answer_md=row.answer_text,
+                platform_refused=row.platform_refused,
+                note=row.manual_note,
+                filled_by=row.filled_by,
+                filled_at=row.filled_at,
             )
-            for attempt_id, item_id, nomor, filled_at, diperoleh in rows
+            for row in rows
         ]
 
     def set_answer_dates(
