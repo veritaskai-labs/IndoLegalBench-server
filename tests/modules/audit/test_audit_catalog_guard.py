@@ -43,7 +43,6 @@ PENGECUALIAN = {
     "case_snapshots": "SCRUM-205: hanya INSERT, UPDATE dan DELETE ditolak trigger",
     "case_snapshot_items": "SCRUM-205: hanya INSERT; isinya salinan versi kasus yang sudah dicatat",
     "attempts": "SCRUM-205: jawaban mentah permanen (trigger); bukti panggilan di call_logs (SCRUM-209)",
-    "rubric_versions": "SCRUM-222: tracker dibuat di PR B bersama POST /rubrics, satu-satunya penulis",
     "rubric_aspects": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
     "rubric_levels": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
     "rubric_level_descriptors": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
