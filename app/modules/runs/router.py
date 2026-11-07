@@ -28,6 +28,7 @@ from app.modules.runs.schemas import (
     AttemptCalls,
     GradedSessionListItem,
     GradeSessionRequest,
+    GradingRunSummary,
     ProgressResponse,
     SessionAcceptRequest,
     SessionAcceptResponse,
@@ -52,6 +53,7 @@ from app.modules.runs.session_grade import (
     get_session_results,
     grade_session,
     list_graded_sessions,
+    list_grading_runs,
 )
 from app.modules.runs.session_list import SessionListService
 from app.modules.runs.session_retry import retry_failed_attempts
@@ -407,6 +409,17 @@ _RESPONS_GRADE = {
     },
 }
 
+_RESPONS_GRADING_RUNS = {
+    403: {
+        "model": ErrorBody,
+        "description": "Hanya Admin yang dapat melihat riwayat penilaian (`FORBIDDEN`).",
+    },
+    404: {
+        "model": ErrorBody,
+        "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+    },
+}
+
 _RESPONS_RESULTS = {
     403: {
         "model": ErrorBody,
@@ -463,6 +476,21 @@ def trigger_grade_endpoint(
         actor_role=user.role,
         now=datetime.now(UTC),
     )
+
+
+@router.get(
+    "/{session_id}/grading-runs",
+    response_model=list[GradingRunSummary],
+    summary="Riwayat penilaian sesi pengukuran, terbaru di atas (Admin)",
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+    responses=_RESPONS_GRADING_RUNS,
+)
+def list_grading_runs_endpoint(
+    session_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> list[GradingRunSummary]:
+    """Semua penilaian sesi ini, termasuk hasil lama sebelum nilai ulang (PBI-14 AC7)."""
+    return list_grading_runs(db, session_id)
 
 
 @router.get(

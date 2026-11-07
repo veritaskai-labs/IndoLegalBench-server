@@ -724,6 +724,21 @@ class SessionGradingResponse(BaseModel):
     )
 
 
+class GradingRunSummary(BaseModel):
+    """Satu baris riwayat penilaian sesi, tanpa rincian kasus (PBI-14 AC7)."""
+
+    grading_run_id: uuid.UUID
+    rubric_version: str = Field(description="Versi rubrik yang digunakan (mis. 'v1')")
+    kind: Literal["initial", "regrade"] = Field(
+        description="initial untuk penilaian pertama, regrade untuk nilai ulang"
+    )
+    status: str = Field(description="completed bila sudah selesai dinilai")
+    triggered_by: uuid.UUID = Field(description="Admin yang memicu penilaian")
+    triggered_at: datetime = Field(description="Waktu pemicuan penilaian")
+    is_latest: bool = Field(description="True bila ini hasil penilaian terbaru sesi tersebut")
+    scores: ThreeScores = Field(description="Tiga skor terpisah: dev, test, dan gabungan")
+
+
 class GradedSessionListItem(BaseModel):
     """Ringkasan sesi pengukuran selesai yang telah dinilai untuk Admin dan Viewer (PBI-14, SCRUM-226, SCRUM-227)."""
 
