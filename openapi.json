@@ -3423,19 +3423,41 @@
         "tags": [
           "measurements"
         ],
-        "summary": "Daftar sesi pengukuran yang belum diarsipkan, terbaru di atas",
+        "summary": "Daftar sesi pengukuran, terbaru di atas. archived=true menampilkan sesi arsip",
         "operationId": "list_sessions_measurements_get",
+        "parameters": [
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "default": false,
+              "title": "Archived"
+            }
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
             "content": {
               "application/json": {
                 "schema": {
+                  "type": "array",
                   "items": {
                     "$ref": "#/components/schemas/SessionListItem"
                   },
-                  "type": "array",
                   "title": "Response List Sessions Measurements Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -3449,14 +3471,14 @@
         "summary": "Mulai pengukuran: validasi ulang lalu sesi masuk antrean",
         "operationId": "start_measurements_post",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/StartRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -3618,6 +3640,79 @@
           },
           "409": {
             "description": "Sesi masih antre atau berjalan (`SESSION_NOT_ARCHIVABLE`), atau sudah diarsipkan (`SESSION_ALREADY_ARCHIVED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/measurements/{session_id}/unarchive": {
+      "patch": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Kembalikan sesi dari arsip ke daftar utama tanpa mengubah status",
+        "operationId": "unarchive_measurements__session_id__unarchive_patch",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionUnarchiveResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Peran tidak berwenang (`FORBIDDEN`), atau Developer AI memulihkan sesi buatan orang lain (`NOT_YOUR_SESSION`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sesi tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Sesi belum diarsipkan (`SESSION_NOT_ARCHIVED`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -11202,6 +11297,25 @@
         ],
         "title": "SessionStatus",
         "description": "Status sesi per D4 (otomatis) dan D8 (manual). Perpindahan sah di session_transitions.\n\npaused mencakup Jeda dari pengguna dan sesi yang dihentikan sistem (restart, deploy,\nanggaran habis); D4 tidak memisahkan Dihentikan dari Dijeda.\n\nLima status terakhir milik sesi manual (PBI-22 SCRUM-230, D9 menaruhnya di kolom yang\nsama): Belum terisi, Terisi sebagian, Lengkap, Dinilai, Selesai."
+      },
+      "SessionUnarchiveResponse": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "status"
+        ],
+        "title": "SessionUnarchiveResponse",
+        "description": "Hasil unarchive. Sesinya tampil lagi di GET /measurements, status tidak berubah (AC10)."
       },
       "SplitTag": {
         "type": "string",
