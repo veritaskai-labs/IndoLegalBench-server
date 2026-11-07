@@ -5,11 +5,13 @@
 - finished_with_failures: layak hanya bila Admin menandai terima apa adanya.
 - cancelled: tidak layak, dan tidak bisa diunduh sampai dilanjutkan dan selesai (AC7).
 - queued, running, paused, failed: tidak layak.
+- finalized (sesi manual, D8 PBI-22): layak, karena Selesai adalah penguncian final.
+  Status manual lain belum selesai diisi atau belum dikunci, jadi tidak layak.
 
 Satu fungsi murni (session_rules.is_report_eligible) dipakai GET detail sebagai
 report_eligible, supaya FE (SCRUM-220) dan laporan (PBI-15/16) memakai aturan yang sama.
 
-Partisi masukan (E3): 7 status x tanda terima (ada / tidak) = 14 kasus, lalu jalur
+Partisi masukan (E3): 12 status x tanda terima (ada / tidak) = 24 kasus, lalu jalur
 HTTP untuk pasangan yang berubah karena aksi Admin (terima, hapus tanda).
 
 Label: Positif = layak, Negatif = tidak layak, Edge = batas perilaku.
@@ -32,6 +34,10 @@ _LAYAK = {
     (SessionStatus.FINISHED, False),
     (SessionStatus.FINISHED, True),
     (SessionStatus.FINISHED_WITH_FAILURES, True),
+    # String, bukan anggota enum: StrEnum sama dengan string-nya, dan file ini tetap
+    # terkumpul sebelum enum punya status D8.
+    ("finalized", False),
+    ("finalized", True),
 }
 
 KASUS = [

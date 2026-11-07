@@ -19,6 +19,7 @@ from app.modules.runs.adapters import (
     ProductLockAdapter,
     SessionProgressAdapter,
     SnapshotSourceAdapter,
+    SuiteGuardAdapter,
 )
 from app.modules.runs.call_log import CallLogService
 from app.modules.runs.exchange_rate import (
@@ -26,9 +27,12 @@ from app.modules.runs.exchange_rate import (
     ExchangeRateProvider,
     JisdorExchangeRate,
 )
+from app.modules.runs.manual_session import ManualSessionService
+from app.modules.runs.manual_session_status import ManualSessionStatusService
 from app.modules.runs.pricing import ConfigPriceCatalog
 from app.modules.runs.repository import (
     CallLogRepository,
+    ManualSessionRepository,
     SessionListRepository,
     SessionQueueRepository,
 )
@@ -115,6 +119,22 @@ def get_start_service(
         product_lock=ProductLockAdapter(db),
         judge_lock=JudgeLockAdapter(db),
     )
+
+
+def get_manual_session_service(db: Session = Depends(get_db)) -> ManualSessionService:
+    """Kunci produk, snapshot, dan INSERT sesi manual memakai satu session database (PBI-22)."""
+    return ManualSessionService(
+        sessions=ManualSessionRepository(db),
+        snapshots=SnapshotSourceAdapter(db),
+        products=ProductCopyAdapter(db),
+        product_lock=ProductLockAdapter(db),
+        suites=SuiteGuardAdapter(db),
+    )
+
+
+def get_manual_status_service(db: Session = Depends(get_db)) -> ManualSessionStatusService:
+    """Status, Selesai, dan halaman sesi manual lewat repository (review #116)."""
+    return ManualSessionStatusService(ManualSessionRepository(db))
 
 
 def build_session_queue(db: Session) -> SessionQueue:

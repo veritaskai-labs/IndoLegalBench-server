@@ -76,6 +76,11 @@ class ProductCopy:
     price_input_usd_per_mtok: Decimal | None
     price_output_usd_per_mtok: Decimal | None
     monthly_budget_idr: Decimal | None
+    # Produk manual (PBI-23 AC3, sesi manual PBI-22): penyedia dan situs tempat tim legal
+    # bertanya. Kosong untuk produk otomatis.
+    vendor_name: str | None = None
+    site_url: str | None = None
+    manual_params: str | None = None
 
 
 class SessionQueueStore(Protocol):
@@ -132,4 +137,100 @@ class SnapshotSource(Protocol):
 class ProductCopySource(Protocol):
     def copy(self, product_id: uuid.UUID) -> ProductCopy:
         """Data produk saat ini, tanpa kredensial."""
+        raise NotImplementedError
+
+
+class SuiteGuard(Protocol):
+    def require_measurable(self, suite_ids: Sequence[uuid.UUID]) -> None:
+        """Suite ada dan tidak diarsipkan: 404 bila hilang, 409 SUITE_ARCHIVED (SCRUM-206)."""
+        raise NotImplementedError
+
+
+class ManualSessionStore(Protocol):
+    def create_manual(
+        self, new: NewSession, *, items: Sequence[SnapshotItem], product: ProductCopy
+    ) -> uuid.UUID:
+        """Sesi manual Belum terisi + suite + snapshot + salinan produk + percobaan kosong.
+
+        Satu transaksi, di session database yang sama dengan kunci produk (kontrak #90).
+        Percobaan dibuat untuk setiap kasus x percobaan, supaya progres "X dari N" dan
+        status D8 dihitung dari baris yang sama (PBI-22 AC8).
+        """
+        raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class ManualSessionRow:
+    """Kepala halaman sesi manual: sesi dan salinan produknya (PBI-22 AC8, AC12, AC13)."""
+
+    id: uuid.UUID
+    label: str
+    purpose: str
+    status: SessionStatus
+    case_filter: str
+    repetitions: int
+    created_by: uuid.UUID
+    created_at: datetime
+    answer_date_from: datetime | None
+    answer_date_to: datetime | None
+    finalized_at: datetime | None
+    finalized_by: uuid.UUID | None
+    product_name: str
+    vendor_name: str | None
+    site_url: str | None
+    manual_params: str | None
+
+
+@dataclass(frozen=True)
+class ManualCaseRow:
+    """Satu kasus snapshot; body berbentuk snapshot_body() PBI-8."""
+
+    snapshot_item_id: uuid.UUID
+    case_id: uuid.UUID
+    body: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class ManualAttemptRow:
+    """Satu percobaan manual: terisi bila filled_at ada (D9)."""
+
+    id: uuid.UUID
+    snapshot_item_id: uuid.UUID
+    repetition_no: int
+    filled: bool
+    answered_at_platform: datetime | None
+
+
+class ManualStatusStore(Protocol):
+    """Penyimpanan status sesi manual (PBI-22 SCRUM-230, review #116)."""
+
+    def lock_manual(self, session_id: uuid.UUID) -> SessionStatus | None:
+        """Kunci baris sesi sampai commit; None bila tidak ada atau bukan sesi manual."""
+        raise NotImplementedError
+
+    def manual_attempts(self, session_id: uuid.UUID) -> list[ManualAttemptRow]:
+        """Semua percobaan sesi, urut kasus lalu nomor percobaan."""
+        raise NotImplementedError
+
+    def set_answer_dates(
+        self, session_id: uuid.UUID, start: datetime | None, end: datetime | None
+    ) -> None:
+        raise NotImplementedError
+
+    def change_status(
+        self,
+        session_id: uuid.UUID,
+        target: SessionStatus,
+        *,
+        at: datetime,
+        finalized_by: uuid.UUID | None = None,
+        commit: bool,
+    ) -> None:
+        """Lewat SessionStatusRepository.change_status: tabel transisi dan audit (PBI-18)."""
+        raise NotImplementedError
+
+    def read_manual(self, session_id: uuid.UUID) -> ManualSessionRow | None:
+        raise NotImplementedError
+
+    def snapshot_cases(self, session_id: uuid.UUID) -> list[ManualCaseRow]:
         raise NotImplementedError
