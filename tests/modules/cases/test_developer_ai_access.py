@@ -124,7 +124,7 @@ def test_detail_kasus_dev_disetujui_terbuka_penuh(suite_campuran):
     assert body["case_code"] == "DEV-001"
     assert body["identity"]["title"] == "PHK sepihak"
     assert body["answer_criteria"]["expected_conclusion"] == "tidak sah"
-    assert body["traps"]
+    assert "traps" not in body
     assert body["status"] == "approved"
 
 

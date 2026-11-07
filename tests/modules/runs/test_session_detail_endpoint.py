@@ -236,8 +236,29 @@ def test_detail_memuat_semua_bagian_snapshot(as_role, sesi_campuran):
         "split_tag": "dev",
         "legal_refs": [],
         "answer_criteria": {"catatan": "kriteria sintetis"},
-        "traps": [{"catatan": "jebakan sintetis"}],
     }
+
+
+def test_detail_snapshot_lama_berisi_traps_tetap_terbaca_tanpa_traps(
+    as_role, db_session, produk, pembuat
+):
+    """Edge: snapshot dari sebelum SCRUM-256 masih punya sections["traps"], respons membuangnya."""
+    # Arrange
+    sesi = _sesi(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    snapshot = _snapshot(db_session, sesi)
+    body = _body("KASUS-LAMA", "dev", "Pertanyaan snapshot lama")
+    body["sections"]["traps"] = [{"description": "jebakan lama sintetis"}]
+    _kasus(db_session, sesi, snapshot, body, [(AttemptStatus.SUCCEEDED, "Jawaban lama")])
+
+    # Act
+    response = as_role(Role.ADMIN).get(_url(sesi.id))
+
+    # Assert
+    assert response.status_code == 200
+    lama = _per_kode(response.json()["cases"])["KASUS-LAMA"]
+    assert "traps" not in lama["sections"]
+    assert lama["sections"]["identity.question"] == "Pertanyaan snapshot lama"
+    assert "jebakan lama sintetis" not in response.text
 
 
 def test_detail_memuat_waktu_snapshot(as_role, sesi_campuran):

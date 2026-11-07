@@ -1,4 +1,4 @@
-"""Aturan perpindahan status sesi pengukuran per D4. PBI-12 AC7, AC9, SCRUM-214.
+"""Aturan perpindahan status sesi pengukuran per D4 dan D8. PBI-12 SCRUM-214, PBI-22 SCRUM-230.
 
 Satu tabel menjadi sumber kebenaran: setiap status memetakan ke himpunan status
 tujuan yang sah. Pasangan di luar tabel ditolak dengan 409 INVALID_TRANSITION.
@@ -26,6 +26,15 @@ ALLOWED_TRANSITIONS: dict[SessionStatus, frozenset[SessionStatus]] = {
     _S.FINISHED_WITH_FAILURES: frozenset({_S.RUNNING}),
     _S.FINISHED: frozenset(),
     _S.FAILED: frozenset(),
+    # D8, sesi manual. Status pengisian dihitung ulang setiap kali jawaban disimpan;
+    # jawaban pertama bisa langsung melengkapi sesi 1 kasus x 1 percobaan.
+    _S.NOT_FILLED: frozenset({_S.PARTIALLY_FILLED, _S.COMPLETE}),
+    _S.PARTIALLY_FILLED: frozenset({_S.COMPLETE}),
+    # Selesai dari Lengkap atau Dinilai: urutan Selesai dan Nilai masih TBA (keputusan
+    # SA 7 November 2026). Selesai tidak bisa dibuka kembali (PBI-22 AC8).
+    _S.COMPLETE: frozenset({_S.GRADED, _S.FINALIZED}),
+    _S.GRADED: frozenset({_S.FINALIZED}),
+    _S.FINALIZED: frozenset(),
 }
 
 

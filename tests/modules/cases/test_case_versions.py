@@ -62,7 +62,7 @@ def test_pembuat_membuat_versi_draf_tanpa_mengganti_yang_berlaku(as_role, db_ses
     assert draf["version"] == 2
     assert draf["identity"]["title"] == dibuat["identity"]["title"]
     assert draf["legal_refs"] == dibuat["legal_refs"]
-    assert draf["traps"] == dibuat["traps"]
+    assert "traps" not in draf
     berlaku = client.get(f"/cases/{dibuat['id']}").json()
     assert berlaku["status"] == "approved"
     assert berlaku["version"] == 1
