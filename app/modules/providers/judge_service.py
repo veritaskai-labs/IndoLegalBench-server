@@ -6,13 +6,22 @@ masking kredensial yang sama (crypto.py). Service tidak menyentuh HTTP.
 """
 
 import uuid
+from dataclasses import dataclass, field
+from decimal import Decimal
 from typing import NoReturn
 
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.providers import judge_repository
-from app.modules.providers.crypto import CredentialError, credential_hint, encrypt_credential
+from app.modules.providers.adapters.dispatch import build_adapter
+from app.modules.providers.adapters.safe import SafeProviderAdapter
+from app.modules.providers.crypto import (
+    CredentialError,
+    credential_hint,
+    decrypt_credential,
+    encrypt_credential,
+)
 from app.modules.providers.judge_schemas import (
     JudgeProviderCreate,
     JudgeProviderOption,
@@ -20,7 +29,7 @@ from app.modules.providers.judge_schemas import (
     JudgeProviderUpdate,
 )
 from app.modules.providers.models import JudgeProvider
-from app.shared.exceptions import ConflictError, NotFoundError, ValidationError
+from app.shared.exceptions import ConflictError, InternalError, NotFoundError, ValidationError
 
 NAME_TAKEN = "JUDGE_PROVIDER_NAME_TAKEN"
 NOT_FOUND = "JUDGE_PROVIDER_NOT_FOUND"
@@ -69,8 +78,8 @@ def update_judge(
     judge = _wajib_ada(db, judge_id)
     perubahan = payload.model_dump(exclude_unset=True)
     credential = perubahan.pop(_CREDENTIAL, None)
-    for field, value in perubahan.items():
-        setattr(judge, field, value)
+    for kolom, value in perubahan.items():
+        setattr(judge, kolom, value)
     if credential is not None:
         _isi_kredensial(judge, credential)
     return _tampilkan(judge_repository.save(db, judge))
@@ -80,6 +89,46 @@ def set_active(db: Session, judge_id: uuid.UUID, *, is_active: bool) -> JudgePro
     judge = _wajib_ada(db, judge_id)
     judge.is_active = is_active
     return _tampilkan(judge_repository.save(db, judge))
+
+
+@dataclass(frozen=True)
+class JudgeBinding:
+    """Penilai siap pakai untuk judge.run_judge (SCRUM-224).
+
+    asker sudah dibungkus SafeProviderAdapter. Harga dan anggaran milik penilai,
+    terpisah dari produk (klien No. 63 A); kurs harian disusun pemanggil menjadi
+    JudgePrices. is_active dilaporkan, tidak ditolak di sini.
+    """
+
+    judge_provider_id: uuid.UUID
+    asker: SafeProviderAdapter = field(repr=False)
+    price_input_usd_per_mtok: Decimal
+    price_output_usd_per_mtok: Decimal
+    monthly_budget_idr: Decimal
+    is_active: bool
+
+
+def build_judge(db: Session, judge_id: uuid.UUID) -> JudgeBinding:
+    """Adapter penilai dari baris judge_providers. Kredensial hanya dibuka di sini."""
+    judge = _wajib_ada(db, judge_id)
+    try:
+        secret = decrypt_credential(judge.credential_encrypted)
+    except CredentialError:
+        raise InternalError("judge credential unavailable") from None
+    adapter = build_adapter(
+        provider_type=judge.provider_type.value,
+        base_url=judge.base_url,
+        model_name=judge.model_name,
+        api_key=secret,
+    )
+    return JudgeBinding(
+        judge_provider_id=judge.id,
+        asker=SafeProviderAdapter(adapter, secret, judge.base_url),
+        price_input_usd_per_mtok=judge.price_input_usd_per_mtok,
+        price_output_usd_per_mtok=judge.price_output_usd_per_mtok,
+        monthly_budget_idr=judge.monthly_budget_idr,
+        is_active=judge.is_active,
+    )
 
 
 def judge_names(db: Session, judge_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
