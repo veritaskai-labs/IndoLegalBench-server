@@ -126,6 +126,8 @@ _TECHNICAL_FAILURE_KINDS = frozenset(
 
 logger = logging.getLogger(__name__)
 
+_PLATFORM_REFUSED_MARKER = "[Platform menolak menjawab]"
+
 RUN_COMPLETED = "completed"
 RUN_FAILED = "failed"
 JUDGE_NOT_CONFIGURED = "judge_not_configured"
@@ -161,7 +163,7 @@ def is_ai_refusal(text: str | None, failure_kind: str | None = None) -> bool:
         return True
     if not text:
         return False
-    if "[Platform menolak menjawab]" in text:
+    if _PLATFORM_REFUSED_MARKER in text:
         return True
 
     text_lower = text.lower().strip()
@@ -1617,6 +1619,19 @@ def _execute_judge_for_attempt(
         att.judge_error = str(exc)
 
 
+def _is_platform_refused(saved: bool, answer_text: str | None, failure_kind: str | None) -> bool:
+    """Opsi "Platform menolak menjawab" sesi manual (kolom D9), atau penanda lama di teks/log.
+
+    QA PBI-22 (review Elision #121): dulu hanya penanda teks yang dibaca, padahal aplikasi tidak
+    pernah menulisnya, jadi penolakan yang disimpan bersama teks jawabannya dinilai biasa.
+    """
+    return (
+        saved
+        or bool(answer_text and _PLATFORM_REFUSED_MARKER in answer_text)
+        or failure_kind == "platform_refused"
+    )
+
+
 def _build_attempt_input(
     a: Attempt,
     failure_kinds: dict[uuid.UUID, str],
@@ -1625,9 +1640,7 @@ def _build_attempt_input(
 ) -> AttemptGradeInput:
     f_kind = failure_kinds.get(a.id)
     j_err = judge_errors.get(a.id)
-    platform_refused = bool(a.answer_text and "[Platform menolak menjawab]" in a.answer_text) or (
-        f_kind == "platform_refused"
-    )
+    platform_refused = _is_platform_refused(a.platform_refused, a.answer_text, f_kind)
     j_info = (judge_data or {}).get(a.id, {})
     return AttemptGradeInput(
         attempt_id=a.id,
@@ -1800,18 +1813,36 @@ def ensure_unchanged_since_load(
     if session.archived_at is not None:
         raise ConflictError("Sesi ini sudah diarsipkan.", code="SESSION_ARCHIVED")
 
-    # Tiga kolom ini yang dibaca _build_attempt_input untuk penilaian.
+    # Kolom yang dibaca _build_attempt_input, dibandingkan dalam bentuk yang dilihat penilaian:
+    # penolakan diturunkan lewat _is_platform_refused di dua sisi, jadi teks yang kebetulan memuat
+    # penanda lama tidak membuat sesi selalu dianggap berubah.
+    loaded = {att.attempt_id: att for case in cases for att in case.attempts}
     graded = {
-        att.attempt_id: (att.answer_text, AttemptStatus(att.status), AttemptSource(att.source))
-        for case in cases
-        for att in case.attempts
+        att.attempt_id: (
+            att.answer_text,
+            AttemptStatus(att.status),
+            AttemptSource(att.source),
+            att.platform_refused,
+        )
+        for att in loaded.values()
     }
     current = {
-        row.id: (row.answer_text, AttemptStatus(row.status), AttemptSource(row.source))
+        row.id: (
+            row.answer_text,
+            AttemptStatus(row.status),
+            AttemptSource(row.source),
+            _is_platform_refused(
+                row.platform_refused, row.answer_text, loaded[row.id].failure_kind
+            ),
+        )
         for row in db.execute(
-            select(Attempt.id, Attempt.answer_text, Attempt.status, Attempt.source).where(
-                Attempt.id.in_(list(graded))
-            )
+            select(
+                Attempt.id,
+                Attempt.answer_text,
+                Attempt.status,
+                Attempt.source,
+                Attempt.platform_refused,
+            ).where(Attempt.id.in_(list(loaded)))
         )
     }
     if current != graded:
@@ -1878,7 +1909,9 @@ def grade_session(
     else:
         grading_store.save_grading_run(response)
     # D8: Lengkap -> Dinilai di transaksi yang sama dengan hasilnya; sesi otomatis tidak berubah.
-    gate.after_grading(session_id, now=now)
+    # Run tanpa satu pun skor gagal (#128) dan bukan hasil, jadi sesi tetap Lengkap untuk dicoba lagi.
+    if response.status == RUN_COMPLETED:
+        gate.after_grading(session_id, now=now)
     db.commit()
     return response
 

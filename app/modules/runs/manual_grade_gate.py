@@ -13,7 +13,8 @@ grade_session memanggil dua titik ini, di transaksi yang sama dengan hasil penil
     ...  # nilai dengan judge
     ensure_unchanged_since_load(db, session_id, cases)   # kunci sesi, cek arsip dan jawaban
     ...  # simpan hasil
-    gate.after_grading(session_id, now=now)   # tidak berbuat apa pun untuk sesi otomatis
+    if response.status == RUN_COMPLETED:   # run tanpa skor gagal (#128), sesi tetap Lengkap
+        gate.after_grading(session_id, now=now)   # tidak berbuat apa pun untuk sesi otomatis
     db.commit()
 
 before_grading tidak mengunci (review #121): penilaian memanggil LLM judge untuk setiap

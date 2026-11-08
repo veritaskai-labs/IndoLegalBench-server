@@ -21,9 +21,42 @@ from tests.modules.cases.test_cases import ADMIN_LAIN
 from tests.modules.runs.test_manual_session_detail import _sesi_manual
 
 
+class _JudgeGema:
+    """Judge palsu yang menjawab MET: yes untuk setiap kriteria di prompt.
+
+    Sejak #128 sesi tanpa penilai tidak mendapat skor sama sekali (judge_not_configured), jadi
+    tanpa judge ini setiap percobaan sudah gangguan teknis dan tes penolakan tidak membuktikan apa pun.
+    """
+
+    error = None
+    failure_kind = None
+    input_tokens = 25
+    output_tokens = 30
+    text = ""
+
+    def ask(self, prompt: str):
+        kriteria = prompt.split("Criteria:\n", 1)[1].split("\n\nGround truth:", 1)[0]
+        self.text = "".join(
+            f"CRITERION: {baris.strip()}\nMET: yes\n"
+            for baris in kriteria.splitlines()
+            if baris.strip()
+        )
+        return self
+
+
 @pytest.fixture
-def manual(siap_manual):
-    """Sesi manual 3 kasus x 1 percobaan (lengkap = 3 kali simpan) dan rubrik v1 aktif."""
+def manual(siap_manual, monkeypatch):
+    """Sesi manual 3 kasus x 1 percobaan (lengkap = 3 kali simpan) dan rubrik v1 aktif.
+
+    Penilai default-nya _JudgeGema, juga lewat endpoint; judge_asker dari tes tetap didahulukan.
+    """
+    from app.modules.runs import session_grade
+
+    monkeypatch.setattr(
+        session_grade,
+        "_resolve_active_judge_asker",
+        lambda db, session, judge_asker: (judge_asker or _JudgeGema(), None),
+    )
     siap_manual.db.add(
         RubricVersion(
             version_no=1,
@@ -142,11 +175,11 @@ def test_grade_session_tanpa_now_tetap_memakai_waktu_nyata(manual):
     assert _status(ctx.db, sesi_id) is SessionStatus.GRADED
 
 
-class _JudgeDenganSelingan:
+class _JudgeDenganSelingan(_JudgeGema):
     """Judge palsu yang menjalankan tulisan pesaing sekali, di tengah penilaian.
 
     Itu celah yang ditunjuk review Elision #121: jawaban sudah dimuat, judge berjalan, kunci
-    sesi belum diambil. Hasil judge-nya sendiri tidak penting, jadi ask() cukup gagal.
+    sesi belum diambil. Balasannya tetap sah, jadi run yang lolos cek ulang benar-benar berskor.
     """
 
     def __init__(self, selingan) -> None:
@@ -157,17 +190,18 @@ class _JudgeDenganSelingan:
         self.dipanggil += 1
         if self.dipanggil == 1:
             self._selingan()
-        raise RuntimeError("judge palsu")
+        return super().ask(prompt)
 
 
-def _timpa(client, sesi_id, attempt, jawaban: str) -> None:
+def _timpa(client, sesi_id, attempt, jawaban: str, *, menolak: bool = False) -> None:
     respons = client.put(
         f"/manual-measurements/{sesi_id}/answers",
         json={
             "snapshot_item_id": str(attempt.snapshot_item_id),
             "attempt_no": attempt.repetition_no,
             "answer_md": jawaban,
-            "platform_refused": False,
+            "platform_refused": menolak,
+            "note": "Platform menolak setelah memberi teks umum." if menolak else None,
             "confirm": True,
         },
     )
@@ -260,3 +294,112 @@ def test_simpan_ulang_isi_yang_sama_saat_judge_berjalan_tetap_dinilai(manual):
     assert judge.dipanggil >= 1
     assert _jumlah_run(ctx.db, sesi_id) == 1
     assert _status(ctx.db, sesi_id) is SessionStatus.GRADED
+
+
+def _percobaan_dinilai(respons, attempt_id) -> dict:
+    return next(
+        att
+        for kasus in respons.json()["cases"]
+        for att in kasus["attempts"]
+        if att["attempt_id"] == str(attempt_id)
+    )
+
+
+def test_penolakan_dengan_teks_jawaban_sendiri_dihitung_gangguan_teknis(manual):
+    """Negatif: QA PBI-22 (review Elision #121), kolom platform_refused dibaca saat menilai.
+
+    validate_answer mengizinkan platform_refused true bersama answer_md yang berisi teks, jadi
+    slotnya terisi dan sesi menjadi Lengkap. Dulu penilaian hanya mencari penanda teks yang tidak
+    pernah ditulis aplikasi, jadi jawaban ini dinilai seperti jawaban biasa. AC4 PBI-14:
+    penolakan platform adalah gangguan teknis, tanpa skor.
+    """
+    # Arrange
+    ctx, sesi_id, percobaan = manual
+    kontributor = ctx.sebagai(Role.CONTRIBUTOR)
+    _isi(kontributor, sesi_id, percobaan)
+    # Teks substantif, jadi heuristik penolakan dari teks (is_ai_refusal) tidak ikut menandainya.
+    teks = "Berdasarkan Pasal 156 UU 13/2003, pesangon wajib dibayar."
+    _timpa(kontributor, sesi_id, percobaan[0], teks, menolak=True)
+    assert _status(ctx.db, sesi_id) is SessionStatus.COMPLETE
+
+    # Act
+    respons = _nilai(ctx, sesi_id)
+
+    # Assert
+    assert respons.status_code == 200, respons.text
+    ditolak = _percobaan_dinilai(respons, percobaan[0].id)
+    assert ditolak["is_technical_disruption"] is True
+    assert ditolak["score"] is None
+    assert _percobaan_dinilai(respons, percobaan[1].id)["is_technical_disruption"] is False
+
+
+def test_penolakan_dicentang_saat_judge_berjalan_tidak_menyimpan_hasil(manual):
+    """Negatif: review Elision #121, platform_refused ikut dicek ulang sebelum hasil disimpan.
+
+    Teks jawabannya sama, hanya opsi penolakan yang dicentang. Judge sudah menilai jawaban itu
+    sebagai jawaban biasa, padahal sekarang harus gangguan teknis, jadi hasilnya tidak disimpan.
+    """
+    # Arrange
+    from app.shared.exceptions import ConflictError
+
+    ctx, sesi_id, percobaan = manual
+    kontributor = ctx.sebagai(Role.CONTRIBUTOR)
+    _isi(kontributor, sesi_id, percobaan)
+    sama = ctx.db.get(Attempt, percobaan[0].id).answer_text
+
+    # Act
+    with pytest.raises(ConflictError) as galat:
+        _nilai_dengan(
+            ctx, sesi_id, lambda: _timpa(kontributor, sesi_id, percobaan[0], sama, menolak=True)
+        )
+
+    # Assert
+    assert galat.value.code == "ANSWERS_CHANGED_DURING_GRADING"
+    assert _jumlah_run(ctx.db, sesi_id) == 0
+
+
+def test_jawaban_berisi_penanda_penolakan_tidak_memicu_konflik_palsu(manual):
+    """Edge: penanda lama "[Platform menolak menjawab]" di teks tetap dibaca sama di dua sisi.
+
+    Cek ulang memakai turunan yang sama dengan penilaian, bukan kolom mentah. Kalau tidak, jawaban
+    yang kebetulan memuat penanda itu selalu dianggap berubah dan sesinya tidak pernah bisa dinilai.
+    """
+    # Arrange
+    ctx, sesi_id, percobaan = manual
+    kontributor = ctx.sebagai(Role.CONTRIBUTOR)
+    _isi(kontributor, sesi_id, percobaan)
+    _timpa(kontributor, sesi_id, percobaan[0], "[Platform menolak menjawab] lalu teks umum.")
+
+    # Act
+    respons = _nilai(ctx, sesi_id)
+
+    # Assert
+    assert respons.status_code == 200, respons.text
+    assert _percobaan_dinilai(respons, percobaan[0].id)["is_technical_disruption"] is True
+    assert _status(ctx.db, sesi_id) is SessionStatus.GRADED
+
+
+def test_run_tanpa_skor_tidak_menjadikan_sesi_dinilai(manual):
+    """Negatif: D8 dengan #128, run gagal bukan hasil penilaian, jadi sesi tetap Lengkap.
+
+    Penilai gagal untuk setiap percobaan, jadi run berstatus failed dan tidak menjadi hasil
+    terbaru. Sesi yang tetap Lengkap bisa dinilai lagi; Dinilai tanpa hasil akan menyesatkan.
+    """
+    # Arrange
+    from app.modules.runs.session_grade import grade_session
+
+    class JudgeGagal:
+        def ask(self, prompt: str):
+            raise RuntimeError("penyedia penilai tidak tersedia")
+
+    ctx, sesi_id, percobaan = manual
+    _isi(ctx.sebagai(Role.CONTRIBUTOR), sesi_id, percobaan)
+
+    # Act
+    hasil = grade_session(
+        ctx.db, sesi_id, actor_id=ADMIN_LAIN, actor_role=Role.ADMIN, judge_asker=JudgeGagal()
+    )
+
+    # Assert
+    assert hasil.status == "failed"
+    assert _status(ctx.db, sesi_id) is SessionStatus.COMPLETE
