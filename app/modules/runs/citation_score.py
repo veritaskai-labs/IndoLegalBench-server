@@ -308,20 +308,55 @@ def _peraturan_pasal(
 ) -> _Kunci | None:
     berikut = next((item for item in sebutan if item.mulai >= akhir), None)
     if berikut is not None:
-        sela = jawaban[akhir : berikut.mulai]
-        if len(sela) <= _SELA_MAKS:
-            if _SELA_FRASA.fullmatch(sela):
-                return berikut.kunci
-            # "Pasal 156 UU Ketenagakerjaan, serta ... PP 35" bukan frasa ke PP.
-            # Jenis tanpa nomor menunjuk peraturan bernomor dari jenis itu.
-            kode = _kode_nama_populer(sela, pola_jenis, code_per_nama)
-            if kode is not None:
-                if berikut.kunci[0] == kode:
-                    return berikut.kunci
-                sama = [item for item in sebutan if item.akhir <= mulai and item.kunci[0] == kode]
-                return sama[-1].kunci if sama else None
-    sebelum = [item for item in sebutan if item.akhir <= mulai]
-    return sebelum[-1].kunci if sebelum else None
+        putus, kunci = _kunci_dari_sela(
+            jawaban[akhir : berikut.mulai],
+            berikut,
+            sebutan,
+            mulai,
+            pola_jenis,
+            code_per_nama,
+        )
+        if putus:
+            return kunci
+    return _peraturan_terakhir(sebutan, mulai)
+
+
+def _kunci_dari_sela(
+    sela: str,
+    berikut: _Sebutan,
+    sebutan: Sequence[_Sebutan],
+    mulai: int,
+    pola_jenis: re.Pattern[str],
+    code_per_nama: Mapping[str, str],
+) -> tuple[bool, _Kunci | None]:
+    """(True, kunci) bila sela sudah memutuskan, termasuk putusan tidak dikaitkan.
+
+    None pada putusan True berarti nama populer menyebut jenis yang tidak punya
+    peraturan bernomor, jadi pasal tidak boleh menempel ke jenis lain.
+    """
+    if len(sela) > _SELA_MAKS:
+        return False, None
+    if _SELA_FRASA.fullmatch(sela):
+        return True, berikut.kunci
+    # "Pasal 156 UU Ketenagakerjaan, serta ... PP 35" bukan frasa ke PP.
+    kode = _kode_nama_populer(sela, pola_jenis, code_per_nama)
+    if kode is None:
+        return False, None
+    if berikut.kunci[0] == kode:
+        return True, berikut.kunci
+    return True, _peraturan_terakhir(sebutan, mulai, kode)
+
+
+def _peraturan_terakhir(
+    sebutan: Sequence[_Sebutan], mulai: int, kode: str | None = None
+) -> _Kunci | None:
+    """Peraturan bernomor terakhir sebelum pasal, opsional hanya dari satu jenis."""
+    cocok = [item for item in sebutan if item.akhir <= mulai and _jenis_sama(item, kode)]
+    return cocok[-1].kunci if cocok else None
+
+
+def _jenis_sama(item: _Sebutan, kode: str | None) -> bool:
+    return kode is None or item.kunci[0] == kode
 
 
 def _kode_nama_populer(
