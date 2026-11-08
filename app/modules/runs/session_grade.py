@@ -39,7 +39,10 @@ from app.modules.cases.service import MASKED_CASE_CODE, MASKED_TITLE
 from app.modules.legal_refs.seed import load_regulation_types
 from app.modules.legal_refs.service import TypeName
 from app.modules.providers import service as providers_service
+from app.modules.runs.call_log import month_start
 from app.modules.runs.citation_score import CitationScorer
+from app.modules.runs.exchange_rate import ExchangeRateProvider
+from app.modules.runs.judge_budget import JudgeMeter, JudgeUsage, open_judge_meter
 from app.modules.runs.models import (
     Attempt,
     AttemptSource,
@@ -50,6 +53,7 @@ from app.modules.runs.models import (
     MeasurementSession,
     SessionStatus,
 )
+from app.modules.runs.repository import CallLogRepository
 from app.modules.runs.schemas import (
     AttemptGradeResult,
     CaseGradeResult,
@@ -128,6 +132,7 @@ RUN_COMPLETED = "completed"
 RUN_FAILED = "failed"
 JUDGE_NOT_CONFIGURED = "judge_not_configured"
 JUDGE_UNAVAILABLE = "judge_unavailable"
+JUDGE_BUDGET_EXHAUSTED = "judge_budget_exhausted"
 
 
 def round_two_digits(val: Decimal | float | int | None) -> Decimal | None:
@@ -558,6 +563,8 @@ class AttemptGradeInput:
     explanation: str | None = None
     reasons: list[str] = field(default_factory=list)
     criteria: list[dict[str, Any]] = field(default_factory=list)
+    # Pemakaian panggilan penilai per jenis ("quality", "format"), disimpan bersama hasilnya.
+    judge_usage: dict[str, JudgeUsage] = field(default_factory=dict)
 
 
 @dataclass
@@ -1600,15 +1607,25 @@ def _execute_judge_for_attempt(
     asker: object,
     att: AttemptGradeInput,
     case: CaseGradeInput,
+    meter: JudgeMeter | None = None,
 ) -> None:
-    """Menjalankan evaluasi penilai LLM (SCRUM-224 run_judge) untuk percobaan non-gangguan."""
+    """Menjalankan evaluasi penilai LLM (SCRUM-224 run_judge) untuk percobaan non-gangguan.
+
+    Dengan meter, biaya tiap panggilan dihitung dari harga produk penilai dan dipotong
+    dari anggaran bulanannya (SCRUM-271).
+    """
     from app.modules.runs.judge import run_judge
 
     judge_in = _build_judge_inputs(case, att.answer_text)
     try:
-        writer = run_judge(asker, judge_in, repetitions=1)
+        writer = run_judge(
+            asker, judge_in, repetitions=1, prices=None if meter is None else meter.prices
+        )
         for row in writer.rows:
             _apply_judge_row_to_attempt(att, row)
+            att.judge_usage[row.kind] = JudgeUsage.from_row(row)
+            if meter is not None:
+                meter.charge(row.cost_idr)
         if att.judge_error is None and (att.quality_score is None or att.format_score is None):
             att.judge_error = "judge_incomplete"
     except Exception as exc:
@@ -1725,17 +1742,18 @@ def _resolve_active_judge_asker(
     db: Session,
     session: MeasurementSession,
     judge_asker: object | None,
-) -> tuple[object | None, str | None]:
+) -> tuple[object | None, str | None, object | None]:
+    """Asker penilai, kode galat bila gagal, dan JudgeBinding yang dimuat (kosong bila disuntik)."""
     if judge_asker is not None:
-        return judge_asker, None
+        return judge_asker, None, None
     if session.judge_provider_id is None:
         # Sesi lama dari sebelum penilai wajib dipilih (PBI-14): gangguan teknis, bukan skip.
-        return None, JUDGE_NOT_CONFIGURED
+        return None, JUDGE_NOT_CONFIGURED, None
     try:
         from app.modules.providers.judge_service import build_judge
 
         binding = build_judge(db, session.judge_provider_id)
-        return binding.asker, None
+        return binding.asker, None, binding
     except Exception:
         # Hanya id penilai yang dicatat: pesan galat bisa memuat isi kredensial.
         logger.error(
@@ -1743,7 +1761,25 @@ def _resolve_active_judge_asker(
             session.judge_provider_id,
             exc_info=False,
         )
-        return None, JUDGE_UNAVAILABLE
+        return None, JUDGE_UNAVAILABLE, None
+
+
+def _open_judge_meter(
+    db: Session,
+    binding: object | None,
+    rates: ExchangeRateProvider | None,
+    now: datetime | None,
+) -> JudgeMeter | None:
+    """Meter harga dan anggaran produk penilai (PBI-14 AC6, SCRUM-271).
+
+    Tanpa ikatan (asker disuntik) atau tanpa penyedia kurs, biaya tidak dihitung dan
+    anggaran tidak dibatasi. Router selalu memberi penyedia kurs.
+    """
+    if binding is None or rates is None:
+        return None
+    start = month_start(now or datetime.now(UTC))
+    spent = CallLogRepository(db).sum_cost_since(binding.judge_provider_id, start)
+    return open_judge_meter(binding=binding, spent_idr=spent, rates=rates)
 
 
 def _should_grade_with_judge(att: AttemptGradeInput) -> bool:
@@ -1766,6 +1802,7 @@ def _execute_judge_for_all_cases(
     asker: object | None,
     judge_load_error: str | None,
     cases: Sequence[CaseGradeInput],
+    meter: JudgeMeter | None = None,
 ) -> None:
     if judge_load_error:
         _set_cases_judge_error(cases, judge_load_error)
@@ -1774,8 +1811,12 @@ def _execute_judge_for_all_cases(
         return
     for case in cases:
         for att in case.attempts:
-            if _should_grade_with_judge(att):
-                _execute_judge_for_attempt(asker, att, case)
+            if not _should_grade_with_judge(att):
+                continue
+            if meter is not None and not meter.has_budget():
+                att.judge_error = JUDGE_BUDGET_EXHAUSTED
+                continue
+            _execute_judge_for_attempt(asker, att, case, meter)
 
 
 def grade_session(
@@ -1788,6 +1829,7 @@ def grade_session(
     store: GradingStore | None = None,
     now: datetime | None = None,
     judge_asker: object | None = None,
+    rates: ExchangeRateProvider | None = None,
 ) -> SessionGradingResponse:
     """Memicu penilaian manual untuk sesi pengukuran (AC6, AC7)."""
     if actor_role != Role.ADMIN:
@@ -1809,8 +1851,9 @@ def grade_session(
     p_names = providers_service.product_names(db, {session.product_id})
     product_name = p_names.get(session.product_id, "")
 
-    active_asker, judge_load_error = _resolve_active_judge_asker(db, session, judge_asker)
-    _execute_judge_for_all_cases(active_asker, judge_load_error, cases)
+    active_asker, judge_load_error, binding = _resolve_active_judge_asker(db, session, judge_asker)
+    meter = _open_judge_meter(db, binding, rates, now)
+    _execute_judge_for_all_cases(active_asker, judge_load_error, cases, meter)
 
     response = grade_session_data(
         session_id=session_id,
