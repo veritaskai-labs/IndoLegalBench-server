@@ -1,0 +1,187 @@
+
+[
+  {
+    "id": "11",
+    "answer": "Hukum Indonesia berlaku berdasarkan asas most significant relationship. Pengadilan Negeri Jakarta Pusat berwenang memeriksa perkara berdasarkan Pasal 118 HIR.",
+    "legal_refs": [
+      {
+        "kind": "free_text",
+        "free_text": "KUHPerdata",
+        "links": []
+      }
+    ],
+    "expected_score": null,
+    "expected_reference_total": 0,
+    "expected_reference_correct": 0
+  },
+  {
+    "id": "12",
+    "answer": "Pasal 492 Undang-Undang Nomor 1 Tahun 2023 tentang KUHP mengatur penipuan. PKPU atau pailit dapat dipertimbangkan sebagaimana diatur dalam Pasal 2 Undang-Undang Nomor 37 Tahun 2004.",
+    "legal_refs": [
+      {
+        "kind": "free_text",
+        "free_text": "Kitab Undang-Undang Hukum Perdata",
+        "links": []
+      },
+      {
+        "kind": "structured",
+        "links": [
+          {
+            "form": "name_only",
+            "connector": "none",
+            "regulation_type": "uu",
+            "number": "1",
+            "year": 2023,
+            "pasal": null
+          }
+        ]
+      },
+      {
+        "kind": "structured",
+        "links": [
+          {
+            "form": "name_only",
+            "connector": "none",
+            "regulation_type": "uu",
+            "number": "37",
+            "year": 2004,
+            "pasal": null
+          }
+        ]
+      },
+      {
+        "kind": "free_text",
+        "free_text": "Putusan Mahkamah Agung RI No. 4/Yur/Pid/2018",
+        "links": []
+      }
+    ],
+    "expected_score": "1.00",
+    "expected_reference_total": 2,
+    "expected_reference_correct": 2
+  },
+  {
+    "id": "13",
+    "answer": "Undang-Undang Nomor 10 Tahun 2020 tentang Bea Meterai mengatur bahwa meterai merupakan pajak atas dokumen.",
+    "legal_refs": [
+      {
+        "kind": "free_text",
+        "free_text": "Kitab Undang-Undang Hukum Perdata",
+        "links": []
+      },
+      {
+        "kind": "structured",
+        "links": [
+          {
+            "form": "name_only",
+            "connector": "none",
+            "regulation_type": "uu",
+            "number": "10",
+            "year": 2020,
+            "pasal": null
+          }
+        ]
+      },
+      {
+        "kind": "free_text",
+        "free_text": "Herzien Inlandsch Reglement",
+        "links": []
+      }
+    ],
+    "expected_score": "1.00",
+    "expected_reference_total": 1,
+    "expected_reference_correct": 1
+  },
+  {
+    "id": "14",
+    "answer": "Undang-Undang Nomor 11 Tahun 2008 tentang Informasi dan Transaksi Elektronik sebagaimana telah diubah terakhir dengan Undang-Undang Nomor 1 Tahun 2024. Berdasarkan Peraturan Mahkamah Agung Nomor 13 Tahun 2016, korporasi dapat dimintai pertanggungjawaban pidana.",
+    "legal_refs": [
+      {
+        "kind": "free_text",
+        "free_text": "Kitab Undang-Undang Hukum Pidana",
+        "links": []
+      },
+      {
+        "kind": "structured",
+        "links": [
+          {
+            "form": "name_only",
+            "connector": "none",
+            "regulation_type": "uu",
+            "number": "11",
+            "year": 2008,
+            "pasal": null
+          }
+        ]
+      },
+      {
+        "kind": "free_text",
+        "free_text": "Kitab Undang-Undang Hukum Perdata",
+        "links": []
+      },
+      {
+        "kind": "structured",
+        "links": [
+          {
+            "form": "name_only",
+            "connector": "none",
+            "regulation_type": "peraturan_mahkamah_agung",
+            "number": "13",
+            "year": 2016,
+            "pasal": null
+          }
+        ]
+      }
+    ],
+    "expected_score": "1.00",
+    "expected_reference_total": 2,
+    "expected_reference_correct": 2
+  },
+  {
+    "id": "15",
+    "answer": "Pasal 54 ayat 1 huruf d Undang-Undang (UU) Nomor 13 Tahun 2003 mengatur penempatan pekerja. Jika pekerja menolak mutasi yang sah, perusahaan dapat memproses PHK berdasarkan UU Nomor 6 Tahun 2023 juncto Peraturan Pemerintah (PP) Nomor 35 Tahun 2021.",
+    "legal_refs": [
+      {
+        "kind": "structured",
+        "links": [
+          {
+            "form": "name_only",
+            "connector": "none",
+            "regulation_type": "uu",
+            "number": "13",
+            "year": 2003,
+            "pasal": null
+          }
+        ]
+      },
+      {
+        "kind": "structured",
+        "links": [
+          {
+            "form": "name_only",
+            "connector": "none",
+            "regulation_type": "pp",
+            "number": "35",
+            "year": 2021,
+            "pasal": null
+          }
+        ]
+      },
+      {
+        "kind": "structured",
+        "links": [
+          {
+            "form": "name_only",
+            "connector": "none",
+            "regulation_type": "uu",
+            "number": "6",
+            "year": 2023,
+            "pasal": null
+          }
+        ]
+      }
+    ],
+    "expected_score": "1.00",
+    "expected_reference_total": 3,
+    "expected_reference_correct": 3
+  }
+]

@@ -168,10 +168,18 @@ def is_ai_refusal(text: str | None, failure_kind: str | None = None) -> bool:
 
     text_lower = text.lower().strip()
     if any(phrase in text_lower for phrase in _REFUSAL_PHRASES):
-        if any(tr in text_lower for tr in _DISCLAIMER_TRANSITIONS):
-            return False
         if any(kw in text_lower for kw in _LEGAL_SUBSTANCE_KEYWORDS):
             return False
+
+        if any(tr in text_lower for tr in _DISCLAIMER_TRANSITIONS):
+            repeated_refusal = re.search(
+                r"\b(?:namun|tetapi|adapun|berikut|akan tetapi|meskipun demikian)\b"
+                r"[^.!?\n]{0,160}"
+                r"\bsaya\s+(?:tetap\s+)?tidak\s+(?:dapat|bisa)\s+"
+                r"(?:menjawab|membantu)\b",
+                text_lower,
+            )
+            return repeated_refusal is not None
         return len(text_lower.split()) <= 25
     return False
 
