@@ -14,7 +14,6 @@ from sqlalchemy import select
 from app.modules.runs.models import Attempt, AttemptStatus, CallLog, SessionStatus, StopReason
 from app.modules.runs.recovery import recover_after_restart
 from app.modules.runs.repository import SessionStatusRepository
-from app.modules.runs.session_control_repository import SessionControlRepository
 from app.shared.security import Role
 from tests.modules.runs.session_qa import (
     URL,
@@ -252,7 +251,21 @@ def test_lanjutkan_yang_ditolak_tidak_mengubah_percobaan_yatim(siap, monkeypatch
     SessionStatusRepository(siap.db).change_status(
         sesi_id, SessionStatus.PAUSED, at=datetime.now(UTC), stop_reason=StopReason.RESTART
     )
-    monkeypatch.setattr(SessionControlRepository, "another_running", lambda self, _id: True)
+    # SCRUM-267: a busy slot now queues the resume, so reject it through the remaining slot
+    # conflict (every commit hits the one-running index) and check that the rollback keeps
+    # the orphan attempt untouched.
+    import sqlite3
+
+    from sqlalchemy.exc import IntegrityError
+
+    def slot_taken():
+        original = sqlite3.IntegrityError(
+            "UNIQUE constraint failed: measurement_sessions.session_type"
+        )
+        original.sqlite_errorname = "SQLITE_CONSTRAINT_UNIQUE"
+        raise IntegrityError("synthetic statement", {}, original)
+
+    monkeypatch.setattr(siap.db, "commit", slot_taken)
 
     # Act
     lanjut = siap.sebagai(Role.ADMIN).post(f"{URL}/{sesi_id}/resume")

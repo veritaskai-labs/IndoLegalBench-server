@@ -99,6 +99,26 @@ def _check_version(row, copy, reads, actor, confirm_unverified_version):
     return not baseline or current is None
 
 
+class _SlotTaken(Exception):
+    """Another session took the running slot between the check and the commit."""
+
+
+def _resume_target(reads, session_id, copy, queue_only):
+    """Running only when nothing runs or waits; otherwise the back of the queue (AC8).
+
+    A never-started cancellation needs the queue's original snapshot/preparation path.
+    SCRUM-267: a resumed session never runs beside another or jumps waiting sessions.
+    """
+    if (
+        copy is None
+        or queue_only
+        or reads.another_running(session_id)
+        or reads.queue_waiting(session_id)
+    ):
+        return SessionStatus.QUEUED
+    return SessionStatus.RUNNING
+
+
 def resume_session(
     db: Session,
     session_id: uuid.UUID,
@@ -108,7 +128,26 @@ def resume_session(
     long_stop_days: int,
     confirm_unverified_version: bool = False,
 ) -> SessionResumeResponse:
-    """Reopen atomically; the existing leased dispatcher executes only pending work."""
+    """Reopen atomically; the existing leased dispatcher executes only pending work.
+
+    Losing the slot race to the worker retries once as a queue-only resume, so the
+    Admin gets Menunggu instead of a 409 (SCRUM-267).
+    """
+    options = {
+        "actor": actor,
+        "now": now,
+        "long_stop_days": long_stop_days,
+        "confirm_unverified_version": confirm_unverified_version,
+    }
+    try:
+        return _resume(db, session_id, queue_only=False, **options)
+    except _SlotTaken:
+        return _resume(db, session_id, queue_only=True, **options)
+
+
+def _resume(
+    db, session_id, *, actor, now, long_stop_days, confirm_unverified_version, queue_only
+) -> SessionResumeResponse:
     try:
         row = _controlled_session(db, session_id, actor)
         if row.status not in (SessionStatus.PAUSED, SessionStatus.CANCELLED):
@@ -121,12 +160,7 @@ def resume_session(
             # SCRUM-268: no dispatcher owns it, so the call was cut off; never resend it here.
             fail_interrupted_attempts(db, session_id, at=now)
             states = reads.attempt_states(session_id)
-        # A never-started cancellation needs the queue's original snapshot/preparation path.
-        target = SessionStatus.QUEUED if copy is None else SessionStatus.RUNNING
-        if target == SessionStatus.RUNNING and reads.another_running(session_id):
-            raise ConflictError(
-                "Sesi otomatis lain masih berjalan.", code="ANOTHER_SESSION_RUNNING"
-            )
+        target = _resume_target(reads, session_id, copy, queue_only)
         row.resumed_after_long_pause = row.resumed_after_long_pause or _long_stop(
             row.stopped_at, now, long_stop_days
         )
@@ -147,11 +181,14 @@ def resume_session(
         )
     except IntegrityError as error:
         db.rollback()
-        if is_active_slot_conflict(error):
-            raise ConflictError(
-                "Sesi otomatis lain masih berjalan.", code="ANOTHER_SESSION_RUNNING"
-            ) from None
-        raise
+        if not is_active_slot_conflict(error):
+            raise
+        if not queue_only:
+            raise _SlotTaken from None
+        # Defensive: a queued target cannot hold the slot; never report a partial write.
+        raise ConflictError(
+            "Sesi otomatis lain masih berjalan.", code="ANOTHER_SESSION_RUNNING"
+        ) from None
     except Exception:
         db.rollback()
         raise

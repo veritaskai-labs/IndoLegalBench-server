@@ -29,7 +29,10 @@ probe, that tick can defer dispatch until its next poll (normally 5 seconds).
 The probe releases the lease before returning and never dispatches paid work.
 
 Controls must use SCRUM-214 transitions. The dispatcher checks the session again
-before every call. SIGTERM/SIGINT lets the current call persist, then pauses the
+before every call. The rate-limit spacing wait between calls sleeps in slices of at most one second and
+checks the session before each slice, so Jeda/Batalkan or shutdown during that wait is
+seen within about a second and the next waiting session starts (SCRUM-267). A call that
+is already in flight still finishes first (up to the 240-second provider timeout). SIGTERM/SIGINT lets the current call persist, then pauses the
 session with reason `restart`; the 260-second Compose grace period exceeds the
 provider's 240-second timeout. Hard kills still require SCRUM-217 recovery.
 
@@ -62,8 +65,15 @@ It reopens a prepared session as `running`; the same leased dispatcher processes
 pending attempts and preserves successful/failed attempts. A cancelled session
 that never started returns to `queued`, so original preparation creates its first
 snapshot/copy. Its new queued_at intentionally puts it at the back of the queue.
-An occupied running slot returns 409 `ANOTHER_SESSION_RUNNING` with
-no partial writes. Repeated resume is 409 `SESSION_NOT_RESUMABLE`. A running attempt
+SCRUM-267: a prepared session also returns to `queued` when another automatic session
+is running or waiting, so a resume never runs beside another session or jumps the
+queue (PBI-11 AC3, PBI-12 AC8). The worker reopens it on its turn with the original
+snapshot, product copy and started_at; it is never frozen again or marked failed by a
+reopen error. If the worker takes the slot between the check and the commit, the
+unique index rejects the resume, which retries once as a queue-only resume (202
+`queued`, no partial writes). Paused and cancelled sessions hold no slot, so the next
+waiting session starts on the next worker tick. A waiting resumed session can be
+cancelled but not paused. Repeated resume is 409 `SESSION_NOT_RESUMABLE`. A running attempt
 without a live dispatcher lease is an orphan: resume marks it `technical_failure` in the
 same transaction (SCRUM-268) instead of returning 409. No automatic retry is introduced.
 
