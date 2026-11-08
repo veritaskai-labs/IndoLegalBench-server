@@ -15,6 +15,13 @@ those triggers are disabled only for that UPDATE inside this migration's
 transaction, as 4f844618b782 did. The downgrade does the same in the other
 direction: values that point to ai_products are not judge_providers ids.
 
+Clearing the old references is intended and they are not mapped to products
+(decision of 8 Nov 2026): the old judge_providers rows describe a registry that
+was empty on dev and has no admin screen, so there is nothing reliable to map
+them to. Only the pointer to the judge is lost. The grading runs, their scores
+and their judge results are not touched, so history stays readable; the judge
+name of an old run is the only detail that is no longer shown.
+
 Revision ID: a7c3e91b4d52
 Revises: d8a531f0c231
 """
