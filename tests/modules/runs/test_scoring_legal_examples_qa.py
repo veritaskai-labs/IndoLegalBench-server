@@ -70,8 +70,7 @@ def test_nama_populer_tanpa_nomor_dan_tahun_tidak_dihitung():
     assert hasil.regulation_matches[0].matched is False
 
 
-def test_rangkaian_juncto_kurang_satu_dinilai_salah():
-    """Negatif: rangkaian harus disebut lengkap, menyebut satu saja belum benar (AC2)."""
+def test_rangkaian_juncto_lengkap_dinilai_benar():
     acuan = [
         rujukan(
             link("uu", "8", 1999, "19"),
@@ -79,10 +78,14 @@ def test_rangkaian_juncto_kurang_satu_dinilai_salah():
         )
     ]
 
-    hasil = _nilai("Ganti rugi dapat dituntut sesuai Pasal 19 UU Nomor 8 Tahun 1999.", acuan)
+    jawaban = (
+        "Ganti rugi diatur dalam Pasal 19 UU Nomor 8 Tahun 1999 jo. Pasal 65 UU Nomor 7 Tahun 2014."
+    )
 
-    assert hasil.all_chained_cited is False
-    assert hasil.score == Decimal("0.00")
+    hasil = _nilai(jawaban, acuan)
+
+    assert hasil.all_chained_cited is True
+    assert hasil.score == Decimal("1.00")
 
 
 # Batas perilaku
@@ -116,8 +119,8 @@ def test_pasal_di_luar_acuan_tidak_menurunkan_skor():
     assert hasil.reference_correct == hasil.reference_total
 
 
-def test_peraturan_dicabut_tetap_dinilai_dari_acuan_kasus():
-    """Edge: penilai mengikuti rujukan di kasus, bukan status berlaku peraturannya (AC2)."""
+def test_rujukan_historis_tetap_dinilai_dari_acuan_kasus():
+    """Edge: penilaian mengikuti rujukan acuan kasus tanpa memeriksa status pencabutan."""
     acuan = [rujukan(link("uu", "11", 2008, "5"))]
 
     hasil = _nilai(

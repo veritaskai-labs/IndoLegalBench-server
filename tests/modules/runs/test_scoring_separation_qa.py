@@ -205,3 +205,20 @@ def test_endpoint_memasukkan_kasus_tanpa_kategori_ke_lain_lain():
     assert per_nama[LAIN_LAIN].case_count == 1
     assert per_nama[LAIN_LAIN].scores.deterministic == Decimal("0.00")
     assert per_nama["Zonasi"].case_count == 1
+
+
+def test_endpoint_gabungan_menggunakan_rata_rata_semua_kasus():
+    kasus = [
+        _kasus_hasil("D1", "dev", det="1.00", kualitas="5.00", format_="1.00"),
+        _kasus_hasil("D2", "dev", det="1.00", kualitas="5.00", format_="1.00"),
+        _kasus_hasil("T1", "test", det="0.00", kualitas="0.00", format_="0.00"),
+    ]
+
+    hasil = compute_three_scores(kasus)
+
+    assert hasil.dev.deterministic == Decimal("1.00")
+    assert hasil.test.deterministic == Decimal("0.00")
+    assert hasil.combined.deterministic == Decimal("0.67")
+
+    assert hasil.combined.quality == Decimal("3.33")
+    assert hasil.combined.format == Decimal("0.67")

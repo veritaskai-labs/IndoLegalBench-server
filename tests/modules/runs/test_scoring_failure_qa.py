@@ -56,25 +56,25 @@ def test_setiap_kata_sambung_penafian_menyelamatkan_jawaban(kata_sambung):
     assert is_ai_refusal(teks) is False
 
 
-@pytest.mark.xfail(
-    reason="is_ai_refusal: kata sambung penafian membebaskan penolakan sungguhan; dilaporkan sebagai bug",
-    strict=False,
-)
-def test_penolakan_berlapis_dengan_kata_sambung_tetap_gangguan_teknis():
-    """Negatif: penolakan yang disusul penolakan lagi bukan jawaban, meski memuat "Namun" (AC4).
-
-    Perilaku sekarang: is_ai_refusal mengembalikan False, jadi penolakan ini ikut dinilai dan
-    menurunkan skor produk seolah jawaban salah. Kata sambung penafian dipakai tanpa syarat,
-    padahal yang seharusnya menyelamatkan jawaban adalah substansi sesudahnya, bukan kata
-    sambungnya. Ditandai xfail, tidak strict (lihat test_auth_acceptance.py), supaya gapnya
-    tercatat di suite dan langsung hijau begitu logikanya dibetulkan.
-    """
-    teks = (
+@pytest.mark.parametrize(
+    "teks",
+    [
         "Maaf, sebagai model AI saya tidak berwenang. "
-        "Namun saya tetap tidak dapat menjawab pertanyaan ini."
-    )
-
+        "Namun saya tetap tidak dapat menjawab pertanyaan ini.",
+        "Maaf, sebagai asisten AI saya tidak berwenang. "
+        "Tetapi saya tidak bisa menjawab pertanyaan ini.",
+    ],
+)
+def test_penolakan_berlapis_dengan_kata_sambung_tetap_gangguan_teknis(teks):
     assert is_ai_refusal(teks) is True
+
+    assert (
+        check_technical_disruption(
+            status=AttemptStatus.SUCCEEDED,
+            answer_text=teks,
+        )
+        is True
+    )
 
 
 def test_penolakan_yang_menyebut_dasar_hukum_tetap_dinilai():
