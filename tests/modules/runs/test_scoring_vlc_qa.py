@@ -17,16 +17,14 @@ from app.modules.runs.citation_score import CitationScorer
 
 FIXTURE_PATH = Path(__file__).with_name("scoring_vlc_examples.json")
 
+
 def _load_vlc_examples():
     with FIXTURE_PATH.open(encoding="utf-8") as file:
         return json.load(file)
 
 
 def _nilai_vlc(jawaban, acuan):
-    jenis = {
-        item.code: TypeName(item.label, item.singkatan)
-        for item in load_regulation_types()
-    }
+    jenis = {item.code: TypeName(item.label, item.singkatan) for item in load_regulation_types()}
     return CitationScorer(jenis).score(jawaban, acuan)
 
 
