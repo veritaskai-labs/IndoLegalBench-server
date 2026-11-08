@@ -22,6 +22,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.main import app
+from app.modules.providers.models import MeasurementType
 from app.modules.runs import dependencies, exchange_rate, repository
 from app.modules.runs.models import (
     Attempt,
@@ -71,6 +72,32 @@ def _penilai_siap(sebagai, db):
     """Satu penilai aktif terdaftar; sesi wajib memilih penilai dari daftar (PBI-14)."""
     sebagai(Role.ADMIN)
     return tambah_penilai(db, ADMIN_LAIN)
+
+
+def _penilai_tidak_tersedia(db, keadaan: str) -> uuid.UUID:
+    """Id yang bukan produk otomatis aktif: tidak dikenal, nonaktif, terhapus, atau manual."""
+    if keadaan == "tidak-dikenal":
+        return uuid.uuid4()
+    if keadaan == "nonaktif":
+        return tambah_penilai(db, ADMIN_LAIN, is_active=False).id
+    if keadaan == "terhapus":
+        return tambah_penilai(db, ADMIN_LAIN, deleted_at=datetime(2026, 11, 1, tzinfo=UTC)).id
+    return tambah_penilai(
+        db,
+        ADMIN_LAIN,
+        measurement_type=MeasurementType.MANUAL,
+        provider_type=None,
+        base_url=None,
+        model_name=None,
+        credential_encrypted=None,
+        credential_hint=None,
+        rate_limit_per_minute=None,
+        price_input_usd_per_mtok=None,
+        price_output_usd_per_mtok=None,
+        monthly_budget_idr=None,
+        vendor_name="Justisio",
+        site_url="https://justisio.test",
+    ).id
 
 
 def _jumlah_sesi(db) -> int:
@@ -332,17 +359,13 @@ def test_provider_penilai_yang_dipilih_tersimpan_di_sesi(siap):
     assert tersimpan.judge_provider_id == judge
 
 
-@pytest.mark.parametrize("keadaan", ["tidak-dikenal", "nonaktif"])
+@pytest.mark.parametrize("keadaan", ["tidak-dikenal", "nonaktif", "terhapus", "manual"])
 def test_provider_penilai_tidak_tersedia_ditolak_422(siap, keadaan):
     """Negatif: SCRUM-258, dulu uuid apa pun diterima; sekarang 422 dengan field, bukan
     500 dari FK, dan tidak ada sesi yang dibuat."""
     # Arrange
     client = siap.sebagai(Role.ADMIN)
-    judge = (
-        uuid.uuid4()
-        if keadaan == "tidak-dikenal"
-        else tambah_penilai(siap.db, ADMIN_LAIN, is_active=False).id
-    )
+    judge = _penilai_tidak_tersedia(siap.db, keadaan)
 
     # Act
     response = client.post(URL, json=_badan(siap, judge_provider_id=str(judge)))
