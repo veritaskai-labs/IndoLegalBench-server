@@ -75,6 +75,7 @@ def siap_manual(as_role, buat_pengguna, db_session):
         sebagai=sebagai,
         suite_id=suite_id,
         produk=_produk_manual(db_session),
+        penilai=tambah_penilai(db_session, ADMIN_LAIN),
         db=db_session,
     )
 
@@ -87,6 +88,7 @@ def _badan(siap_manual, **ubah) -> dict:
         "case_filter": "both",
         "label": "LegalHero November",
         "purpose": "official",
+        "judge_provider_id": str(siap_manual.penilai.id),
     }
     badan.update(ubah)
     return badan
@@ -312,3 +314,18 @@ def test_sesi_manual_menyimpan_penilai_terdaftar(siap_manual):
     assert respons.status_code == 201, respons.text
     sesi = siap_manual.db.get(MeasurementSession, uuid.UUID(respons.json()["session_id"]))
     assert sesi.judge_provider_id == judge
+
+
+def test_sesi_manual_tanpa_penilai_ditolak_422_dan_tidak_membuat_sesi(siap_manual):
+    """Negatif: PBI-14, sesi manual juga wajib memilih penilai dari daftar."""
+    # Arrange
+    client = siap_manual.sebagai(Role.ADMIN)
+    badan = _badan(siap_manual)
+    del badan["judge_provider_id"]
+
+    # Act
+    respons = client.post(URL, json=badan)
+
+    # Assert
+    assert respons.status_code == 422
+    assert _jumlah(siap_manual.db, MeasurementSession) == 0

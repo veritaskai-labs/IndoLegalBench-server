@@ -379,12 +379,12 @@ class StartRequest(SummaryRequest):
         min_length=1, max_length=_PANJANG_LABEL, description="Nama sesi, wajib, maksimal 200"
     )
     purpose: MeasurementPurpose = Field(description="official = Pengukuran Resmi, trial = Uji Coba")
-    # AC1, D3 langkah 19. Opsional sampai form punya dropdown penilai (keputusan PO K2, 7 Nov);
-    # kalau diisi, StartSessionService memeriksa penilai ada dan aktif (SCRUM-258).
-    judge_provider_id: uuid.UUID | None = Field(
-        default=None,
+    # AC1, D3 langkah 19. Wajib sejak PBI-14: sesi tanpa penilai tidak punya skor kualitas dan
+    # format. Tidak ada penilai bawaan, pilihannya hanya dari penilai yang sudah terdaftar;
+    # StartSessionService memeriksa penilai ada dan aktif (SCRUM-258).
+    judge_provider_id: uuid.UUID = Field(
         description=(
-            "Provider penilai (LLM judge) dari GET /judge-providers. Boleh kosong; penilai yang "
+            "Provider penilai (LLM judge) dari GET /judge-providers. Wajib; penilai yang "
             "tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
         ),
     )
@@ -723,7 +723,9 @@ class SessionGradingResponse(BaseModel):
     kind: Literal["initial", "regrade"] = Field(
         description="initial untuk penilaian pertama, regrade untuk nilai ulang"
     )
-    status: str = Field(description="completed bila sudah selesai dinilai")
+    status: str = Field(
+        description="completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
+    )
     triggered_by: uuid.UUID = Field(description="Admin yang memicu penilaian")
     triggered_at: datetime = Field(description="Waktu pemicuan penilaian")
     is_latest: bool = Field(
@@ -746,7 +748,9 @@ class GradingRunSummary(BaseModel):
     kind: Literal["initial", "regrade"] = Field(
         description="initial untuk penilaian pertama, regrade untuk nilai ulang"
     )
-    status: str = Field(description="completed bila sudah selesai dinilai")
+    status: str = Field(
+        description="completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
+    )
     triggered_by: uuid.UUID = Field(description="Admin yang memicu penilaian")
     triggered_at: datetime = Field(description="Waktu pemicuan penilaian")
     is_latest: bool = Field(description="True bila ini hasil penilaian terbaru sesi tersebut")
