@@ -8300,7 +8300,7 @@
           "status": {
             "type": "string",
             "title": "Status",
-            "description": "completed bila sudah selesai dinilai"
+            "description": "completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
           },
           "triggered_by": {
             "type": "string",
@@ -11765,7 +11765,7 @@
           "status": {
             "type": "string",
             "title": "Status",
-            "description": "completed bila sudah selesai dinilai"
+            "description": "completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
           },
           "triggered_by": {
             "type": "string",
