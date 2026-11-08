@@ -5664,8 +5664,8 @@
         "tags": [
           "judge-providers"
         ],
-        "summary": "Daftar pilihan provider penilai aktif",
-        "description": "Untuk dropdown penilai di form pengukuran (Admin dan Developer AI). Hanya id, nama, jenis, dan model; tanpa URL, hint kredensial, harga, atau anggaran.",
+        "summary": "Daftar pilihan provider penilai (produk AI otomatis aktif)",
+        "description": "Untuk dropdown penilai di form pengukuran (Admin dan Developer AI). Isinya produk AI otomatis yang aktif dan belum dihapus, sama dengan halaman Provider. Hanya id, nama, jenis, dan model; tanpa URL, hint kredensial, harga, atau anggaran.",
         "operationId": "list_judge_options_judge_providers_get",
         "responses": {
           "200": {
