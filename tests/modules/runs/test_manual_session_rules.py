@@ -196,3 +196,48 @@ def test_hanya_selesai_yang_terhitung_berakhir(status, berakhir):
 
     # Act / Assert
     assert has_ended(status) is berakhir
+
+
+# SCRUM-233: prasyarat Nilai untuk sesi manual (AC9; dipindah dari PBI-14 AC6). D7: tombol
+# Nilai sesi manual tersedia setelah semua kasus dan percobaan terisi (status Lengkap, D8).
+
+
+@pytest.mark.parametrize("status", ["not_filled", "partially_filled"])
+def test_nilai_ditolak_selama_masih_ada_jawaban_kosong(aturan, status):
+    """Negatif: AC9, POST /measurements/{id}/grade sesi manual belum lengkap = 409 NOT_COMPLETE."""
+    # Act
+    with pytest.raises(ConflictError) as galat:
+        aturan.ensure_manual_gradable(status)
+
+    # Assert
+    assert galat.value.code == "NOT_COMPLETE"
+
+
+@pytest.mark.parametrize("status", ["complete", "graded", "finalized"])
+def test_nilai_boleh_bila_semua_terisi(aturan, status):
+    """Positif: AC9, Lengkap (nilai pertama), Dinilai (nilai ulang), Selesai lebih dulu (D8)."""
+    # Act / Assert: tidak melempar
+    aturan.ensure_manual_gradable(status)
+
+
+def test_nilai_untuk_status_sesi_otomatis_bukan_urusan_aturan_manual(aturan):
+    """Negatif: status D4 di sesi manual adalah bug data, bukan 409 untuk pengguna."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="running"):
+        aturan.ensure_manual_gradable("running")
+
+
+@pytest.mark.parametrize(
+    ("sekarang", "sesudah"),
+    [
+        ("complete", "graded"),
+        # Edge: nilai ulang tidak menulis status lagi.
+        ("graded", "graded"),
+        # Edge: Selesai final dan tidak dibuka kembali; nilainya tetap tersimpan.
+        ("finalized", "finalized"),
+    ],
+)
+def test_status_sesudah_dinilai(aturan, sekarang, sesudah):
+    """Positif: D8, Admin klik Nilai: Lengkap -> Dinilai; status lain tidak berubah."""
+    # Act / Assert
+    assert aturan.status_after_grading(sekarang) == sesudah

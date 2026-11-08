@@ -12,7 +12,7 @@ from datetime import datetime
 from decimal import Decimal
 from typing import Any, Protocol
 
-from app.modules.runs.models import AttemptSource
+from app.modules.runs.models import AttemptSource, EvidenceKind
 from app.modules.runs.schemas import CaseFilter, MeasurementPurpose, SessionStatus
 
 
@@ -42,6 +42,9 @@ class QueuedSession:
 class WaitingSession:
     id: uuid.UUID
     new: NewSession
+    # True bila sesi sudah punya snapshot dan salinan produk: Menunggu lagi setelah
+    # Lanjutkan (SCRUM-267). Giliran berikutnya membuka sesi itu, bukan membekukan ulang.
+    prepared: bool = False
 
 
 @dataclass(frozen=True)
@@ -116,6 +119,13 @@ class SessionQueueStore(Protocol):
         """Sesi queued menjadi failed (D4, kesalahan fatal sebelum mulai). False bila bukan queued."""
         raise NotImplementedError
 
+    def reopen(self, session_id: uuid.UUID, *, at: datetime) -> bool:
+        """Sesi queued yang sudah disiapkan kembali running dengan snapshot lamanya (SCRUM-267).
+
+        False bila sesi tidak lagi queued atau sesi otomatis lain sudah running.
+        """
+        raise NotImplementedError
+
 
 class ProductLock(Protocol):
     def lock_measurement_type(self, product_id: uuid.UUID) -> str:
@@ -180,6 +190,8 @@ class ManualSessionRow:
     vendor_name: str | None
     site_url: str | None
     manual_params: str | None
+    # Review #121: sesi Selesai yang diarsipkan tidak dinilai, sama seperti sesi otomatis.
+    archived_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -206,6 +218,8 @@ class ManualAttemptRow:
     note: str | None = None
     filled_by: uuid.UUID | None = None
     filled_at: datetime | None = None
+    # Review #121: jumlah bukti per jawaban di halaman sesi, supaya FE tidak N+1 panggilan.
+    evidence_count: int = 0
 
 
 @dataclass(frozen=True)
@@ -317,4 +331,104 @@ class ManualAnswerStore(ManualStatusStore, Protocol):
         raise NotImplementedError
 
     def rollback(self) -> None:
+        raise NotImplementedError
+
+
+@dataclass(frozen=True)
+class EvidenceTarget:
+    """Percobaan manual yang dituju bukti (PBI-22 SCRUM-233)."""
+
+    attempt_id: uuid.UUID
+    snapshot_item_id: uuid.UUID
+    repetition_no: int
+
+
+@dataclass(frozen=True)
+class EvidenceRow:
+    """Satu baris attempt_evidence (D9)."""
+
+    id: uuid.UUID
+    attempt_id: uuid.UUID
+    kind: EvidenceKind
+    file_key: str | None
+    file_name: str | None
+    mime_type: str | None
+    size_bytes: int | None
+    url: str | None
+    uploaded_by: uuid.UUID
+    uploaded_at: datetime
+
+
+@dataclass(frozen=True)
+class NewEvidence:
+    attempt_id: uuid.UUID
+    kind: EvidenceKind
+    uploaded_by: uuid.UUID
+    file_key: str | None = None
+    file_name: str | None = None
+    mime_type: str | None = None
+    size_bytes: int | None = None
+    url: str | None = None
+
+
+class EvidenceStore(Protocol):
+    """Baris bukti jawaban manual dan audit-nya (PBI-22 SCRUM-233)."""
+
+    def session_status(self, session_id: uuid.UUID, *, lock: bool) -> SessionStatus | None:
+        """Status sesi manual; lock=True menahan Tandai selesai sampai commit. None = bukan sesi manual."""
+        raise NotImplementedError
+
+    def find_attempt(
+        self,
+        session_id: uuid.UUID,
+        snapshot_item_id: uuid.UUID,
+        attempt_no: int,
+        *,
+        lock: bool = False,
+    ) -> EvidenceTarget | None:
+        """lock=True mengunci baris attempt (FOR UPDATE), supaya hitungan 3 bukti diserialkan."""
+        raise NotImplementedError
+
+    def evidence_for(self, attempt_id: uuid.UUID) -> list[EvidenceRow]:
+        """Bukti satu percobaan, urut waktu unggah."""
+        raise NotImplementedError
+
+    def add(self, new: NewEvidence) -> EvidenceRow:
+        raise NotImplementedError
+
+    def find_evidence(
+        self, session_id: uuid.UUID, evidence_id: uuid.UUID
+    ) -> tuple[EvidenceRow, EvidenceTarget] | None:
+        """Bukti beserta percobaannya, hanya bila milik sesi ini."""
+        raise NotImplementedError
+
+    def remove(self, evidence_id: uuid.UUID) -> None:
+        raise NotImplementedError
+
+    def record(
+        self,
+        session_id: uuid.UUID,
+        action: str,
+        *,
+        before: dict[str, Any] | None = None,
+        after: dict[str, Any] | None = None,
+    ) -> None:
+        """Satu baris audit_logs untuk sesi, di transaksi yang sama (PBI-18, D6b)."""
+        raise NotImplementedError
+
+    def commit(self) -> None:
+        raise NotImplementedError
+
+
+class EvidenceStorage(Protocol):
+    """Isi berkas bukti. Sekarang tabel evidence_files; bisa diganti object storage."""
+
+    def put(self, content: bytes) -> str:
+        """Simpan isi berkas, kembalikan file_key."""
+        raise NotImplementedError
+
+    def read(self, key: str) -> bytes | None:
+        raise NotImplementedError
+
+    def delete(self, key: str) -> None:
         raise NotImplementedError

@@ -6,6 +6,7 @@ Verifies that grade_session and save_grading_run strictly adhere to PostgreSQL t
 """
 
 import os
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,11 +21,27 @@ from app.modules.grading.models import (
     GradingRunStatus,
     LlmJudgeResult,
 )
+from app.modules.runs import session_grade
 from app.modules.runs.session_grade import grade_session
 from app.shared.database import get_db
 from app.shared.security import Role, get_current_user
 from tests.grading_pg import buat_percobaan, buat_versi_aktif
 from tests.measurement_pg import buat_admin, buat_produk, buat_sesi, ubah_status
+from tests.modules.runs.test_session_grade import _MockJudgeAsker
+
+# Balasan penilai tiruan yang memuat semua kriteria kasus di bawah (PBI-14: sesi wajib
+# punya penilai, tanpa penilai percobaan menjadi gangguan teknis).
+_BALASAN_PENILAI = (
+    "CRITERION: badan hukum\nMET: yes\n"
+    "CRITERION: pesangon\nMET: yes\n"
+    "CRITERION: Not: ilegal\nMET: yes\n"
+    "CRITERION: Conclusion: sah\nMET: yes\n"
+)
+
+
+def _penilai_tiruan() -> _MockJudgeAsker:
+    return _MockJudgeAsker(text=_BALASAN_PENILAI)
+
 
 TEST_POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "")
 
@@ -59,7 +76,9 @@ def pg():
 def _setup_pg_grade_session(conn, extra_disrupted: bool = False):
     admin_id = buat_admin(conn)
     product_id = buat_produk(conn, admin_id)
-    session_id = buat_sesi(conn, product_id, admin_id)
+    # Sesi otomatis: status D4 'finished' di bawah hanya sah untuk sesi otomatis; sesi manual
+    # berstatus D4 ditolak ManualGradeGate (review #116, wiring review Elision #121).
+    session_id = buat_sesi(conn, product_id, admin_id, session_type="automatic")
     buat_versi_aktif(conn, admin_id)
 
     body_data = {
@@ -127,13 +146,15 @@ def test_grade_session_pg_lifecycle(pg):
     admin_id, session_id, attempt_id = _setup_pg_grade_session(conn)
 
     # 1. Pemicuan penilaian awal (kind=initial)
-    res_initial = grade_session(db, session_id, actor_id=admin_id, actor_role=Role.ADMIN)
+    res_initial = grade_session(
+        db, session_id, actor_id=admin_id, actor_role=Role.ADMIN, judge_asker=_penilai_tiruan()
+    )
 
     assert res_initial.status == "completed"
     assert res_initial.kind == "initial"
     assert res_initial.is_latest is True
     assert res_initial.scores.dev.deterministic is not None
-    assert res_initial.scores.dev.quality is None
+    assert res_initial.scores.dev.quality == Decimal("1.00")
 
     # Verifikasi GradingRun di Postgres
     runs = db.scalars(
@@ -149,7 +170,9 @@ def test_grade_session_pg_lifecycle(pg):
     assert run_1.finished_at is not None
 
     # 2. Pemicuan penilaian ulang (kind=regrade)
-    res_regrade = grade_session(db, session_id, actor_id=admin_id, actor_role=Role.ADMIN)
+    res_regrade = grade_session(
+        db, session_id, actor_id=admin_id, actor_role=Role.ADMIN, judge_asker=_penilai_tiruan()
+    )
 
     assert res_regrade.status == "completed"
     assert res_regrade.kind == "regrade"
@@ -178,7 +201,9 @@ def test_grade_session_pg_technical_disruption_does_not_call_judge_guard(pg):
         conn, extra_disrupted=True
     )
 
-    res = grade_session(db, session_id, actor_id=admin_id, actor_role=Role.ADMIN)
+    res = grade_session(
+        db, session_id, actor_id=admin_id, actor_role=Role.ADMIN, judge_asker=_penilai_tiruan()
+    )
     assert res.status == "completed"
 
     # Verifikasi GradingResult di PostgreSQL
@@ -197,7 +222,7 @@ def test_grade_session_pg_technical_disruption_does_not_call_judge_guard(pg):
     assert len(judges) == 0
 
 
-def test_post_grade_endpoint_pg(pg):
+def test_post_grade_endpoint_pg(pg, monkeypatch):
     """Positif: Endpoint POST /measurements/{id}/grade berfungsi sukses di PostgreSQL."""
     db, conn = pg
     admin_id, session_id, _ = _setup_pg_grade_session(conn)
@@ -209,6 +234,11 @@ def test_post_grade_endpoint_pg(pg):
 
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: FakeAdmin()
+    monkeypatch.setattr(
+        session_grade,
+        "_resolve_active_judge_asker",
+        lambda db, session, judge_asker: (_penilai_tiruan(), None),
+    )
 
     try:
         client = TestClient(app)
@@ -222,3 +252,93 @@ def test_post_grade_endpoint_pg(pg):
     finally:
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_current_user, None)
+
+
+class _JudgeDenganSelingan:
+    """Judge palsu: tulisan pesaing dijalankan sekali saat judge berjalan, lalu gagal."""
+
+    def __init__(self, tulis) -> None:
+        self._tulis = tulis
+        self.dipanggil = 0
+
+    def ask(self, prompt: str):
+        self.dipanggil += 1
+        if self.dipanggil == 1:
+            self._tulis()
+        raise RuntimeError("judge palsu")
+
+
+def _jumlah_run(conn, session_id) -> int:
+    return conn.scalar(
+        text("SELECT count(*) FROM grading_runs WHERE session_id = :id"), {"id": session_id}
+    )
+
+
+def test_grade_session_pg_jawaban_manual_ditimpa_saat_judge_berjalan(pg):
+    """Negatif: review Elision #121 (SCRUM-233), hasil tidak tersimpan untuk jawaban lama.
+
+    Penimpaan lewat SQL mentah yang sah menurut trigger (riwayat ditulis dulu) di transaksi
+    yang sama, tanpa ORM, seperti commit Kontributor yang terlihat di READ COMMITTED.
+    """
+    # Arrange
+    from app.shared.exceptions import ConflictError
+    from tests.integration.test_manual_answer_history_pg import (
+        _archive_and_overwrite,
+        _attempt,
+        _fill_manual,
+    )
+
+    db, conn = pg
+    attempt_id, actor = _attempt(conn)
+    waktu = _fill_manual(conn, attempt_id, actor)
+    session_id = conn.scalar(
+        text("SELECT session_id FROM attempts WHERE id = :id"), {"id": attempt_id}
+    )
+    ubah_status(conn, session_id, "complete")
+    buat_versi_aktif(conn, actor)
+    judge = _JudgeDenganSelingan(
+        lambda: _archive_and_overwrite(
+            conn, attempt_id, actor, new_answer="**jawaban revisi**", new_time=waktu.replace(hour=6)
+        )
+    )
+
+    # Act
+    with pytest.raises(ConflictError) as galat:
+        grade_session(db, session_id, actor_id=actor, actor_role=Role.ADMIN, judge_asker=judge)
+
+    # Assert
+    assert judge.dipanggil == 1
+    assert galat.value.code == "ANSWERS_CHANGED_DURING_GRADING"
+    assert _jumlah_run(conn, session_id) == 0
+
+
+def test_grade_session_pg_sesi_diarsipkan_saat_judge_berjalan(pg):
+    """Negatif: review Elision #121 (SCRUM-233), arsip di tengah penilaian dicek ulang.
+
+    Berlaku juga untuk sesi otomatis: ensure_session_gradable hanya melihat arsip di awal.
+    Objek sesi di grade_session masih memegang archived_at lama, jadi tes ini gagal bila
+    baris sesi tidak dibaca ulang dengan FOR UPDATE (populate_existing).
+    """
+    # Arrange
+    from app.shared.exceptions import ConflictError
+
+    db, conn = pg
+    admin_id, session_id, _ = _setup_pg_grade_session(conn)
+    judge = _JudgeDenganSelingan(
+        lambda: conn.execute(
+            text(
+                "UPDATE measurement_sessions SET archived_at = now(), archived_by = created_by "
+                "WHERE id = :id"
+            ),
+            {"id": session_id},
+        )
+    )
+
+    # Act
+    with pytest.raises(ConflictError) as galat:
+        grade_session(db, session_id, actor_id=admin_id, actor_role=Role.ADMIN, judge_asker=judge)
+
+    # Assert
+    assert judge.dipanggil == 1
+    assert galat.value.code == "SESSION_ARCHIVED"
+    assert _jumlah_run(conn, session_id) == 0

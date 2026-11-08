@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.modules.runs.models import (
     AnswerHistory,
     Attempt,
+    AttemptEvidence,
     AttemptSource,
     AttemptStatus,
     CallLog,
@@ -313,6 +314,7 @@ class SessionListRepository:
                 status=SessionStatus(session.status),
                 case_count=cases.get(session.id),
                 attempt_counts=attempts.get(session.id, {}),
+                session_type=SessionType(session.session_type),
                 completed_cases=selesai,
                 total_cases=total,
             )
@@ -740,8 +742,12 @@ class SessionQueueRepository:
             .where(MeasurementSessionSuite.session_id == session.id)
             .order_by(MeasurementSessionSuite.suite_id)
         ).all()
+        prepared = bool(
+            self._db.scalar(select(exists().where(SessionProductCopy.session_id == session.id)))
+        )
         return WaitingSession(
             id=session.id,
+            prepared=prepared,
             new=NewSession(
                 label=session.label,
                 purpose=MeasurementPurpose(session.purpose.value),
@@ -789,6 +795,32 @@ class SessionQueueRepository:
             raise
         return True
 
+    def reopen(self, session_id: uuid.UUID, *, at: datetime) -> bool:
+        """Sesi Menunggu hasil Lanjutkan kembali running tanpa snapshot baru (SCRUM-267).
+
+        UPDATE bersyarat seperti start(): hanya dari queued, jadi sesi yang sempat
+        dibatalkan tidak ikut terbuka. started_at awal tetap; at menjadi heartbeat awal,
+        supaya cek liveness tidak menganggap sesi yang lama menunggu sebagai worker mati.
+        """
+        try:
+            dibuka = self._db.execute(
+                update(MeasurementSession)
+                .where(MeasurementSession.id == session_id, *_ANTREAN_OTOMATIS)
+                .values(status=SessionStatus.RUNNING, updated_at=at)
+                .execution_options(synchronize_session=False)
+            ).rowcount
+            if dibuka != 1:
+                self._db.rollback()
+                return False
+            _catat_status(self._db, session_id, SessionStatus.QUEUED, SessionStatus.RUNNING, None)
+            self._db.commit()
+        except Exception as exc:
+            self._db.rollback()
+            if isinstance(exc, IntegrityError) and _sesi_lain_running(exc):
+                return False
+            raise
+        return True
+
     def fail(self, session_id: uuid.UUID, *, finished_at: datetime) -> bool:
         # fail() dipanggil setelah sesuatu gagal. Di PostgreSQL bacaan yang galat
         # membatalkan seluruh transaksi, jadi buang dulu sebelum menandai sesi.
@@ -823,7 +855,7 @@ class SessionQueueRepository:
         return gagal == 1
 
 
-def _manual_attempt_row(row: Attempt) -> ManualAttemptRow:
+def _manual_attempt_row(row: Attempt, *, evidence_count: int = 0) -> ManualAttemptRow:
     """Satu bentuk baris percobaan manual untuk daftar maupun satu slot (D9)."""
     return ManualAttemptRow(
         id=row.id,
@@ -837,6 +869,7 @@ def _manual_attempt_row(row: Attempt) -> ManualAttemptRow:
         note=row.manual_note,
         filled_by=row.filled_by,
         filled_at=row.filled_at,
+        evidence_count=evidence_count,
     )
 
 
@@ -891,8 +924,17 @@ class ManualSessionRepository:
             .where(Attempt.session_id == session_id)
             .order_by(Attempt.snapshot_item_id, Attempt.repetition_no)
         ).all()
+        # Review #121: satu query hitung bukti untuk seluruh sesi (SCRUM-233).
+        evidence = dict(
+            self._db.execute(
+                select(AttemptEvidence.attempt_id, func.count())
+                .join(Attempt, Attempt.id == AttemptEvidence.attempt_id)
+                .where(Attempt.session_id == session_id)
+                .group_by(AttemptEvidence.attempt_id)
+            ).all()
+        )
 
-        return [_manual_attempt_row(row) for row in rows]
+        return [_manual_attempt_row(row, evidence_count=evidence.get(row.id, 0)) for row in rows]
 
     def is_manual_session(self, session_id: uuid.UUID) -> bool:
         """Sesi ada dan bertipe manual; dipakai riwayat untuk menjawab 404 (AC5)."""
@@ -1061,6 +1103,7 @@ class ManualSessionRepository:
             vendor_name=product.vendor_name if product else None,
             site_url=product.site_url if product else None,
             manual_params=product.manual_params if product else None,
+            archived_at=session.archived_at,
         )
 
     def snapshot_cases(self, session_id: uuid.UUID) -> list[ManualCaseRow]:

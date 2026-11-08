@@ -214,3 +214,52 @@ def test_gagal_tetap_tercatat_setelah_bacaan_yang_membatalkan_transaksi(conn, db
     assert _satu(conn, "SELECT status::text FROM measurement_sessions WHERE id = :id", sesi_id) == (
         "failed"
     )
+
+
+def _dilanjutkan_menunggu(db, siap, label: str) -> uuid.UUID:
+    """SCRUM-267: sesi berjalan, dijeda, lalu Lanjutkan saat slot terpakai (AC8)."""
+    sesi_id = siap.baru(label, repetitions=1)
+    siap.antrean.start(sesi_id, items=siap.items, product=siap.salinan, started_at=JAM)
+    status = repository.SessionStatusRepository(db)
+    status.change_status(sesi_id, "paused", at=JAM, stop_reason="user")
+    status.change_status(sesi_id, "queued", at=JAM + timedelta(minutes=1))
+    return sesi_id
+
+
+def test_reopen_memakai_snapshot_lama_lolos_trigger(conn, db, siap):
+    """Positif: SCRUM-267 AC8, queued -> running tanpa snapshot atau salinan kedua."""
+    # Arrange
+    sesi_id = _dilanjutkan_menunggu(db, siap, "Dilanjutkan PG")
+
+    # Act
+    berhasil = siap.antrean.reopen(sesi_id, at=JAM + timedelta(minutes=2))
+
+    # Assert
+    assert berhasil is True
+    assert _satu(conn, "SELECT status::text FROM measurement_sessions WHERE id = :id", sesi_id) == (
+        "running"
+    )
+    for tabel in ("case_snapshots", "session_product_copies"):
+        assert _satu(conn, f"SELECT count(*) FROM {tabel} WHERE session_id = :id", sesi_id) == 1
+
+
+def test_reopen_ditolak_partial_index_saat_sesi_lain_running(conn, db, siap):
+    """Negatif: PBI-11 AC3 di index PostgreSQL sungguhan; sesi tetap Menunggu tanpa audit."""
+    # Arrange
+    sesi_id = _dilanjutkan_menunggu(db, siap, "Dilanjutkan PG")
+    lain = siap.baru("Sedang jalan")
+    siap.antrean.start(lain, items=siap.items, product=siap.salinan, started_at=JAM)
+    audit_sebelum = _satu(conn, "SELECT count(*) FROM audit_logs WHERE entity_id = :id", sesi_id)
+
+    # Act
+    berhasil = siap.antrean.reopen(sesi_id, at=JAM + timedelta(minutes=2))
+
+    # Assert
+    assert berhasil is False
+    assert _satu(conn, "SELECT status::text FROM measurement_sessions WHERE id = :id", sesi_id) == (
+        "queued"
+    )
+    assert (
+        _satu(conn, "SELECT count(*) FROM audit_logs WHERE entity_id = :id", sesi_id)
+        == audit_sebelum
+    )

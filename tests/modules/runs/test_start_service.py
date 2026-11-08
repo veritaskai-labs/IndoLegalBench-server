@@ -67,6 +67,7 @@ def _permintaan(**ubah) -> schemas.StartRequest:
         "repeat_count": 5,
         "label": "Run Oktober",
         "purpose": "trial",
+        "judge_provider_id": JUDGE_ID,
     }
     nilai.update(ubah)
     return schemas.StartRequest(**nilai)
@@ -129,6 +130,7 @@ def test_sesi_valid_masuk_antrean_dengan_semua_pilihan_pemulai():
             case_filter=schemas.CaseFilter.DEV,
             repetitions=5,
             created_by=ADMIN_ID,
+            judge_provider_id=JUDGE_ID,
         )
     ]
 
@@ -259,20 +261,6 @@ def test_ringkasan_gagal_tidak_sampai_mengunci_produk():
 
 
 # --- Penilai LLM (SCRUM-258) ------------------------------------------------------
-
-
-def test_tanpa_penilai_tidak_mengunci_penilai():
-    """Edge: keputusan PO K2, judge_provider_id kosong tetap boleh sampai dropdown FE ada."""
-    # Arrange
-    penilai = _Penilai()
-    start, _, antrean = _service(penilai=penilai)
-
-    # Act
-    start.start(_permintaan(), created_by=ADMIN_ID)
-
-    # Assert
-    assert penilai.dikunci == []
-    assert antrean.dibuat[0].judge_provider_id is None
 
 
 def test_penilai_aktif_dikunci_lalu_disimpan_di_sesi():

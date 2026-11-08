@@ -23,7 +23,9 @@ from app.modules.cases.schemas import VersionSections
 from app.modules.runs.models import (
     AttemptSource,
     AttemptStatus,
+    EvidenceKind,
     SessionStatus,
+    SessionType,
     StopReason,
 )
 from app.shared.text import strip_blank
@@ -173,6 +175,9 @@ class SessionListItem(BaseModel):
     )
     repetitions: int
     status: SessionStatus
+    session_type: SessionType = Field(
+        description="automatic atau manual; label manual di daftar sesi (PBI-22 AC9)"
+    )
     progress: SessionProgressRead
 
 
@@ -379,12 +384,12 @@ class StartRequest(SummaryRequest):
         min_length=1, max_length=_PANJANG_LABEL, description="Nama sesi, wajib, maksimal 200"
     )
     purpose: MeasurementPurpose = Field(description="official = Pengukuran Resmi, trial = Uji Coba")
-    # AC1, D3 langkah 19. Opsional sampai form punya dropdown penilai (keputusan PO K2, 7 Nov);
-    # kalau diisi, StartSessionService memeriksa penilai ada dan aktif (SCRUM-258).
-    judge_provider_id: uuid.UUID | None = Field(
-        default=None,
+    # AC1, D3 langkah 19. Wajib sejak PBI-14: sesi tanpa penilai tidak punya skor kualitas dan
+    # format. Tidak ada penilai bawaan, pilihannya hanya dari penilai yang sudah terdaftar;
+    # StartSessionService memeriksa penilai ada dan aktif (SCRUM-258).
+    judge_provider_id: uuid.UUID = Field(
         description=(
-            "Provider penilai (LLM judge) dari GET /judge-providers. Boleh kosong; penilai yang "
+            "Provider penilai (LLM judge) dari GET /judge-providers. Wajib; penilai yang "
             "tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
         ),
     )
@@ -453,6 +458,13 @@ class ManualAttemptSlot(BaseModel):
     note: str | None = None
     filled_by: uuid.UUID | None = None
     filled_at: UtcDateTime | None = None
+    evidence_count: int | None = Field(
+        default=0,
+        description=(
+            "Jumlah bukti jawaban ini, maks 3 (AC7). null bila peran Anda tidak boleh melihat "
+            "bukti (MANUAL_EVIDENCE_VISIBILITY)"
+        ),
+    )
 
 
 class ManualCaseProgress(BaseModel):
@@ -723,7 +735,9 @@ class SessionGradingResponse(BaseModel):
     kind: Literal["initial", "regrade"] = Field(
         description="initial untuk penilaian pertama, regrade untuk nilai ulang"
     )
-    status: str = Field(description="completed bila sudah selesai dinilai")
+    status: str = Field(
+        description="completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
+    )
     triggered_by: uuid.UUID = Field(description="Admin yang memicu penilaian")
     triggered_at: datetime = Field(description="Waktu pemicuan penilaian")
     is_latest: bool = Field(
@@ -746,7 +760,9 @@ class GradingRunSummary(BaseModel):
     kind: Literal["initial", "regrade"] = Field(
         description="initial untuk penilaian pertama, regrade untuk nilai ulang"
     )
-    status: str = Field(description="completed bila sudah selesai dinilai")
+    status: str = Field(
+        description="completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
+    )
     triggered_by: uuid.UUID = Field(description="Admin yang memicu penilaian")
     triggered_at: datetime = Field(description="Waktu pemicuan penilaian")
     is_latest: bool = Field(description="True bila ini hasil penilaian terbaru sesi tersebut")
@@ -765,3 +781,20 @@ class GradedSessionListItem(BaseModel):
     rubric_version: str | None = Field(
         default=None, description="Versi rubrik yang digunakan pada penilaian terbaru (mis. 'v1')"
     )
+
+
+class EvidenceRead(BaseModel):
+    """Satu bukti jawaban manual (D9 attempt_evidence). PBI-22 AC7, SCRUM-233."""
+
+    id: uuid.UUID
+    kind: EvidenceKind
+    file_name: str | None = Field(
+        description="Nama asli berkas yang sudah dirapikan; null untuk tautan"
+    )
+    mime_type: str | None = Field(
+        description="Tipe dari isi berkas: image/png, image/jpeg, application/pdf"
+    )
+    size_bytes: int | None
+    url: str | None = Field(description="Tautan bukti; null untuk berkas")
+    uploaded_by: uuid.UUID
+    uploaded_at: UtcDateTime

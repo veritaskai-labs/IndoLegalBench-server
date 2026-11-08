@@ -18,6 +18,7 @@ from app.modules.runs import schemas
 
 SUITE_A = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
 PRODUCT = uuid.UUID("00000000-0000-0000-0000-0000000000c3")
+JUDGE = uuid.UUID("00000000-0000-0000-0000-0000000000f8")
 
 
 def _body(**ubah) -> dict:
@@ -27,6 +28,7 @@ def _body(**ubah) -> dict:
         "product_id": str(PRODUCT),
         "label": "Run Oktober DeepSeek",
         "purpose": "official",
+        "judge_provider_id": str(JUDGE),
     }
     body.update(ubah)
     return body
@@ -122,19 +124,32 @@ def test_label_dan_tujuan_tidak_boleh_dihilangkan(kolom):
         schemas.StartRequest(**body)
 
 
-JUDGE = uuid.UUID("00000000-0000-0000-0000-0000000000f8")
-
-
-def test_provider_penilai_opsional_dan_kosong_bila_tidak_dikirim():
-    """Edge: judge_providers baru ada di PBI-14, jadi Mulai tetap bisa tanpa penilai."""
+def test_provider_penilai_wajib_dikirim():
+    """Negatif: PBI-14, sesi tanpa penilai menghasilkan skor kosong, jadi kuncinya wajib ada."""
     # Arrange
     body = _body()
+    del body["judge_provider_id"]
 
     # Act
-    request = schemas.StartRequest(**body)
+    with pytest.raises(ValidationError) as galat:
+        schemas.StartRequest(**body)
 
     # Assert
-    assert request.judge_provider_id is None
+    assert galat.value.errors()[0]["loc"] == ("judge_provider_id",)
+    assert galat.value.errors()[0]["type"] == "missing"
+
+
+def test_provider_penilai_null_ditolak():
+    """Negatif: null eksplisit sama dengan tidak memilih, dan ditolak."""
+    # Arrange
+    body = _body(judge_provider_id=None)
+
+    # Act
+    with pytest.raises(ValidationError) as galat:
+        schemas.StartRequest(**body)
+
+    # Assert
+    assert galat.value.errors()[0]["loc"] == ("judge_provider_id",)
 
 
 def test_provider_penilai_yang_dipilih_diterima():

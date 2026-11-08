@@ -16,7 +16,7 @@ from unittest.mock import Mock
 import pytest
 
 from app.modules.auth.models import User
-from app.modules.runs.models import SessionStatus
+from app.modules.runs.models import SessionStatus, SessionType
 from app.modules.runs.repository import SessionListRepository
 from app.modules.runs.session_list import SessionListService, SessionRow
 from app.shared.security import Role
@@ -37,6 +37,7 @@ def _row(**ubah) -> SessionRow:
         "status": SessionStatus.FINISHED,
         "case_count": 4,
         "attempt_counts": {"succeeded": 6, "technical_failure": 2},
+        "session_type": SessionType.AUTOMATIC,
         "completed_cases": 3,
         "total_cases": 4,
     }

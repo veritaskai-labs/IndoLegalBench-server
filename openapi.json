@@ -3195,6 +3195,7 @@
           "measurements"
         ],
         "summary": "Lanjutkan sisa pekerjaan dengan guard versi dan penanda jeda panjang",
+        "description": "202 dengan status `running` bila tidak ada sesi otomatis lain yang berjalan atau menunggu. Selain itu status `queued`: sesi kembali ke belakang antrean dan worker melanjutkannya pada gilirannya, tidak pernah bersamaan dengan sesi lain (SCRUM-267).",
         "operationId": "resume_measurements__session_id__resume_post",
         "parameters": [
           {
@@ -3262,7 +3263,7 @@
             }
           },
           "409": {
-            "description": "Resume ditolak: MODEL_VERSION_CHANGED (mulai sesi baru), MODEL_VERSION_CONFIRMATION_REQUIRED (konfirmasi Admin), ATTEMPT_RECOVERY_REQUIRED, ANOTHER_SESSION_RUNNING, SESSION_NOT_RESUMABLE, SESSION_ARCHIVED, SESSION_ACCEPTED, SESSION_NOT_AUTOMATIC.",
+            "description": "Resume ditolak: MODEL_VERSION_CHANGED (mulai sesi baru), MODEL_VERSION_CONFIRMATION_REQUIRED (konfirmasi Admin), ANOTHER_SESSION_RUNNING (hanya bila slot tetap bentrok setelah dicoba ulang ke antrean), SESSION_NOT_RESUMABLE, SESSION_ARCHIVED, SESSION_ACCEPTED, SESSION_NOT_AUTOMATIC.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4104,7 +4105,7 @@
             }
           },
           "409": {
-            "description": "Sesi diarsipkan (`SESSION_ARCHIVED`) atau sesi dalam antrean belum bisa dinilai (`SESSION_NOT_GRADABLE`).",
+            "description": "Sesi diarsipkan (`SESSION_ARCHIVED`) atau sesi dalam antrean belum bisa dinilai (`SESSION_NOT_GRADABLE`). Sesi manual: masih ada jawaban kosong (`NOT_COMPLETE`) atau statusnya bukan status manual (`MANUAL_SESSION_STATUS_INVALID`). Jawaban ditimpa selama judge berjalan (`ANSWERS_CHANGED_DURING_GRADING`) atau sesi diarsipkan di tengah penilaian (`SESSION_ARCHIVED`): tidak ada hasil yang tersimpan, picu lagi.",
             "content": {
               "application/json": {
                 "schema": {
@@ -4591,6 +4592,321 @@
           },
           "404": {
             "description": "Sesi manual tidak ditemukan (`MANUAL_SESSION_NOT_FOUND`) atau jawaban tidak ada (`MANUAL_ANSWER_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/manual-measurements/{session_id}/answers/{snapshot_item_id}/{attempt_no}/evidence": {
+      "post": {
+        "tags": [
+          "manual-measurements"
+        ],
+        "summary": "Tambah bukti jawaban manual: satu berkas PNG/JPG/PDF atau satu tautan",
+        "operationId": "add_manual_evidence_manual_measurements__session_id__answers__snapshot_item_id___attempt_no__evidence_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "snapshot_item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Snapshot Item Id"
+            }
+          },
+          {
+            "name": "attempt_no",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Attempt No"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/EvidenceRead"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sesi, percobaan, atau bukti tidak ditemukan, atau peran Anda tidak boleh melihat bukti (`MANUAL_SESSION_NOT_FOUND`, `MANUAL_ATTEMPT_NOT_FOUND`, `EVIDENCE_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Sesi sudah Selesai (`MANUAL_SESSION_FINALIZED`) atau masih berstatus sesi otomatis (`MANUAL_SESSION_STATUS_INVALID`), atau sudah 3 bukti (`EVIDENCE_LIMIT_REACHED`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "413": {
+            "description": "Berkas melewati MANUAL_EVIDENCE_MAX_BYTES (`EVIDENCE_TOO_LARGE`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Bukan tepat satu berkas atau tautan (`EVIDENCE_KIND_REQUIRED`), isi berkas bukan PNG/JPG/PDF (`EVIDENCE_TYPE_NOT_ALLOWED`, `EVIDENCE_TYPE_MISMATCH`), berkas kosong (`EVIDENCE_EMPTY`), atau tautan tidak sah (`EVIDENCE_LINK_INVALID`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        },
+        "requestBody": {
+          "required": true,
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "type": "object",
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Tangkapan layar PNG/JPG atau PDF"
+                  },
+                  "url": {
+                    "type": "string",
+                    "description": "Tautan bukti, http atau https"
+                  }
+                },
+                "description": "Tepat satu dari file atau url"
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "manual-measurements"
+        ],
+        "summary": "Daftar bukti satu jawaban manual",
+        "operationId": "list_manual_evidence_manual_measurements__session_id__answers__snapshot_item_id___attempt_no__evidence_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "snapshot_item_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Snapshot Item Id"
+            }
+          },
+          {
+            "name": "attempt_no",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Attempt No"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EvidenceRead"
+                  },
+                  "title": "Response List Manual Evidence Manual Measurements  Session Id  Answers  Snapshot Item Id   Attempt No  Evidence Get"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Sesi, percobaan, atau bukti tidak ditemukan, atau peran Anda tidak boleh melihat bukti (`MANUAL_SESSION_NOT_FOUND`, `MANUAL_ATTEMPT_NOT_FOUND`, `EVIDENCE_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/manual-measurements/{session_id}/evidence/{evidence_id}/file": {
+      "get": {
+        "tags": [
+          "manual-measurements"
+        ],
+        "summary": "Unduh berkas bukti jawaban manual",
+        "operationId": "download_manual_evidence_manual_measurements__session_id__evidence__evidence_id__file_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "evidence_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Evidence Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Isi berkas, selalu sebagai lampiran",
+            "content": {
+              "image/png": {},
+              "image/jpeg": {},
+              "application/pdf": {}
+            }
+          },
+          "404": {
+            "description": "Sesi, percobaan, atau bukti tidak ditemukan, atau peran Anda tidak boleh melihat bukti (`MANUAL_SESSION_NOT_FOUND`, `MANUAL_ATTEMPT_NOT_FOUND`, `EVIDENCE_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/manual-measurements/{session_id}/evidence/{evidence_id}": {
+      "delete": {
+        "tags": [
+          "manual-measurements"
+        ],
+        "summary": "Hapus bukti jawaban manual yang salah",
+        "operationId": "delete_manual_evidence_manual_measurements__session_id__evidence__evidence_id__delete",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "evidence_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Evidence Id"
+            }
+          }
+        ],
+        "responses": {
+          "204": {
+            "description": "Successful Response"
+          },
+          "404": {
+            "description": "Sesi, percobaan, atau bukti tidak ditemukan, atau peran Anda tidak boleh melihat bukti (`MANUAL_SESSION_NOT_FOUND`, `MANUAL_ATTEMPT_NOT_FOUND`, `EVIDENCE_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Sesi sudah Selesai (`MANUAL_SESSION_FINALIZED`) atau masih berstatus sesi otomatis (`MANUAL_SESSION_STATUS_INVALID`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -8187,6 +8503,97 @@
         ],
         "title": "ErrorBody"
       },
+      "EvidenceKind": {
+        "type": "string",
+        "enum": [
+          "file",
+          "link"
+        ],
+        "title": "EvidenceKind",
+        "description": "Jenis bukti jawaban manual (D9 attempt_evidence.kind). PBI-22 AC7, SCRUM-233."
+      },
+      "EvidenceRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "kind": {
+            "$ref": "#/components/schemas/EvidenceKind"
+          },
+          "file_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "File Name",
+            "description": "Nama asli berkas yang sudah dirapikan; null untuk tautan"
+          },
+          "mime_type": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Mime Type",
+            "description": "Tipe dari isi berkas: image/png, image/jpeg, application/pdf"
+          },
+          "size_bytes": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Size Bytes"
+          },
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url",
+            "description": "Tautan bukti; null untuk berkas"
+          },
+          "uploaded_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Uploaded By"
+          },
+          "uploaded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Uploaded At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "kind",
+          "file_name",
+          "mime_type",
+          "size_bytes",
+          "url",
+          "uploaded_by",
+          "uploaded_at"
+        ],
+        "title": "EvidenceRead",
+        "description": "Satu bukti jawaban manual (D9 attempt_evidence). PBI-22 AC7, SCRUM-233."
+      },
       "ExportFormat": {
         "type": "string",
         "enum": [
@@ -8300,7 +8707,7 @@
           "status": {
             "type": "string",
             "title": "Status",
-            "description": "completed bila sudah selesai dinilai"
+            "description": "completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
           },
           "triggered_by": {
             "type": "string",
@@ -8756,6 +9163,10 @@
           "status": {
             "$ref": "#/components/schemas/SessionStatus"
           },
+          "session_type": {
+            "$ref": "#/components/schemas/SessionType",
+            "description": "automatic atau manual; label manual di daftar sesi (PBI-22 AC9)"
+          },
           "progress": {
             "$ref": "#/components/schemas/SessionProgressRead"
           }
@@ -8772,6 +9183,7 @@
           "case_count",
           "repetitions",
           "status",
+          "session_type",
           "progress"
         ],
         "title": "LatestRunSummary",
@@ -9503,6 +9915,19 @@
               }
             ],
             "title": "Filled At"
+          },
+          "evidence_count": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Evidence Count",
+            "description": "Jumlah bukti jawaban ini, maks 3 (AC7). null bila peran Anda tidak boleh melihat bukti (MANUAL_EVIDENCE_VISIBILITY)",
+            "default": 0
           }
         },
         "type": "object",
@@ -9817,17 +10242,10 @@
             "description": "official = Pengukuran Resmi, trial = Uji Coba"
           },
           "judge_provider_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "format": "uuid",
             "title": "Judge Provider Id",
-            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Boleh kosong; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
+            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Wajib; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
           }
         },
         "type": "object",
@@ -9835,7 +10253,8 @@
           "suite_ids",
           "product_id",
           "label",
-          "purpose"
+          "purpose",
+          "judge_provider_id"
         ],
         "title": "ManualStartRequest",
         "description": "Body POST /manual-measurements (PBI-22 AC1, SCRUM-230).\n\nIsian sesi otomatis diwarisi (suite, filter, label, tujuan, penilai), supaya aturan\nvalidasinya satu. Bedanya: produk harus manual, dan percobaan standar 1, bukan 3."
@@ -11547,6 +11966,10 @@
           "status": {
             "$ref": "#/components/schemas/SessionStatus"
           },
+          "session_type": {
+            "$ref": "#/components/schemas/SessionType",
+            "description": "automatic atau manual; label manual di daftar sesi (PBI-22 AC9)"
+          },
           "progress": {
             "$ref": "#/components/schemas/SessionProgressRead"
           },
@@ -11718,6 +12141,7 @@
           "case_count",
           "repetitions",
           "status",
+          "session_type",
           "progress",
           "purpose",
           "split_filter",
@@ -11789,7 +12213,7 @@
           "status": {
             "type": "string",
             "title": "Status",
-            "description": "completed bila sudah selesai dinilai"
+            "description": "completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
           },
           "triggered_by": {
             "type": "string",
@@ -11913,6 +12337,10 @@
           "status": {
             "$ref": "#/components/schemas/SessionStatus"
           },
+          "session_type": {
+            "$ref": "#/components/schemas/SessionType",
+            "description": "automatic atau manual; label manual di daftar sesi (PBI-22 AC9)"
+          },
           "progress": {
             "$ref": "#/components/schemas/SessionProgressRead"
           }
@@ -11929,6 +12357,7 @@
           "case_count",
           "repetitions",
           "status",
+          "session_type",
           "progress"
         ],
         "title": "SessionListItem",
@@ -12091,6 +12520,14 @@
         "title": "SessionStatus",
         "description": "Status sesi per D4 (otomatis) dan D8 (manual). Perpindahan sah di session_transitions.\n\npaused mencakup Jeda dari pengguna dan sesi yang dihentikan sistem (restart, deploy,\nanggaran habis); D4 tidak memisahkan Dihentikan dari Dijeda.\n\nLima status terakhir milik sesi manual (PBI-22 SCRUM-230, D9 menaruhnya di kolom yang\nsama): Belum terisi, Terisi sebagian, Lengkap, Dinilai, Selesai."
       },
+      "SessionType": {
+        "type": "string",
+        "enum": [
+          "automatic",
+          "manual"
+        ],
+        "title": "SessionType"
+      },
       "SessionUnarchiveResponse": {
         "properties": {
           "id": {
@@ -12181,17 +12618,10 @@
             "description": "official = Pengukuran Resmi, trial = Uji Coba"
           },
           "judge_provider_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "format": "uuid",
             "title": "Judge Provider Id",
-            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Boleh kosong; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
+            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Wajib; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
           }
         },
         "type": "object",
@@ -12199,7 +12629,8 @@
           "suite_ids",
           "product_id",
           "label",
-          "purpose"
+          "purpose",
+          "judge_provider_id"
         ],
         "title": "StartRequest",
         "description": "Body POST /measurements (PBI-11 AC1, SCRUM-207).\n\nIsian ringkasan diwarisi supaya Mulai divalidasi dengan aturan yang sama\nseperti Lihat ringkasan, ditambah label dan tujuan yang wajib."
