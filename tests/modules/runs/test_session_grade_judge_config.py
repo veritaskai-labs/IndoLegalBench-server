@@ -34,11 +34,14 @@ def test_asker_dari_pemanggil_dipakai_apa_adanya():
     asker = object()
 
     # Act
-    hasil, galat = session_grade._resolve_active_judge_asker(MagicMock(), _sesi(None), asker)
+    hasil, galat, ikatan = session_grade._resolve_active_judge_asker(
+        MagicMock(), _sesi(None), asker
+    )
 
     # Assert
     assert hasil is asker
     assert galat is None
+    assert ikatan is None
 
 
 def test_sesi_tanpa_penilai_ditandai_judge_not_configured():
@@ -47,11 +50,12 @@ def test_sesi_tanpa_penilai_ditandai_judge_not_configured():
     sesi = _sesi(None)
 
     # Act
-    hasil, galat = session_grade._resolve_active_judge_asker(MagicMock(), sesi, None)
+    hasil, galat, ikatan = session_grade._resolve_active_judge_asker(MagicMock(), sesi, None)
 
     # Assert
     assert hasil is None
     assert galat == "judge_not_configured"
+    assert ikatan is None
 
 
 def test_penilai_gagal_dimuat_ditandai_judge_unavailable_dan_dicatat_di_log(monkeypatch, caplog):
@@ -66,11 +70,12 @@ def test_penilai_gagal_dimuat_ditandai_judge_unavailable_dan_dicatat_di_log(monk
 
     # Act
     with caplog.at_level(logging.ERROR, logger=session_grade.__name__):
-        hasil, galat = session_grade._resolve_active_judge_asker(MagicMock(), sesi, None)
+        hasil, galat, ikatan = session_grade._resolve_active_judge_asker(MagicMock(), sesi, None)
 
     # Assert
     assert hasil is None
     assert galat == "judge_unavailable"
+    assert ikatan is None
     assert any(str(sesi.judge_provider_id) in rekam.getMessage() for rekam in caplog.records)
     assert all("kredensial rusak" not in rekam.getMessage() for rekam in caplog.records)
 
@@ -82,11 +87,14 @@ def test_penilai_terdaftar_dimuat_dari_database(monkeypatch):
     monkeypatch.setattr("app.modules.providers.judge_service.build_judge", lambda db, j: ikatan)
 
     # Act
-    hasil, galat = session_grade._resolve_active_judge_asker(MagicMock(), _sesi(uuid.uuid4()), None)
+    hasil, galat, dimuat = session_grade._resolve_active_judge_asker(
+        MagicMock(), _sesi(uuid.uuid4()), None
+    )
 
     # Assert
     assert hasil is ikatan.asker
     assert galat is None
+    assert dimuat is ikatan
 
 
 def test_grade_sesi_tanpa_penilai_menandai_percobaan_gangguan_teknis(

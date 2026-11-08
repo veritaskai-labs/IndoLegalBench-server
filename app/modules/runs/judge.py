@@ -81,7 +81,10 @@ class JudgeRow:
     reason_id: str | None = None
     error: str | None = None
     failure_kind: str | None = None
+    input_tokens: int | None = None
+    output_tokens: int | None = None
     cost_idr: Decimal | None = None
+    usd_idr_rate: Decimal | None = None
 
 
 @dataclass
@@ -149,7 +152,10 @@ def _row(
         reason_id=reason_id,
         error=error,
         failure_kind=failure_kind,
+        input_tokens=response.input_tokens,
+        output_tokens=response.output_tokens,
         cost_idr=_cost(response, prices),
+        usd_idr_rate=None if prices is None else prices.usd_idr_rate,
     )
 
 

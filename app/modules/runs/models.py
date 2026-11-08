@@ -50,6 +50,7 @@ from app.shared.text import sql_not_blank
 _JSONB = JSON().with_variant(JSONB(), "postgresql")
 _USER_FK = "users.id"
 _SESSION_FK = "measurement_sessions.id"
+_PRODUCT_FK = "ai_products.id"
 
 
 def _enum_values(members) -> list[str]:
@@ -192,18 +193,18 @@ class MeasurementSession(Base):
     )
     # FK lewat nama tabel, bukan import model providers. Batas modul tetap utuh.
     product_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("ai_products.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey(_PRODUCT_FK), nullable=False
     )
     repetitions: Mapped[int] = mapped_column(SmallInteger, nullable=False)
     split_filter: Mapped[SplitFilter] = mapped_column(
         _enum(SplitFilter, "measurement_split_filter_enum"), nullable=False
     )
-    # Penilai LLM (AC1), dipilih saat membuat sesi. Boleh kosong sampai form punya
-    # dropdown penilai (keputusan PO 7 Nov, SCRUM-258).
+    # Penilai LLM (AC1): produk AI otomatis yang dipilih saat membuat sesi (SCRUM-271).
+    # Boleh kosong untuk sesi lama yang dibuat sebelum penilai wajib dipilih (PBI-14).
     judge_provider_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey(
-            "judge_providers.id",
+            _PRODUCT_FK,
             name="fk_measurement_sessions_judge_provider",
             ondelete="RESTRICT",
         ),
@@ -290,7 +291,7 @@ class SessionProductCopy(Base):
         Uuid(as_uuid=True), ForeignKey(_SESSION_FK), nullable=False, unique=True
     )
     product_id: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("ai_products.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey(_PRODUCT_FK), nullable=False
     )
     name: Mapped[str] = mapped_column(String(200), nullable=False)
     # Tipe enum milik ai_products (PBI-10, PBI-23), ditulis ulang supaya tidak

@@ -34,7 +34,7 @@ from tests.grading_pg import (
     selesaikan_run,
     ubah_run,
 )
-from tests.judge_pg import buat_penilai
+from tests.judge_pg import buat_produk_penilai
 from tests.measurement_pg import (
     CHECK_VIOLATION,
     FOREIGN_KEY_VIOLATION,
@@ -160,8 +160,8 @@ def test_run_memakai_versi_yang_sudah_dinonaktifkan(conn, sesi_id, admin_id):
 
 @pytest.mark.parametrize("ada_penilai", [False, True], ids=["kosong", "penilai-terdaftar"])
 def test_run_menyimpan_penilai_atau_kosong(conn, sesi_id, versi_id, admin_id, ada_penilai):
-    """SCRUM-258: penilai sekarang ber-FK ke judge_providers; kosong tetap boleh."""
-    penilai = buat_penilai(conn, admin_id) if ada_penilai else None
+    """SCRUM-271: penilai ber-FK ke ai_products (produk otomatis); kosong tetap boleh."""
+    penilai = buat_produk_penilai(conn, admin_id) if ada_penilai else None
     run = buat_run(conn, sesi_id, versi_id, admin_id, judge_provider_id=penilai)
 
     tersimpan = conn.execute(
@@ -303,7 +303,7 @@ def test_identitas_run_tidak_bisa_diubah(conn, run_id, kolom):
     if kolom == "triggered_by":
         nilai = buat_admin(conn)
     elif kolom == "judge_provider_id":
-        nilai = buat_penilai(conn, buat_admin(conn))
+        nilai = buat_produk_penilai(conn, buat_admin(conn))
     else:
         nilai = uuid.uuid4()
 

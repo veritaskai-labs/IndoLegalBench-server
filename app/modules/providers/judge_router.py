@@ -118,10 +118,11 @@ def activate_judge(judge_id: uuid.UUID, db: Session = Depends(get_db)) -> JudgeP
 @options_router.get(
     "",
     response_model=list[JudgeProviderOption],
-    summary="Daftar pilihan provider penilai aktif",
+    summary="Daftar pilihan provider penilai (produk AI otomatis aktif)",
     description=(
-        "Untuk dropdown penilai di form pengukuran (Admin dan Developer AI). Hanya id, "
-        "nama, jenis, dan model; tanpa URL, hint kredensial, harga, atau anggaran."
+        "Untuk dropdown penilai di form pengukuran (Admin dan Developer AI). Isinya produk AI "
+        "otomatis yang aktif dan belum dihapus, sama dengan halaman Provider. Hanya id, nama, "
+        "jenis, dan model; tanpa URL, hint kredensial, harga, atau anggaran."
     ),
     responses={403: {"model": ErrorBody, "description": "Peran tidak berwenang."}},
     dependencies=[Depends(require_roles(Role.ADMIN, Role.DEVELOPER_AI))],
