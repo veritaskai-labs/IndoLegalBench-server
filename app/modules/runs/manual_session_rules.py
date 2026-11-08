@@ -26,6 +26,8 @@ _FILLING = frozenset({_S.NOT_FILLED, _S.PARTIALLY_FILLED, _S.COMPLETE})
 _STILL_FILLING = frozenset({_S.NOT_FILLED, _S.PARTIALLY_FILLED, _S.COMPLETE, _S.GRADED})
 # Urutan Selesai dan Nilai masih TBA, jadi keduanya boleh (keputusan SA 7 November 2026).
 _FINALIZABLE = frozenset({_S.COMPLETE, _S.GRADED})
+# SCRUM-233: semua jawaban terisi. Selesai ikut, karena D8 membolehkan Selesai sebelum Nilai.
+_GRADABLE = frozenset({_S.COMPLETE, _S.GRADED, _S.FINALIZED})
 
 _FINALIZED_MESSAGE = "Sesi manual sudah ditandai selesai dan tidak dapat dibuka kembali."
 
@@ -67,6 +69,24 @@ def ensure_finalizable(status: SessionStatus | str) -> None:
             "Sesi hanya dapat ditandai selesai bila semua kasus dan percobaan sudah terisi.",
             code="MANUAL_SESSION_INCOMPLETE",
         )
+
+
+def ensure_manual_gradable(status: SessionStatus | str) -> None:
+    """Prasyarat Nilai sesi manual: semua kasus dan percobaan terisi (AC9, D7, SCRUM-233)."""
+    status = SessionStatus(status)
+    if status not in MANUAL_STATUSES:
+        raise ValueError(f"{status.value} is not a manual session status")
+    if status not in _GRADABLE:
+        raise ConflictError(
+            "Sesi manual baru bisa dinilai setelah semua kasus dan percobaan terisi.",
+            code="NOT_COMPLETE",
+        )
+
+
+def status_after_grading(status: SessionStatus | str) -> SessionStatus:
+    """D8: Admin klik Nilai memindahkan Lengkap ke Dinilai; nilai ulang tidak menulis status."""
+    status = SessionStatus(status)
+    return _S.GRADED if status is _S.COMPLETE else status
 
 
 def ensure_answers_open(status: SessionStatus | str) -> None:

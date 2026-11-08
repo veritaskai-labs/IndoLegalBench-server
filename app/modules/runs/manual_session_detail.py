@@ -28,9 +28,10 @@ def build_manual_detail(
     *,
     unfilled_only: bool,
     warning_days: int | None,
+    show_evidence: bool,
 ) -> ManualSessionDetail:
 
-    slots = _slots_per_case(attempts)
+    slots = _slots_per_case(attempts, show_evidence=show_evidence)
     cards = sorted(
         (_card(case, slots[case.snapshot_item_id]) for case in cases),
         key=lambda card: card.case_code,
@@ -62,7 +63,7 @@ def build_manual_detail(
 
 
 def _slots_per_case(
-    attempts: Sequence[ManualAttemptRow],
+    attempts: Sequence[ManualAttemptRow], *, show_evidence: bool
 ) -> dict[uuid.UUID, list[ManualAttemptSlot]]:
     slots: dict[uuid.UUID, list[ManualAttemptSlot]] = defaultdict(list)
     for attempt in sorted(attempts, key=lambda a: (a.snapshot_item_id, a.repetition_no)):
@@ -78,6 +79,9 @@ def _slots_per_case(
                 note=attempt.note,
                 filled_by=attempt.filled_by,
                 filled_at=attempt.filled_at,
+                # Review Elision #121: null, bukan 0, bagi yang tidak boleh melihat bukti,
+                # supaya angkanya tidak membocorkan bukti yang daftarnya dijawab 404.
+                evidence_count=attempt.evidence_count if show_evidence else None,
             )
         )
     return slots

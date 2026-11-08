@@ -23,7 +23,9 @@ from app.modules.cases.schemas import VersionSections
 from app.modules.runs.models import (
     AttemptSource,
     AttemptStatus,
+    EvidenceKind,
     SessionStatus,
+    SessionType,
     StopReason,
 )
 from app.shared.text import strip_blank
@@ -173,6 +175,9 @@ class SessionListItem(BaseModel):
     )
     repetitions: int
     status: SessionStatus
+    session_type: SessionType = Field(
+        description="automatic atau manual; label manual di daftar sesi (PBI-22 AC9)"
+    )
     progress: SessionProgressRead
 
 
@@ -453,6 +458,13 @@ class ManualAttemptSlot(BaseModel):
     note: str | None = None
     filled_by: uuid.UUID | None = None
     filled_at: UtcDateTime | None = None
+    evidence_count: int | None = Field(
+        default=0,
+        description=(
+            "Jumlah bukti jawaban ini, maks 3 (AC7). null bila peran Anda tidak boleh melihat "
+            "bukti (MANUAL_EVIDENCE_VISIBILITY)"
+        ),
+    )
 
 
 class ManualCaseProgress(BaseModel):
@@ -769,3 +781,20 @@ class GradedSessionListItem(BaseModel):
     rubric_version: str | None = Field(
         default=None, description="Versi rubrik yang digunakan pada penilaian terbaru (mis. 'v1')"
     )
+
+
+class EvidenceRead(BaseModel):
+    """Satu bukti jawaban manual (D9 attempt_evidence). PBI-22 AC7, SCRUM-233."""
+
+    id: uuid.UUID
+    kind: EvidenceKind
+    file_name: str | None = Field(
+        description="Nama asli berkas yang sudah dirapikan; null untuk tautan"
+    )
+    mime_type: str | None = Field(
+        description="Tipe dari isi berkas: image/png, image/jpeg, application/pdf"
+    )
+    size_bytes: int | None
+    url: str | None = Field(description="Tautan bukti; null untuk berkas")
+    uploaded_by: uuid.UUID
+    uploaded_at: UtcDateTime

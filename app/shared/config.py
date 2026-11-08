@@ -6,7 +6,7 @@ dari dalam modul, selalu lewat get_settings() supaya sumbernya satu.
 
 from decimal import Decimal
 from functools import lru_cache
-from typing import Annotated
+from typing import Annotated, Literal
 
 from pydantic import Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
@@ -69,6 +69,13 @@ class Settings(BaseSettings):
     # PBI-22 AC13: batas hari peringatan rentang tanggal jawaban sesi manual. Klien memilih
     # ada peringatan tetapi belum menyebut angkanya (TBA); kosong = peringatan mati.
     manual_answer_date_warning_days: int | None = Field(default=None, ge=1)
+
+    # PBI-22 AC7 (SCRUM-233): bukti jawaban manual. Ukuran bebas dengan batas teknis tim;
+    # 10 MB cukup untuk tangkapan layar dan PDF percakapan, dan tetap ringan di PostgreSQL.
+    manual_evidence_max_bytes: int = Field(default=10 * 1024 * 1024, ge=1)
+    # Siapa yang boleh melihat bukti masih TBA (D9 [PENDING]). session_viewers = semua yang
+    # bisa membuka sesi manual (Admin, Kontributor); admin_only = Admin saja.
+    manual_evidence_visibility: Literal["session_viewers", "admin_only"] = "session_viewers"
 
     # PBI-18 AC7: koneksi role ilb_retention, khusus job retensi. Bukan DATABASE_URL:
     # role aplikasi tidak pernah boleh menghapus audit log.

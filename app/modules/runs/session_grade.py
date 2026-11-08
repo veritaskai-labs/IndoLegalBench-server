@@ -40,6 +40,7 @@ from app.modules.legal_refs.seed import load_regulation_types
 from app.modules.legal_refs.service import TypeName
 from app.modules.providers import service as providers_service
 from app.modules.runs.citation_score import CitationScorer
+from app.modules.runs.manual_grade_gate import ManualGradeGate
 from app.modules.runs.models import (
     Attempt,
     AttemptSource,
@@ -50,6 +51,7 @@ from app.modules.runs.models import (
     MeasurementSession,
     SessionStatus,
 )
+from app.modules.runs.repository import ManualSessionRepository, get_session_for_update
 from app.modules.runs.schemas import (
     AttemptGradeResult,
     CaseGradeResult,
@@ -124,6 +126,8 @@ _TECHNICAL_FAILURE_KINDS = frozenset(
 
 logger = logging.getLogger(__name__)
 
+_PLATFORM_REFUSED_MARKER = "[Platform menolak menjawab]"
+
 RUN_COMPLETED = "completed"
 RUN_FAILED = "failed"
 JUDGE_NOT_CONFIGURED = "judge_not_configured"
@@ -159,7 +163,7 @@ def is_ai_refusal(text: str | None, failure_kind: str | None = None) -> bool:
         return True
     if not text:
         return False
-    if "[Platform menolak menjawab]" in text:
+    if _PLATFORM_REFUSED_MARKER in text:
         return True
 
     text_lower = text.lower().strip()
@@ -1615,6 +1619,19 @@ def _execute_judge_for_attempt(
         att.judge_error = str(exc)
 
 
+def _is_platform_refused(saved: bool, answer_text: str | None, failure_kind: str | None) -> bool:
+    """Opsi "Platform menolak menjawab" sesi manual (kolom D9), atau penanda lama di teks/log.
+
+    QA PBI-22 (review Elision #121): dulu hanya penanda teks yang dibaca, padahal aplikasi tidak
+    pernah menulisnya, jadi penolakan yang disimpan bersama teks jawabannya dinilai biasa.
+    """
+    return (
+        saved
+        or bool(answer_text and _PLATFORM_REFUSED_MARKER in answer_text)
+        or failure_kind == "platform_refused"
+    )
+
+
 def _build_attempt_input(
     a: Attempt,
     failure_kinds: dict[uuid.UUID, str],
@@ -1623,9 +1640,7 @@ def _build_attempt_input(
 ) -> AttemptGradeInput:
     f_kind = failure_kinds.get(a.id)
     j_err = judge_errors.get(a.id)
-    platform_refused = bool(a.answer_text and "[Platform menolak menjawab]" in a.answer_text) or (
-        f_kind == "platform_refused"
-    )
+    platform_refused = _is_platform_refused(a.platform_refused, a.answer_text, f_kind)
     j_info = (judge_data or {}).get(a.id, {})
     return AttemptGradeInput(
         attempt_id=a.id,
@@ -1778,6 +1793,65 @@ def _execute_judge_for_all_cases(
                 _execute_judge_for_attempt(asker, att, case)
 
 
+def ensure_unchanged_since_load(
+    db: Session, session_id: uuid.UUID, cases: Sequence[CaseGradeInput]
+) -> None:
+    """Cek ulang di bawah kunci sesi sebelum hasil disimpan (review Elision #121).
+
+    Judge dipanggil tanpa kunci, jadi selama itu Kontributor bisa menimpa jawaban dan Admin
+    bisa mengarsipkan sesi. Keduanya mengunci baris sesi yang sama, jadi setelah kunci ini
+    didapat tidak ada lagi yang berubah sampai commit. Hasil tidak pernah tersimpan untuk
+    jawaban lama atau sesi arsip; Admin cukup memicu penilaian lagi.
+
+    Baris sesi dibaca ulang lewat get_session_for_update (populate_existing), karena objek
+    session di grade_session masih memegang archived_at lama. Isi jawaban dibaca per kolom,
+    jadi selalu dari database dan tidak bergantung pada identity map.
+    """
+    session = get_session_for_update(db, session_id)
+    if session is None:
+        raise NotFoundError(MEASUREMENT_NOT_FOUND_MESSAGE, code="MEASUREMENT_NOT_FOUND")
+    if session.archived_at is not None:
+        raise ConflictError("Sesi ini sudah diarsipkan.", code="SESSION_ARCHIVED")
+
+    # Kolom yang dibaca _build_attempt_input, dibandingkan dalam bentuk yang dilihat penilaian:
+    # penolakan diturunkan lewat _is_platform_refused di dua sisi, jadi teks yang kebetulan memuat
+    # penanda lama tidak membuat sesi selalu dianggap berubah.
+    loaded = {att.attempt_id: att for case in cases for att in case.attempts}
+    graded = {
+        att.attempt_id: (
+            att.answer_text,
+            AttemptStatus(att.status),
+            AttemptSource(att.source),
+            att.platform_refused,
+        )
+        for att in loaded.values()
+    }
+    current = {
+        row.id: (
+            row.answer_text,
+            AttemptStatus(row.status),
+            AttemptSource(row.source),
+            _is_platform_refused(
+                row.platform_refused, row.answer_text, loaded[row.id].failure_kind
+            ),
+        )
+        for row in db.execute(
+            select(
+                Attempt.id,
+                Attempt.answer_text,
+                Attempt.status,
+                Attempt.source,
+                Attempt.platform_refused,
+            ).where(Attempt.id.in_(list(loaded)))
+        )
+    }
+    if current != graded:
+        raise ConflictError(
+            "Jawaban berubah selama penilaian berjalan. Picu penilaian ulang.",
+            code="ANSWERS_CHANGED_DURING_GRADING",
+        )
+
+
 def grade_session(
     db: Session,
     session_id: uuid.UUID,
@@ -1797,7 +1871,13 @@ def grade_session(
     if session is None:
         raise NotFoundError(MEASUREMENT_NOT_FOUND_MESSAGE, code="MEASUREMENT_NOT_FOUND")
 
-    ensure_session_gradable(session)
+    # PBI-22 AC9 (SCRUM-233): sesi manual memakai prasyarat D7 (409 NOT_COMPLETE) dan arsip
+    # dari gate; sesi otomatis tetap aturan D4. Gate tidak mengunci selama judge berjalan.
+    gate = ManualGradeGate(ManualSessionRepository(db))
+    if gate.before_grading(session_id) is None:
+        ensure_session_gradable(session)
+    # Satu waktu untuk hasil penilaian dan status Dinilai (review Elision #121).
+    now = now or datetime.now(UTC)
 
     grading_store = store or DbGradingStore(db)
     cases = _load_case_grade_inputs(db, session_id)
@@ -1822,10 +1902,16 @@ def grade_session(
         existing_runs=existing_runs,
         now=now,
     )
+    # Kunci dipegang dari sini sampai commit: simpan jawaban, unggah bukti, dan arsip menunggu.
+    ensure_unchanged_since_load(db, session_id, cases)
     if isinstance(grading_store, DbGradingStore):
         grading_store.save_grading_run(response, cases_input=cases)
     else:
         grading_store.save_grading_run(response)
+    # D8: Lengkap -> Dinilai di transaksi yang sama dengan hasilnya; sesi otomatis tidak berubah.
+    # Run tanpa satu pun skor gagal (#128) dan bukan hasil, jadi sesi tetap Lengkap untuk dicoba lagi.
+    if response.status == RUN_COMPLETED:
+        gate.after_grading(session_id, now=now)
     db.commit()
     return response
 

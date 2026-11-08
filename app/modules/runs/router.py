@@ -404,7 +404,11 @@ _RESPONS_GRADE = {
         "model": ErrorBody,
         "description": (
             "Sesi diarsipkan (`SESSION_ARCHIVED`) atau sesi dalam antrean belum "
-            "bisa dinilai (`SESSION_NOT_GRADABLE`)."
+            "bisa dinilai (`SESSION_NOT_GRADABLE`). Sesi manual: masih ada jawaban "
+            "kosong (`NOT_COMPLETE`) atau statusnya bukan status manual "
+            "(`MANUAL_SESSION_STATUS_INVALID`). Jawaban ditimpa selama judge berjalan "
+            "(`ANSWERS_CHANGED_DURING_GRADING`) atau sesi diarsipkan di tengah penilaian "
+            "(`SESSION_ARCHIVED`): tidak ada hasil yang tersimpan, picu lagi."
         ),
     },
 }

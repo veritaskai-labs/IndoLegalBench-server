@@ -67,6 +67,13 @@ class ValidationError(DomainError):
     code = "validation_error"
 
 
+class PayloadTooLargeError(ValidationError):
+    """Isi permintaan melewati batas teknis, misalnya berkas bukti (PBI-22 SCRUM-233). 413."""
+
+    status_code = 413
+    code = "payload_too_large"
+
+
 class ForbiddenError(DomainError):
     """Dipakai saat peran pengguna tidak berwenang atas sebuah aksi."""
 
