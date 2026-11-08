@@ -274,3 +274,77 @@ def test_biaya_baris_mengikuti_actual_cost_idr():
     )
     assert hasil.rows[0].cost_idr == diharapkan
     assert hasil.rows[1].cost_idr is None
+
+
+def test_baris_membawa_token_dan_kurs_untuk_dicatat():
+    """Positif: token dan kurs tiap panggilan ikut di baris supaya biaya bisa disimpan."""
+    # Arrange
+    prices = JudgePrices(
+        usd_per_million_input_tokens=_PRICES_INPUT,
+        usd_per_million_output_tokens=_PRICES_OUTPUT,
+        usd_idr_rate=_PRICES_RATE,
+    )
+    judge = _ScriptedJudge(
+        [
+            _ok(_reply(("a", True)), input_tokens=120, output_tokens=30),
+            _ok(_reply(("a", True)), input_tokens=80, output_tokens=10),
+        ]
+    )
+
+    # Act
+    hasil = run_judge(judge, _INPUTS, repetitions=1, prices=prices)
+
+    # Assert
+    kualitas, format_ = hasil.rows
+    assert (kualitas.input_tokens, kualitas.output_tokens) == (120, 30)
+    assert (format_.input_tokens, format_.output_tokens) == (80, 10)
+    assert kualitas.usd_idr_rate == _PRICES_RATE
+    assert format_.usd_idr_rate == _PRICES_RATE
+
+
+def test_baris_tanpa_harga_tidak_membawa_kurs_tetapi_token_tetap_ada():
+    """Edge: tanpa JudgePrices kurs kosong, token tetap dilaporkan apa adanya."""
+    # Arrange
+    judge = _ScriptedJudge(
+        [
+            _ok(_reply(("a", True)), input_tokens=5, output_tokens=7),
+            _ok(_reply(("a", True)), input_tokens=None, output_tokens=None),
+        ]
+    )
+
+    # Act
+    hasil = run_judge(judge, _INPUTS, repetitions=1)
+
+    # Assert
+    assert hasil.rows[0].usd_idr_rate is None
+    assert (hasil.rows[0].input_tokens, hasil.rows[0].output_tokens) == (5, 7)
+    assert (hasil.rows[1].input_tokens, hasil.rows[1].output_tokens) == (None, None)
+
+
+def test_panggilan_gagal_tetap_membawa_token_yang_terpakai():
+    """Edge: panggilan gagal yang sudah memakai token tetap dilaporkan untuk dicatat."""
+    # Arrange
+    prices = JudgePrices(
+        usd_per_million_input_tokens=_PRICES_INPUT,
+        usd_per_million_output_tokens=_PRICES_OUTPUT,
+        usd_idr_rate=_PRICES_RATE,
+    )
+    gagal = ProviderResponse(
+        text="",
+        model_version="",
+        latency_ms=1,
+        raw={},
+        error="upstream_error",
+        failure_kind="provider_error",
+        input_tokens=40,
+        output_tokens=0,
+    )
+    judge = _ScriptedJudge([gagal, _ok(_reply(("a", True)))])
+
+    # Act
+    hasil = run_judge(judge, _INPUTS, repetitions=1, prices=prices)
+
+    # Assert
+    assert hasil.rows[0].score is None
+    assert hasil.rows[0].input_tokens == 40
+    assert hasil.rows[0].cost_idr is not None
