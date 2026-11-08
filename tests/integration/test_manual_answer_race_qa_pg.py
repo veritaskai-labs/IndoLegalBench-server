@@ -12,8 +12,15 @@ bertabrakan di slot yang sama:
 SQLite mengabaikan kunci baris, jadi tes ini harus di PostgreSQL. Tanpa jeda waktu: penyimpan
 pertama ditahan setelah memegang kunci, dan penyimpan kedua baru dilepas setelah
 pg_stat_activity menunjukkan ia benar-benar menunggu kunci. lock_timeout 5 detik menjaga tes
-yang salah agar tidak menggantung. Data di-commit karena dua koneksi harus melihatnya; tiap
-tes memakai pengguna, kasus, dan sesi baru, jadi aman di database uji khusus.
+yang salah agar tidak menggantung.
+
+Data harus di-commit supaya terlihat lintas koneksi. CI menjalankan semua tes PostgreSQL di
+satu database, dan tes downgrade migrasi sesudahnya menolak jalan selama masih ada sesi D8
+atau jawaban manual. Jadi fixture menghapus semua yang dibuatnya sesudah tes, lulus atau
+gagal. Riwayat jawaban dan audit tidak bisa dihapus (trigger append-only), jadi penghapusan
+memakai session_replication_role = replica, yang mematikan trigger untuk koneksi itu saja
+(butuh superuser, seperti container tes dan CI; pola yang sama dengan
+test_rubric_activation_race_pg.py).
 """
 
 import os
@@ -68,11 +75,38 @@ def _pengisi(conn, nama: str) -> uuid.UUID:
     return user_id
 
 
+def _hapus_jejak(engine, *, sesi_id, produk, kasus, suite, pengguna) -> None:
+    """Hapus sesi beserta snapshot, percobaan, riwayat, audit, dan data pendukungnya."""
+    with engine.begin() as conn:
+        conn.execute(text("SET LOCAL session_replication_role = replica"))
+        per_sesi = {"s": sesi_id}
+        if sesi_id is not None:
+            for perintah in (
+                "DELETE FROM answer_history WHERE attempt_id IN "
+                "(SELECT id FROM attempts WHERE session_id = :s)",
+                "DELETE FROM attempts WHERE session_id = :s",
+                "DELETE FROM case_snapshot_items WHERE snapshot_id IN "
+                "(SELECT id FROM case_snapshots WHERE session_id = :s)",
+                "DELETE FROM case_snapshots WHERE session_id = :s",
+                "DELETE FROM measurement_session_suites WHERE session_id = :s",
+                "DELETE FROM session_product_copies WHERE session_id = :s",
+                "DELETE FROM audit_logs WHERE entity_id = :s",
+                "DELETE FROM measurement_sessions WHERE id = :s",
+            ):
+                conn.execute(text(perintah), per_sesi)
+        conn.execute(text("DELETE FROM ai_products WHERE id = :id"), {"id": produk})
+        conn.execute(text("DELETE FROM cases WHERE id = :id"), {"id": kasus})
+        conn.execute(text("DELETE FROM case_versions WHERE case_id = :id"), {"id": kasus})
+        conn.execute(text("DELETE FROM suites WHERE id = :id"), {"id": suite})
+        conn.execute(text("DELETE FROM users WHERE id = ANY(:ids)"), {"ids": list(pengguna)})
+
+
 @pytest.fixture
 def sesi(engine, buat_db):
     """Sesi manual berisi satu kasus dan satu percobaan, dibuat lewat service asli, sudah commit.
 
-    Mengembalikan (session_id, snapshot_item_id, rina, budi).
+    Mengembalikan (session_id, snapshot_item_id, rina, budi). Semua yang dibuat dihapus lagi
+    sesudah tes (lihat docstring modul).
     """
     with engine.begin() as conn:
         admin = buat_admin(conn)
@@ -88,23 +122,35 @@ def sesi(engine, buat_db):
         )
         rina, budi = _pengisi(conn, "Rina"), _pengisi(conn, "Budi")
 
-    with buat_db() as db:
-        dibuat = get_manual_session_service(db).create(
-            ManualStartRequest(
-                label="QA balapan jawaban",
-                purpose="trial",
-                product_id=produk,
-                suite_ids=[suite_id],
-                case_filter="dev",
-                repeat_count=1,
-            ),
-            created_by=admin,
+    sesi_id = None
+    try:
+        with buat_db() as db:
+            dibuat = get_manual_session_service(db).create(
+                ManualStartRequest(
+                    label="QA balapan jawaban",
+                    purpose="trial",
+                    product_id=produk,
+                    suite_ids=[suite_id],
+                    case_filter="dev",
+                    repeat_count=1,
+                ),
+                created_by=admin,
+            )
+            db.commit()
+            sesi_id = dibuat.session_id
+            item_id = db.scalar(
+                select(Attempt.snapshot_item_id).where(Attempt.session_id == sesi_id)
+            )
+        yield sesi_id, item_id, rina, budi
+    finally:
+        _hapus_jejak(
+            engine,
+            sesi_id=sesi_id,
+            produk=produk,
+            kasus=case_id,
+            suite=suite_id,
+            pengguna=(admin, rina, budi),
         )
-        db.commit()
-        item_id = db.scalar(
-            select(Attempt.snapshot_item_id).where(Attempt.session_id == dibuat.session_id)
-        )
-    return dibuat.session_id, item_id, rina, budi
 
 
 def _permintaan(item_id, teks: str, *, konfirmasi: bool) -> ManualAnswerSaveRequest:
