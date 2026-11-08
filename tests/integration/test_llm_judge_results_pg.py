@@ -242,6 +242,25 @@ def test_penilai_untuk_percobaan_gangguan_teknis_ditolak(conn, run_id, sesi_id, 
     assert sqlstate == CHECK_VIOLATION
 
 
+def test_panggilan_gagal_berbiaya_untuk_percobaan_gangguan_diterima(
+    conn, run_id, sesi_id, admin_id
+):
+    """AC6: panggilan penilai yang gagal tapi sudah memakai token tetap boleh dicatat.
+
+    Percobaan menjadi gangguan teknis karena penilainya gagal. Biaya panggilan itu
+    harus bisa disimpan supaya masuk ke pengeluaran bulanan produk penilai.
+    """
+    gangguan = buat_hasil(conn, run_id, buat_percobaan(conn, sesi_id, admin_id), **HASIL_GANGGUAN)
+
+    baris = buat_baris_juri(conn, gangguan, **JURI_GAGAL)
+
+    hasil = conn.execute(
+        text("SELECT status::text, cost_idr FROM llm_judge_results WHERE id = :id"),
+        {"id": baris},
+    ).one()
+    assert tuple(hasil) == ("failed", Decimal("85.50"))
+
+
 def test_baris_baru_ke_run_yang_sudah_berakhir_ditolak(conn, run_id, hasil_id):
     _tutup_run(conn, run_id)
 
