@@ -709,7 +709,9 @@ class SessionGradingResponse(BaseModel):
     kind: Literal["initial", "regrade"] = Field(
         description="initial untuk penilaian pertama, regrade untuk nilai ulang"
     )
-    status: str = Field(description="completed bila sudah selesai dinilai")
+    status: str = Field(
+        description="completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
+    )
     triggered_by: uuid.UUID = Field(description="Admin yang memicu penilaian")
     triggered_at: datetime = Field(description="Waktu pemicuan penilaian")
     is_latest: bool = Field(
@@ -732,7 +734,9 @@ class GradingRunSummary(BaseModel):
     kind: Literal["initial", "regrade"] = Field(
         description="initial untuk penilaian pertama, regrade untuk nilai ulang"
     )
-    status: str = Field(description="completed bila sudah selesai dinilai")
+    status: str = Field(
+        description="completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
+    )
     triggered_by: uuid.UUID = Field(description="Admin yang memicu penilaian")
     triggered_at: datetime = Field(description="Waktu pemicuan penilaian")
     is_latest: bool = Field(description="True bila ini hasil penilaian terbaru sesi tersebut")

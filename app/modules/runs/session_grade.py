@@ -124,6 +124,8 @@ _TECHNICAL_FAILURE_KINDS = frozenset(
 
 logger = logging.getLogger(__name__)
 
+RUN_COMPLETED = "completed"
+RUN_FAILED = "failed"
 JUDGE_NOT_CONFIGURED = "judge_not_configured"
 JUDGE_UNAVAILABLE = "judge_unavailable"
 
@@ -737,6 +739,7 @@ class DbGradingStore:
     ) -> SessionGradingResponse:
         from app.modules.grading.models import (
             GradingResult,
+            GradingRunStatus,
             JudgeKind,
             JudgeStatus,
             LlmCriterionResult,
@@ -802,7 +805,7 @@ class DbGradingStore:
             product_name=p_name,
             rubric_version=rubric_version_str,
             kind=kind_str,
-            status="completed",
+            status=RUN_FAILED if run_db.status == GradingRunStatus.FAILED else RUN_COMPLETED,
             triggered_by=run_db.triggered_by,
             triggered_at=run_db.triggered_at,
             is_latest=run_db.is_latest,
@@ -1002,7 +1005,9 @@ class DbGradingStore:
         if run.is_latest:
             self._deactivate_previous_latest_runs(run.session_id)
 
-        grading_run_row.status = GradingRunStatus.FINISHED
+        grading_run_row.status = (
+            GradingRunStatus.FINISHED if run.status == RUN_COMPLETED else GradingRunStatus.FAILED
+        )
         grading_run_row.finished_at = run.triggered_at
         if run.is_latest:
             grading_run_row.is_latest = True
@@ -1253,6 +1258,8 @@ def grade_session_data(
     processed_cases = [_grade_single_case(c) for c in cases_input]
     three_sc = compute_three_scores(processed_cases)
     cat_sc = compute_category_scores(processed_cases)
+    # Tanpa satu pun skor, run gagal dan tidak menggeser hasil terbaru yang sudah ada (AC4).
+    has_score = any(case.scores is not None for case in processed_cases)
 
     return SessionGradingResponse(
         grading_run_id=uuid.uuid4(),
@@ -1261,10 +1268,10 @@ def grade_session_data(
         product_name=product_name,
         rubric_version=rubric_ver,
         kind=kind,
-        status="completed",
+        status=RUN_COMPLETED if has_score else RUN_FAILED,
         triggered_by=triggered_by,
         triggered_at=timestamp,
-        is_latest=True,
+        is_latest=has_score,
         scores=three_sc,
         category_scores=cat_sc,
         cases=processed_cases,
