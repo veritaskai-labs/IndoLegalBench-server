@@ -606,17 +606,21 @@ class MemoryGradingStore:
 
     def get_latest_grading_run(self, session_id: uuid.UUID) -> SessionGradingResponse | None:
         with self._lock:
-            history = self._runs.get(session_id, [])
-            for run in reversed(history):
-                if run.is_latest:
-                    return run
-            return history[-1] if history else None
+            return pilih_run_terbaru(self._runs.get(session_id, []))
 
 
 def pilih_run_terbaru(
     runs: Sequence[SessionGradingResponse],
 ) -> SessionGradingResponse | None:
-    """Run yang ditampilkan sebagai hasil sesi."""
+    """Run yang ditampilkan sebagai hasil sesi: yang bertanda is_latest, atau yang terakhir.
+
+    Run gagal tidak bertanda is_latest, jadi nilai ulang yang gagal tidak menggantikan hasil
+    yang bagus. Bila belum ada yang bertanda (penilaian pertama gagal), run terakhir tetap
+    dikembalikan supaya alasan gagalnya terbaca. Satu aturan untuk semua penyimpanan.
+    """
+    for run in reversed(runs):
+        if run.is_latest:
+            return run
     return runs[-1] if runs else None
 
 
@@ -1043,10 +1047,7 @@ class DbGradingStore:
         self.db.flush()
 
     def get_latest_grading_run(self, session_id: uuid.UUID) -> SessionGradingResponse | None:
-        runs = self.get_grading_runs(session_id)
-        if runs:
-            return runs[-1]
-        return None
+        return pilih_run_terbaru(self.get_grading_runs(session_id))
 
     def _save_criterion_records(
         self,
