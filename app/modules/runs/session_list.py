@@ -14,6 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 from typing import Protocol
 
+from app.modules.runs.case_progress import case_progress
 from app.modules.runs.models import SessionStatus, SessionType
 from app.modules.runs.schemas import SessionListItem, SessionProgressRead
 from app.modules.runs.session_rules import progress
@@ -36,6 +37,9 @@ class SessionRow:
     # PBI-22 AC9 (SCRUM-233): label manual terbawa ke daftar sesi. Wajib (review #121):
     # bawaan automatic akan diam-diam melabeli sesi manual dari pembuat baris yang lupa.
     session_type: SessionType
+    # Kasus yang semua pengulangannya selesai, dari repository.case_completion (SCRUM-265).
+    completed_cases: int
+    total_cases: int
 
 
 class SessionListStore(Protocol):
@@ -83,6 +87,7 @@ def to_list_item(
 ) -> SessionListItem:
     """Kolom daftar untuk satu sesi, dipakai juga sebagai kepala detail sesi."""
     hasil = progress(row.attempt_counts)
+    kasus = case_progress(completed_cases=row.completed_cases, total_cases=row.total_cases)
     return SessionListItem(
         id=row.id,
         label=row.label,
@@ -95,5 +100,11 @@ def to_list_item(
         repetitions=row.repetitions,
         status=row.status,
         session_type=row.session_type,
-        progress=SessionProgressRead(completed=hasil.completed, total=hasil.total),
+        progress=SessionProgressRead(
+            completed=hasil.completed,
+            total=hasil.total,
+            completed_cases=kasus.completed_cases,
+            total_cases=kasus.total_cases,
+            percent_cases_complete=kasus.percent_cases_complete,
+        ),
     )

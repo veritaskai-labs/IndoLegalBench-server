@@ -134,7 +134,13 @@ def test_admin_melihat_kolom_daftar_sesi(as_role, db_session, produk, pembuat):
     assert baris["case_count"] == 3
     assert baris["repetitions"] == 2
     assert baris["status"] == "running"
-    assert baris["progress"] == {"completed": 2, "total": 6}
+    assert baris["progress"] == {
+        "completed": 2,
+        "total": 6,
+        "completed_cases": 1,
+        "total_cases": 3,
+        "percent_cases_complete": 33,
+    }
 
 
 def test_developer_ai_boleh_melihat_daftar_sesi(as_role, db_session, produk, pembuat):
@@ -203,7 +209,13 @@ def test_sesi_antre_belum_punya_jumlah_kasus(as_role, db_session, produk, pembua
     # Assert
     assert baris["status"] == "queued"
     assert baris["case_count"] is None
-    assert baris["progress"] == {"completed": 0, "total": 0}
+    assert baris["progress"] == {
+        "completed": 0,
+        "total": 0,
+        "completed_cases": 0,
+        "total_cases": 0,
+        "percent_cases_complete": 0,
+    }
 
 
 def test_sesi_terbaru_tampil_paling_atas(as_role, db_session, produk, pembuat):

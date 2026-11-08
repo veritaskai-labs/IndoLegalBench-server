@@ -6,6 +6,7 @@ Verifies that grade_session and save_grading_run strictly adhere to PostgreSQL t
 """
 
 import os
+from decimal import Decimal
 
 import pytest
 from fastapi.testclient import TestClient
@@ -20,11 +21,27 @@ from app.modules.grading.models import (
     GradingRunStatus,
     LlmJudgeResult,
 )
+from app.modules.runs import session_grade
 from app.modules.runs.session_grade import grade_session
 from app.shared.database import get_db
 from app.shared.security import Role, get_current_user
 from tests.grading_pg import buat_percobaan, buat_versi_aktif
 from tests.measurement_pg import buat_admin, buat_produk, buat_sesi, ubah_status
+from tests.modules.runs.test_session_grade import _MockJudgeAsker
+
+# Balasan penilai tiruan yang memuat semua kriteria kasus di bawah (PBI-14: sesi wajib
+# punya penilai, tanpa penilai percobaan menjadi gangguan teknis).
+_BALASAN_PENILAI = (
+    "CRITERION: badan hukum\nMET: yes\n"
+    "CRITERION: pesangon\nMET: yes\n"
+    "CRITERION: Not: ilegal\nMET: yes\n"
+    "CRITERION: Conclusion: sah\nMET: yes\n"
+)
+
+
+def _penilai_tiruan() -> _MockJudgeAsker:
+    return _MockJudgeAsker(text=_BALASAN_PENILAI)
+
 
 TEST_POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "")
 
@@ -129,13 +146,15 @@ def test_grade_session_pg_lifecycle(pg):
     admin_id, session_id, attempt_id = _setup_pg_grade_session(conn)
 
     # 1. Pemicuan penilaian awal (kind=initial)
-    res_initial = grade_session(db, session_id, actor_id=admin_id, actor_role=Role.ADMIN)
+    res_initial = grade_session(
+        db, session_id, actor_id=admin_id, actor_role=Role.ADMIN, judge_asker=_penilai_tiruan()
+    )
 
     assert res_initial.status == "completed"
     assert res_initial.kind == "initial"
     assert res_initial.is_latest is True
     assert res_initial.scores.dev.deterministic is not None
-    assert res_initial.scores.dev.quality is None
+    assert res_initial.scores.dev.quality == Decimal("1.00")
 
     # Verifikasi GradingRun di Postgres
     runs = db.scalars(
@@ -151,7 +170,9 @@ def test_grade_session_pg_lifecycle(pg):
     assert run_1.finished_at is not None
 
     # 2. Pemicuan penilaian ulang (kind=regrade)
-    res_regrade = grade_session(db, session_id, actor_id=admin_id, actor_role=Role.ADMIN)
+    res_regrade = grade_session(
+        db, session_id, actor_id=admin_id, actor_role=Role.ADMIN, judge_asker=_penilai_tiruan()
+    )
 
     assert res_regrade.status == "completed"
     assert res_regrade.kind == "regrade"
@@ -180,7 +201,9 @@ def test_grade_session_pg_technical_disruption_does_not_call_judge_guard(pg):
         conn, extra_disrupted=True
     )
 
-    res = grade_session(db, session_id, actor_id=admin_id, actor_role=Role.ADMIN)
+    res = grade_session(
+        db, session_id, actor_id=admin_id, actor_role=Role.ADMIN, judge_asker=_penilai_tiruan()
+    )
     assert res.status == "completed"
 
     # Verifikasi GradingResult di PostgreSQL
@@ -199,7 +222,7 @@ def test_grade_session_pg_technical_disruption_does_not_call_judge_guard(pg):
     assert len(judges) == 0
 
 
-def test_post_grade_endpoint_pg(pg):
+def test_post_grade_endpoint_pg(pg, monkeypatch):
     """Positif: Endpoint POST /measurements/{id}/grade berfungsi sukses di PostgreSQL."""
     db, conn = pg
     admin_id, session_id, _ = _setup_pg_grade_session(conn)
@@ -211,6 +234,11 @@ def test_post_grade_endpoint_pg(pg):
 
     app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_current_user] = lambda: FakeAdmin()
+    monkeypatch.setattr(
+        session_grade,
+        "_resolve_active_judge_asker",
+        lambda db, session, judge_asker: (_penilai_tiruan(), None),
+    )
 
     try:
         client = TestClient(app)

@@ -70,21 +70,21 @@ def test_sesi_tidak_bisa_dihapus_lewat_http(siap):
     assert tersimpan.status == SessionStatus.QUEUED
 
 
-@pytest.mark.parametrize(
-    "ubah", [{"judge_provider_id": None}, {}], ids=["null-eksplisit", "tanpa-kunci"]
-)
-def test_penilai_kosong_diterima_dan_tersimpan_kosong(siap, ubah):
-    """Edge: client mengirim judge_provider_id null (atau tidak mengirim) sampai PBI-14 ada daftar penilai."""
+@pytest.mark.parametrize("kosong", ["null-eksplisit", "tanpa-kunci"])
+def test_penilai_kosong_ditolak_422_dan_tidak_membuat_sesi(siap, kosong):
+    """Negatif: PBI-14, sesi tanpa penilai dulu tersimpan dan dinilai kosong; sekarang 422."""
     # Arrange
     client = siap.sebagai(Role.ADMIN)
+    badan = _badan(siap, judge_provider_id=None)
+    if kosong == "tanpa-kunci":
+        del badan["judge_provider_id"]
 
     # Act
-    response = client.post(URL, json=_badan(siap, **ubah))
+    response = client.post(URL, json=badan)
 
     # Assert
-    assert response.status_code == 201
-    tersimpan = siap.db.get(MeasurementSession, uuid.UUID(response.json()["session_id"]))
-    assert tersimpan.judge_provider_id is None
+    assert response.status_code == 422
+    assert _jumlah_sesi(siap.db) == 0
 
 
 def test_penilai_berupa_nama_model_ditolak_422(siap):

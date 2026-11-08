@@ -14,7 +14,7 @@ from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 
-from sqlalchemy import Row, exists, func, null, select, update
+from sqlalchemy import Row, and_, case, exists, func, null, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -302,6 +302,7 @@ class SessionListRepository:
         ids = [session.id for session in sessions]
         attempts = self._attempt_counts(ids)
         cases = self._case_counts(ids)
+        kasus = case_completion(self._db, ids)
         return [
             SessionRow(
                 id=session.id,
@@ -314,8 +315,11 @@ class SessionListRepository:
                 case_count=cases.get(session.id),
                 attempt_counts=attempts.get(session.id, {}),
                 session_type=SessionType(session.session_type),
+                completed_cases=selesai,
+                total_cases=total,
             )
             for session in sessions
+            for selesai, total in (kasus.get(session.id, (0, 0)),)
         ]
 
     def _attempt_counts(self, ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, dict[str, int]]:
@@ -610,6 +614,41 @@ def attempt_with_calls(
     return attempt, body, calls
 
 
+def case_completion(
+    db: Session, session_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, tuple[int, int]]:
+    """(kasus selesai, total kasus) per sesi, satu query untuk banyak sesi (PBI-12 AC5, SCRUM-265).
+
+    Kasus = item snapshot yang punya attempts. Kasus selesai bila tidak ada satu pun
+    pengulangannya yang masih pending/running tanpa jawaban manual terisi (filled_at,
+    D8). Coba ulang mengembalikan percobaan ke pending, jadi kasusnya kembali belum
+    selesai. Sesi tanpa attempts (masih antre) tidak ada di hasil.
+    """
+    if not session_ids:
+        return {}
+    belum_selesai = and_(
+        Attempt.status.in_((AttemptStatus.PENDING, AttemptStatus.RUNNING)),
+        Attempt.filled_at.is_(None),
+    )
+    per_kasus = (
+        select(
+            Attempt.session_id.label("session_id"),
+            func.sum(case((belum_selesai, 1), else_=0)).label("belum"),
+        )
+        .where(Attempt.session_id.in_(session_ids))
+        .group_by(Attempt.session_id, Attempt.snapshot_item_id)
+        .subquery()
+    )
+    rows = db.execute(
+        select(
+            per_kasus.c.session_id,
+            func.sum(case((per_kasus.c.belum == 0, 1), else_=0)),
+            func.count(),
+        ).group_by(per_kasus.c.session_id)
+    )
+    return {session_id: (int(selesai), int(total)) for session_id, selesai, total in rows}
+
+
 def reopen_for_retry(
     db: Session, session_id: uuid.UUID, attempt_ids: Sequence[uuid.UUID], *, at: datetime
 ) -> None:
@@ -703,8 +742,12 @@ class SessionQueueRepository:
             .where(MeasurementSessionSuite.session_id == session.id)
             .order_by(MeasurementSessionSuite.suite_id)
         ).all()
+        prepared = bool(
+            self._db.scalar(select(exists().where(SessionProductCopy.session_id == session.id)))
+        )
         return WaitingSession(
             id=session.id,
+            prepared=prepared,
             new=NewSession(
                 label=session.label,
                 purpose=MeasurementPurpose(session.purpose.value),
@@ -743,6 +786,32 @@ class SessionQueueRepository:
                 self._db.rollback()
                 return False
             _freeze(self._db, session_id, items, product, AttemptSource.AUTOMATIC)
+            _catat_status(self._db, session_id, SessionStatus.QUEUED, SessionStatus.RUNNING, None)
+            self._db.commit()
+        except Exception as exc:
+            self._db.rollback()
+            if isinstance(exc, IntegrityError) and _sesi_lain_running(exc):
+                return False
+            raise
+        return True
+
+    def reopen(self, session_id: uuid.UUID, *, at: datetime) -> bool:
+        """Sesi Menunggu hasil Lanjutkan kembali running tanpa snapshot baru (SCRUM-267).
+
+        UPDATE bersyarat seperti start(): hanya dari queued, jadi sesi yang sempat
+        dibatalkan tidak ikut terbuka. started_at awal tetap; at menjadi heartbeat awal,
+        supaya cek liveness tidak menganggap sesi yang lama menunggu sebagai worker mati.
+        """
+        try:
+            dibuka = self._db.execute(
+                update(MeasurementSession)
+                .where(MeasurementSession.id == session_id, *_ANTREAN_OTOMATIS)
+                .values(status=SessionStatus.RUNNING, updated_at=at)
+                .execution_options(synchronize_session=False)
+            ).rowcount
+            if dibuka != 1:
+                self._db.rollback()
+                return False
             _catat_status(self._db, session_id, SessionStatus.QUEUED, SessionStatus.RUNNING, None)
             self._db.commit()
         except Exception as exc:

@@ -19,6 +19,7 @@ Fitur utama:
 
 from __future__ import annotations
 
+import logging
 import re
 import threading
 import uuid
@@ -121,6 +122,14 @@ _TECHNICAL_FAILURE_KINDS = frozenset(
         "invalid_response",
     }
 )
+
+
+logger = logging.getLogger(__name__)
+
+RUN_COMPLETED = "completed"
+RUN_FAILED = "failed"
+JUDGE_NOT_CONFIGURED = "judge_not_configured"
+JUDGE_UNAVAILABLE = "judge_unavailable"
 
 
 def round_two_digits(val: Decimal | float | int | None) -> Decimal | None:
@@ -599,11 +608,22 @@ class MemoryGradingStore:
 
     def get_latest_grading_run(self, session_id: uuid.UUID) -> SessionGradingResponse | None:
         with self._lock:
-            history = self._runs.get(session_id, [])
-            for run in reversed(history):
-                if run.is_latest:
-                    return run
-            return history[-1] if history else None
+            return pilih_run_terbaru(self._runs.get(session_id, []))
+
+
+def pilih_run_terbaru(
+    runs: Sequence[SessionGradingResponse],
+) -> SessionGradingResponse | None:
+    """Run yang ditampilkan sebagai hasil sesi: yang bertanda is_latest, atau yang terakhir.
+
+    Run gagal tidak bertanda is_latest, jadi nilai ulang yang gagal tidak menggantikan hasil
+    yang bagus. Bila belum ada yang bertanda (penilaian pertama gagal), run terakhir tetap
+    dikembalikan supaya alasan gagalnya terbaca. Satu aturan untuk semua penyimpanan.
+    """
+    for run in reversed(runs):
+        if run.is_latest:
+            return run
+    return runs[-1] if runs else None
 
 
 def _extract_d6_criteria(crits: list[Any]) -> tuple[list[dict[str, Any]], list[str]]:
@@ -732,6 +752,7 @@ class DbGradingStore:
     ) -> SessionGradingResponse:
         from app.modules.grading.models import (
             GradingResult,
+            GradingRunStatus,
             JudgeKind,
             JudgeStatus,
             LlmCriterionResult,
@@ -797,7 +818,7 @@ class DbGradingStore:
             product_name=p_name,
             rubric_version=rubric_version_str,
             kind=kind_str,
-            status="completed",
+            status=RUN_FAILED if run_db.status == GradingRunStatus.FAILED else RUN_COMPLETED,
             triggered_by=run_db.triggered_by,
             triggered_at=run_db.triggered_at,
             is_latest=run_db.is_latest,
@@ -997,7 +1018,9 @@ class DbGradingStore:
         if run.is_latest:
             self._deactivate_previous_latest_runs(run.session_id)
 
-        grading_run_row.status = GradingRunStatus.FINISHED
+        grading_run_row.status = (
+            GradingRunStatus.FINISHED if run.status == RUN_COMPLETED else GradingRunStatus.FAILED
+        )
         grading_run_row.finished_at = run.triggered_at
         if run.is_latest:
             grading_run_row.is_latest = True
@@ -1026,10 +1049,7 @@ class DbGradingStore:
         self.db.flush()
 
     def get_latest_grading_run(self, session_id: uuid.UUID) -> SessionGradingResponse | None:
-        runs = self.get_grading_runs(session_id)
-        if runs:
-            return runs[-1]
-        return None
+        return pilih_run_terbaru(self.get_grading_runs(session_id))
 
     def _save_criterion_records(
         self,
@@ -1248,6 +1268,8 @@ def grade_session_data(
     processed_cases = [_grade_single_case(c) for c in cases_input]
     three_sc = compute_three_scores(processed_cases)
     cat_sc = compute_category_scores(processed_cases)
+    # Tanpa satu pun skor, run gagal dan tidak menggeser hasil terbaru yang sudah ada (AC4).
+    has_score = any(case.scores is not None for case in processed_cases)
 
     return SessionGradingResponse(
         grading_run_id=uuid.uuid4(),
@@ -1256,10 +1278,10 @@ def grade_session_data(
         product_name=product_name,
         rubric_version=rubric_ver,
         kind=kind,
-        status="completed",
+        status=RUN_COMPLETED if has_score else RUN_FAILED,
         triggered_by=triggered_by,
         triggered_at=timestamp,
-        is_latest=True,
+        is_latest=has_score,
         scores=three_sc,
         category_scores=cat_sc,
         cases=processed_cases,
@@ -1709,14 +1731,21 @@ def _resolve_active_judge_asker(
     if judge_asker is not None:
         return judge_asker, None
     if session.judge_provider_id is None:
-        return None, None
+        # Sesi lama dari sebelum penilai wajib dipilih (PBI-14): gangguan teknis, bukan skip.
+        return None, JUDGE_NOT_CONFIGURED
     try:
         from app.modules.providers.judge_service import build_judge
 
         binding = build_judge(db, session.judge_provider_id)
         return binding.asker, None
     except Exception:
-        return None, "judge_unavailable"
+        # Hanya id penilai yang dicatat: pesan galat bisa memuat isi kredensial.
+        logger.error(
+            "Judge %s could not be built, attempts will be marked judge_unavailable",
+            session.judge_provider_id,
+            exc_info=False,
+        )
+        return None, JUDGE_UNAVAILABLE
 
 
 def _should_grade_with_judge(att: AttemptGradeInput) -> bool:

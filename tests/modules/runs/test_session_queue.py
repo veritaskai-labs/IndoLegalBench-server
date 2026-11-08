@@ -22,6 +22,8 @@ import uuid
 from datetime import UTC, datetime
 from decimal import Decimal
 
+import pytest
+
 from app.modules.runs import schemas, service, session_ports, worker
 from app.shared.exceptions import NotFoundError, ValidationError
 
@@ -59,10 +61,11 @@ SALINAN = session_ports.ProductCopy(
 
 
 def _menunggu(
-    case_filter=schemas.CaseFilter.BOTH, *, sesi_id=SESI_LAMA, product_id=PRODUCT_ID
+    case_filter=schemas.CaseFilter.BOTH, *, sesi_id=SESI_LAMA, product_id=PRODUCT_ID, prepared=False
 ) -> session_ports.WaitingSession:
     return session_ports.WaitingSession(
         id=sesi_id,
+        prepared=prepared,
         new=session_ports.NewSession(
             label="Run Oktober",
             purpose=schemas.MeasurementPurpose.OFFICIAL,
@@ -83,7 +86,14 @@ class _Penyimpanan:
     """
 
     def __init__(
-        self, *, berjalan=False, menunggu=None, start_berhasil=True, start_galat=()
+        self,
+        *,
+        berjalan=False,
+        menunggu=None,
+        start_berhasil=True,
+        start_galat=(),
+        reopen_berhasil=True,
+        reopen_galat=False,
     ) -> None:
         self.berjalan = berjalan
         if menunggu is None:
@@ -94,6 +104,9 @@ class _Penyimpanan:
         self.start_galat = set(start_galat)
         self.dimulai: list[tuple] = []
         self.gagal: list[tuple] = []
+        self.reopen_berhasil = reopen_berhasil
+        self.reopen_galat = reopen_galat
+        self.dibuka: list[tuple] = []
 
     def running_exists(self) -> bool:
         return self.berjalan
@@ -111,6 +124,12 @@ class _Penyimpanan:
         if session_id in self.start_galat:
             raise RuntimeError("galat database tak terduga")
         return self.start_berhasil
+
+    def reopen(self, session_id, *, at) -> bool:
+        self.dibuka.append((session_id, at))
+        if self.reopen_galat:
+            raise RuntimeError("galat database tak terduga")
+        return self.reopen_berhasil
 
 
 class _Snapshot:
@@ -404,3 +423,45 @@ def test_produk_dinonaktifkan_selama_menunggu_sesi_gagal_dan_antrean_lanjut(capl
     assert hasil == SESI_BARU
     assert penyimpanan.gagal == [(SESI_LAMA, JAM)]
     assert "nonaktif" in caplog.text.lower()
+
+
+def test_sesi_yang_dilanjutkan_berjalan_lagi_tanpa_snapshot_baru():
+    """Positif: SCRUM-267 AC8, sesi Menunggu hasil Lanjutkan memakai snapshot dan salinan lamanya."""
+    # Arrange
+    penyimpanan = _Penyimpanan(menunggu=_menunggu(prepared=True))
+    antrean, snapshot, produk = _antrean(penyimpanan)
+
+    # Act
+    hasil = antrean.take_next()
+
+    # Assert
+    assert hasil == SESI_LAMA
+    assert penyimpanan.dibuka == [(SESI_LAMA, JAM)]
+    assert penyimpanan.dimulai == []
+    assert snapshot.diminta == [] and produk.diminta == []
+
+
+def test_sesi_dilanjutkan_kalah_balapan_tetap_menunggu():
+    """Edge: slot sempat diambil atau sesi dibatalkan dulu; tidak jalan, tidak ditandai gagal."""
+    # Arrange
+    penyimpanan = _Penyimpanan(menunggu=_menunggu(prepared=True), reopen_berhasil=False)
+    antrean, _, _ = _antrean(penyimpanan)
+
+    # Act
+    hasil = antrean.take_next()
+
+    # Assert
+    assert hasil is None
+    assert penyimpanan.gagal == []
+
+
+def test_galat_saat_membuka_sesi_dilanjutkan_tidak_menggagalkan_hasilnya():
+    """Negatif: sesi yang sudah punya hasil tidak boleh jadi Gagal karena galat sesaat."""
+    # Arrange
+    penyimpanan = _Penyimpanan(menunggu=_menunggu(prepared=True), reopen_galat=True)
+    antrean, _, _ = _antrean(penyimpanan)
+
+    # Act / Assert
+    with pytest.raises(RuntimeError):
+        antrean.take_next()
+    assert penyimpanan.gagal == []

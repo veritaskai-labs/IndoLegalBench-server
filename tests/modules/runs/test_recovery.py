@@ -4,7 +4,7 @@ PBI-12 AC8, D5 langkah 7 (SCRUM-217).
 
 Memastikan:
 1. Sesi RUNNING saat restart ditandai PAUSED dengan stop_reason = RESTART (AC8).
-2. Attempt RUNNING yang terputus dikembalikan ke PENDING (D5 langkah 41).
+2. Attempt RUNNING yang terputus ditandai TECHNICAL_FAILURE, tidak dikirim ulang (SCRUM-268).
 3. Attempt SUCCEEDED, TECHNICAL_FAILURE, dan PENDING tidak terganggu.
 4. Sesi tidak lanjut otomatis; Admin yang harus menekan Lanjutkan (AC8).
 5. Heartbeat worker: sesi RUNNING yang heartbeat-nya melebihi ambang batas (stale)
@@ -26,6 +26,7 @@ from app.modules.runs.models import (
     Attempt,
     AttemptSource,
     AttemptStatus,
+    CallLog,
     CaseSnapshot,
     CaseSnapshotItem,
     MeasurementSession,
@@ -36,10 +37,12 @@ from app.modules.runs.models import (
     StopReason,
 )
 from app.modules.runs.recovery import (
+    RecoveryService,
     check_worker_liveness,
     record_heartbeat,
     recover_after_restart,
 )
+from app.modules.runs.repository import CallLogRepository
 from app.shared.security import Role
 
 WAKTU_MULAI = datetime(2026, 11, 5, 8, 0, tzinfo=UTC)
@@ -163,14 +166,13 @@ def test_recover_after_restart_marks_running_session_as_paused(
     assert _as_utc(baris.stopped_at) == WAKTU_RESTART
 
 
-def test_recover_after_restart_leaves_running_attempt_uncertain(
+def test_recover_after_restart_marks_interrupted_attempt_as_technical_failure(
     db_session, produk_otomatis, admin_user
 ):
-    """Positif: attempt RUNNING yang terputus saat restart dibiarkan RUNNING (uncertain).
+    """Positif: attempt RUNNING yang terputus saat restart menjadi TECHNICAL_FAILURE (SCRUM-268).
 
-    Sesuai MEASUREMENT_WORKER.md: attempt yang sedang berjalan saat crash tidak di-reset
-    ke pending agar tidak memicu panggilan berulang yang berpotensi berbayar saat resume.
-    Rekonsiliasi attempt diserahkan ke kontrol resume (SCRUM-216).
+    Panggilan itu tidak dikirim ulang; Admin memutuskan lewat Coba ulang atau Terima apa
+    adanya setelah sesi Selesai dengan kegagalan. Attempt yang berhasil tidak tersentuh.
     """
     # Arrange
     sesi = _buat_sesi(db_session, produk_otomatis, admin_user, status=SessionStatus.RUNNING)
@@ -179,6 +181,8 @@ def test_recover_after_restart_leaves_running_attempt_uncertain(
         sesi,
         [AttemptStatus.SUCCEEDED, AttemptStatus.RUNNING],
     )
+    attempts[1].started_at = WAKTU_MULAI  # diklaim worker sebelum panggilan
+    db_session.commit()
 
     # Act
     recovered = recover_after_restart(db_session, at=WAKTU_RESTART)
@@ -188,10 +192,106 @@ def test_recover_after_restart_leaves_running_attempt_uncertain(
     db_session.expire_all()
     att_succeeded = db_session.get(Attempt, attempts[0].id)
     att_interrupted = db_session.get(Attempt, attempts[1].id)
-
-    # Attempt pertama tetap succeeded, attempt kedua tetap running (uncertain)
     assert att_succeeded.status == AttemptStatus.SUCCEEDED
-    assert att_interrupted.status == AttemptStatus.RUNNING
+    assert att_succeeded.answer_text == "Jawaban tersimpan"
+    assert att_interrupted.status == AttemptStatus.TECHNICAL_FAILURE
+    assert att_interrupted.answer_text is None
+    assert _as_utc(att_interrupted.finished_at) == WAKTU_RESTART
+
+
+def test_recover_after_restart_keeps_finished_at_empty_without_started_at(
+    db_session, produk_otomatis, admin_user
+):
+    """Edge: attempt RUNNING tanpa started_at tidak diberi finished_at (CHECK finished_needs_started)."""
+    # Arrange
+    sesi = _buat_sesi(db_session, produk_otomatis, admin_user, status=SessionStatus.RUNNING)
+    (attempt,) = _tambah_snapshot_dan_attempts(db_session, sesi, [AttemptStatus.RUNNING])
+
+    # Act
+    recover_after_restart(db_session, at=WAKTU_RESTART)
+
+    # Assert
+    db_session.expire_all()
+    baris = db_session.get(Attempt, attempt.id)
+    assert baris.status == AttemptStatus.TECHNICAL_FAILURE
+    assert baris.finished_at is None
+
+
+def test_recover_after_restart_keeps_existing_call_log_without_adding_one(
+    db_session, produk_otomatis, admin_user
+):
+    """Edge: attempt yang pernah dicoba (ada baris call_logs) lalu terputus di upaya berikutnya.
+
+    Baris lama tetap satu-satunya bukti biaya; pemulihan tidak mengarang baris atau biaya
+    untuk panggilan yang terputus.
+    """
+    # Arrange
+    sesi = _buat_sesi(db_session, produk_otomatis, admin_user, status=SessionStatus.RUNNING)
+    (attempt,) = _tambah_snapshot_dan_attempts(db_session, sesi, [AttemptStatus.RUNNING])
+    db_session.add(
+        CallLog(
+            attempt_id=attempt.id,
+            product_id=produk_otomatis.id,
+            started_at=WAKTU_MULAI,
+            ended_at=WAKTU_MULAI,
+            duration_ms=0,
+            cost_idr=150,
+            usd_idr_rate=16000,
+            model_version="",
+            result="technical_failure",
+            failure_kind="no_response",
+            raw={},
+            try_no=1,
+        )
+    )
+    db_session.commit()
+
+    # Act
+    recover_after_restart(db_session, at=WAKTU_RESTART)
+
+    # Assert
+    db_session.expire_all()
+    logs = list(db_session.scalars(select(CallLog).where(CallLog.attempt_id == attempt.id)))
+    assert [(log.try_no, log.cost_idr) for log in logs] == [(1, 150)]
+    assert db_session.get(Attempt, attempt.id).status == AttemptStatus.TECHNICAL_FAILURE
+
+
+def test_recover_after_restart_twice_is_idempotent(db_session, produk_otomatis, admin_user):
+    """Edge: restart kedua tidak mengubah sesi maupun attempt yang sudah dipulihkan."""
+    # Arrange
+    sesi = _buat_sesi(db_session, produk_otomatis, admin_user, status=SessionStatus.RUNNING)
+    (attempt,) = _tambah_snapshot_dan_attempts(db_session, sesi, [AttemptStatus.RUNNING])
+    attempt.started_at = WAKTU_MULAI
+    db_session.commit()
+    recover_after_restart(db_session, at=WAKTU_RESTART)
+
+    # Act
+    kedua = recover_after_restart(db_session, at=WAKTU_RESTART + timedelta(hours=1))
+
+    # Assert
+    assert kedua == []
+    db_session.expire_all()
+    baris = db_session.get(Attempt, attempt.id)
+    assert baris.status == AttemptStatus.TECHNICAL_FAILURE
+    assert _as_utc(baris.finished_at) == WAKTU_RESTART
+    assert _as_utc(db_session.get(MeasurementSession, sesi.id).stopped_at) == WAKTU_RESTART
+
+
+def test_recover_after_restart_ignores_running_attempt_of_paused_session(
+    db_session, produk_otomatis, admin_user
+):
+    """Negatif: startup hanya memulihkan sesi RUNNING; sesi lain dipulihkan saat Lanjutkan."""
+    # Arrange
+    sesi = _buat_sesi(db_session, produk_otomatis, admin_user, status=SessionStatus.PAUSED)
+    (attempt,) = _tambah_snapshot_dan_attempts(db_session, sesi, [AttemptStatus.RUNNING])
+
+    # Act
+    recovered = recover_after_restart(db_session, at=WAKTU_RESTART)
+
+    # Assert
+    assert recovered == []
+    db_session.expire_all()
+    assert db_session.get(Attempt, attempt.id).status == AttemptStatus.RUNNING
 
 
 def test_recover_after_restart_preserves_technical_failures_and_pending_attempts(
@@ -433,9 +533,9 @@ async def test_lifespan_startup_hook_recovers_running_sessions(
     assert baris.stop_reason == StopReason.RESTART
     assert baris.stopped_at is not None
 
-    # Attempt running dibiarkan running (uncertain)
+    # Attempt yang terputus ditandai gagal teknis, tidak dikirim ulang (SCRUM-268)
     attempt = db_session.scalar(select(Attempt).where(Attempt.session_id == sesi_id))
-    assert attempt.status == AttemptStatus.RUNNING
+    assert attempt.status == AttemptStatus.TECHNICAL_FAILURE
 
 
 @pytest.mark.asyncio
@@ -472,3 +572,99 @@ async def test_lifespan_startup_hook_skips_recovery_when_worker_lease_held(
     assert baris.status == SessionStatus.RUNNING
     attempt = db_session.scalar(select(Attempt).where(Attempt.session_id == sesi_id))
     assert attempt.status == AttemptStatus.RUNNING
+
+
+class _StatusGagal:
+    """Pengganti SessionStatusRepository yang selalu gagal, untuk jalur rollback."""
+
+    def change_status(self, *args, **kwargs):
+        raise RuntimeError("database write failed")
+
+
+def test_recover_after_restart_rolls_back_attempt_when_pause_fails(
+    db_session, produk_otomatis, admin_user
+):
+    """Negatif: bila pause sesi gagal, penandaan gagal teknis ikut dibatalkan (satu transaksi)."""
+    # Arrange
+    sesi = _buat_sesi(db_session, produk_otomatis, admin_user, status=SessionStatus.RUNNING)
+    (attempt,) = _tambah_snapshot_dan_attempts(db_session, sesi, [AttemptStatus.RUNNING])
+    service = RecoveryService(
+        db_session, clock=lambda: WAKTU_RESTART, status_repository=_StatusGagal()
+    )
+
+    # Act
+    recovered = service.recover_after_restart()
+
+    # Assert
+    assert recovered == []
+    db_session.expire_all()
+    assert db_session.get(Attempt, attempt.id).status == AttemptStatus.RUNNING
+    assert db_session.get(MeasurementSession, sesi.id).status == SessionStatus.RUNNING
+
+
+def test_check_worker_liveness_skips_session_when_pause_fails(
+    db_session, produk_otomatis, admin_user
+):
+    """Negatif: kegagalan pause satu sesi stale tidak menghentikan pemeriksaan liveness."""
+    # Arrange
+    sesi = _buat_sesi(db_session, produk_otomatis, admin_user, status=SessionStatus.RUNNING)
+    service = RecoveryService(
+        db_session,
+        clock=lambda: WAKTU_MULAI + timedelta(minutes=10),
+        status_repository=_StatusGagal(),
+    )
+
+    # Act
+    stale = service.check_worker_liveness()
+
+    # Assert
+    assert stale == []
+    db_session.expire_all()
+    assert db_session.get(MeasurementSession, sesi.id).status == SessionStatus.RUNNING
+
+
+def test_recover_after_restart_keeps_budget_counting_rows_with_tokens_only(
+    db_session, produk_otomatis, admin_user
+):
+    """Edge: keputusan PO SCRUM-268 poin 2, anggaran sesudah crash.
+
+    Baris call_logs yang tertinggal dan punya token tetap dihitung; baris tanpa token
+    (biaya kosong) dan upaya terputus tanpa baris dicatat sebagai biaya tidak diketahui.
+    """
+    # Arrange
+    sesi = _buat_sesi(db_session, produk_otomatis, admin_user, status=SessionStatus.RUNNING)
+    dengan_token, tanpa_token, tanpa_baris = _tambah_snapshot_dan_attempts(
+        db_session, sesi, [AttemptStatus.RUNNING] * 3
+    )
+    for attempt, tokens, cost in ((dengan_token, 10, 150), (tanpa_token, None, None)):
+        db_session.add(
+            CallLog(
+                attempt_id=attempt.id,
+                product_id=produk_otomatis.id,
+                started_at=WAKTU_MULAI,
+                ended_at=WAKTU_MULAI,
+                duration_ms=0,
+                input_tokens=tokens,
+                output_tokens=tokens,
+                cost_idr=cost,
+                usd_idr_rate=16000,
+                model_version="",
+                result="technical_failure",
+                failure_kind="provider_error",
+                raw={},
+                try_no=1,
+            )
+        )
+    db_session.commit()
+
+    # Act
+    recover_after_restart(db_session, at=WAKTU_RESTART)
+
+    # Assert
+    db_session.expire_all()
+    terpakai = CallLogRepository(db_session).sum_cost_since(produk_otomatis.id, WAKTU_MULAI)
+    assert terpakai == 150
+    assert db_session.scalar(select(CallLog).where(CallLog.attempt_id == tanpa_baris.id)) is None
+    assert {
+        db_session.get(Attempt, a.id).status for a in (dengan_token, tanpa_token, tanpa_baris)
+    } == {AttemptStatus.TECHNICAL_FAILURE}

@@ -42,6 +42,9 @@ class QueuedSession:
 class WaitingSession:
     id: uuid.UUID
     new: NewSession
+    # True bila sesi sudah punya snapshot dan salinan produk: Menunggu lagi setelah
+    # Lanjutkan (SCRUM-267). Giliran berikutnya membuka sesi itu, bukan membekukan ulang.
+    prepared: bool = False
 
 
 @dataclass(frozen=True)
@@ -114,6 +117,13 @@ class SessionQueueStore(Protocol):
 
     def fail(self, session_id: uuid.UUID, *, finished_at: datetime) -> bool:
         """Sesi queued menjadi failed (D4, kesalahan fatal sebelum mulai). False bila bukan queued."""
+        raise NotImplementedError
+
+    def reopen(self, session_id: uuid.UUID, *, at: datetime) -> bool:
+        """Sesi queued yang sudah disiapkan kembali running dengan snapshot lamanya (SCRUM-267).
+
+        False bila sesi tidak lagi queued atau sesi otomatis lain sudah running.
+        """
         raise NotImplementedError
 
 

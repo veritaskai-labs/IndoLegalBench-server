@@ -22,6 +22,7 @@ from sqlalchemy.orm import Session
 from app.modules.runs import repository
 from app.modules.runs.adapters import NameAdapter
 from app.modules.runs.call_log import month_start, monthly_limit
+from app.modules.runs.case_progress import case_progress
 from app.modules.runs.cost_estimator import estimate_cost_idr
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.models import SessionStatus
@@ -316,8 +317,12 @@ class ProgressService:
             monthly_budget_idr=produk.monthly_budget_idr,
             spent_this_month_idr=self._spend.spent_this_month_idr(produk.id),
         )
+        kasus = case_progress(
+            completed_cases=hitungan.completed_cases, total_cases=hitungan.total_cases
+        )
         return ProgressResponse(
             **asdict(angka),
+            **asdict(kasus),
             started_at=hitungan.started_at,
             updated_at=hitungan.updated_at,
         )
@@ -389,14 +394,14 @@ class StartSessionService:
         return StartResponse(session_id=queued.id, status=queued.status, queued_at=queued.queued_at)
 
 
-def ensure_judge_available(judge_lock: JudgeLock, judge_id: uuid.UUID | None) -> None:
+def ensure_judge_available(judge_lock: JudgeLock, judge_id: uuid.UUID) -> None:
     """Penilai yang dipilih harus ada dan aktif; dipakai sesi otomatis dan manual (SCRUM-258).
 
     Penilai dikunci dan dibaca ulang di transaksi yang sama dengan INSERT sesi, seperti
-    produk, supaya penilai yang dinonaktifkan bersamaan tidak tersimpan. Kosong tetap
-    boleh sampai form punya dropdown penilai (keputusan PO K2, 7 Nov).
+    produk, supaya penilai yang dinonaktifkan bersamaan tidak tersimpan. Kosongnya id sudah
+    ditolak schema (PBI-14), jadi di sini id pasti ada.
     """
-    if judge_id is not None and not judge_lock.lock_available(judge_id):
+    if not judge_lock.lock_available(judge_id):
         raise ValidationError(
             _PESAN_PENILAI_TIDAK_ADA, code="JUDGE_PROVIDER_NOT_AVAILABLE", field="judge_provider_id"
         )
@@ -445,6 +450,10 @@ class SessionQueue:
         if self._sessions.running_exists():
             return None
         while (waiting := self._sessions.oldest_queued()) is not None:
+            if waiting.prepared:
+                # SCRUM-267 AC8: snapshot dan hasil lama dipakai lagi. Galat sengaja tidak
+                # ditandai failed, supaya galat sesaat tidak membuang sesi yang sudah punya hasil.
+                return waiting.id if self._sessions.reopen(waiting.id, at=self._clock()) else None
             try:
                 prepared = self._prepare(waiting)
                 if prepared is None:

@@ -4,7 +4,7 @@ Memverifikasi di database PostgreSQL nyata bahwa:
 1. Sesi berstatus RUNNING saat restart dipindahkan ke PAUSED dengan stop_reason = RESTART
    dan stopped_at terisi, serta lolos trigger measurement_sessions_guard_update dan
    check constraint ck_measurement_sessions_stop_complete.
-2. Attempt RUNNING di-reset ke PENDING dan lolos trigger attempts_protect_answer.
+2. Attempt RUNNING yang terputus menjadi TECHNICAL_FAILURE dan lolos trigger attempts_protect_answer.
 3. check_worker_liveness memindahkan sesi yang stale ke PAUSED.
 
 Dilewati bila TEST_POSTGRES_URL kosong.
@@ -128,9 +128,10 @@ def test_recover_after_restart_on_postgresql(pg_session):
     assert sesi.stop_reason == StopReason.RESTART
     assert sesi.stopped_at == WAKTU_RESTART
 
-    # Attempt running dibiarkan running (uncertain) untuk rekonsiliasi SCRUM-216
+    # SCRUM-268: attempt yang terputus menjadi gagal teknis lewat trigger status guard PG
     att = pg_session.get(Attempt, attempt_id)
-    assert att.status == AttemptStatus.RUNNING
+    assert att.status == AttemptStatus.TECHNICAL_FAILURE
+    assert att.finished_at is None  # attempt uji ini tidak punya started_at
 
 
 def test_check_worker_liveness_on_postgresql(pg_session):

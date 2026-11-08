@@ -38,6 +38,8 @@ def _row(**ubah) -> SessionRow:
         "case_count": 4,
         "attempt_counts": {"succeeded": 6, "technical_failure": 2},
         "session_type": SessionType.AUTOMATIC,
+        "completed_cases": 3,
+        "total_cases": 4,
     }
     isi.update(ubah)
     return SessionRow(**isi)
@@ -73,6 +75,8 @@ def test_daftar_arsip_membaca_sesi_arsip_dengan_kolom_daftar_utama():
     assert item.repetitions == 2
     assert item.status == SessionStatus.FINISHED
     assert (item.progress.completed, item.progress.total) == (8, 8)
+    assert (item.progress.completed_cases, item.progress.total_cases) == (3, 4)
+    assert item.progress.percent_cases_complete == 75
 
 
 def test_daftar_default_tetap_membaca_sesi_aktif():
