@@ -18,12 +18,14 @@ from sqlalchemy.orm import Session
 from app.modules.auth.schemas import ErrorBody
 from app.modules.runs.attempt_calls import attempt_calls
 from app.modules.runs.dependencies import (
+    get_exchange_rate,
     get_progress_service,
     get_session_detail_service,
     get_session_list_service,
     get_start_service,
     get_summary_service,
 )
+from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.schemas import (
     AttemptCalls,
     GradedSessionListItem,
@@ -466,6 +468,7 @@ def trigger_grade_endpoint(
     payload: GradeSessionRequest | None = None,
     user: CurrentUser = Depends(require_roles(Role.ADMIN)),
     db: Session = Depends(get_db),
+    rates: ExchangeRateProvider = Depends(get_exchange_rate),
 ) -> SessionGradingResponse:
     """Admin memicu penilaian manual untuk sesi otomatis atau manual (PBI-14 AC6, AC7)."""
     return grade_session(
@@ -475,6 +478,7 @@ def trigger_grade_endpoint(
         actor_id=uuid.UUID(str(user.user_id)),
         actor_role=user.role,
         now=datetime.now(UTC),
+        rates=rates,
     )
 
 

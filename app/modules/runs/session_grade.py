@@ -963,6 +963,9 @@ class DbGradingStore:
         scorer: CitationScorer,
     ) -> None:
         case_input_by_item_id = {c.snapshot_item_id: c for c in (case_inputs or [])}
+        usage_by_attempt = {
+            att.attempt_id: att.judge_usage for c in (case_inputs or []) for att in c.attempts
+        }
         for case in cases:
             case_in = case_input_by_item_id.get(case.snapshot_item_id)
             norm_refs = normalize_legal_refs(case_in.legal_refs) if case_in else []
@@ -970,7 +973,9 @@ class DbGradingStore:
                 g_result = self._create_grading_result_row(run_id, att, norm_refs, scorer)
                 self.db.add(g_result)
                 self.db.flush()
-                self._save_llm_judge_records(g_result.id, att, case.case_code)
+                self._save_llm_judge_records(
+                    g_result.id, att, case.case_code, usage_by_attempt.get(att.attempt_id)
+                )
 
     def save_grading_run(
         self,
@@ -1091,6 +1096,7 @@ class DbGradingStore:
         case_code: str,
         rep_no: int,
         score_val: Decimal,
+        usage: JudgeUsage | None = None,
     ) -> None:
         from app.modules.grading.models import (
             JudgeKind,
@@ -1120,6 +1126,7 @@ class DbGradingStore:
             explanation=att.explanation,
             error=None,
             failure_kind=None,
+            **_usage_columns(usage),
         )
         self.db.add(judge_row)
         self.db.flush()
@@ -1131,6 +1138,7 @@ class DbGradingStore:
         case_code: str,
         rep_no: int,
         format_score: Decimal,
+        usage: JudgeUsage | None = None,
     ) -> None:
         from app.modules.grading.models import (
             JudgeKind,
@@ -1152,6 +1160,7 @@ class DbGradingStore:
             explanation=None,
             error=None,
             failure_kind=None,
+            **_usage_columns(usage),
         )
         self.db.add(format_row)
         self.db.flush()
@@ -1161,18 +1170,34 @@ class DbGradingStore:
         grading_result_id: uuid.UUID,
         att: AttemptGradeResult,
         case_code: str,
+        usage: Mapping[str, JudgeUsage] | None = None,
     ) -> None:
         rep_no = max(1, min(5, att.repetition_no))
         if att.is_technical_disruption or att.score is None:
             return
+        usage = usage or {}
 
         if att.score.quality is not None:
             self._save_quality_judge_record(
-                grading_result_id, att, case_code, rep_no, att.score.quality
+                grading_result_id, att, case_code, rep_no, att.score.quality, usage.get("quality")
             )
 
         if att.score.format is not None:
-            self._save_format_judge_record(grading_result_id, case_code, rep_no, att.score.format)
+            self._save_format_judge_record(
+                grading_result_id, case_code, rep_no, att.score.format, usage.get("format")
+            )
+
+
+def _usage_columns(usage: JudgeUsage | None) -> dict[str, Any]:
+    """Kolom token, biaya, dan kurs llm_judge_results dari pemakaian satu panggilan penilai."""
+    if usage is None:
+        return {}
+    return {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "cost_idr": usage.cost_idr,
+        "usd_idr_rate": usage.usd_idr_rate,
+    }
 
 
 def _evaluate_attempt_score(
