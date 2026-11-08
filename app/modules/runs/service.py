@@ -394,14 +394,14 @@ class StartSessionService:
         return StartResponse(session_id=queued.id, status=queued.status, queued_at=queued.queued_at)
 
 
-def ensure_judge_available(judge_lock: JudgeLock, judge_id: uuid.UUID | None) -> None:
+def ensure_judge_available(judge_lock: JudgeLock, judge_id: uuid.UUID) -> None:
     """Penilai yang dipilih harus ada dan aktif; dipakai sesi otomatis dan manual (SCRUM-258).
 
     Penilai dikunci dan dibaca ulang di transaksi yang sama dengan INSERT sesi, seperti
-    produk, supaya penilai yang dinonaktifkan bersamaan tidak tersimpan. Kosong tetap
-    boleh sampai form punya dropdown penilai (keputusan PO K2, 7 Nov).
+    produk, supaya penilai yang dinonaktifkan bersamaan tidak tersimpan. Kosongnya id sudah
+    ditolak schema (PBI-14), jadi di sini id pasti ada.
     """
-    if judge_id is not None and not judge_lock.lock_available(judge_id):
+    if not judge_lock.lock_available(judge_id):
         raise ValidationError(
             _PESAN_PENILAI_TIDAK_ADA, code="JUDGE_PROVIDER_NOT_AVAILABLE", field="judge_provider_id"
         )

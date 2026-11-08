@@ -12,6 +12,7 @@ lock_timeout 5 detik menjaga tes yang salah agar tidak menggantung.
 Label: Positif = sesi tersimpan, Edge = balapan dengan ganti jenis.
 """
 
+import dataclasses
 import os
 import threading
 import time
@@ -89,17 +90,36 @@ def produk(buat_sesi) -> tuple[uuid.UUID, uuid.UUID, uuid.UUID]:
         return daftar_otomatis(db, admin), admin, suite_id
 
 
+class _PenilaiLolos:
+    """Tes ini menguji kunci produk; penilai hanya perlu lolos pemeriksaan (PBI-14)."""
+
+    def lock_available(self, judge_provider_id: uuid.UUID) -> bool:
+        return True
+
+
+class _SesiTanpaPenilaiTersimpan(repository.SessionQueueRepository):
+    """Sesi tes ini tidak menyimpan penilai, supaya tidak ada baris judge_providers yang
+    tersisa (sesi PostgreSQL tidak bisa dihapus lagi dan baris itu menahan downgrade migrasi)."""
+
+    def create_queued(self, new):
+        return super().create_queued(dataclasses.replace(new, judge_provider_id=None))
+
+
 def _mulai(db, produk: tuple[uuid.UUID, uuid.UUID, uuid.UUID]) -> schemas.StartResponse:
     """Tombol Mulai seperti di dependencies.get_start_service, satu session database."""
     start = service.StartSessionService(
         summary=_RingkasanLolos(),
-        sessions=repository.SessionQueueRepository(db),
+        sessions=_SesiTanpaPenilaiTersimpan(db),
         product_lock=adapters.ProductLockAdapter(db),
-        judge_lock=adapters.JudgeLockAdapter(db),
+        judge_lock=_PenilaiLolos(),
     )
     product_id, admin_id, suite_id = produk
     permintaan = schemas.StartRequest(
-        suite_ids=[suite_id], product_id=product_id, label="Run PG", purpose="trial"
+        suite_ids=[suite_id],
+        product_id=product_id,
+        label="Run PG",
+        purpose="trial",
+        judge_provider_id=uuid.uuid4(),
     )
     return start.start(permintaan, created_by=admin_id)
 

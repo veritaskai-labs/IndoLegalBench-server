@@ -85,7 +85,7 @@ def cancel(
         **_RESPONSES,
         409: {
             "model": ErrorBody,
-            "description": "Resume ditolak: MODEL_VERSION_CHANGED (mulai sesi baru), MODEL_VERSION_CONFIRMATION_REQUIRED (konfirmasi Admin), ATTEMPT_RECOVERY_REQUIRED, ANOTHER_SESSION_RUNNING (hanya bila slot tetap bentrok setelah dicoba ulang ke antrean), SESSION_NOT_RESUMABLE, SESSION_ARCHIVED, SESSION_ACCEPTED, SESSION_NOT_AUTOMATIC.",
+            "description": "Resume ditolak: MODEL_VERSION_CHANGED (mulai sesi baru), MODEL_VERSION_CONFIRMATION_REQUIRED (konfirmasi Admin), ANOTHER_SESSION_RUNNING (hanya bila slot tetap bentrok setelah dicoba ulang ke antrean), SESSION_NOT_RESUMABLE, SESSION_ARCHIVED, SESSION_ACCEPTED, SESSION_NOT_AUTOMATIC.",
         },
     },
     summary="Lanjutkan sisa pekerjaan dengan guard versi dan penanda jeda panjang",
