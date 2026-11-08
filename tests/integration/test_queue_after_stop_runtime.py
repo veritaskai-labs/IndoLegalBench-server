@@ -291,3 +291,97 @@ def test_model_version_guard_still_rejects_while_slot_is_taken(siap):
     assert outcome[0].json()["code"] == "MODEL_VERSION_CHANGED"
     assert _row(siap, first).status == "paused"
     assert _row(siap, second).status == "finished"
+
+
+# K4 (UAT): session 3 started only after a few minutes. Part of that wait was the rate-limit
+# spacing sleep, which ran before the worker checked whether the session had been stopped.
+SPACING_LIMIT = 1  # 1 call per minute = 60 s between calls
+
+
+class _FakeTime:
+    """Fake clock and sleep, so a 60 s spacing wait takes no real time."""
+
+    def __init__(self):
+        self.now = 0.0
+        self.sleeps: list[float] = []
+
+    def clock(self) -> float:
+        return self.now
+
+    def sleep(self, seconds: float) -> None:
+        self.sleeps.append(seconds)
+        self.now += seconds
+
+
+def _spaced_runner(siap, provider, time: _FakeTime, stopping=lambda: False):
+    from app.modules.runs.exchange_rate import ConfiguredExchangeRate
+    from app.modules.runs.execution import run_once
+
+    siap.produk.price_input_usd_per_mtok = Decimal("10")
+    siap.produk.price_output_usd_per_mtok = Decimal("10")
+    siap.produk.rate_limit_per_minute = SPACING_LIMIT
+    siap.db.commit()
+    return lambda: run_once(
+        siap.db,
+        adapter_factory=lambda *_: provider,
+        rates=ConfiguredExchangeRate(Decimal("16000")),
+        sleep=time.sleep,
+        clock=time.clock,
+        stopping=stopping,
+    )
+
+
+@pytest.mark.parametrize("action", ["pause", "cancel"])
+def test_stop_is_noticed_without_waiting_for_the_rate_limit_spacing(siap, action):
+    """Positif: K4, Jeda/Batalkan terlihat dalam <= 1 detik, sesi Menunggu berikutnya langsung jalan."""
+    # Arrange
+    first, second = start(siap, label="Sesi 1"), start(siap, label="Sesi 2")
+    provider, time = Provider(), _FakeTime()
+    run = _spaced_runner(siap, provider, time)
+    _press_during_next_call(siap, provider, action)
+
+    # Act
+    assert run()
+    waited_after_stop = sum(time.sleeps)
+    assert run()
+
+    # Assert
+    assert waited_after_stop <= 1.0
+    assert _row(siap, first).status == STOPPED[action]
+    assert _row(siap, second).status == "finished"
+
+
+def test_spacing_is_still_respected_without_a_stop(siap):
+    """Negatif: tanpa Jeda, jarak 60 detik antar panggilan tetap dipatuhi (rate limit produk)."""
+    # Arrange
+    only = start(siap)
+    provider, time = Provider(), _FakeTime()
+    run = _spaced_runner(siap, provider, time)
+
+    # Act
+    assert run()
+
+    # Assert
+    assert len(provider.calls) == TOTAL
+    assert sum(time.sleeps) == 60.0 * (TOTAL - 1)
+    assert max(time.sleeps) <= 1.0  # slept in short slices so a stop is seen quickly
+    assert _row(siap, only).status == "finished"
+
+
+def test_shutdown_during_spacing_wait_pauses_with_restart_reason(siap):
+    """Edge: worker diminta berhenti (SIGTERM) saat menunggu jarak rate limit."""
+    # Arrange
+    only = start(siap)
+    provider, time = Provider(), _FakeTime()
+    shutdown = []
+    provider.on_call = lambda: shutdown.append(True)
+    run = _spaced_runner(siap, provider, time, stopping=lambda: bool(shutdown))
+
+    # Act
+    assert run()
+
+    # Assert
+    assert len(provider.calls) == 1
+    assert sum(time.sleeps) <= 1.0
+    row = _row(siap, only)
+    assert row.status == "paused" and row.stop_reason == "restart"

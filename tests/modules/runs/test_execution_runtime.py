@@ -592,7 +592,8 @@ def test_default_dispatch_dependencies_honor_operational_rate_limit(siap, monkey
 
     assert execution.run_once(siap.db, sleep=advance, clock=lambda: elapsed[0])
     assert len(provider.calls) == 9
-    assert sleeps == [2.0] * 8  # 30 calls/minute from the actual product
+    # 30 calls/minute from the actual product, slept in slices of at most 1 s (SCRUM-267 K4).
+    assert sum(sleeps) == 2.0 * 8 and max(sleeps) <= 1.0
     assert siap.db.get(MeasurementSession, session_id).status == "finished"
 
 
