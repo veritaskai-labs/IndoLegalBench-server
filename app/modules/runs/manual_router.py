@@ -19,11 +19,13 @@ from app.modules.runs.dependencies import (
     get_manual_evidence_service,
     get_manual_session_service,
     get_manual_status_service,
+    get_session_list_service,
 )
 from app.modules.runs.manual_answers import ManualAnswerService
 from app.modules.runs.manual_evidence import ManualEvidenceService
 from app.modules.runs.manual_session import ManualSessionService
 from app.modules.runs.manual_session_status import ManualSessionStatusService
+from app.modules.runs.models import SessionType
 from app.modules.runs.schemas import (
     EvidenceRead,
     ManualAnswerHistoryEntry,
@@ -33,7 +35,9 @@ from app.modules.runs.schemas import (
     ManualSessionDetail,
     ManualStartRequest,
     ManualStartResponse,
+    SessionListItem,
 )
+from app.modules.runs.session_list import SessionListService
 from app.shared.config import Settings, get_settings
 from app.shared.exceptions import ValidationError
 from app.shared.security import CurrentUser, Role, require_roles
@@ -103,6 +107,21 @@ def finalize_manual(
     return service.finalize(
         session_id, finalized_by=uuid.UUID(str(user.user_id)), now=datetime.now(UTC)
     )
+
+
+@router.get(
+    "",
+    response_model=list[SessionListItem],
+    summary="Daftar sesi pengukuran manual, terbaru di atas. archived=true menampilkan sesi arsip",
+)
+def list_manual_sessions(
+    archived: bool = Query(
+        default=False, description="Tampilkan sesi pengukuran manual yang diarsipkan"
+    ),
+    _user: CurrentUser = Depends(_viewers),
+    service: SessionListService = Depends(get_session_list_service),
+) -> list[SessionListItem]:
+    return service.list(archived=archived, session_type=SessionType.MANUAL)
 
 
 @router.get(

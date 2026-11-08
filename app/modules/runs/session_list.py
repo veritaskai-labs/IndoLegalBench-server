@@ -43,9 +43,9 @@ class SessionRow:
 
 
 class SessionListStore(Protocol):
-    def active_sessions(self) -> list[SessionRow]: ...
+    def active_sessions(self, *, session_type: SessionType | None = None) -> list[SessionRow]: ...
 
-    def archived_sessions(self) -> list[SessionRow]: ...
+    def archived_sessions(self, *, session_type: SessionType | None = None) -> list[SessionRow]: ...
 
     def latest_active(self) -> SessionRow | None: ...
 
@@ -61,9 +61,20 @@ class SessionListService:
         self._sessions = sessions
         self._names = names
 
-    def list(self, *, archived: bool = False) -> list[SessionListItem]:
+    def list(
+        self, *, archived: bool = False, session_type: SessionType | None = None
+    ) -> list[SessionListItem]:
         """Daftar utama, atau daftar arsip bila archived. Nama dibaca sekali untuk semua baris."""
-        rows = self._sessions.archived_sessions() if archived else self._sessions.active_sessions()
+        if session_type is not None:
+            rows = (
+                self._sessions.archived_sessions(session_type=session_type)
+                if archived
+                else self._sessions.active_sessions(session_type=session_type)
+            )
+        else:
+            rows = (
+                self._sessions.archived_sessions() if archived else self._sessions.active_sessions()
+            )
         products = self._names.product_names({row.product_id for row in rows})
         creators = self._names.user_names({row.created_by for row in rows})
         return [to_list_item(row, products, creators) for row in rows]

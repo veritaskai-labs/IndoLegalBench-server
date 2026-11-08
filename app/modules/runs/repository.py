@@ -208,20 +208,22 @@ class SessionListRepository:
     def __init__(self, db: Session) -> None:
         self._db = db
 
-    def active_sessions(self) -> list[SessionRow]:
+    def active_sessions(self, *, session_type: SessionType | None = None) -> list[SessionRow]:
+        query = select(MeasurementSession).where(MeasurementSession.archived_at.is_(None))
+        if session_type is not None:
+            query = query.where(MeasurementSession.session_type == session_type)
         sessions = self._db.scalars(
-            select(MeasurementSession)
-            .where(MeasurementSession.archived_at.is_(None))
-            .order_by(MeasurementSession.created_at.desc(), MeasurementSession.id)
+            query.order_by(MeasurementSession.created_at.desc(), MeasurementSession.id)
         ).all()
         return self._rows(sessions)
 
-    def archived_sessions(self) -> list[SessionRow]:
+    def archived_sessions(self, *, session_type: SessionType | None = None) -> list[SessionRow]:
         """Sesi arsip, yang terakhir diarsipkan di atas (AC10)."""
+        query = select(MeasurementSession).where(MeasurementSession.archived_at.is_not(None))
+        if session_type is not None:
+            query = query.where(MeasurementSession.session_type == session_type)
         sessions = self._db.scalars(
-            select(MeasurementSession)
-            .where(MeasurementSession.archived_at.is_not(None))
-            .order_by(MeasurementSession.archived_at.desc(), MeasurementSession.id)
+            query.order_by(MeasurementSession.archived_at.desc(), MeasurementSession.id)
         ).all()
         return self._rows(sessions)
 
