@@ -5,7 +5,9 @@ pasal acuannya disebut untuk peraturan itu. "Pasal 156 ayat (1)" memenuhi acuan
 "Pasal 156"; pasal tambahan tidak dihukum. Pasal dikaitkan ke peraturan yang
 langsung menyusulnya ("Pasal 156 ayat (1) UU 13/2003", "Pasal 155 dan 156
 UU 13/2003"); bila tidak ada, ke peraturan terakhir yang disebut sebelumnya
-("Pasal 46 undang-undang yang sama").
+("Pasal 46 undang-undang yang sama"). Nama populer tanpa nomor
+("UU Ketenagakerjaan") mengaitkan pasal ke peraturan bernomor terakhir dari
+jenis yang sama, bukan ke peraturan jenis lain yang disebut di dekatnya.
 
 Rujukan berangkai (jo./jis.) dinilai satu kesatuan: benar hanya bila semua
 peraturan di dalamnya disebut benar (D6 det_all_chained_cited). Penilai LLM
@@ -144,6 +146,53 @@ def test_pasal_milik_peraturan_lain_tidak_dihitung():
     # Assert
     assert hasil.score == Decimal("0.00")
     assert hasil.regulation_matches[0].matched is True
+
+
+def test_nama_populer_mengaitkan_pasal_ke_undang_undang_yang_sudah_disebut():
+    """Positif: 'Pasal 156 UU Ketenagakerjaan' merujuk UU 13/2003 yang sudah disebut."""
+    # Arrange
+    jawaban = (
+        "Pesangon diatur Undang-Undang Nomor 13 Tahun 2003 tentang Ketenagakerjaan "
+        "dan Peraturan Pemerintah Nomor 35 Tahun 2021. "
+        "Pasal 156 ayat (1) huruf a UU Ketenagakerjaan, serta Pasal 36 huruf a "
+        "PP No. 35 Tahun 2021."
+    )
+
+    # Act
+    hasil = _nilai(jawaban, [rujukan_ktk_001()])
+
+    # Assert
+    assert hasil.score == Decimal("1.00")
+    assert _pasal(hasil) == [("uu", "13", 2003, "156", True)]
+
+
+def test_nama_populer_di_antara_pasal_dan_nomor_undang_undang():
+    """Positif: 'Pasal 156 UU Ketenagakerjaan (UU 13/2003)' tetap pasal UU 13/2003."""
+    # Arrange
+    jawaban = "Pesangon diatur Pasal 156 UU Ketenagakerjaan (UU No. 13 Tahun 2003)."
+
+    # Act
+    hasil = _nilai(jawaban, [rujukan_ktk_001()])
+
+    # Assert
+    assert hasil.score == Decimal("1.00")
+    assert _pasal(hasil) == [("uu", "13", 2003, "156", True)]
+
+
+def test_nama_populer_tidak_menempelkan_pasal_ke_peraturan_jenis_lain():
+    """Negatif: 'Pasal 156 UU Ketenagakerjaan' bukan pasal PP 35 yang disebut di dekatnya."""
+    # Arrange
+    jawaban = (
+        "Tata cara diatur Peraturan Pemerintah Nomor 35 Tahun 2021. "
+        "Pasal 156 UU Ketenagakerjaan, serta Pasal 36 PP No. 35 Tahun 2021."
+    )
+
+    # Act
+    hasil = _nilai(jawaban, [rujukan(link("pp", "35", 2021, "156"))])
+
+    # Assert
+    assert hasil.score == Decimal("0.00")
+    assert _pasal(hasil) == [("pp", "35", 2021, "156", False)]
 
 
 def test_pasal_sebelum_kalimat_lain_tidak_dikaitkan_ke_peraturan_berikutnya():
