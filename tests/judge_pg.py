@@ -57,3 +57,25 @@ def buat_penilai(conn: Connection, admin_id: uuid.UUID, **ubah) -> uuid.UUID:
     )
     conn.execute(text(f"INSERT INTO judge_providers ({kolom}) VALUES ({params})"), nilai)
     return nilai["id"]
+
+
+def buat_produk_penilai(conn: Connection, admin_id: uuid.UUID, **ubah) -> uuid.UUID:
+    """Penilai sejak SCRUM-271: produk AI otomatis. FK sesi dan grading run menunjuk ke sini."""
+    produk_id = uuid.uuid4()
+    nilai = {
+        "id": produk_id,
+        "name": f"Produk penilai {produk_id.hex[:8]}",
+        "admin": admin_id,
+    } | ubah
+    conn.execute(
+        text(
+            "INSERT INTO ai_products (id, name, measurement_type, provider_type, base_url, "
+            "model_name, credential_encrypted, credential_hint, rate_limit_per_minute, "
+            "monthly_budget_idr, created_by) "
+            "VALUES (:id, :name, 'automatic', 'openai_compatible', "
+            "'https://penilai.contoh.test/v1/chat/completions', 'model-penilai-sintetis', "
+            "'\\x63697068657274657874', 'abcd', 30, 500000, :admin)"
+        ),
+        nilai,
+    )
+    return produk_id

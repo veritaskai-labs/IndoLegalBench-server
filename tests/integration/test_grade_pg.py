@@ -21,6 +21,7 @@ from app.modules.grading.models import (
     GradingRunStatus,
     LlmJudgeResult,
 )
+from app.modules.providers.adapters.base import ProviderResponse
 from app.modules.runs import session_grade
 from app.modules.runs.session_grade import grade_session
 from app.shared.database import get_db
@@ -222,6 +223,50 @@ def test_grade_session_pg_technical_disruption_does_not_call_judge_guard(pg):
     assert len(judges) == 0
 
 
+class _PenilaiGagalBerbiaya:
+    """Penilai tiruan: setiap panggilan gagal setelah memakai token."""
+
+    def ask(self, prompt: str):
+        return ProviderResponse(
+            text="",
+            model_version="",
+            latency_ms=1,
+            raw={},
+            error="upstream_error",
+            failure_kind="provider_error",
+            input_tokens=40,
+            output_tokens=0,
+        )
+
+
+def test_grade_session_pg_failed_judge_calls_keep_their_usage(pg):
+    """Positif: panggilan penilai gagal berbiaya tersimpan walau percobaan jadi gangguan teknis."""
+    db, conn = pg
+    admin_id, session_id, attempt_id = _setup_pg_grade_session(conn)
+
+    res = grade_session(
+        db,
+        session_id,
+        actor_id=admin_id,
+        actor_role=Role.ADMIN,
+        judge_asker=_PenilaiGagalBerbiaya(),
+    )
+
+    hasil = db.scalars(
+        select(GradingResult).where(GradingResult.grading_run_id == res.grading_run_id)
+    ).one()
+    assert hasil.is_technical_disruption is True
+    baris = db.scalars(
+        select(LlmJudgeResult).where(LlmJudgeResult.grading_result_id == hasil.id)
+    ).all()
+    assert {(b.kind.value, b.status.value) for b in baris} == {
+        ("quality", "failed"),
+        ("format", "failed"),
+    }
+    assert {b.failure_kind for b in baris} == {"provider_error"}
+    assert {(b.input_tokens, b.output_tokens) for b in baris} == {(40, 0)}
+
+
 def test_post_grade_endpoint_pg(pg, monkeypatch):
     """Positif: Endpoint POST /measurements/{id}/grade berfungsi sukses di PostgreSQL."""
     db, conn = pg
@@ -237,7 +282,7 @@ def test_post_grade_endpoint_pg(pg, monkeypatch):
     monkeypatch.setattr(
         session_grade,
         "_resolve_active_judge_asker",
-        lambda db, session, judge_asker: (_penilai_tiruan(), None),
+        lambda db, session, judge_asker: (_penilai_tiruan(), None, None),
     )
 
     try:

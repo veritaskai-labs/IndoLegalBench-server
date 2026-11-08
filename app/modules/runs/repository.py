@@ -371,6 +371,7 @@ class CallLogRepository:
         return (terakhir or 0) + 1
 
     def sum_cost_since(self, product_id: uuid.UUID, start: datetime) -> Decimal:
+        """Biaya panggilan produk sejak start, termasuk saat produk dipakai sebagai penilai."""
         total = self._db.scalar(
             select(func.coalesce(func.sum(CallLog.cost_idr), 0)).where(
                 CallLog.product_id == product_id,
@@ -378,7 +379,9 @@ class CallLogRepository:
                 CallLog.cost_idr.is_not(None),
             )
         )
-        return Decimal(total)
+        return Decimal(total) + self._judge_costs_since([product_id], start).get(
+            product_id, Decimal(0)
+        )
 
     def sum_cost_since_by_product(
         self, product_ids: Sequence[uuid.UUID], start: datetime
@@ -394,6 +397,28 @@ class CallLogRepository:
                 CallLog.cost_idr.is_not(None),
             )
             .group_by(CallLog.product_id)
+        )
+        totals = {product_id: Decimal(total) for product_id, total in rows}
+        for product_id, judge_total in self._judge_costs_since(product_ids, start).items():
+            totals[product_id] = totals.get(product_id, Decimal(0)) + judge_total
+        return totals
+
+    def _judge_costs_since(
+        self, product_ids: Sequence[uuid.UUID], start: datetime
+    ) -> dict[uuid.UUID, Decimal]:
+        """Biaya panggilan penilai (llm_judge_results) per produk penilai, bagian dari anggaran."""
+        from app.modules.grading.models import GradingResult, GradingRun, LlmJudgeResult
+
+        rows = self._db.execute(
+            select(GradingRun.judge_provider_id, func.sum(LlmJudgeResult.cost_idr))
+            .join(GradingResult, GradingResult.grading_run_id == GradingRun.id)
+            .join(LlmJudgeResult, LlmJudgeResult.grading_result_id == GradingResult.id)
+            .where(
+                GradingRun.judge_provider_id.in_(product_ids),
+                LlmJudgeResult.created_at >= start,
+                LlmJudgeResult.cost_idr.is_not(None),
+            )
+            .group_by(GradingRun.judge_provider_id)
         )
         return {product_id: Decimal(total) for product_id, total in rows}
 

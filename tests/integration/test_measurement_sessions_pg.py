@@ -15,7 +15,7 @@ import pytest
 from sqlalchemy import create_engine, text
 from sqlalchemy.exc import DBAPIError
 
-from tests.judge_pg import buat_penilai
+from tests.judge_pg import buat_produk_penilai
 from tests.measurement_pg import (
     CHECK_VIOLATION,
     FOREIGN_KEY_VIOLATION,
@@ -477,8 +477,10 @@ def _ubah_identitas(conn, sesi_id, kolom, admin_id) -> None:
         {
             "id": sesi_id,
             "produk_lain": buat_produk(conn, admin_id),
-            # SCRUM-258: penilai harus ada di judge_providers (FK), bukan uuid bebas.
-            "penilai_lain": buat_penilai(conn, admin_id) if kolom == "judge_provider_id" else None,
+            # SCRUM-271: penilai harus ada di ai_products (FK), bukan uuid bebas.
+            "penilai_lain": buat_produk_penilai(conn, admin_id)
+            if kolom == "judge_provider_id"
+            else None,
         },
     )
 

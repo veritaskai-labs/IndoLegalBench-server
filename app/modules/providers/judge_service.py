@@ -28,7 +28,7 @@ from app.modules.providers.judge_schemas import (
     JudgeProviderRead,
     JudgeProviderUpdate,
 )
-from app.modules.providers.models import JudgeProvider
+from app.modules.providers.models import AiProduct, JudgeProvider, MeasurementType
 from app.shared.exceptions import ConflictError, InternalError, NotFoundError, ValidationError
 
 NAME_TAKEN = "JUDGE_PROVIDER_NAME_TAKEN"
@@ -63,12 +63,12 @@ def get_judge(db: Session, judge_id: uuid.UUID) -> JudgeProviderRead:
 
 
 def list_options(db: Session) -> list[JudgeProviderOption]:
-    """Penilai aktif untuk dropdown form pengukuran (SCRUM-211)."""
+    """Penilai untuk dropdown form pengukuran: produk AI otomatis yang aktif (SCRUM-271)."""
     return [
         JudgeProviderOption(
             id=row.id, name=row.name, provider_type=row.provider_type, model_name=row.model_name
         )
-        for row in judge_repository.list_options(db)
+        for row in judge_repository.list_product_options(db)
     ]
 
 
@@ -95,39 +95,41 @@ def set_active(db: Session, judge_id: uuid.UUID, *, is_active: bool) -> JudgePro
 class JudgeBinding:
     """Penilai siap pakai untuk judge.run_judge (SCRUM-224).
 
-    asker sudah dibungkus SafeProviderAdapter. Harga dan anggaran milik penilai,
-    terpisah dari produk (klien No. 63 A); kurs harian disusun pemanggil menjadi
-    JudgePrices. is_active dilaporkan, tidak ditolak di sini.
+    asker sudah dibungkus SafeProviderAdapter. Harga dan anggaran bulanan milik produk AI
+    yang dipilih sebagai penilai, tidak ada anggaran penilai terpisah (SCRUM-271). Harga bisa
+    kosong di produknya, tetapi penilaian menolak penilai tanpa harga lengkap sebelum
+    memanggilnya (JudgePricingMissing). Kurs harian disusun pemanggil menjadi JudgePrices. is_active dilaporkan,
+    tidak ditolak di sini.
     """
 
     judge_provider_id: uuid.UUID
     asker: SafeProviderAdapter = field(repr=False)
-    price_input_usd_per_mtok: Decimal
-    price_output_usd_per_mtok: Decimal
+    price_input_usd_per_mtok: Decimal | None
+    price_output_usd_per_mtok: Decimal | None
     monthly_budget_idr: Decimal
     is_active: bool
 
 
 def build_judge(db: Session, judge_id: uuid.UUID) -> JudgeBinding:
-    """Adapter penilai dari baris judge_providers. Kredensial hanya dibuka di sini."""
-    judge = _wajib_ada(db, judge_id)
+    """Adapter penilai dari produk AI otomatis yang dipilih. Kredensial hanya dibuka di sini."""
+    produk = _produk_penilai(db, judge_id)
     try:
-        secret = decrypt_credential(judge.credential_encrypted)
+        secret = decrypt_credential(produk.credential_encrypted)
     except CredentialError:
         raise InternalError("judge credential unavailable") from None
     adapter = build_adapter(
-        provider_type=judge.provider_type.value,
-        base_url=judge.base_url,
-        model_name=judge.model_name,
+        provider_type=produk.provider_type.value,
+        base_url=produk.base_url,
+        model_name=produk.model_name,
         api_key=secret,
     )
     return JudgeBinding(
-        judge_provider_id=judge.id,
-        asker=SafeProviderAdapter(adapter, secret, judge.base_url),
-        price_input_usd_per_mtok=judge.price_input_usd_per_mtok,
-        price_output_usd_per_mtok=judge.price_output_usd_per_mtok,
-        monthly_budget_idr=judge.monthly_budget_idr,
-        is_active=judge.is_active,
+        judge_provider_id=produk.id,
+        asker=SafeProviderAdapter(adapter, secret, produk.base_url),
+        price_input_usd_per_mtok=produk.price_input_usd_per_mtok,
+        price_output_usd_per_mtok=produk.price_output_usd_per_mtok,
+        monthly_budget_idr=produk.monthly_budget_idr,
+        is_active=produk.is_active,
     )
 
 
@@ -139,14 +141,25 @@ def judge_names(db: Session, judge_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
 
 
 def lock_available_for_new_session(db: Session, judge_id: uuid.UUID) -> bool:
-    """Kunci baris penilai (FOR SHARE) untuk sesi yang akan dibuat, lalu ada dan aktifnya.
+    """Kunci baris produk penilai (FOR SHARE) untuk sesi yang akan dibuat, lalu layak dan aktifnya.
 
-    Untuk POST /measurements (SCRUM-258): kunci bertahan sampai transaksi pembuat sesi
-    selesai, jadi nonaktifkan yang belum commit ditunggu dan hasilnya terbaca, seperti
-    kunci produk #90.
+    Untuk POST /measurements (SCRUM-258, SCRUM-271): kunci bertahan sampai transaksi pembuat
+    sesi selesai, jadi nonaktifkan yang belum commit ditunggu dan hasilnya terbaca, seperti
+    kunci produk #90. Hanya produk otomatis yang belum dihapus yang bisa menjadi penilai.
     """
-    judge = judge_repository.get_by_id(db, judge_id, for_share=True)
-    return judge is not None and judge.is_active
+    produk = judge_repository.get_product(db, judge_id, for_share=True)
+    return _bisa_jadi_penilai(produk) and produk.is_active
+
+
+def _bisa_jadi_penilai(produk: AiProduct | None) -> bool:
+    return produk is not None and produk.measurement_type == MeasurementType.AUTOMATIC
+
+
+def _produk_penilai(db: Session, judge_id: uuid.UUID) -> AiProduct:
+    produk = judge_repository.get_product(db, judge_id)
+    if not _bisa_jadi_penilai(produk):
+        raise NotFoundError("Provider penilai tidak ditemukan", code=NOT_FOUND)
+    return produk
 
 
 def _wajib_ada(db: Session, judge_id: uuid.UUID) -> JudgeProvider:

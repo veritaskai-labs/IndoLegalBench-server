@@ -14,17 +14,20 @@ PBI-11 AC9: Tiga skor terpisah (dev, test, gabungan).
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
-from unittest.mock import MagicMock
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import select
 
+from app.main import app
 from app.modules.audit.models import AuditLog
 from app.modules.auth.models import User
 from app.modules.cases.models import SplitTag
 from app.modules.cases.sections import snapshot_body
 from app.modules.cases.service import MASKED_CASE_CODE, MASKED_TITLE
 from app.modules.grading.models import RubricVersion
+from app.modules.runs.dependencies import get_exchange_rate
+from app.modules.runs.exchange_rate import ConfiguredExchangeRate
 from app.modules.runs.models import (
     Attempt,
     AttemptSource,
@@ -1521,9 +1524,15 @@ def pasang_penilai_tiruan(db_session, sesi, monkeypatch) -> None:
     """
     sesi.judge_provider_id = uuid.uuid4()
     db_session.commit()
-    ikatan = MagicMock()
-    ikatan.asker = _MockJudgeAsker(text=_BALASAN_PENILAI)
+    ikatan = SimpleNamespace(
+        judge_provider_id=sesi.judge_provider_id,
+        asker=_MockJudgeAsker(text=_BALASAN_PENILAI),
+        price_input_usd_per_mtok=Decimal("1"),
+        price_output_usd_per_mtok=Decimal("2"),
+        monthly_budget_idr=Decimal("1000000"),
+    )
     monkeypatch.setattr("app.modules.providers.judge_service.build_judge", lambda db, j: ikatan)
+    app.dependency_overrides[get_exchange_rate] = lambda: ConfiguredExchangeRate(Decimal("16000"))
 
 
 def test_llm_judge_integration_and_d6_persistence(db_session, produk, pembuat):

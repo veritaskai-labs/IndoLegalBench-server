@@ -55,7 +55,7 @@ def manual(siap_manual, monkeypatch):
     monkeypatch.setattr(
         session_grade,
         "_resolve_active_judge_asker",
-        lambda db, session, judge_asker: (judge_asker or _JudgeGema(), None),
+        lambda db, session, judge_asker: (judge_asker or _JudgeGema(), None, None),
     )
     siap_manual.db.add(
         RubricVersion(

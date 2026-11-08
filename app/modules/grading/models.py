@@ -268,9 +268,7 @@ class GradingRun(Base):
     )
     judge_provider_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey(
-            "judge_providers.id", name="fk_grading_runs_judge_provider", ondelete="RESTRICT"
-        ),
+        ForeignKey("ai_products.id", name="fk_grading_runs_judge_provider", ondelete="RESTRICT"),
         nullable=True,
     )
     kind: Mapped[GradingRunKind] = mapped_column(
