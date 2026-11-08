@@ -55,6 +55,8 @@ def _hitungan(**ubah) -> SessionProgress:
         "started_at": _MULAI,
         "updated_at": _SEKARANG,
         "running_cost_idr": Decimal("120000.00"),
+        "completed_cases": 7,
+        "total_cases": 20,
     }
     nilai.update(ubah)
     return SessionProgress(**nilai)
@@ -108,6 +110,32 @@ def test_angka_progres_satu_sesi():
     assert respons.remaining_budget_idr == Decimal("380000.00")
     assert respons.started_at == _MULAI
     assert respons.updated_at == _SEKARANG
+    assert respons.completed_cases == 7
+    assert respons.total_cases == 20
+    assert respons.percent_cases_complete == 35
+
+
+def test_persen_kasus_sesi_antre_nol_tanpa_pembagian_nol():
+    """Edge: SCRUM-265, sesi antre belum punya kasus, persen kasus tetap 0."""
+    # Arrange
+    service = _service(
+        hitungan=_hitungan(
+            total_calls=0,
+            completed_calls=0,
+            failed_calls=0,
+            started_at=None,
+            completed_cases=0,
+            total_cases=0,
+        ),
+        produk=_produk(),
+    )
+
+    # Act
+    respons = service.read(_SESI)
+
+    # Assert
+    assert (respons.completed_cases, respons.total_cases) == (0, 0)
+    assert respons.percent_cases_complete == 0
 
 
 def test_respons_hanya_memuat_angka_yang_diminta_ac5():
@@ -129,6 +157,9 @@ def test_respons_hanya_memuat_angka_yang_diminta_ac5():
         "remaining_budget_idr",
         "started_at",
         "updated_at",
+        "completed_cases",
+        "total_cases",
+        "percent_cases_complete",
     }
 
 

@@ -62,8 +62,15 @@ def siap(as_role, buat_pengguna, db_session):
         sebagai=sebagai,
         suite_id=suite_id,
         produk=produk,
+        penilai=_penilai_siap(sebagai, db_session),
         db=db_session,
     )
+
+
+def _penilai_siap(sebagai, db):
+    """Satu penilai aktif terdaftar; sesi wajib memilih penilai dari daftar (PBI-14)."""
+    sebagai(Role.ADMIN)
+    return tambah_penilai(db, ADMIN_LAIN)
 
 
 def _jumlah_sesi(db) -> int:
@@ -78,6 +85,7 @@ def _badan(siap, **ubah) -> dict:
         "case_filter": "both",
         "label": "Run Oktober AiYU",
         "purpose": "official",
+        "judge_provider_id": str(siap.penilai.id),
     }
     badan.update(ubah)
     return badan

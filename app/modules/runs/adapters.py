@@ -209,6 +209,9 @@ class SessionProgressAdapter:
         baris = repository.session_progress(self._db, measurement_id)
         if baris is None:
             return None
+        selesai, total = repository.case_completion(self._db, [measurement_id]).get(
+            measurement_id, (0, 0)
+        )
         return SessionProgress(
             product_id=baris.product_id,
             total_calls=int(baris.total_calls),
@@ -217,6 +220,8 @@ class SessionProgressAdapter:
             started_at=_utc(baris.started_at),
             updated_at=_utc(baris.last_attempt_at or baris.updated_at),
             running_cost_idr=Decimal(baris.running_cost_idr),
+            completed_cases=selesai,
+            total_cases=total,
         )
 
 

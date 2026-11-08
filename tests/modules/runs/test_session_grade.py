@@ -14,6 +14,7 @@ PBI-11 AC9: Tiga skor terpisah (dev, test, gabungan).
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import select
@@ -725,9 +726,10 @@ def _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISH
     return sesi
 
 
-def test_post_grade_admin_sukses(as_role, db_session, produk, pembuat):
+def test_post_grade_admin_sukses(as_role, db_session, produk, pembuat, monkeypatch):
     """Positif: Admin memicu penilaian via POST /measurements/{id}/grade (AC6)."""
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat)
+    pasang_penilai_tiruan(db_session, sesi, monkeypatch)
     client = as_role(Role.ADMIN)
 
     res = client.post(f"/measurements/{sesi.id}/grade", json={"rubric_version": "v1"})
@@ -808,9 +810,12 @@ def test_get_results_sesi_berjalan_hanya_admin(as_role, db_session, produk, pemb
     assert res_dev.status_code == 403
 
 
-def test_get_results_sesi_selesai_developer_ai_masking(as_role, db_session, produk, pembuat):
+def test_get_results_sesi_selesai_developer_ai_masking(
+    as_role, db_session, produk, pembuat, monkeypatch
+):
     """AC8, PBI-11 AC9: Sesi selesai untuk Dev AI: kasus test tersamar, agregat test terlihat."""
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    pasang_penilai_tiruan(db_session, sesi, monkeypatch)
 
     # Nilai dulu
     assert as_role(Role.ADMIN).post(f"/measurements/{sesi.id}/grade", json={}).status_code == 200
@@ -840,10 +845,10 @@ def test_get_results_sesi_selesai_developer_ai_masking(as_role, db_session, prod
     assert res_dev.status_code == 200
     dev_body = res_dev.json()
 
-    # Skor agregat test tetap terlihat di ThreeScores (sesi tanpa judge: quality & format null)
+    # Skor agregat test tetap terlihat di ThreeScores
     assert dev_body["scores"]["test"]["deterministic"] is not None
-    assert dev_body["scores"]["test"]["quality"] is None
-    assert dev_body["scores"]["test"]["format"] is None
+    assert dev_body["scores"]["test"]["quality"] is not None
+    assert dev_body["scores"]["test"]["format"] is not None
 
     # Tapi kasus test tersamar per-kasus
     dev_cases = dev_body["cases"]
@@ -867,9 +872,10 @@ def test_get_results_sesi_selesai_developer_ai_masking(as_role, db_session, prod
     assert dev_c["scores"] is not None
 
 
-def test_regrade_via_api(as_role, db_session, produk, pembuat):
+def test_regrade_via_api(as_role, db_session, produk, pembuat, monkeypatch):
     """AC7: Nilai ulang via API menandai kind='regrade' dan validasi versi rubrik."""
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    pasang_penilai_tiruan(db_session, sesi, monkeypatch)
     admin = as_role(Role.ADMIN)
 
     # Seed versi v2 di tabel rubric_versions (v1 sudah dibuat oleh _setup_sesi_lengkap)
@@ -1040,7 +1046,27 @@ def test_db_grading_store_persists_across_instances(db_session, produk, pembuat)
 
     res = grade_session_data(
         session_id=sesi.id,
-        cases_input=[],
+        cases_input=[
+            CaseGradeInput(
+                snapshot_item_id=uuid.uuid4(),
+                case_id=uuid.uuid4(),
+                case_code="PHK-001",
+                title="Kasus",
+                split_tag=SplitTag.DEV,
+                attempts=[
+                    AttemptGradeInput(
+                        attempt_id=uuid.uuid4(),
+                        repetition_no=1,
+                        status=AttemptStatus.SUCCEEDED,
+                        source=AttemptSource.AUTOMATIC,
+                        answer_text="Jawaban valid",
+                        deterministic_score=Decimal("0.80"),
+                        quality_score=Decimal("0.80"),
+                        format_score=Decimal("0.75"),
+                    )
+                ],
+            )
+        ],
         triggered_by=pembuat.id,
     )
     store1.save_grading_run(res)
@@ -1480,6 +1506,26 @@ class _MockJudgeAsker:
         return self
 
 
+_BALASAN_PENILAI = (
+    "CRITERION: badan hukum\nMET: yes\n"
+    "CRITERION: pesangon\nMET: yes\n"
+    "CRITERION: Conclusion: sah\nMET: yes\n"
+)
+
+
+def pasang_penilai_tiruan(db_session, sesi, monkeypatch) -> None:
+    """Beri sesi penilai terdaftar dan ganti pemuatnya dengan asker tiruan (PBI-14).
+
+    Sesi tanpa penilai kini menjadi gangguan teknis tanpa skor, jadi tes yang menilai
+    lewat endpoint harus memilih penilai seperti sesi nyata.
+    """
+    sesi.judge_provider_id = uuid.uuid4()
+    db_session.commit()
+    ikatan = MagicMock()
+    ikatan.asker = _MockJudgeAsker(text=_BALASAN_PENILAI)
+    monkeypatch.setattr("app.modules.providers.judge_service.build_judge", lambda db, j: ikatan)
+
+
 def test_llm_judge_integration_and_d6_persistence(db_session, produk, pembuat):
     """Integrasi SCRUM-224 run_judge, persistensi tabel D6, dan pembacaan ulang metadata."""
     from app.modules.grading.models import LlmCriterionResult, LlmJudgeResult
@@ -1746,7 +1792,7 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
     res_judge_prov = grade_session(
         db_session, sesi_judge.id, actor_id=pembuat.id, actor_role=Role.ADMIN
     )
-    assert res_judge_prov.status == "completed"
+    assert res_judge_prov.status == "failed"
     disrupted_att = res_judge_prov.cases[0].attempts[0]
     assert disrupted_att.is_technical_disruption is True
     assert disrupted_att.score is None
@@ -1756,7 +1802,7 @@ def test_coverage_edge_cases_and_uncovered_branches(db_session, produk, pembuat,
     from unittest.mock import MagicMock
 
     mock_binding = MagicMock()
-    mock_binding.asker = _MockJudgeAsker(text="CRITERION: badan hukum\nMET: yes\n")
+    mock_binding.asker = _MockJudgeAsker(text=_BALASAN_PENILAI)
     monkeypatch.setattr(
         "app.modules.providers.judge_service.build_judge", lambda db, j_id: mock_binding
     )
