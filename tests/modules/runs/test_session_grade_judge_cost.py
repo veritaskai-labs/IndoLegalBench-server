@@ -14,7 +14,9 @@ from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
 import pytest
+from sqlalchemy import select
 
+from app.modules.providers.adapters.base import ProviderResponse
 from app.modules.runs import session_grade
 from app.modules.runs.judge import JudgePrices
 from app.modules.runs.judge_budget import JudgeMeter, JudgeUsage
@@ -210,13 +212,13 @@ def test_grade_sesi_dengan_anggaran_penilai_habis_menjadi_gangguan_teknis(
     ikatan.asker.ask.assert_not_called()
 
 
-def _nilai_dengan_penilai_berbiaya(db_session, produk_, pembuat_, monkeypatch):
+def _nilai_dengan_penilai_berbiaya(db_session, produk_, pembuat_, monkeypatch, asker=None):
     sesi = _setup_sesi_lengkap(db_session, produk_, pembuat_)
     sesi.judge_provider_id = uuid.uuid4()
     db_session.commit()
     ikatan = SimpleNamespace(
         judge_provider_id=sesi.judge_provider_id,
-        asker=_MockJudgeAsker(text=_BALASAN_PENILAI),
+        asker=asker or _MockJudgeAsker(text=_BALASAN_PENILAI),
         price_input_usd_per_mtok=Decimal("1"),
         price_output_usd_per_mtok=Decimal("2"),
         monthly_budget_idr=Decimal("1000000"),
@@ -337,3 +339,144 @@ def test_endpoint_grade_meneruskan_penyedia_kurs_ke_penilaian(
 
     # Assert
     assert diterima["rates"] is rates
+
+
+class _AskerBergilir:
+    """Penilai tiruan: jawaban diambil bergiliran (kualitas dulu, lalu format, tiap percobaan)."""
+
+    def __init__(self, *jawaban) -> None:
+        self._jawaban = jawaban
+        self._urutan = 0
+
+    def ask(self, prompt: str):
+        jawaban = self._jawaban[self._urutan % len(self._jawaban)]
+        self._urutan += 1
+        return jawaban
+
+
+def _gagal(masuk: int | None, keluar: int | None) -> ProviderResponse:
+    return ProviderResponse(
+        text="",
+        model_version="",
+        latency_ms=1,
+        raw={},
+        error="upstream_error",
+        failure_kind="provider_error",
+        input_tokens=masuk,
+        output_tokens=keluar,
+    )
+
+
+def _sukses() -> ProviderResponse:
+    return ProviderResponse(
+        text=_BALASAN_PENILAI,
+        model_version="m",
+        latency_ms=1,
+        raw={},
+        input_tokens=25,
+        output_tokens=30,
+    )
+
+
+def _baris_penilai(db_session):
+    from app.modules.grading.models import LlmJudgeResult
+
+    return db_session.scalars(
+        select(LlmJudgeResult).order_by(LlmJudgeResult.kind, LlmJudgeResult.created_at)
+    ).all()
+
+
+def test_panggilan_gagal_yang_memakai_token_tetap_tersimpan_dan_masuk_pengeluaran(
+    db_session,
+    produk,  # noqa: F811
+    pembuat,  # noqa: F811
+    monkeypatch,
+):
+    """Positif: panggilan gagal berbiaya disimpan sebagai failed dan dihitung di anggaran."""
+    from app.modules.grading.models import JudgeStatus
+    from app.modules.runs.repository import CallLogRepository
+
+    # Arrange / Act
+    id_penilai = _nilai_dengan_penilai_berbiaya(
+        db_session, produk, pembuat, monkeypatch, asker=_AskerBergilir(_gagal(40, 0))
+    )
+
+    # Assert
+    baris = _baris_penilai(db_session)
+    assert baris, "panggilan gagal berbiaya harus tersimpan"
+    for item in baris:
+        assert item.status == JudgeStatus.FAILED
+        assert item.failure_kind == "provider_error"
+        assert item.criteria_score is None
+        assert item.input_tokens == 40
+        assert item.output_tokens == 0
+        assert item.cost_idr == Decimal("0.64")
+        assert item.usd_idr_rate == _RATE
+    total = CallLogRepository(db_session).sum_cost_since(
+        id_penilai, datetime(2000, 1, 1, tzinfo=UTC)
+    )
+    assert total == Decimal("0.64") * len(baris)
+
+
+def test_panggilan_sukses_di_percobaan_yang_pasangannya_gagal_tetap_dicatat_biayanya():
+    """Edge: kualitas sukses tetapi format gagal, kedua panggilan berbiaya dan tercatat."""
+    # Arrange
+    percobaan = _percobaan()
+    percobaan.judge_usage = {
+        "quality": JudgeUsage(25, 30, Decimal("1.36"), _RATE),
+        "format": JudgeUsage(40, 0, Decimal("0.64"), _RATE, "provider_error"),
+    }
+
+    # Act
+    kolom = {
+        jenis: session_grade._unscored_judge_failure_kind(usage)
+        for jenis, usage in percobaan.judge_usage.items()
+    }
+
+    # Assert
+    assert kolom == {"quality": "judge_incomplete", "format": "provider_error"}
+
+
+def test_percobaan_gagal_menyimpan_kedua_panggilan_walau_satu_sukses(
+    db_session,
+    produk,  # noqa: F811
+    pembuat,  # noqa: F811
+    monkeypatch,
+):
+    """Edge: satu panggilan sukses dan satu gagal, keduanya disimpan sebagai failed."""
+    from app.modules.grading.models import JudgeKind, JudgeStatus
+
+    # Arrange / Act
+    _nilai_dengan_penilai_berbiaya(
+        db_session,
+        produk,
+        pembuat,
+        monkeypatch,
+        asker=_AskerBergilir(_sukses(), _gagal(40, 0)),
+    )
+
+    # Assert
+    kualitas = [b for b in _baris_penilai(db_session) if b.kind == JudgeKind.QUALITY]
+    format_ = [b for b in _baris_penilai(db_session) if b.kind == JudgeKind.FORMAT]
+    assert kualitas and format_
+    assert {b.status for b in kualitas + format_} == {JudgeStatus.FAILED}
+    assert {b.failure_kind for b in kualitas} == {"judge_incomplete"}
+    assert {b.cost_idr for b in kualitas} == {Decimal("1.36")}
+    assert {b.failure_kind for b in format_} == {"provider_error"}
+    assert {b.cost_idr for b in format_} == {Decimal("0.64")}
+
+
+def test_panggilan_gagal_tanpa_token_tidak_membuat_baris(
+    db_session,
+    produk,  # noqa: F811
+    pembuat,  # noqa: F811
+    monkeypatch,
+):
+    """Negatif: tanpa token tidak ada yang ditagih, jadi tidak ada baris yang perlu disimpan."""
+    # Arrange / Act
+    _nilai_dengan_penilai_berbiaya(
+        db_session, produk, pembuat, monkeypatch, asker=_AskerBergilir(_gagal(None, None))
+    )
+
+    # Assert
+    assert _baris_penilai(db_session) == []
