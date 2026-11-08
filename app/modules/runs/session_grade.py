@@ -50,7 +50,7 @@ from app.modules.runs.models import (
     MeasurementSession,
     SessionStatus,
 )
-from app.modules.runs.repository import ManualSessionRepository
+from app.modules.runs.repository import ManualSessionRepository, get_session_for_update
 from app.modules.runs.schemas import (
     AttemptGradeResult,
     CaseGradeResult,
@@ -1751,6 +1751,47 @@ def _execute_judge_for_all_cases(
                 _execute_judge_for_attempt(asker, att, case)
 
 
+def ensure_unchanged_since_load(
+    db: Session, session_id: uuid.UUID, cases: Sequence[CaseGradeInput]
+) -> None:
+    """Cek ulang di bawah kunci sesi sebelum hasil disimpan (review Elision #121).
+
+    Judge dipanggil tanpa kunci, jadi selama itu Kontributor bisa menimpa jawaban dan Admin
+    bisa mengarsipkan sesi. Keduanya mengunci baris sesi yang sama, jadi setelah kunci ini
+    didapat tidak ada lagi yang berubah sampai commit. Hasil tidak pernah tersimpan untuk
+    jawaban lama atau sesi arsip; Admin cukup memicu penilaian lagi.
+
+    Baris sesi dibaca ulang lewat get_session_for_update (populate_existing), karena objek
+    session di grade_session masih memegang archived_at lama. Isi jawaban dibaca per kolom,
+    jadi selalu dari database dan tidak bergantung pada identity map.
+    """
+    session = get_session_for_update(db, session_id)
+    if session is None:
+        raise NotFoundError(MEASUREMENT_NOT_FOUND_MESSAGE, code="MEASUREMENT_NOT_FOUND")
+    if session.archived_at is not None:
+        raise ConflictError("Sesi ini sudah diarsipkan.", code="SESSION_ARCHIVED")
+
+    # Tiga kolom ini yang dibaca _build_attempt_input untuk penilaian.
+    graded = {
+        att.attempt_id: (att.answer_text, AttemptStatus(att.status), AttemptSource(att.source))
+        for case in cases
+        for att in case.attempts
+    }
+    current = {
+        row.id: (row.answer_text, AttemptStatus(row.status), AttemptSource(row.source))
+        for row in db.execute(
+            select(Attempt.id, Attempt.answer_text, Attempt.status, Attempt.source).where(
+                Attempt.id.in_(list(graded))
+            )
+        )
+    }
+    if current != graded:
+        raise ConflictError(
+            "Jawaban berubah selama penilaian berjalan. Picu penilaian ulang.",
+            code="ANSWERS_CHANGED_DURING_GRADING",
+        )
+
+
 def grade_session(
     db: Session,
     session_id: uuid.UUID,
@@ -1801,6 +1842,8 @@ def grade_session(
         existing_runs=existing_runs,
         now=now,
     )
+    # Kunci dipegang dari sini sampai commit: simpan jawaban, unggah bukti, dan arsip menunggu.
+    ensure_unchanged_since_load(db, session_id, cases)
     if isinstance(grading_store, DbGradingStore):
         grading_store.save_grading_run(response, cases_input=cases)
     else:

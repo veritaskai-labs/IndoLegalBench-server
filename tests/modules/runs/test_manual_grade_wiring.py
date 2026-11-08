@@ -140,3 +140,123 @@ def test_grade_session_tanpa_now_tetap_memakai_waktu_nyata(manual):
     # Assert
     assert hasil.triggered_at is not None
     assert _status(ctx.db, sesi_id) is SessionStatus.GRADED
+
+
+class _JudgeDenganSelingan:
+    """Judge palsu yang menjalankan tulisan pesaing sekali, di tengah penilaian.
+
+    Itu celah yang ditunjuk review Elision #121: jawaban sudah dimuat, judge berjalan, kunci
+    sesi belum diambil. Hasil judge-nya sendiri tidak penting, jadi ask() cukup gagal.
+    """
+
+    def __init__(self, selingan) -> None:
+        self._selingan = selingan
+        self.dipanggil = 0
+
+    def ask(self, prompt: str):
+        self.dipanggil += 1
+        if self.dipanggil == 1:
+            self._selingan()
+        raise RuntimeError("judge palsu")
+
+
+def _timpa(client, sesi_id, attempt, jawaban: str) -> None:
+    respons = client.put(
+        f"/manual-measurements/{sesi_id}/answers",
+        json={
+            "snapshot_item_id": str(attempt.snapshot_item_id),
+            "attempt_no": attempt.repetition_no,
+            "answer_md": jawaban,
+            "platform_refused": False,
+            "confirm": True,
+        },
+    )
+    assert respons.status_code == 200, respons.text
+
+
+def _nilai_dengan(ctx, sesi_id, selingan) -> _JudgeDenganSelingan:
+    from app.modules.runs.session_grade import grade_session
+
+    judge = _JudgeDenganSelingan(selingan)
+    grade_session(ctx.db, sesi_id, actor_id=ADMIN_LAIN, actor_role=Role.ADMIN, judge_asker=judge)
+    return judge
+
+
+def _jumlah_run(db, sesi_id) -> int:
+    return len(db.scalars(select(GradingRun).where(GradingRun.session_id == sesi_id)).all())
+
+
+def test_jawaban_ditimpa_saat_judge_berjalan_tidak_menyimpan_hasil(manual):
+    """Negatif: review Elision #121, hasil penilaian tidak pernah tersimpan untuk jawaban lama.
+
+    Kontributor menimpa satu jawaban lewat PUT sungguhan saat judge berjalan. Sebelum hasil
+    disimpan, isi jawaban dibaca ulang di bawah kunci sesi; karena berbeda, 409 dan tidak ada
+    grading run, status tetap Lengkap, dan jawaban baru tetap ada.
+    """
+    # Arrange
+    from app.shared.exceptions import ConflictError
+
+    ctx, sesi_id, percobaan = manual
+    kontributor = ctx.sebagai(Role.CONTRIBUTOR)
+    _isi(kontributor, sesi_id, percobaan)
+    jawaban_baru = "Revisi: pesangon dihitung menurut PP 35/2021."
+
+    # Act
+    with pytest.raises(ConflictError) as galat:
+        _nilai_dengan(
+            ctx, sesi_id, lambda: _timpa(kontributor, sesi_id, percobaan[0], jawaban_baru)
+        )
+
+    # Assert
+    assert galat.value.code == "ANSWERS_CHANGED_DURING_GRADING"
+    assert _jumlah_run(ctx.db, sesi_id) == 0
+    assert _status(ctx.db, sesi_id) is SessionStatus.COMPLETE
+    assert ctx.db.get(Attempt, percobaan[0].id).answer_text == jawaban_baru
+
+
+def test_sesi_diarsipkan_saat_judge_berjalan_tidak_menjadi_dinilai(manual):
+    """Negatif: review Elision #121, arsip di tengah penilaian dicek ulang sebelum commit.
+
+    Admin lain menandai Selesai lalu mengarsipkan lewat endpoint sungguhan saat judge berjalan.
+    before_grading sudah lolos, jadi tanpa cek ulang hasilnya tetap tersimpan untuk sesi arsip.
+    """
+    # Arrange
+    from app.shared.exceptions import ConflictError
+
+    ctx, sesi_id, percobaan = manual
+    _isi(ctx.sebagai(Role.CONTRIBUTOR), sesi_id, percobaan)
+    admin = ctx.sebagai(Role.ADMIN)
+
+    def selesai_lalu_arsip() -> None:
+        assert admin.post(f"/manual-measurements/{sesi_id}/finalize").status_code == 200
+        assert admin.patch(f"/measurements/{sesi_id}/archive").status_code == 200
+
+    # Act
+    with pytest.raises(ConflictError) as galat:
+        _nilai_dengan(ctx, sesi_id, selesai_lalu_arsip)
+
+    # Assert
+    assert galat.value.code == "SESSION_ARCHIVED"
+    assert _jumlah_run(ctx.db, sesi_id) == 0
+    assert _status(ctx.db, sesi_id) is SessionStatus.FINALIZED
+
+
+def test_simpan_ulang_isi_yang_sama_saat_judge_berjalan_tetap_dinilai(manual):
+    """Edge: yang dibandingkan isi jawaban, bukan waktu simpan, jadi isi sama tetap dinilai.
+
+    Hasil judge tetap sesuai jawaban yang tersimpan, jadi menolaknya hanya memaksa Admin
+    memicu ulang tanpa alasan.
+    """
+    # Arrange
+    ctx, sesi_id, percobaan = manual
+    kontributor = ctx.sebagai(Role.CONTRIBUTOR)
+    _isi(kontributor, sesi_id, percobaan)
+    sama = ctx.db.get(Attempt, percobaan[0].id).answer_text
+
+    # Act
+    judge = _nilai_dengan(ctx, sesi_id, lambda: _timpa(kontributor, sesi_id, percobaan[0], sama))
+
+    # Assert
+    assert judge.dipanggil >= 1
+    assert _jumlah_run(ctx.db, sesi_id) == 1
+    assert _status(ctx.db, sesi_id) is SessionStatus.GRADED

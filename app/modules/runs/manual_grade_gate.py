@@ -10,14 +10,17 @@ grade_session memanggil dua titik ini, di transaksi yang sama dengan hasil penil
     gate = ManualGradeGate(ManualSessionRepository(db))
     if gate.before_grading(session_id) is None:
         ensure_session_gradable(session)   # sesi otomatis: aturan D4 dan arsip (#114)
-    ...  # nilai dan simpan hasil
+    ...  # nilai dengan judge
+    ensure_unchanged_since_load(db, session_id, cases)   # kunci sesi, cek arsip dan jawaban
+    ...  # simpan hasil
     gate.after_grading(session_id, now=now)   # tidak berbuat apa pun untuk sesi otomatis
     db.commit()
 
 before_grading tidak mengunci (review #121): penilaian memanggil LLM judge untuk setiap
 percobaan, dan kunci FOR UPDATE selama itu menahan semua simpan jawaban dan unggah bukti.
-Baris sesi baru dikunci di after_grading, tepat sebelum status ditulis, dan statusnya dibaca
-ulang di sana: sesi yang ditandai Selesai selama penilaian tetap Selesai.
+Baris sesi baru dikunci setelah judge selesai. Di situ arsip dan isi jawaban diperiksa ulang
+(review Elision #121, ensure_unchanged_since_load di session_grade), lalu status dibaca ulang
+di after_grading: sesi yang ditandai Selesai selama penilaian tetap Selesai.
 """
 
 import uuid

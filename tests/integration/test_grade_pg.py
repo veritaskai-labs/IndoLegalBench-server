@@ -224,3 +224,93 @@ def test_post_grade_endpoint_pg(pg):
     finally:
         app.dependency_overrides.pop(get_db, None)
         app.dependency_overrides.pop(get_current_user, None)
+
+
+class _JudgeDenganSelingan:
+    """Judge palsu: tulisan pesaing dijalankan sekali saat judge berjalan, lalu gagal."""
+
+    def __init__(self, tulis) -> None:
+        self._tulis = tulis
+        self.dipanggil = 0
+
+    def ask(self, prompt: str):
+        self.dipanggil += 1
+        if self.dipanggil == 1:
+            self._tulis()
+        raise RuntimeError("judge palsu")
+
+
+def _jumlah_run(conn, session_id) -> int:
+    return conn.scalar(
+        text("SELECT count(*) FROM grading_runs WHERE session_id = :id"), {"id": session_id}
+    )
+
+
+def test_grade_session_pg_jawaban_manual_ditimpa_saat_judge_berjalan(pg):
+    """Negatif: review Elision #121 (SCRUM-233), hasil tidak tersimpan untuk jawaban lama.
+
+    Penimpaan lewat SQL mentah yang sah menurut trigger (riwayat ditulis dulu) di transaksi
+    yang sama, tanpa ORM, seperti commit Kontributor yang terlihat di READ COMMITTED.
+    """
+    # Arrange
+    from app.shared.exceptions import ConflictError
+    from tests.integration.test_manual_answer_history_pg import (
+        _archive_and_overwrite,
+        _attempt,
+        _fill_manual,
+    )
+
+    db, conn = pg
+    attempt_id, actor = _attempt(conn)
+    waktu = _fill_manual(conn, attempt_id, actor)
+    session_id = conn.scalar(
+        text("SELECT session_id FROM attempts WHERE id = :id"), {"id": attempt_id}
+    )
+    ubah_status(conn, session_id, "complete")
+    buat_versi_aktif(conn, actor)
+    judge = _JudgeDenganSelingan(
+        lambda: _archive_and_overwrite(
+            conn, attempt_id, actor, new_answer="**jawaban revisi**", new_time=waktu.replace(hour=6)
+        )
+    )
+
+    # Act
+    with pytest.raises(ConflictError) as galat:
+        grade_session(db, session_id, actor_id=actor, actor_role=Role.ADMIN, judge_asker=judge)
+
+    # Assert
+    assert judge.dipanggil == 1
+    assert galat.value.code == "ANSWERS_CHANGED_DURING_GRADING"
+    assert _jumlah_run(conn, session_id) == 0
+
+
+def test_grade_session_pg_sesi_diarsipkan_saat_judge_berjalan(pg):
+    """Negatif: review Elision #121 (SCRUM-233), arsip di tengah penilaian dicek ulang.
+
+    Berlaku juga untuk sesi otomatis: ensure_session_gradable hanya melihat arsip di awal.
+    Objek sesi di grade_session masih memegang archived_at lama, jadi tes ini gagal bila
+    baris sesi tidak dibaca ulang dengan FOR UPDATE (populate_existing).
+    """
+    # Arrange
+    from app.shared.exceptions import ConflictError
+
+    db, conn = pg
+    admin_id, session_id, _ = _setup_pg_grade_session(conn)
+    judge = _JudgeDenganSelingan(
+        lambda: conn.execute(
+            text(
+                "UPDATE measurement_sessions SET archived_at = now(), archived_by = created_by "
+                "WHERE id = :id"
+            ),
+            {"id": session_id},
+        )
+    )
+
+    # Act
+    with pytest.raises(ConflictError) as galat:
+        grade_session(db, session_id, actor_id=admin_id, actor_role=Role.ADMIN, judge_asker=judge)
+
+    # Assert
+    assert judge.dipanggil == 1
+    assert galat.value.code == "SESSION_ARCHIVED"
+    assert _jumlah_run(conn, session_id) == 0
