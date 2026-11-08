@@ -19,6 +19,7 @@ Fitur utama:
 
 from __future__ import annotations
 
+import logging
 import re
 import threading
 import uuid
@@ -119,6 +120,12 @@ _TECHNICAL_FAILURE_KINDS = frozenset(
         "invalid_response",
     }
 )
+
+
+logger = logging.getLogger(__name__)
+
+JUDGE_NOT_CONFIGURED = "judge_not_configured"
+JUDGE_UNAVAILABLE = "judge_unavailable"
 
 
 def round_two_digits(val: Decimal | float | int | None) -> Decimal | None:
@@ -1707,14 +1714,21 @@ def _resolve_active_judge_asker(
     if judge_asker is not None:
         return judge_asker, None
     if session.judge_provider_id is None:
-        return None, None
+        # Sesi lama dari sebelum penilai wajib dipilih (PBI-14): gangguan teknis, bukan skip.
+        return None, JUDGE_NOT_CONFIGURED
     try:
         from app.modules.providers.judge_service import build_judge
 
         binding = build_judge(db, session.judge_provider_id)
         return binding.asker, None
     except Exception:
-        return None, "judge_unavailable"
+        # Hanya id penilai yang dicatat: pesan galat bisa memuat isi kredensial.
+        logger.error(
+            "Judge %s could not be built, attempts will be marked judge_unavailable",
+            session.judge_provider_id,
+            exc_info=False,
+        )
+        return None, JUDGE_UNAVAILABLE
 
 
 def _should_grade_with_judge(att: AttemptGradeInput) -> bool:
