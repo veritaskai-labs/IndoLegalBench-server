@@ -4293,14 +4293,14 @@
         "summary": "Buat sesi manual: snapshot kasus saat itu juga, status Belum terisi",
         "operationId": "create_manual_session_manual_measurements_post",
         "requestBody": {
+          "required": true,
           "content": {
             "application/json": {
               "schema": {
                 "$ref": "#/components/schemas/ManualStartRequest"
               }
             }
-          },
-          "required": true
+          }
         },
         "responses": {
           "201": {
@@ -4339,6 +4339,53 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "manual-measurements"
+        ],
+        "summary": "Daftar sesi pengukuran manual, terbaru di atas. archived=true menampilkan sesi arsip",
+        "operationId": "list_manual_sessions_manual_measurements_get",
+        "parameters": [
+          {
+            "name": "archived",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "boolean",
+              "description": "Tampilkan sesi pengukuran manual yang diarsipkan",
+              "default": false,
+              "title": "Archived"
+            },
+            "description": "Tampilkan sesi pengukuran manual yang diarsipkan"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/SessionListItem"
+                  },
+                  "title": "Response List Manual Sessions Manual Measurements Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
