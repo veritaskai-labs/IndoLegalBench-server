@@ -13,6 +13,8 @@ from decimal import Decimal
 from types import SimpleNamespace
 from unittest.mock import MagicMock, patch
 
+import pytest
+
 from app.modules.runs import session_grade
 from app.modules.runs.judge import JudgePrices
 from app.modules.runs.judge_budget import JudgeMeter, JudgeUsage
@@ -206,3 +208,132 @@ def test_grade_sesi_dengan_anggaran_penilai_habis_menjadi_gangguan_teknis(
     assert percobaan.score is None
     assert percobaan.explanation == "judge_budget_exhausted"
     ikatan.asker.ask.assert_not_called()
+
+
+def _nilai_dengan_penilai_berbiaya(db_session, produk_, pembuat_, monkeypatch):
+    sesi = _setup_sesi_lengkap(db_session, produk_, pembuat_)
+    sesi.judge_provider_id = uuid.uuid4()
+    db_session.commit()
+    ikatan = SimpleNamespace(
+        judge_provider_id=sesi.judge_provider_id,
+        asker=_MockJudgeAsker(text=_BALASAN_PENILAI),
+        price_input_usd_per_mtok=Decimal("1"),
+        price_output_usd_per_mtok=Decimal("2"),
+        monthly_budget_idr=Decimal("1000000"),
+    )
+    monkeypatch.setattr("app.modules.providers.judge_service.build_judge", lambda db, j: ikatan)
+    grade_session(db_session, sesi.id, actor_id=pembuat_.id, actor_role=Role.ADMIN, rates=_Rates())
+    return sesi.judge_provider_id
+
+
+def test_biaya_penilai_tersimpan_di_hasil_penilai(
+    db_session,
+    produk,  # noqa: F811
+    pembuat,  # noqa: F811
+    monkeypatch,
+):
+    """Positif: tiap baris llm_judge_results menyimpan token, biaya, dan kurs panggilannya."""
+    from sqlalchemy import select
+
+    from app.modules.grading.models import LlmJudgeResult
+
+    # Arrange / Act
+    _nilai_dengan_penilai_berbiaya(db_session, produk, pembuat, monkeypatch)
+
+    # Assert
+    baris = db_session.scalars(select(LlmJudgeResult)).all()
+    assert len(baris) >= 2
+    for item in baris:
+        assert item.input_tokens == 25
+        assert item.output_tokens == 30
+        assert item.cost_idr == _BIAYA_PER_PANGGILAN
+        assert item.usd_idr_rate == _RATE
+
+
+def test_pengeluaran_bulanan_produk_menghitung_biaya_penilai(
+    db_session,
+    produk,  # noqa: F811
+    pembuat,  # noqa: F811
+    monkeypatch,
+):
+    """Positif: biaya penilai dijumlahkan dengan biaya panggilan produk yang sama."""
+    from sqlalchemy import select
+
+    from app.modules.grading.models import LlmJudgeResult
+    from app.modules.runs.models import CallLog
+    from app.modules.runs.repository import CallLogRepository
+
+    # Arrange
+    id_penilai = _nilai_dengan_penilai_berbiaya(db_session, produk, pembuat, monkeypatch)
+    biaya_penilai = sum(
+        (r.cost_idr or Decimal(0) for r in db_session.scalars(select(LlmJudgeResult)).all()),
+        Decimal("0"),
+    )
+    sekarang = datetime.now(UTC)
+    db_session.add(
+        CallLog(
+            attempt_id=uuid.uuid4(),
+            product_id=id_penilai,
+            started_at=sekarang,
+            ended_at=sekarang,
+            duration_ms=1,
+            input_tokens=1,
+            output_tokens=1,
+            cost_idr=Decimal("10"),
+            usd_idr_rate=_RATE,
+            model_version="m",
+            result="ok",
+            failure_kind=None,
+            raw={},
+        )
+    )
+    db_session.commit()
+    repo = CallLogRepository(db_session)
+    awal = datetime(2000, 1, 1, tzinfo=UTC)
+
+    # Act
+    satu = repo.sum_cost_since(id_penilai, awal)
+    banyak = repo.sum_cost_since_by_product([id_penilai, uuid.uuid4()], awal)
+    sudah_lewat = repo.sum_cost_since(id_penilai, datetime(2999, 1, 1, tzinfo=UTC))
+    produk_lain = repo.sum_cost_since(uuid.uuid4(), awal)
+
+    # Assert
+    assert biaya_penilai > 0
+    assert satu == biaya_penilai + Decimal("10")
+    assert banyak == {id_penilai: biaya_penilai + Decimal("10")}
+    assert sudah_lewat == Decimal("0")
+    assert produk_lain == Decimal("0")
+
+
+def test_endpoint_grade_meneruskan_penyedia_kurs_ke_penilaian(
+    as_role,
+    db_session,
+    produk,  # noqa: F811
+    pembuat,  # noqa: F811
+    monkeypatch,
+):
+    """Positif: router memberi grade_session penyedia kurs sehingga biaya penilai dihitung."""
+    from app.main import app
+    from app.modules.runs.dependencies import get_exchange_rate
+
+    # Arrange
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat)
+    sesi.judge_provider_id = uuid.uuid4()
+    db_session.commit()
+    rates = _Rates()
+    app.dependency_overrides[get_exchange_rate] = lambda: rates
+    diterima = {}
+
+    def tiruan(*args, **kwargs):
+        diterima.update(kwargs)
+        raise RuntimeError("berhenti di sini")
+
+    monkeypatch.setattr("app.modules.runs.router.grade_session", tiruan)
+    client = as_role(Role.ADMIN)
+
+    # Act
+    with pytest.raises(RuntimeError, match="berhenti di sini"):
+        client.post(f"/measurements/{sesi.id}/grade", json={})
+
+    # Assert
+    assert diterima["rates"] is rates
