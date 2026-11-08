@@ -171,7 +171,7 @@ def is_ai_refusal(text: str | None, failure_kind: str | None = None) -> bool:
             repeated_refusal = re.search(
                 r"\b(?:namun|tetapi|adapun|berikut|akan tetapi|meskipun demikian)\b"
                 r"[^.!?\n]{0,160}"
-                r"\b(?:saya\s+)?(?:tetap\s+)?tidak\s+(?:dapat|bisa)\s+"
+                r"\bsaya\s+(?:tetap\s+)?tidak\s+(?:dapat|bisa)\s+"
                 r"(?:menjawab|membantu)\b",
                 text_lower,
             )

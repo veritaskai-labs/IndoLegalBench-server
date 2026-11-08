@@ -77,6 +77,36 @@ def test_penolakan_berlapis_dengan_kata_sambung_tetap_gangguan_teknis(teks):
     )
 
 
+def test_subjek_pihak_lain_tidak_dianggap_penolakan_ai_berulang():
+    """Positif: saran tentang perusahaan tidak berubah menjadi penolakan AI (AC4)."""
+    teks = (
+        "Maaf, saya tidak dapat menjawab secara pasti. Namun perusahaan tidak bisa "
+        "membantu Anda jika dokumen tidak lengkap, jadi lengkapi dokumen dahulu "
+        "dan ajukan ulang."
+    )
+
+    assert is_ai_refusal(teks) is False
+    assert (
+        check_technical_disruption(status=AttemptStatus.SUCCEEDED, answer_text=teks)
+        is False
+    )
+
+
+@pytest.mark.parametrize(
+    ("panjang", "diharapkan"),
+    [(100, True), (158, True), (159, False)],
+    ids=["di-dalam-batas", "tepat-160-karakter", "melewati-160-karakter"],
+)
+def test_batas_160_karakter_pada_penolakan_berulang(panjang: int, diharapkan: bool):
+    """Edge: jendela 160 karakter menghitung spasi sebelum dan setelah pengisi."""
+    teks = (
+        "Maaf, sebagai model AI saya tidak berwenang. "
+        f"Namun {'x' * panjang} saya tetap tidak dapat menjawab pertanyaan ini."
+    )
+
+    assert is_ai_refusal(teks) is diharapkan
+
+
 def test_penolakan_yang_menyebut_dasar_hukum_tetap_dinilai():
     """Edge: adanya substansi hukum mengalahkan frasa penolakan (AC4)."""
     teks = "Maaf, saya tidak dapat menjawab. Rujukannya Pasal 1365 KUHPer."
