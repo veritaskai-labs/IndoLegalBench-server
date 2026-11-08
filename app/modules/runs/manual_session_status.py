@@ -9,6 +9,7 @@ jalan tulis status yang mengikuti tabel transisi dan mencatat audit (PBI-18).
 import uuid
 from datetime import datetime
 
+from app.modules.runs.manual_evidence_rules import EvidenceVisibility, can_view_evidence
 from app.modules.runs.manual_session_detail import build_manual_detail
 from app.modules.runs.manual_session_rules import (
     MANUAL_STATUSES,
@@ -21,6 +22,7 @@ from app.modules.runs.models import SessionStatus
 from app.modules.runs.schemas import ManualFinalizeResponse, ManualSessionDetail
 from app.modules.runs.session_ports import ManualStatusStore
 from app.shared.exceptions import ConflictError, NotFoundError
+from app.shared.security import Role
 
 
 def _not_found() -> NotFoundError:
@@ -76,7 +78,13 @@ class ManualSessionStatusService:
         )
 
     def detail(
-        self, session_id: uuid.UUID, *, unfilled_only: bool, warning_days: int | None
+        self,
+        session_id: uuid.UUID,
+        *,
+        unfilled_only: bool,
+        warning_days: int | None,
+        role: Role,
+        evidence_visibility: EvidenceVisibility,
     ) -> ManualSessionDetail:
         row = self._store.read_manual(session_id)
         if row is None:
@@ -87,4 +95,5 @@ class ManualSessionStatusService:
             self._store.manual_attempts(session_id),
             unfilled_only=unfilled_only,
             warning_days=warning_days,
+            show_evidence=can_view_evidence(role, policy=evidence_visibility),
         )

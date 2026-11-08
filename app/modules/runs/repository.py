@@ -21,6 +21,7 @@ from sqlalchemy.orm import Session
 from app.modules.runs.models import (
     AnswerHistory,
     Attempt,
+    AttemptEvidence,
     AttemptSource,
     AttemptStatus,
     CallLog,
@@ -313,6 +314,7 @@ class SessionListRepository:
                 status=SessionStatus(session.status),
                 case_count=cases.get(session.id),
                 attempt_counts=attempts.get(session.id, {}),
+                session_type=SessionType(session.session_type),
                 completed_cases=selesai,
                 total_cases=total,
             )
@@ -878,7 +880,7 @@ class SessionQueueRepository:
         return gagal == 1
 
 
-def _manual_attempt_row(row: Attempt) -> ManualAttemptRow:
+def _manual_attempt_row(row: Attempt, *, evidence_count: int = 0) -> ManualAttemptRow:
     """Satu bentuk baris percobaan manual untuk daftar maupun satu slot (D9)."""
     return ManualAttemptRow(
         id=row.id,
@@ -892,6 +894,7 @@ def _manual_attempt_row(row: Attempt) -> ManualAttemptRow:
         note=row.manual_note,
         filled_by=row.filled_by,
         filled_at=row.filled_at,
+        evidence_count=evidence_count,
     )
 
 
@@ -946,8 +949,17 @@ class ManualSessionRepository:
             .where(Attempt.session_id == session_id)
             .order_by(Attempt.snapshot_item_id, Attempt.repetition_no)
         ).all()
+        # Review #121: satu query hitung bukti untuk seluruh sesi (SCRUM-233).
+        evidence = dict(
+            self._db.execute(
+                select(AttemptEvidence.attempt_id, func.count())
+                .join(Attempt, Attempt.id == AttemptEvidence.attempt_id)
+                .where(Attempt.session_id == session_id)
+                .group_by(AttemptEvidence.attempt_id)
+            ).all()
+        )
 
-        return [_manual_attempt_row(row) for row in rows]
+        return [_manual_attempt_row(row, evidence_count=evidence.get(row.id, 0)) for row in rows]
 
     def is_manual_session(self, session_id: uuid.UUID) -> bool:
         """Sesi ada dan bertipe manual; dipakai riwayat untuk menjawab 404 (AC5)."""
@@ -1116,6 +1128,7 @@ class ManualSessionRepository:
             vendor_name=product.vendor_name if product else None,
             site_url=product.site_url if product else None,
             manual_params=product.manual_params if product else None,
+            archived_at=session.archived_at,
         )
 
     def snapshot_cases(self, session_id: uuid.UUID) -> list[ManualCaseRow]:
