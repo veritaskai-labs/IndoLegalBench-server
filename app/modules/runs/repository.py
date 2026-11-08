@@ -765,8 +765,12 @@ class SessionQueueRepository:
             .where(MeasurementSessionSuite.session_id == session.id)
             .order_by(MeasurementSessionSuite.suite_id)
         ).all()
+        prepared = bool(
+            self._db.scalar(select(exists().where(SessionProductCopy.session_id == session.id)))
+        )
         return WaitingSession(
             id=session.id,
+            prepared=prepared,
             new=NewSession(
                 label=session.label,
                 purpose=MeasurementPurpose(session.purpose.value),
@@ -805,6 +809,32 @@ class SessionQueueRepository:
                 self._db.rollback()
                 return False
             _freeze(self._db, session_id, items, product, AttemptSource.AUTOMATIC)
+            _catat_status(self._db, session_id, SessionStatus.QUEUED, SessionStatus.RUNNING, None)
+            self._db.commit()
+        except Exception as exc:
+            self._db.rollback()
+            if isinstance(exc, IntegrityError) and _sesi_lain_running(exc):
+                return False
+            raise
+        return True
+
+    def reopen(self, session_id: uuid.UUID, *, at: datetime) -> bool:
+        """Sesi Menunggu hasil Lanjutkan kembali running tanpa snapshot baru (SCRUM-267).
+
+        UPDATE bersyarat seperti start(): hanya dari queued, jadi sesi yang sempat
+        dibatalkan tidak ikut terbuka. started_at awal tetap; at menjadi heartbeat awal,
+        supaya cek liveness tidak menganggap sesi yang lama menunggu sebagai worker mati.
+        """
+        try:
+            dibuka = self._db.execute(
+                update(MeasurementSession)
+                .where(MeasurementSession.id == session_id, *_ANTREAN_OTOMATIS)
+                .values(status=SessionStatus.RUNNING, updated_at=at)
+                .execution_options(synchronize_session=False)
+            ).rowcount
+            if dibuka != 1:
+                self._db.rollback()
+                return False
             _catat_status(self._db, session_id, SessionStatus.QUEUED, SessionStatus.RUNNING, None)
             self._db.commit()
         except Exception as exc:

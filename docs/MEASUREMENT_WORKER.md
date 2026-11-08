@@ -20,15 +20,19 @@ them again, keeping their sample repetition number and previous call logs.
 A PostgreSQL advisory lease allows one dispatcher per database even across process
 restarts/replicas. A running attempt left after a crash is uncertain: dispatch raises
 a recovery-required error rather than resending a potentially paid call. SCRUM-217
-must resolve those attempts and pause abandoned running sessions before allowing
-resume. This worker does not implement the recovery decision or heartbeat itself.
+pauses abandoned running sessions; SCRUM-268 (option A) marks their orphan running
+attempts as `technical_failure` (see "Interrupted call recovery" below).
+This worker does not implement the recovery decision or heartbeat itself.
 When resume checks whether an in-flight dispatcher is active, the HTTP request
 briefly probes this same advisory lease. If an idle worker tick overlaps a successful
 probe, that tick can defer dispatch until its next poll (normally 5 seconds).
 The probe releases the lease before returning and never dispatches paid work.
 
 Controls must use SCRUM-214 transitions. The dispatcher checks the session again
-before every call. SIGTERM/SIGINT lets the current call persist, then pauses the
+before every call. The rate-limit spacing wait between calls sleeps in slices of at most one second and
+checks the session before each slice, so Jeda/Batalkan or shutdown during that wait is
+seen within about a second and the next waiting session starts (SCRUM-267). A call that
+is already in flight still finishes first (up to the 240-second provider timeout). SIGTERM/SIGINT lets the current call persist, then pauses the
 session with reason `restart`; the 260-second Compose grace period exceeds the
 provider's 240-second timeout. Hard kills still require SCRUM-217 recovery.
 
@@ -61,10 +65,17 @@ It reopens a prepared session as `running`; the same leased dispatcher processes
 pending attempts and preserves successful/failed attempts. A cancelled session
 that never started returns to `queued`, so original preparation creates its first
 snapshot/copy. Its new queued_at intentionally puts it at the back of the queue.
-An occupied running slot returns 409 `ANOTHER_SESSION_RUNNING` with
-no partial writes. Repeated resume is 409 `SESSION_NOT_RESUMABLE`. An uncertain
-running attempt without a live dispatcher lease is 409 `ATTEMPT_RECOVERY_REQUIRED`;
-SCRUM-217 must reconcile it first. No automatic retry is introduced.
+SCRUM-267: a prepared session also returns to `queued` when another automatic session
+is running or waiting, so a resume never runs beside another session or jumps the
+queue (PBI-11 AC3, PBI-12 AC8). The worker reopens it on its turn with the original
+snapshot, product copy and started_at; it is never frozen again or marked failed by a
+reopen error. If the worker takes the slot between the check and the commit, the
+unique index rejects the resume, which retries once as a queue-only resume (202
+`queued`, no partial writes). Paused and cancelled sessions hold no slot, so the next
+waiting session starts on the next worker tick. A waiting resumed session can be
+cancelled but not paused. Repeated resume is 409 `SESSION_NOT_RESUMABLE`. A running attempt
+without a live dispatcher lease is an orphan: resume marks it `technical_failure` in the
+same transaction (SCRUM-268) instead of returning 409. No automatic retry is introduced.
 
 The version source is the last successful call/attempt of the same product across
 sessions, ordered by ended_at, started_at, then ID. Only provider-reported response
@@ -132,6 +143,23 @@ repeat against migrated PostgreSQL, including enum/trigger and advisory-lock
 checks. Deployed laptop/physical-phone QA and a client-authorized small real-AI
 run remain required before UAT acceptance.
 
+## Interrupted call recovery (SCRUM-268, option A)
+
+A hard kill during a provider call leaves the claimed attempt `running`. The call_logs
+row for that try is written only after the response returns, so usually no row exists;
+an attempt that was retried before keeps the rows of its earlier tries.
+
+- API startup (`recover_after_restart`, only while the worker lease is free) pauses the
+  session with reason `restart` and marks its running attempts `technical_failure` in one
+  transaction. `finished_at` is the recovery time when `started_at` is known.
+- Resume does the same for any orphan running attempt when no dispatcher holds the
+  lease (sessions paused by the liveness check, cancelled sessions, or ones stuck before
+  this fix). A rejected resume rolls back and writes nothing.
+- No call_logs row or cost is invented for the interrupted try: its cost is unknown and
+  is not counted toward the monthly budget. Existing rows stay unchanged.
+- The session then finishes as `finished_with_failures`; the Admin chooses retry (the
+  only way the call is sent again) or accept as is. Repeating recovery is a no-op.
+
 ## Manual recovery for a blocked running session
 
 Until SCRUM-217 recovery is integrated, an uncertain attempt or fatal error after
@@ -146,9 +174,9 @@ operator intervention condition, not permission to resend the call.
 2. Inspect that session's attempt statuses and call-log metadata through the
    authorised operator tools. Keep all answers, attempts and previous call logs.
    Do not copy raw provider responses or credentials into tickets or logs.
-3. If an attempt is still running, have the SCRUM-217 owner reconcile whether
-   the provider processed it. Do not reset it to pending merely to unblock the
-   queue: that may repeat a paid call. Keep the worker stopped until reconciled.
+3. If an attempt is still running, do not reset it to pending merely to unblock
+   the queue: that may repeat a paid call. Pausing the session (step 4) and then
+   resuming lets SCRUM-268 mark it `technical_failure`; only an Admin retry sends it again.
 4. Correct the operational cause (credential availability, prices, rate source
    or database write failure) without changing frozen model inputs or answers.
    After reconciliation and operator approval, use the existing

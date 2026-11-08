@@ -16,6 +16,8 @@ Panah D4 (Bagian A) yang diizinkan:
   model dan batas hari ada di SCRUM-216, bukan di matriks ini.
 - SCRUM-216: paused -> cancelled; cancelled -> queued untuk sesi yang belum
   pernah disiapkan. Keduanya disetujui pengguna pada 5 November 2026.
+- SCRUM-267: paused -> queued. Lanjutkan saat slot terpakai atau ada sesi Menunggu
+  membuat sesi kembali Menunggu di belakang antrean (AC8, PBI-11 AC3).
 
 Nama status mengikuti enum di staging (finished, finished_with_failures), bukan label
 D4 (completed, completed_with_failures).
@@ -73,6 +75,7 @@ _D4 = {
     ("cancelled", "running"),
     ("paused", "cancelled"),
     ("cancelled", "queued"),
+    ("paused", "queued"),
 }
 
 _D8 = {
