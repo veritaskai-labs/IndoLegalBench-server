@@ -37,7 +37,7 @@ from app.modules.runs.models import AnswerHistory, Attempt
 from app.modules.runs.repository import ManualSessionRepository
 from app.modules.runs.schemas import ManualAnswerSaveRequest, ManualStartRequest
 from app.shared.exceptions import ConfirmationRequiredError
-from tests.judge_pg import buat_penilai
+from tests.judge_pg import buat_produk_penilai
 from tests.measurement_pg import buat_admin, buat_kasus
 
 POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "")
@@ -95,11 +95,12 @@ def _hapus_jejak(engine, *, sesi_id, produk, penilai, kasus, suite, pengguna) ->
                 "DELETE FROM measurement_sessions WHERE id = :s",
             ):
                 conn.execute(text(perintah), per_sesi)
-        conn.execute(text("DELETE FROM ai_products WHERE id = :id"), {"id": produk})
+        conn.execute(
+            text("DELETE FROM ai_products WHERE id = ANY(:ids)"), {"ids": [produk, penilai]}
+        )
         conn.execute(text("DELETE FROM cases WHERE id = :id"), {"id": kasus})
         conn.execute(text("DELETE FROM case_versions WHERE case_id = :id"), {"id": kasus})
         conn.execute(text("DELETE FROM suites WHERE id = :id"), {"id": suite})
-        conn.execute(text("DELETE FROM judge_providers WHERE id = :id"), {"id": penilai})
         conn.execute(text("DELETE FROM users WHERE id = ANY(:ids)"), {"ids": list(pengguna)})
 
 
@@ -123,8 +124,9 @@ def sesi(engine, buat_db):
             {"id": produk, "nama": f"LegalHero QA {produk.hex[:8]}", "admin": admin},
         )
         rina, budi = _pengisi(conn, "Rina"), _pengisi(conn, "Budi")
-        # Sejak #128 (SCRUM-269) sesi manual wajib punya provider penilai.
-        penilai = buat_penilai(conn, admin)
+        # Sejak #128 (SCRUM-269) sesi manual wajib punya penilai, dan sejak #129 (SCRUM-271)
+        # penilai itu produk AI otomatis yang aktif, bukan baris judge_providers.
+        penilai = buat_produk_penilai(conn, admin)
 
     sesi_id = None
     try:
