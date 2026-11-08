@@ -14,6 +14,7 @@ PBI-11 AC9: Tiga skor terpisah (dev, test, gabungan).
 import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
+from unittest.mock import MagicMock
 
 import pytest
 from sqlalchemy import select
@@ -808,9 +809,23 @@ def test_get_results_sesi_berjalan_hanya_admin(as_role, db_session, produk, pemb
     assert res_dev.status_code == 403
 
 
-def test_get_results_sesi_selesai_developer_ai_masking(as_role, db_session, produk, pembuat):
+def test_get_results_sesi_selesai_developer_ai_masking(
+    as_role, db_session, produk, pembuat, monkeypatch
+):
     """AC8, PBI-11 AC9: Sesi selesai untuk Dev AI: kasus test tersamar, agregat test terlihat."""
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    # PBI-14: sesi wajib punya penilai; tanpa itu percobaan menjadi gangguan teknis tanpa skor.
+    sesi.judge_provider_id = uuid.uuid4()
+    db_session.commit()
+    ikatan = MagicMock()
+    ikatan.asker = _MockJudgeAsker(
+        text=(
+            "CRITERION: badan hukum\nMET: yes\n"
+            "CRITERION: pesangon\nMET: yes\n"
+            "CRITERION: Conclusion: sah\nMET: yes\n"
+        )
+    )
+    monkeypatch.setattr("app.modules.providers.judge_service.build_judge", lambda db, j: ikatan)
 
     # Nilai dulu
     assert as_role(Role.ADMIN).post(f"/measurements/{sesi.id}/grade", json={}).status_code == 200
@@ -840,10 +855,10 @@ def test_get_results_sesi_selesai_developer_ai_masking(as_role, db_session, prod
     assert res_dev.status_code == 200
     dev_body = res_dev.json()
 
-    # Skor agregat test tetap terlihat di ThreeScores (sesi tanpa judge: quality & format null)
+    # Skor agregat test tetap terlihat di ThreeScores
     assert dev_body["scores"]["test"]["deterministic"] is not None
-    assert dev_body["scores"]["test"]["quality"] is None
-    assert dev_body["scores"]["test"]["format"] is None
+    assert dev_body["scores"]["test"]["quality"] is not None
+    assert dev_body["scores"]["test"]["format"] is not None
 
     # Tapi kasus test tersamar per-kasus
     dev_cases = dev_body["cases"]
