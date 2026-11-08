@@ -14,16 +14,14 @@ Urutan diatur dengan threading.Event dan pg_stat_activity, tanpa jeda waktu.
 import os
 import threading
 import uuid
-from collections.abc import Iterator
-from decimal import Decimal
 
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from app.modules.providers import judge_repository, judge_service
-from app.modules.providers.judge_schemas import JudgeProviderCreate
+from app.modules.providers import repository as providers_repository
+from app.modules.providers import service as providers_service
 from app.modules.runs import adapters, repository, schemas, service
 from app.shared.config import get_settings
 from app.shared.exceptions import ValidationError
@@ -61,8 +59,8 @@ def buat_sesi(engine):
 
 
 @pytest.fixture
-def siap(buat_sesi) -> Iterator[dict[str, uuid.UUID]]:
-    """Produk Otomatis, satu suite, dan satu penilai aktif, di-commit; penilai dihapus di akhir.
+def siap(buat_sesi) -> dict[str, uuid.UUID]:
+    """Produk Otomatis, satu suite, dan satu penilai (produk otomatis lain), di-commit.
 
     Sesi dengan penilai sungguhan (FK) sudah diuji di test_judge_providers_pg.py di dalam
     transaksi yang di-rollback, jadi di sini tidak ada sesi yang tersimpan.
@@ -78,32 +76,13 @@ def siap(buat_sesi) -> Iterator[dict[str, uuid.UUID]]:
             {"id": suite_id, "nama": f"Suite 258 {suite_id.hex[:8]}", "admin": admin},
         )
         db.commit()
-        penilai = judge_service.create_judge(
-            db,
-            JudgeProviderCreate(
-                name=f"Penilai 258 {uuid.uuid4().hex[:8]}",
-                provider_type="openai_compatible",
-                base_url="https://judge.example.test/v1",
-                model_name="judge-uji",
-                credential="rahasia-uji-258-pg",  # pragma: allowlist secret
-                price_input_usd_per_mtok=Decimal("0.27"),
-                price_output_usd_per_mtok=Decimal("1.1"),
-                monthly_budget_idr=Decimal("500000"),
-            ),
-            created_by=admin,
-        )
         isi = {
             "produk": daftar_otomatis(db, admin),
             "admin": admin,
             "suite": suite_id,
-            "penilai": penilai.id,
+            "penilai": daftar_otomatis(db, admin),
         }
-    yield isi
-    # Penilai yang di-commit menahan downgrade migrasi 4f844618b782 di database bersama,
-    # jadi dihapus lagi. Tes ini tidak pernah menyimpan sesi yang merujuknya.
-    with buat_sesi() as db:
-        db.execute(text("DELETE FROM judge_providers WHERE id = :id"), {"id": isi["penilai"]})
-        db.commit()
+    return isi
 
 
 def _mulai(db, siap) -> schemas.StartResponse:
@@ -129,7 +108,7 @@ def test_mulai_menunggu_nonaktifkan_penilai_lalu_menolak(engine, buat_sesi, siap
     Mulai menunggu kunci baris penilai, membaca is_active = false setelah commit, dan
     menolak 422. Tanpa kunci, sesi tersimpan dengan penilai yang sudah nonaktif."""
     sudah_ditulis, lanjut_commit = threading.Event(), threading.Event()
-    simpan_asli = judge_repository.save
+    simpan_asli = providers_repository.save
 
     def simpan_tertahan(db, judge):
         db.flush()  # UPDATE terkirim dan baris penilai terkunci, belum commit
@@ -137,12 +116,12 @@ def test_mulai_menunggu_nonaktifkan_penilai_lalu_menolak(engine, buat_sesi, siap
         assert lanjut_commit.wait(BATAS_TUNGGU)
         return simpan_asli(db, judge)
 
-    monkeypatch.setattr(judge_repository, "save", simpan_tertahan)
+    monkeypatch.setattr(providers_repository, "save", simpan_tertahan)
     hasil: dict[str, object] = {}
 
     def nonaktifkan():
         with buat_sesi() as db:
-            hasil["nonaktif"] = judge_service.set_active(
+            hasil["nonaktif"] = providers_service.set_active(
                 db, siap["penilai"], is_active=False
             ).is_active
 

@@ -17,7 +17,7 @@ import pytest
 from sqlalchemy import create_engine, text
 
 from tests.grading_pg import buat_run, buat_versi_aktif
-from tests.judge_pg import buat_penilai
+from tests.judge_pg import buat_penilai, buat_produk_penilai
 from tests.measurement_pg import (
     CHECK_VIOLATION,
     FOREIGN_KEY_VIOLATION,
@@ -199,7 +199,7 @@ def test_pembuat_harus_pengguna_yang_ada(conn, admin_id):
 
 def test_sesi_merujuk_penilai_yang_ada(conn, admin_id):
     """Positif: AC6, penilai yang dipilih di form tersimpan di sesi."""
-    penilai = buat_penilai(conn, admin_id)
+    penilai = buat_produk_penilai(conn, admin_id)
 
     sesi = buat_sesi(conn, buat_produk(conn, admin_id), admin_id, judge_provider_id=penilai)
 
@@ -223,12 +223,12 @@ def test_sesi_dengan_penilai_tidak_dikenal_ditolak_fk(conn, admin_id):
 
 def test_penilai_yang_dirujuk_sesi_tidak_bisa_dihapus(conn, admin_id):
     """Negatif: ON DELETE RESTRICT, sesi lama tidak boleh kehilangan penilainya."""
-    penilai = buat_penilai(conn, admin_id)
+    penilai = buat_produk_penilai(conn, admin_id)
     buat_sesi(conn, buat_produk(conn, admin_id), admin_id, judge_provider_id=penilai)
 
     sqlstate = galat(
         conn,
-        lambda: conn.execute(text("DELETE FROM judge_providers WHERE id = :id"), {"id": penilai}),
+        lambda: conn.execute(text("DELETE FROM ai_products WHERE id = :id"), {"id": penilai}),
     ).sqlstate
 
     assert sqlstate == FOREIGN_KEY_VIOLATION
@@ -238,7 +238,7 @@ def test_penilai_yang_dirujuk_sesi_tidak_bisa_dihapus(conn, admin_id):
 
 
 def test_run_merujuk_penilai_yang_ada(conn, admin_id):
-    penilai = buat_penilai(conn, admin_id)
+    penilai = buat_produk_penilai(conn, admin_id)
     sesi = buat_sesi(conn, buat_produk(conn, admin_id), admin_id)
 
     run = buat_run(
@@ -265,13 +265,13 @@ def test_run_dengan_penilai_tidak_dikenal_ditolak_fk(conn, admin_id):
 
 
 def test_penilai_yang_dirujuk_run_tidak_bisa_dihapus(conn, admin_id):
-    penilai = buat_penilai(conn, admin_id)
+    penilai = buat_produk_penilai(conn, admin_id)
     sesi = buat_sesi(conn, buat_produk(conn, admin_id), admin_id)
     buat_run(conn, sesi, buat_versi_aktif(conn, admin_id), admin_id, judge_provider_id=penilai)
 
     sqlstate = galat(
         conn,
-        lambda: conn.execute(text("DELETE FROM judge_providers WHERE id = :id"), {"id": penilai}),
+        lambda: conn.execute(text("DELETE FROM ai_products WHERE id = :id"), {"id": penilai}),
     ).sqlstate
 
     assert sqlstate == FOREIGN_KEY_VIOLATION
