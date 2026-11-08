@@ -28,7 +28,10 @@ probe, that tick can defer dispatch until its next poll (normally 5 seconds).
 The probe releases the lease before returning and never dispatches paid work.
 
 Controls must use SCRUM-214 transitions. The dispatcher checks the session again
-before every call. SIGTERM/SIGINT lets the current call persist, then pauses the
+before every call. The rate-limit spacing wait between calls sleeps in slices of at most one second and
+checks the session before each slice, so Jeda/Batalkan or shutdown during that wait is
+seen within about a second and the next waiting session starts (SCRUM-267). A call that
+is already in flight still finishes first (up to the 240-second provider timeout). SIGTERM/SIGINT lets the current call persist, then pauses the
 session with reason `restart`; the 260-second Compose grace period exceeds the
 provider's 240-second timeout. Hard kills still require SCRUM-217 recovery.
 
