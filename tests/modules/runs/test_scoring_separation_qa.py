@@ -10,9 +10,12 @@ dijaga tes SCRUM-256 (tests/modules/cases/test_sections_without_traps.py).
 Label: Positif = perilaku yang diharapkan, Negatif = harus ditolak, Edge = batas perilaku.
 """
 
+import uuid
 from decimal import Decimal
 
 from app.modules.cases.models import SplitTag
+from app.modules.runs.schemas import CaseGradeResult
+from app.modules.runs.schemas import ScorePair as ScorePairKontrak
 from app.modules.runs.score_aggregation import (
     LAIN_LAIN,
     CaseScore,
@@ -22,6 +25,22 @@ from app.modules.runs.score_aggregation import (
     product_score,
     three_scores,
 )
+from app.modules.runs.session_grade import compute_category_scores, compute_three_scores
+
+
+def _kasus_hasil(code: str, split: str, *, det: str, kualitas: str, format_: str, category=None):
+    """Satu baris hasil seperti yang dibentuk endpoint Nilai, dengan ScorePair tiga field."""
+    return CaseGradeResult(
+        snapshot_item_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        case_code=code,
+        title=f"Judul {code}",
+        split_tag=split,
+        category=category,
+        scores=ScorePairKontrak(
+            deterministic=Decimal(det), quality=Decimal(kualitas), format=Decimal(format_)
+        ),
+    )
 
 
 def _kasus(
@@ -144,14 +163,45 @@ def test_kasus_tanpa_kategori_masuk_lain_lain_dan_tetap_dihitung():
     assert per_nama[LAIN_LAIN].scores.deterministic == Decimal("0.00")
 
 
-def test_lain_lain_selalu_di_urutan_terakhir():
-    """Edge: 'Lain-lain' bukan kategori hukum, jadi tidak ikut urutan abjad (PBI-14 AC10)."""
+# Jalur yang benar-benar dilayani endpoint Nilai
+#
+# Test di atas memaku score_aggregation, yang tidak diimpor session_grade.py sama sekali.
+# Endpoint memakai compute_category_scores dan compute_three_scores dengan ScorePair tiga
+# field. Dua test berikut memaku jalur itu, supaya AC1 dan AC10 terbukti pada kode yang
+# benar-benar dijalankan, bukan pada implementasi kembarnya.
+
+
+def test_endpoint_memisahkan_tiga_field_skor_tanpa_angka_gabungan():
+    """Positif: deterministik, kualitas dan format tetap tiga angka terpisah (AC1)."""
     kasus = [
-        _kasus("A", SplitTag.DEV, det="1.00", category=None),
-        _kasus("B", SplitTag.DEV, det="1.00", category="Zonasi"),
-        _kasus("C", SplitTag.DEV, det="1.00", category="Agraria"),
+        _kasus_hasil("A", "dev", det="1.00", kualitas="0.00", format_="0.50"),
+        _kasus_hasil("B", "dev", det="0.00", kualitas="1.00", format_="0.50"),
     ]
 
-    pecahan = category_breakdown(kasus)
+    hasil = compute_three_scores(kasus)
 
-    assert [bagian.category for bagian in pecahan][-1] == LAIN_LAIN
+    assert hasil.dev.deterministic == Decimal("0.50")
+    assert hasil.dev.quality == Decimal("0.50")
+    assert hasil.dev.format == Decimal("0.50")
+    assert not hasattr(hasil.dev, "judge"), "kontrak tidak punya satu angka judge gabungan"
+
+
+def test_endpoint_memasukkan_kasus_tanpa_kategori_ke_lain_lain():
+    """Positif: kategori kosong jadi 'Lain-lain' dan kasusnya tetap dihitung (AC10).
+
+    Urutan tidak dipaku di sini. PBI-14 tidak menyebut urutan, dan dua implementasi di
+    repo ini memang berbeda: score_aggregation menaruh 'Lain-lain' paling akhir, sedangkan
+    endpoint mengurut abjad biasa sehingga 'Lain-lain' bisa di tengah. Perbedaan itu
+    dilaporkan sebagai temuan, bukan dikunci sebagai aturan oleh test ini.
+    """
+    kasus = [
+        _kasus_hasil("A", "dev", det="1.00", kualitas="1.00", format_="1.00", category="Zonasi"),
+        _kasus_hasil("B", "dev", det="0.00", kualitas="0.00", format_="0.00", category=None),
+    ]
+
+    pecahan = compute_category_scores(kasus)
+
+    per_nama = {bagian.category: bagian for bagian in pecahan}
+    assert per_nama[LAIN_LAIN].case_count == 1
+    assert per_nama[LAIN_LAIN].scores.deterministic == Decimal("0.00")
+    assert per_nama["Zonasi"].case_count == 1

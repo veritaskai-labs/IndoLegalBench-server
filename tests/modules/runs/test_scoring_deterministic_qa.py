@@ -11,9 +11,19 @@ otomatis dan manual dinilai dengan rubrik dan versi yang sama.
 Label: Positif = perilaku yang diharapkan, Edge = batas perilaku.
 """
 
+from datetime import UTC, datetime
 from decimal import Decimal
 
-from app.modules.runs.models import SessionStatus
+from sqlalchemy import select
+
+from app.modules.runs.models import (
+    Attempt,
+    AttemptSource,
+    AttemptStatus,
+    CaseSnapshot,
+    CaseSnapshotItem,
+    SessionStatus,
+)
 from app.modules.runs.session_grade import grade_session
 from app.shared.security import Role
 from tests.modules.runs.test_session_grade import (
@@ -96,12 +106,66 @@ def test_penilaian_sama_dua_kali_identik(db_session, produk, pembuat):  # noqa: 
     assert _skor_deterministik(pertama) == _skor_deterministik(kedua)
 
 
-def test_satu_run_memakai_satu_versi_rubrik_untuk_semua_percobaan(db_session, produk, pembuat):  # noqa: F811
-    """Positif: jawaban otomatis dan manual dinilai dengan rubrik dan versi yang sama."""
+def _tambah_percobaan_manual(db_session, sesi, pengisi, jawaban: str) -> None:
+    """Percobaan kedua pada kasus dev, diisi tangan (AttemptSource.MANUAL, PBI-22).
+
+    _setup_sesi_lengkap hanya membuat percobaan otomatis, jadi tanpa ini tidak ada jawaban
+    manual untuk dibandingkan dan aturan "satu rubrik untuk semua percobaan" tidak terbukti.
+    """
+    item_dev = next(
+        item
+        for item in db_session.scalars(
+            select(CaseSnapshotItem)
+            .join(CaseSnapshot, CaseSnapshot.id == CaseSnapshotItem.snapshot_id)
+            .where(CaseSnapshot.session_id == sesi.id)
+        )
+        if item.body["sections"]["case_code"] == "DEV-01"
+    )
+    db_session.add(
+        Attempt(
+            session_id=sesi.id,
+            snapshot_item_id=item_dev.id,
+            repetition_no=2,
+            source=AttemptSource.MANUAL,
+            status=AttemptStatus.SUCCEEDED,
+            answer_text=jawaban,
+            filled_by=pengisi.id,
+            filled_at=datetime.now(UTC),
+        )
+    )
+    db_session.commit()
+
+
+def test_satu_run_memakai_satu_versi_rubrik_untuk_percobaan_otomatis_dan_manual(
+    db_session,
+    produk,  # noqa: F811
+    pembuat,  # noqa: F811
+):
+    """Positif: jawaban otomatis dan manual masuk satu run dengan satu versi rubrik (AC9).
+
+    Dibuktikan dengan sesi yang benar-benar memuat kedua sumber, bukan hanya dengan
+    memastikan rubric_version tidak kosong: versi yang sama tidak membuktikan apa pun
+    kalau yang dinilai cuma jawaban otomatis.
+    """
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    _tambah_percobaan_manual(
+        db_session,
+        sesi,
+        pembuat,
+        "Berdasarkan Pasal 156 angka 1 Undang-Undang Nomor 40 Tahun 2007 tentang Perseroan "
+        "Terbatas, badan hukum pesangon adalah sah.",
+    )
 
     respons = _nilai(db_session, sesi, pembuat, _MockJudgeAsker(BALASAN_BAGUS))
 
+    semua = [percobaan for kasus in respons.cases for percobaan in kasus.attempts]
+    sumber = {percobaan.source for percobaan in semua}
+    assert sumber == {"automatic", "manual"}, f"kedua sumber harus ikut dinilai, dapat {sumber}"
     assert respons.rubric_version
-    jumlah_percobaan = sum(len(kasus.attempts) for kasus in respons.cases)
-    assert jumlah_percobaan >= 1, "sesi uji harus punya percobaan untuk dinilai"
+    assert all(not percobaan.is_technical_disruption for percobaan in semua)
+    manual = [p for p in semua if p.source == "manual"]
+    otomatis = [p for p in semua if p.source == "automatic"]
+    assert manual and otomatis
+    assert all(p.score is not None for p in manual + otomatis), (
+        "jawaban manual dan otomatis sama-sama harus bernilai di run yang sama"
+    )
