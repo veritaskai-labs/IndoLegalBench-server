@@ -62,11 +62,13 @@ class PenilaiUji:
 def rubrik(siap_manual, monkeypatch):
     """Satu versi rubrik aktif dan penilai uji, supaya Nilai menghasilkan skor (#128: run tanpa
     satu pun skor gagal dan sesi tetap Lengkap). Sesi manual wajib punya provider penilai sejak
-    #128, tapi provider itu tidak bisa dibangun di lingkungan tes, jadi penyelesainya diganti."""
+    #128, tapi provider itu tidak bisa dibangun di lingkungan tes, jadi penyelesainya diganti.
+    Sejak #129 penyelesai mengembalikan (asker, galat, ikatan); tanpa ikatan biaya penilai tidak
+    dihitung, sama seperti asker yang disuntik."""
     monkeypatch.setattr(
         session_grade,
         "_resolve_active_judge_asker",
-        lambda db, session, judge_asker: (judge_asker or PenilaiUji(), None),
+        lambda db, session, judge_asker: (judge_asker or PenilaiUji(), None, None),
     )
     siap_manual.db.add(
         RubricVersion(
@@ -144,7 +146,7 @@ def test_penilai_tidak_tersedia_nilai_gagal_lalu_bisa_dinilai_lagi(rubrik, monke
         m.setattr(
             session_grade,
             "_resolve_active_judge_asker",
-            lambda db, session, judge_asker: (None, "judge_unavailable"),
+            lambda db, session, judge_asker: (None, "judge_unavailable", None),
         )
         sesi = buat_sesi(rubrik, repeat_count=1)
         isi_semua(rubrik, sesi["id"])
