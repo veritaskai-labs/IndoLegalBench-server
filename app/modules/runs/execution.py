@@ -30,6 +30,23 @@ from app.shared.exceptions import DomainError
 logger = logging.getLogger(__name__)
 
 _WORKER_LOCK = 76249
+# Longest rate-limit sleep slice: a Jeda/Batalkan during the spacing wait is seen within this
+# many seconds instead of after the full 60 / rate_limit_per_minute (SCRUM-267, UAT K4).
+_STOP_POLL_SECONDS = 1.0
+
+
+def _interruptible(sleep, stop_requested):
+    """Sleep in short slices; stop before each slice when the session no longer runs.
+
+    run_next's wait loop re-checks the clock after every slice, so the total spacing is unchanged.
+    """
+
+    def wait(seconds: float) -> None:
+        if stop_requested():
+            raise ExecutionInterrupted
+        sleep(min(seconds, _STOP_POLL_SECONDS))
+
+    return wait
 
 
 @contextmanager
@@ -204,7 +221,7 @@ def _execute_claimed(db, session_id, options: _ExecutionOptions):
             params=copy.model_params,
             repeats=session.repetitions,
             rate_limit_per_minute=limit,
-            sleep=options.sleep,
+            sleep=_interruptible(options.sleep, store.stop_requested),
             clock=options.clock,
             call_log=billing,
             product_id=copy.product_id,

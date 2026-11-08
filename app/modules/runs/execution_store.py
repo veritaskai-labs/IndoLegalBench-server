@@ -60,6 +60,17 @@ class TableSessionStore(SessionStore):
             .execution_options(populate_existing=True)
         ).one()
 
+    def stop_requested(self) -> bool:
+        """Shutdown or Jeda/Batalkan, read without a row lock (polled during waits, SCRUM-267)."""
+        if self.stopping():
+            return True
+        status = self.db.scalar(
+            select(MeasurementSession.status)
+            .where(MeasurementSession.id == self.session_id)
+            .execution_options(populate_existing=True)
+        )
+        return status != SessionStatus.RUNNING
+
     def prepare_attempt(self, case_index: int, repeat_index: int) -> uuid.UUID | None:
         if self.stopping() or self._session().status != SessionStatus.RUNNING:
             raise ExecutionInterrupted
