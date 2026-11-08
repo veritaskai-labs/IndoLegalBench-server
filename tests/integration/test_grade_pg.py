@@ -235,7 +235,7 @@ def test_post_grade_endpoint_pg(pg, monkeypatch):
     monkeypatch.setattr(
         session_grade,
         "_resolve_active_judge_asker",
-        lambda db, session, judge_asker: (_penilai_tiruan(), None),
+        lambda db, session, judge_asker: (_penilai_tiruan(), None, None),
     )
 
     try:
