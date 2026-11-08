@@ -328,44 +328,6 @@ def test_detail_penilai_tidak_dikenal_404(admin):
 # --- GET /judge-providers (dropdown SCRUM-211) ------------------------------------
 
 
-def test_pilihan_hanya_penilai_aktif_dengan_isian_minimal(admin):
-    """Positif: dropdown tidak menerima URL, hint, harga, atau anggaran."""
-    aktif = _buat(admin, name="Penilai aktif")
-    _buat(admin, name="Penilai nonaktif", is_active=False)
-
-    response = admin.get(OPTIONS_URL)
-
-    assert response.status_code == 200
-    assert response.json() == [
-        {
-            "id": aktif["id"],
-            "name": "Penilai aktif",
-            "provider_type": "openai_compatible",
-            "model_name": "judge-model-1",
-        }
-    ]
-
-
-def test_pilihan_kosong_kalau_semua_nonaktif(admin):
-    """Edge: form tetap bisa dibuka; penilai boleh kosong (keputusan PO K2)."""
-    _buat(admin, is_active=False)
-
-    assert admin.get(OPTIONS_URL).json() == []
-
-
-def test_developer_ai_melihat_pilihan_penilai(client, db_session, encryption_key):
-    """Positif: Developer AI boleh membuat pengukuran (No. 35), jadi butuh daftarnya."""
-    complete_login(client, db_session, ADMIN_SUB)
-    _buat(client)
-    client.cookies.clear()
-    complete_login(client, db_session, DEVELOPER_AI_SUB)
-
-    response = client.get(OPTIONS_URL)
-
-    assert response.status_code == 200
-    assert [item["name"] for item in response.json()] == ["DeepSeek penilai"]
-
-
 # --- PATCH /admin/judge-providers/{id} --------------------------------------------
 
 
@@ -477,14 +439,11 @@ def test_nonaktifkan_lalu_aktifkan_lagi(admin):
     dibuat = _buat(admin)
 
     mati = admin.post(f"{ADMIN_URL}/{dibuat['id']}/deactivate")
-    pilihan_saat_mati = admin.get(OPTIONS_URL).json()
     hidup = admin.post(f"{ADMIN_URL}/{dibuat['id']}/activate")
 
     assert mati.status_code == 200
     assert mati.json()["is_active"] is False
-    assert pilihan_saat_mati == []
     assert hidup.json()["is_active"] is True
-    assert [item["id"] for item in admin.get(OPTIONS_URL).json()] == [dibuat["id"]]
 
 
 def test_nonaktifkan_dua_kali_tetap_nonaktif(admin):

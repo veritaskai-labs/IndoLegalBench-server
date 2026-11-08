@@ -1,4 +1,4 @@
-"""Akses database tabel judge_providers (SCRUM-258).
+"""Akses database penilai: tabel judge_providers (SCRUM-258) dan produk AI otomatis (SCRUM-271).
 
 ATURAN: hanya providers/judge_service.py yang boleh memanggil file ini.
 Isi file ini murni query, tanpa logika bisnis.
@@ -9,7 +9,7 @@ import uuid
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from app.modules.providers.models import JudgeProvider
+from app.modules.providers.models import AiProduct, JudgeProvider, MeasurementType
 
 
 def get_by_id(db: Session, judge_id: uuid.UUID, *, for_share: bool = False) -> JudgeProvider | None:
@@ -66,3 +66,37 @@ def save(db: Session, judge: JudgeProvider) -> JudgeProvider:
     db.commit()
     db.refresh(judge)
     return judge
+
+
+def get_product(db: Session, product_id: uuid.UUID, *, for_share: bool = False) -> AiProduct | None:
+    """Produk AI yang belum dihapus; for_share mengunci barisnya (FOR SHARE).
+
+    Kunci hanya berdasarkan id, tidak menyaring is_active: nonaktifkan yang bersamaan
+    harus ditunggu lalu terbaca, bukan dilewati (pelajaran SCRUM-222).
+    """
+    query = db.query(AiProduct).filter(AiProduct.id == product_id, AiProduct.deleted_at.is_(None))
+    if for_share:
+        query = query.with_for_update(read=True).populate_existing()
+    return query.first()
+
+
+def list_product_options(db: Session) -> list[sa.Row]:
+    """Produk otomatis aktif yang belum dihapus, hanya kolom pilihan.
+
+    Ciphertext kredensial tidak ikut terbaca dari database.
+    """
+    return (
+        db.query(
+            AiProduct.id,
+            AiProduct.name,
+            AiProduct.provider_type,
+            AiProduct.model_name,
+        )
+        .filter(
+            AiProduct.deleted_at.is_(None),
+            AiProduct.is_active == sa.true(),
+            AiProduct.measurement_type == MeasurementType.AUTOMATIC,
+        )
+        .order_by(AiProduct.name)
+        .all()
+    )

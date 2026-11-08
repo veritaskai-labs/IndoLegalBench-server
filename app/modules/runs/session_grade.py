@@ -39,7 +39,15 @@ from app.modules.cases.service import MASKED_CASE_CODE, MASKED_TITLE
 from app.modules.legal_refs.seed import load_regulation_types
 from app.modules.legal_refs.service import TypeName
 from app.modules.providers import service as providers_service
+from app.modules.runs.call_log import month_start
 from app.modules.runs.citation_score import CitationScorer
+from app.modules.runs.exchange_rate import ExchangeRateProvider
+from app.modules.runs.judge_budget import (
+    JudgeMeter,
+    JudgePricingMissing,
+    JudgeUsage,
+    open_judge_meter,
+)
 from app.modules.runs.manual_grade_gate import ManualGradeGate
 from app.modules.runs.models import (
     Attempt,
@@ -51,7 +59,11 @@ from app.modules.runs.models import (
     MeasurementSession,
     SessionStatus,
 )
-from app.modules.runs.repository import ManualSessionRepository, get_session_for_update
+from app.modules.runs.repository import (
+    CallLogRepository,
+    ManualSessionRepository,
+    get_session_for_update,
+)
 from app.modules.runs.schemas import (
     AttemptGradeResult,
     CaseGradeResult,
@@ -132,6 +144,8 @@ RUN_COMPLETED = "completed"
 RUN_FAILED = "failed"
 JUDGE_NOT_CONFIGURED = "judge_not_configured"
 JUDGE_UNAVAILABLE = "judge_unavailable"
+JUDGE_BUDGET_EXHAUSTED = "judge_budget_exhausted"
+JUDGE_INCOMPLETE = "judge_incomplete"
 
 
 def round_two_digits(val: Decimal | float | int | None) -> Decimal | None:
@@ -570,6 +584,8 @@ class AttemptGradeInput:
     explanation: str | None = None
     reasons: list[str] = field(default_factory=list)
     criteria: list[dict[str, Any]] = field(default_factory=list)
+    # Pemakaian panggilan penilai per jenis ("quality", "format"), disimpan bersama hasilnya.
+    judge_usage: dict[str, JudgeUsage] = field(default_factory=dict)
 
 
 @dataclass
@@ -968,6 +984,9 @@ class DbGradingStore:
         scorer: CitationScorer,
     ) -> None:
         case_input_by_item_id = {c.snapshot_item_id: c for c in (case_inputs or [])}
+        usage_by_attempt = {
+            att.attempt_id: att.judge_usage for c in (case_inputs or []) for att in c.attempts
+        }
         for case in cases:
             case_in = case_input_by_item_id.get(case.snapshot_item_id)
             norm_refs = normalize_legal_refs(case_in.legal_refs) if case_in else []
@@ -975,7 +994,9 @@ class DbGradingStore:
                 g_result = self._create_grading_result_row(run_id, att, norm_refs, scorer)
                 self.db.add(g_result)
                 self.db.flush()
-                self._save_llm_judge_records(g_result.id, att, case.case_code)
+                self._save_llm_judge_records(
+                    g_result.id, att, case.case_code, usage_by_attempt.get(att.attempt_id)
+                )
 
     def save_grading_run(
         self,
@@ -1096,6 +1117,7 @@ class DbGradingStore:
         case_code: str,
         rep_no: int,
         score_val: Decimal,
+        usage: JudgeUsage | None = None,
     ) -> None:
         from app.modules.grading.models import (
             JudgeKind,
@@ -1125,6 +1147,7 @@ class DbGradingStore:
             explanation=att.explanation,
             error=None,
             failure_kind=None,
+            **_usage_columns(usage),
         )
         self.db.add(judge_row)
         self.db.flush()
@@ -1136,6 +1159,7 @@ class DbGradingStore:
         case_code: str,
         rep_no: int,
         format_score: Decimal,
+        usage: JudgeUsage | None = None,
     ) -> None:
         from app.modules.grading.models import (
             JudgeKind,
@@ -1157,8 +1181,42 @@ class DbGradingStore:
             explanation=None,
             error=None,
             failure_kind=None,
+            **_usage_columns(usage),
         )
         self.db.add(format_row)
+        self.db.flush()
+
+    def _save_unscored_judge_records(
+        self,
+        grading_result_id: uuid.UUID,
+        case_code: str,
+        rep_no: int,
+        usage: Mapping[str, JudgeUsage],
+    ) -> None:
+        """Simpan panggilan penilai berbiaya dari percobaan tanpa skor sebagai baris failed.
+
+        Token yang sudah terpakai tetap ditagih penyedia, jadi biayanya harus masuk ke
+        pengeluaran bulanan produk penilai (PBI-14 AC6). Panggilan tanpa token tidak
+        membuat baris.
+        """
+        from app.modules.grading.models import JudgeKind, JudgeStatus, LlmJudgeResult
+
+        for kind, item in usage.items():
+            if item.input_tokens is None and item.output_tokens is None:
+                continue
+            self.db.add(
+                LlmJudgeResult(
+                    id=uuid.uuid4(),
+                    grading_result_id=grading_result_id,
+                    judge_run_no=rep_no,
+                    kind=JudgeKind(kind),
+                    status=JudgeStatus.FAILED,
+                    prompt=f"Penilaian {kind} untuk kasus {case_code} tanpa skor",
+                    failure_kind=_unscored_judge_failure_kind(item),
+                    error="judge call did not give a usable score",
+                    **_usage_columns(item),
+                )
+            )
         self.db.flush()
 
     def _save_llm_judge_records(
@@ -1166,18 +1224,40 @@ class DbGradingStore:
         grading_result_id: uuid.UUID,
         att: AttemptGradeResult,
         case_code: str,
+        usage: Mapping[str, JudgeUsage] | None = None,
     ) -> None:
         rep_no = max(1, min(5, att.repetition_no))
+        usage = usage or {}
         if att.is_technical_disruption or att.score is None:
+            self._save_unscored_judge_records(grading_result_id, case_code, rep_no, usage)
             return
 
         if att.score.quality is not None:
             self._save_quality_judge_record(
-                grading_result_id, att, case_code, rep_no, att.score.quality
+                grading_result_id, att, case_code, rep_no, att.score.quality, usage.get("quality")
             )
 
         if att.score.format is not None:
-            self._save_format_judge_record(grading_result_id, case_code, rep_no, att.score.format)
+            self._save_format_judge_record(
+                grading_result_id, case_code, rep_no, att.score.format, usage.get("format")
+            )
+
+
+def _unscored_judge_failure_kind(usage: JudgeUsage) -> str:
+    """Jenis gagal baris tanpa skor: milik panggilannya, atau pasangannya yang gagal."""
+    return usage.failure_kind or JUDGE_INCOMPLETE
+
+
+def _usage_columns(usage: JudgeUsage | None) -> dict[str, Any]:
+    """Kolom token, biaya, dan kurs llm_judge_results dari pemakaian satu panggilan penilai."""
+    if usage is None:
+        return {}
+    return {
+        "input_tokens": usage.input_tokens,
+        "output_tokens": usage.output_tokens,
+        "cost_idr": usage.cost_idr,
+        "usd_idr_rate": usage.usd_idr_rate,
+    }
 
 
 def _evaluate_attempt_score(
@@ -1612,17 +1692,27 @@ def _execute_judge_for_attempt(
     asker: object,
     att: AttemptGradeInput,
     case: CaseGradeInput,
+    meter: JudgeMeter | None = None,
 ) -> None:
-    """Menjalankan evaluasi penilai LLM (SCRUM-224 run_judge) untuk percobaan non-gangguan."""
+    """Menjalankan evaluasi penilai LLM (SCRUM-224 run_judge) untuk percobaan non-gangguan.
+
+    Dengan meter, biaya tiap panggilan dihitung dari harga produk penilai dan dipotong
+    dari anggaran bulanannya (SCRUM-271).
+    """
     from app.modules.runs.judge import run_judge
 
     judge_in = _build_judge_inputs(case, att.answer_text)
     try:
-        writer = run_judge(asker, judge_in, repetitions=1)
+        writer = run_judge(
+            asker, judge_in, repetitions=1, prices=None if meter is None else meter.prices
+        )
         for row in writer.rows:
             _apply_judge_row_to_attempt(att, row)
+            att.judge_usage[row.kind] = JudgeUsage.from_row(row)
+            if meter is not None:
+                meter.charge(row.cost_idr)
         if att.judge_error is None and (att.quality_score is None or att.format_score is None):
-            att.judge_error = "judge_incomplete"
+            att.judge_error = JUDGE_INCOMPLETE
     except Exception as exc:
         att.judge_error = str(exc)
 
@@ -1748,23 +1838,64 @@ def _resolve_active_judge_asker(
     db: Session,
     session: MeasurementSession,
     judge_asker: object | None,
-) -> tuple[object | None, str | None]:
+) -> tuple[object | None, str | None, object | None]:
+    """Asker penilai, kode galat bila gagal, dan JudgeBinding yang dimuat (kosong bila disuntik)."""
     if judge_asker is not None:
-        return judge_asker, None
+        return judge_asker, None, None
     if session.judge_provider_id is None:
         # Sesi lama dari sebelum penilai wajib dipilih (PBI-14): gangguan teknis, bukan skip.
-        return None, JUDGE_NOT_CONFIGURED
+        return None, JUDGE_NOT_CONFIGURED, None
     try:
         from app.modules.providers.judge_service import build_judge
 
         binding = build_judge(db, session.judge_provider_id)
-        return binding.asker, None
+        return binding.asker, None, binding
     except Exception:
         # Hanya id penilai yang dicatat: pesan galat bisa memuat isi kredensial.
         logger.error(
             "Judge %s could not be built, attempts will be marked judge_unavailable",
             session.judge_provider_id,
             exc_info=False,
+        )
+        return None, JUDGE_UNAVAILABLE, None
+
+
+def _open_judge_meter(
+    db: Session,
+    binding: object | None,
+    rates: ExchangeRateProvider | None,
+    now: datetime | None,
+) -> JudgeMeter | None:
+    """Meter harga dan anggaran produk penilai (PBI-14 AC6, SCRUM-271).
+
+    Tanpa ikatan (asker disuntik) atau tanpa penyedia kurs, biaya tidak dihitung dan
+    anggaran tidak dibatasi. Router selalu memberi penyedia kurs.
+    """
+    if binding is None or rates is None:
+        return None
+    start = month_start(now or datetime.now(UTC))
+    spent = CallLogRepository(db).sum_cost_since(binding.judge_provider_id, start)
+    return open_judge_meter(binding=binding, spent_idr=spent, rates=rates)
+
+
+def _open_judge_meter_or_error(
+    db: Session,
+    binding: object | None,
+    rates: ExchangeRateProvider | None,
+    now: datetime | None,
+) -> tuple[JudgeMeter | None, str | None]:
+    """Meter penilai, atau JUDGE_UNAVAILABLE bila harga token produk penilai belum lengkap.
+
+    Penilai yang tidak bisa ditagih dengan benar tidak dipanggil sama sekali (AC4, AC6),
+    supaya tidak ada panggilan berbayar yang tidak masuk ke pengeluaran bulanan produk.
+    """
+    try:
+        return _open_judge_meter(db, binding, rates, now), None
+    except JudgePricingMissing:
+        # Hanya id penilai yang dicatat, tanpa kredensial.
+        logger.error(
+            "Judge %s has no token price, attempts will be marked judge_unavailable",
+            binding.judge_provider_id,
         )
         return None, JUDGE_UNAVAILABLE
 
@@ -1789,6 +1920,7 @@ def _execute_judge_for_all_cases(
     asker: object | None,
     judge_load_error: str | None,
     cases: Sequence[CaseGradeInput],
+    meter: JudgeMeter | None = None,
 ) -> None:
     if judge_load_error:
         _set_cases_judge_error(cases, judge_load_error)
@@ -1797,8 +1929,12 @@ def _execute_judge_for_all_cases(
         return
     for case in cases:
         for att in case.attempts:
-            if _should_grade_with_judge(att):
-                _execute_judge_for_attempt(asker, att, case)
+            if not _should_grade_with_judge(att):
+                continue
+            if meter is not None and not meter.has_budget():
+                att.judge_error = JUDGE_BUDGET_EXHAUSTED
+                continue
+            _execute_judge_for_attempt(asker, att, case, meter)
 
 
 def ensure_unchanged_since_load(
@@ -1870,6 +2006,7 @@ def grade_session(
     store: GradingStore | None = None,
     now: datetime | None = None,
     judge_asker: object | None = None,
+    rates: ExchangeRateProvider | None = None,
 ) -> SessionGradingResponse:
     """Memicu penilaian manual untuk sesi pengukuran (AC6, AC7)."""
     if actor_role != Role.ADMIN:
@@ -1897,8 +2034,11 @@ def grade_session(
     p_names = providers_service.product_names(db, {session.product_id})
     product_name = p_names.get(session.product_id, "")
 
-    active_asker, judge_load_error = _resolve_active_judge_asker(db, session, judge_asker)
-    _execute_judge_for_all_cases(active_asker, judge_load_error, cases)
+    active_asker, judge_load_error, binding = _resolve_active_judge_asker(db, session, judge_asker)
+    meter, pricing_error = _open_judge_meter_or_error(db, binding, rates, now)
+    if pricing_error is not None:
+        active_asker, judge_load_error = None, pricing_error
+    _execute_judge_for_all_cases(active_asker, judge_load_error, cases, meter)
 
     response = grade_session_data(
         session_id=session_id,
