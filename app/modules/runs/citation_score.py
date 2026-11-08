@@ -9,8 +9,10 @@ tanpa nomor dan tahun tidak terbaca sebagai rujukan.
 
 Pasal: acuan "Pasal 156" terpenuhi bila jawaban menyebut Pasal 156 untuk peraturan
 itu, termasuk "Pasal 156 ayat (1)"; pasal tambahan tidak dihukum. Ayat, angka, dan
-huruf acuan tidak diperiksa. Rujukan berangkai (jo./jis.) dinilai satu kesatuan:
-benar hanya bila semua link-nya benar.
+huruf acuan tidak diperiksa. Nama populer tanpa nomor ("Pasal 156 UU Ketenagakerjaan")
+dikaitkan ke peraturan bernomor terakhir dari jenis itu, atau ke nomor yang menyusul
+dalam frasa yang sama ("Pasal 156 UU Ketenagakerjaan (UU 13/2003)"). Rujukan berangkai
+(jo./jis.) dinilai satu kesatuan: benar hanya bila semua link-nya benar.
 
 Hasilnya mengikuti kolom D6 grading_results: det_regulation_matches
 [{jenis, nomor, tahun, cocok}], det_article_matches [{pasal acuan, disebut}],
@@ -26,8 +28,7 @@ tidak bisa dinilai dan tidak masuk penyebut.
 
 Batas yang diketahui: "PASAL 156" dengan huruf kapital semua tidak terbaca (huruf
 besar dipakai untuk membedakan nomor romawi); "UU No. 13 Th. 2003" terbaca tanpa
-tahun, jadi tidak cocok; nama populer di antara pasal dan peraturannya ("Pasal 156
-UU Ketenagakerjaan (UU 13/2003)") membuat pasal itu tidak dikaitkan ke UU 13/2003.
+tahun, jadi tidak cocok.
 """
 
 import re
@@ -64,6 +65,11 @@ _SELA_FRASA = re.compile(
     re.IGNORECASE,
 )
 _SELA_MAKS = 80
+# Nomor yang menyusul nama jenis: itu sitasi bernomor, bukan nama populer.
+_ANGKA_MENYUSUL = re.compile(
+    r"(?:\s*\([^()\n]{1,20}\))?\s*(?:(?:Nomor|No\.?)\s*)?\d",
+    re.IGNORECASE,
+)
 
 
 class ScoreFormula(StrEnum):
@@ -151,13 +157,17 @@ class CitationScorer:
             r"(?:\s+Tahun\s+(?P<tahun>\d{4}))?",
             re.IGNORECASE,
         )
+        self._pola_jenis = re.compile(
+            rf"(?<!\w)(?P<jenis>{pilihan})(?!\w)",
+            re.IGNORECASE,
+        )
 
     def score(self, jawaban: str, acuan: Sequence[Mapping[str, Any]]) -> CitationScore:
         sebutan = self._sebutan(jawaban)
         # Sitasi unik sesuai urutan kemunculan; menyebut ulang tidak menambah hitungan.
         terekstrak = list(dict.fromkeys(item.kunci for item in sebutan))
         disebut = {kunci for kunci in terekstrak if kunci[2] is not None}
-        pasal_disebut = _pasal_disebut(jawaban, sebutan)
+        pasal_disebut = _pasal_disebut(jawaban, sebutan, self._pola_jenis, self._code_per_nama)
         unit, tidak_dinilai = self._unit_acuan(acuan)
 
         def benar(link: _Link) -> bool:
@@ -255,17 +265,32 @@ class CitationScorer:
         return (Decimal(pembilang) / Decimal(penyebut)).quantize(_DUA_DIGIT, ROUND_HALF_UP)
 
 
-def _pasal_disebut(jawaban: str, sebutan: Sequence[_Sebutan]) -> set[tuple[_Kunci, str]]:
+def _pasal_disebut(
+    jawaban: str,
+    sebutan: Sequence[_Sebutan],
+    pola_jenis: re.Pattern[str],
+    code_per_nama: Mapping[str, str],
+) -> set[tuple[_Kunci, str]]:
     """Pasal yang disebut beserta peraturannya.
 
     Pasal dikaitkan ke peraturan yang langsung menyusul dalam satu frasa rujukan
-    ("Pasal 156 ayat (1) UU 13/2003"). Bila tidak ada, ke peraturan terakhir yang
-    disebut sebelumnya ("Pasal 486 undang-undang yang sama"). Pasal tanpa peraturan
-    sama sekali, mis. "Pasal 1320 KUHPerdata" di awal jawaban, tidak dikaitkan.
+    ("Pasal 156 ayat (1) UU 13/2003"). Bila frasa itu menyebut jenis tanpa nomor
+    ("UU Ketenagakerjaan"), pasal dikaitkan ke peraturan bernomor terakhir dari
+    jenis itu, atau ke peraturan bernomor jenis yang sama yang menyusul. Bila tidak
+    ada, ke peraturan terakhir yang disebut sebelumnya ("Pasal 486 undang-undang
+    yang sama"). Pasal tanpa peraturan sama sekali, mis. "Pasal 1320 KUHPerdata"
+    di awal jawaban, tidak dikaitkan.
     """
     hasil: set[tuple[_Kunci, str]] = set()
     for temuan in _POLA_PASAL.finditer(jawaban):
-        target = _peraturan_pasal(jawaban, sebutan, temuan.start(), temuan.end())
+        target = _peraturan_pasal(
+            jawaban,
+            sebutan,
+            temuan.start(),
+            temuan.end(),
+            pola_jenis,
+            code_per_nama,
+        )
         if target is None:
             continue
         for nomor in re.findall(_NOMOR_PASAL, temuan["daftar"]):
@@ -274,15 +299,75 @@ def _pasal_disebut(jawaban: str, sebutan: Sequence[_Sebutan]) -> set[tuple[_Kunc
 
 
 def _peraturan_pasal(
-    jawaban: str, sebutan: Sequence[_Sebutan], mulai: int, akhir: int
+    jawaban: str,
+    sebutan: Sequence[_Sebutan],
+    mulai: int,
+    akhir: int,
+    pola_jenis: re.Pattern[str],
+    code_per_nama: Mapping[str, str],
 ) -> _Kunci | None:
     berikut = next((item for item in sebutan if item.mulai >= akhir), None)
     if berikut is not None:
-        sela = jawaban[akhir : berikut.mulai]
-        if len(sela) <= _SELA_MAKS and _SELA_FRASA.fullmatch(sela):
-            return berikut.kunci
-    sebelum = [item for item in sebutan if item.akhir <= mulai]
-    return sebelum[-1].kunci if sebelum else None
+        putus, kunci = _kunci_dari_sela(
+            jawaban[akhir : berikut.mulai],
+            berikut,
+            sebutan,
+            mulai,
+            pola_jenis,
+            code_per_nama,
+        )
+        if putus:
+            return kunci
+    return _peraturan_terakhir(sebutan, mulai)
+
+
+def _kunci_dari_sela(
+    sela: str,
+    berikut: _Sebutan,
+    sebutan: Sequence[_Sebutan],
+    mulai: int,
+    pola_jenis: re.Pattern[str],
+    code_per_nama: Mapping[str, str],
+) -> tuple[bool, _Kunci | None]:
+    """(True, kunci) bila sela sudah memutuskan, termasuk putusan tidak dikaitkan.
+
+    None pada putusan True berarti nama populer menyebut jenis yang tidak punya
+    peraturan bernomor, jadi pasal tidak boleh menempel ke jenis lain.
+    """
+    if len(sela) > _SELA_MAKS:
+        return False, None
+    if _SELA_FRASA.fullmatch(sela):
+        return True, berikut.kunci
+    # "Pasal 156 UU Ketenagakerjaan, serta ... PP 35" bukan frasa ke PP.
+    kode = _kode_nama_populer(sela, pola_jenis, code_per_nama)
+    if kode is None:
+        return False, None
+    if berikut.kunci[0] == kode:
+        return True, berikut.kunci
+    return True, _peraturan_terakhir(sebutan, mulai, kode)
+
+
+def _peraturan_terakhir(
+    sebutan: Sequence[_Sebutan], mulai: int, kode: str | None = None
+) -> _Kunci | None:
+    """Peraturan bernomor terakhir sebelum pasal, opsional hanya dari satu jenis."""
+    cocok = [item for item in sebutan if item.akhir <= mulai and _jenis_sama(item, kode)]
+    return cocok[-1].kunci if cocok else None
+
+
+def _jenis_sama(item: _Sebutan, kode: str | None) -> bool:
+    return kode is None or item.kunci[0] == kode
+
+
+def _kode_nama_populer(
+    sela: str, pola_jenis: re.Pattern[str], code_per_nama: Mapping[str, str]
+) -> str | None:
+    """Jenis pertama dalam sela yang tidak diikuti nomor, mis. 'UU Ketenagakerjaan'."""
+    for temuan in pola_jenis.finditer(sela):
+        if _ANGKA_MENYUSUL.match(sela, temuan.end()):
+            continue
+        return code_per_nama[_kunci_nama(temuan.group("jenis"))]
+    return None
 
 
 def _link(link: Mapping[str, Any]) -> _Link:
