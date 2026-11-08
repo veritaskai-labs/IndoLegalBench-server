@@ -60,7 +60,13 @@ def test_ada_kegagalan_teknis_berakhir_finished_with_failures(siap, perilaku, ga
         for percobaan in kasus["attempts"]:
             if percobaan["status"] == "technical_failure":
                 assert percobaan["answer_text"] is None
-    assert baris["progress"] == {"completed": PERCOBAAN, "total": PERCOBAAN}
+    assert baris["progress"] == {
+        "completed": PERCOBAAN,
+        "total": PERCOBAAN,
+        "completed_cases": 3,
+        "total_cases": 3,
+        "percent_cases_complete": 100,
+    }
     assert notifikasi["total"] == 1
     assert notifikasi["items"][0]["link"] == f"/runs/{sesi_id}"
     assert "gagal teknis" in notifikasi["items"][0]["body"]

@@ -31,6 +31,9 @@ class SessionProgress:
     started_at: datetime | None
     updated_at: datetime
     running_cost_idr: Decimal
+    # Sama dengan daftar sesi: repository.case_completion (SCRUM-265).
+    completed_cases: int
+    total_cases: int
 
 
 class SessionProgressPort(Protocol):

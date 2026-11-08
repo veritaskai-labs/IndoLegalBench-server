@@ -35,6 +35,9 @@ KUNCI_PROGRES = {
     "remaining_budget_idr",
     "started_at",
     "updated_at",
+    "completed_cases",
+    "total_cases",
+    "percent_cases_complete",
 }
 
 
