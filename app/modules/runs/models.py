@@ -189,12 +189,12 @@ class MeasurementSession(Base):
     split_filter: Mapped[SplitFilter] = mapped_column(
         _enum(SplitFilter, "measurement_split_filter_enum"), nullable=False
     )
-    # Penilai LLM (AC1), dipilih saat membuat sesi. Boleh kosong sampai form punya
-    # dropdown penilai (keputusan PO 7 Nov, SCRUM-258).
+    # Penilai LLM (AC1): produk AI otomatis yang dipilih saat membuat sesi (SCRUM-271).
+    # Boleh kosong untuk sesi lama yang dibuat sebelum penilai wajib dipilih (PBI-14).
     judge_provider_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey(
-            "judge_providers.id",
+            "ai_products.id",
             name="fk_measurement_sessions_judge_provider",
             ondelete="RESTRICT",
         ),
