@@ -48,7 +48,11 @@ PENGECUALIAN = {
         "tersimpan dalam tabel ini. Konten jawaban tidak disalin "
         "ke audit_logs."
     ),
-    "attempts": "SCRUM-205: jawaban mentah permanen (trigger); bukti panggilan di call_logs (SCRUM-209)",
+    "attempt_evidence": (
+        "SCRUM-233: tidak punya session_id, jadi service mencatat "
+        "measurement_session.evidence_added dan evidence_removed sendiri"
+    ),
+    "evidence_files": "SCRUM-233: isi berkas bukti; metadata dan pengunggahnya di attempt_evidence",
     "rubric_aspects": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
     "rubric_levels": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
     "rubric_level_descriptors": "SCRUM-222: hanya INSERT (trigger), ditulis bersama versinya",
