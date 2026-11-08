@@ -7,6 +7,10 @@ from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.judge import JudgePrices
 
 
+class JudgePricingMissing(Exception):
+    """Produk penilai tidak punya harga token masuk atau keluar, jadi biaya tidak bisa dicatat."""
+
+
 @dataclass(frozen=True)
 class JudgeUsage:
     """Pemakaian satu panggilan penilai, disimpan di llm_judge_results."""

@@ -3,8 +3,10 @@
 from decimal import Decimal
 from types import SimpleNamespace
 
+import pytest
+
 from app.modules.runs.judge import JudgeRow
-from app.modules.runs.judge_budget import JudgeUsage, open_judge_meter
+from app.modules.runs.judge_budget import JudgePricingMissing, JudgeUsage, open_judge_meter
 
 _RATE = Decimal("16000")
 
@@ -105,17 +107,36 @@ def test_charge_tanpa_biaya_tidak_mengubah_sisa():
     assert meter.has_budget() is True
 
 
-def test_harga_kosong_diteruskan_apa_adanya_ke_prices():
-    """Edge: harga produk boleh kosong, penolakan ada di perhitungan biaya, bukan di meter."""
+@pytest.mark.parametrize(
+    ("harga_masuk", "harga_keluar"),
+    [(None, "2"), ("1", None), (None, None)],
+    ids=["masuk-kosong", "keluar-kosong", "keduanya-kosong"],
+)
+def test_harga_token_kosong_menolak_membuka_meter(harga_masuk, harga_keluar):
+    """Negatif: tanpa harga lengkap biaya tidak bisa dicatat, jadi penilai tidak boleh dipanggil."""
     # Arrange
-    ikatan = _ikatan(harga_masuk=None, harga_keluar=None)
+    ikatan = _ikatan(harga_masuk=harga_masuk, harga_keluar=harga_keluar)
+    rates = _Rates()
+
+    # Act
+    with pytest.raises(JudgePricingMissing):
+        open_judge_meter(binding=ikatan, spent_idr=Decimal("0"), rates=rates)
+
+    # Assert
+    assert rates.calls == 0
+
+
+def test_harga_nol_dianggap_lengkap():
+    """Edge: harga 0 (gratis) adalah harga yang diisi, bukan harga kosong."""
+    # Arrange
+    ikatan = _ikatan(harga_masuk="0", harga_keluar="0")
 
     # Act
     meter = open_judge_meter(binding=ikatan, spent_idr=Decimal("0"), rates=_Rates())
 
     # Assert
-    assert meter.prices.usd_per_million_input_tokens is None
-    assert meter.prices.usd_per_million_output_tokens is None
+    assert meter.prices.usd_per_million_input_tokens == Decimal("0")
+    assert meter.prices.usd_per_million_output_tokens == Decimal("0")
 
 
 def test_usage_diambil_dari_baris_judge():

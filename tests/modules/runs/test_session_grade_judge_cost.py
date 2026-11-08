@@ -488,3 +488,48 @@ def test_panggilan_gagal_tanpa_token_tidak_membuat_baris(
 
     # Assert
     assert _baris_penilai(db_session) == []
+
+
+def test_harga_penilai_kosong_mencegah_panggilan_dan_menjadi_gangguan_teknis(
+    db_session,
+    produk,  # noqa: F811
+    pembuat,  # noqa: F811
+    monkeypatch,
+    caplog,
+):
+    """Negatif: tanpa harga token penilai tidak dipanggil, sehingga tidak ada pemakaian tak tercatat."""
+    import logging
+
+    # Arrange
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat)
+    sesi.judge_provider_id = uuid.uuid4()
+    db_session.commit()
+    penilai = MagicMock()
+    ikatan = SimpleNamespace(
+        judge_provider_id=sesi.judge_provider_id,
+        asker=penilai,
+        price_input_usd_per_mtok=None,
+        price_output_usd_per_mtok=None,
+        monthly_budget_idr=Decimal("1000000"),
+    )
+    monkeypatch.setattr("app.modules.providers.judge_service.build_judge", lambda db, j: ikatan)
+
+    # Act
+    with caplog.at_level(logging.ERROR, logger=session_grade.__name__):
+        hasil = grade_session(
+            db_session,
+            sesi.id,
+            actor_id=pembuat.id,
+            actor_role=Role.ADMIN,
+            rates=_Rates(),
+        )
+
+    # Assert
+    penilai.ask.assert_not_called()
+    for kasus in hasil.cases:
+        for percobaan in kasus.attempts:
+            assert percobaan.is_technical_disruption is True
+            assert percobaan.score is None
+            assert percobaan.explanation == "judge_unavailable"
+    assert any(str(sesi.judge_provider_id) in rekam.getMessage() for rekam in caplog.records)
+    assert _baris_penilai(db_session) == []
