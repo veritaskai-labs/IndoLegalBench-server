@@ -70,7 +70,13 @@ def test_daftar_menampilkan_selesai_dengan_progres_penuh(sepuluh):
     assert baris["status"] == "finished"
     assert baris["case_count"] == KASUS
     assert baris["repetitions"] == ULANG
-    assert baris["progress"] == {"completed": KASUS * ULANG, "total": KASUS * ULANG}
+    assert baris["progress"] == {
+        "completed": KASUS * ULANG,
+        "total": KASUS * ULANG,
+        "completed_cases": KASUS,
+        "total_cases": KASUS,
+        "percent_cases_complete": 100,
+    }
     assert baris["product_name"] == "AiYU"
 
 

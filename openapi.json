@@ -10286,6 +10286,21 @@
             "format": "date-time",
             "title": "Updated At",
             "description": "Waktu angka ini terakhir diperbarui"
+          },
+          "completed_cases": {
+            "type": "integer",
+            "title": "Completed Cases",
+            "description": "Kasus yang semua pengulangannya sudah punya hasil akhir (SCRUM-265)"
+          },
+          "total_cases": {
+            "type": "integer",
+            "title": "Total Cases",
+            "description": "Kasus di sesi. 0 selama antre"
+          },
+          "percent_cases_complete": {
+            "type": "integer",
+            "title": "Percent Cases Complete",
+            "description": "Persen kasus selesai, bulat ke bawah, 0 sampai 100. 0 bila belum ada kasus"
           }
         },
         "type": "object",
@@ -10299,7 +10314,10 @@
           "running_cost_idr",
           "remaining_budget_idr",
           "started_at",
-          "updated_at"
+          "updated_at",
+          "completed_cases",
+          "total_cases",
+          "percent_cases_complete"
         ],
         "title": "ProgressResponse",
         "description": "Angka layar progres yang di-poll tiap beberapa detik (PBI-12 AC5, AC6).\n\nTidak memuat jumlah coba ulang yang sedang berjalan dan tidak memuat\npenanda produk bermasalah (AC5). Uang dikirim sebagai string."
@@ -11928,12 +11946,30 @@
             "type": "integer",
             "title": "Total",
             "description": "Semua percobaan sesi, kasus kali pengulangan. 0 selama antre"
+          },
+          "completed_cases": {
+            "type": "integer",
+            "title": "Completed Cases",
+            "description": "Kasus yang semua pengulangannya sudah punya hasil akhir (SCRUM-265)"
+          },
+          "total_cases": {
+            "type": "integer",
+            "title": "Total Cases",
+            "description": "Kasus di sesi. 0 selama antre"
+          },
+          "percent_cases_complete": {
+            "type": "integer",
+            "title": "Percent Cases Complete",
+            "description": "Persen kasus selesai, bulat ke bawah, 0 sampai 100. 0 bila belum ada kasus"
           }
         },
         "type": "object",
         "required": [
           "completed",
-          "total"
+          "total",
+          "completed_cases",
+          "total_cases",
+          "percent_cases_complete"
         ],
         "title": "SessionProgressRead",
         "description": "Progres \"X dari N\" di daftar sesi (PBI-11 AC10)."

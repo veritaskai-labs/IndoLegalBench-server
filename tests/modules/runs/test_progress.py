@@ -12,6 +12,7 @@ from decimal import Decimal
 import pytest
 
 from app.modules.runs import progress, schemas
+from app.modules.runs.case_progress import case_progress
 from app.shared.exceptions import InternalError
 
 _MULAI = datetime(2026, 11, 2, 10, 0, tzinfo=UTC)
@@ -126,6 +127,7 @@ def test_hasil_hitungan_langsung_jadi_response():
     # Act
     respons = schemas.ProgressResponse(
         **asdict(angka),
+        **asdict(case_progress(completed_cases=7, total_cases=20)),
         started_at=_MULAI,
         updated_at=_MULAI + timedelta(minutes=40),
     )
@@ -133,6 +135,7 @@ def test_hasil_hitungan_langsung_jadi_response():
     # Assert
     assert respons.percent_complete == Decimal("80.0")
     assert respons.remaining_seconds == 600
+    assert respons.percent_cases_complete == 35
     assert respons.remaining_budget_idr == Decimal("380000.00")
 
 
