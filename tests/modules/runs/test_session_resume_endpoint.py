@@ -217,6 +217,36 @@ def test_racing_slot_violation_falls_back_to_the_queue(siap, monkeypatch):
     assert siap.db.get(MeasurementSession, session_id).status == "queued"
 
 
+def test_scheduler_start_between_resume_checks_cannot_let_resume_jump(siap, monkeypatch):
+    """SCRUM-267 K2: the worker starts the front Menunggu session between resume's two reads.
+
+    another_running() still sees a free slot, then the worker commits the waiting session as
+    running, so queue_waiting() sees an empty queue too. The real partial unique index must
+    reject the stale running write and send the resumed session to the queue. One SQLite
+    session plays both sides here; the two-connection version is in the PG race tests.
+    """
+    from app.modules.runs.session_control_repository import SessionControlRepository
+
+    session_id, _, _ = paused(siap)
+    waiting = start(siap)
+    original = SessionControlRepository.another_running
+    picked = []
+
+    def scheduler_picks_front_session(self, resumed_id):
+        result = original(self, resumed_id)
+        if not picked:
+            picked.append(build_session_queue(siap.db).take_next())
+        return result
+
+    monkeypatch.setattr(SessionControlRepository, "another_running", scheduler_picks_front_session)
+    response = siap.sebagai(Role.ADMIN).post(f"/measurements/{session_id}/resume")
+    assert picked == [waiting]
+    assert response.status_code == 202 and response.json()["status"] == "queued"
+    siap.db.expire_all()
+    assert siap.db.get(MeasurementSession, waiting).status == "running"
+    assert siap.db.get(MeasurementSession, session_id).status == "queued"
+
+
 def test_repeated_slot_violation_rolls_back(siap, monkeypatch):
     """Defensive: a slot violation even on the queue path is a 409 with no writes."""
     session_id, _, _ = paused(siap)

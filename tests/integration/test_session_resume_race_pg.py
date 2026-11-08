@@ -10,7 +10,7 @@ from sqlalchemy import update
 from sqlalchemy.orm import Session
 
 from app.modules.runs.models import MeasurementSession, SessionProductCopy, SessionStatus
-from app.modules.runs.repository import SessionStatusRepository
+from app.modules.runs.repository import SessionQueueRepository, SessionStatusRepository
 from app.modules.runs.session_control import resume_session
 from app.modules.runs.session_control_repository import SessionControlRepository
 from app.shared.exceptions import ConflictError
@@ -122,4 +122,56 @@ def test_two_resumes_have_one_winner_with_atomic_loser(engine, monkeypatch, same
                     resumed_after_long_pause=False,
                     resume_version_check_pending=False,
                 )
+            )
+
+
+def test_scheduler_start_between_resume_checks_sends_resume_to_the_queue(engine, monkeypatch):
+    """SCRUM-267 K2: the worker commits the front Menunggu session between resume's reads.
+
+    Resume sees a free slot, then (on another connection) the scheduler starts the waiting
+    session, so the queue read is empty as well. The partial unique index rejects the stale
+    running write; resume rolls back and queues instead of taking the slot or returning 409.
+    """
+    resumed, admin = candidate(engine)
+    waiting, _ = candidate(engine)
+    with Session(engine) as db:
+        SessionStatusRepository(db).change_status(waiting, SessionStatus.QUEUED, at=NOW)
+    original = SessionControlRepository.another_running
+    picked = []
+
+    def scheduler_picks_front_session(self, session_id):
+        result = original(self, session_id)
+        assert not result
+        if not picked:
+            with Session(engine) as worker_db:
+                picked.append(SessionQueueRepository(worker_db).reopen(waiting, at=NOW))
+        return result
+
+    def only_this_tests_queue(self, session_id):
+        # Rows other PG files commit would hide the race; read only this test's waiting row.
+        return self.db.get(MeasurementSession, waiting, populate_existing=True).status == "queued"
+
+    monkeypatch.setattr(SessionControlRepository, "another_running", scheduler_picks_front_session)
+    monkeypatch.setattr(SessionControlRepository, "queue_waiting", only_this_tests_queue)
+    try:
+        with Session(engine) as db:
+            response = resume_session(
+                db,
+                resumed,
+                actor=CurrentUser(admin, "Admin", "admin@test.invalid", Role.ADMIN),
+                now=NOW,
+                long_stop_days=7,
+            )
+        assert picked == [True]
+        assert response.status == "queued"
+        with Session(engine) as db:
+            assert db.get(MeasurementSession, waiting).status == "running"
+            row = db.get(MeasurementSession, resumed)
+            assert row.status == "queued" and row.stopped_at is None
+    finally:
+        with engine.begin() as connection:
+            connection.execute(
+                update(MeasurementSession)
+                .where(MeasurementSession.id.in_([resumed, waiting]))
+                .values(status=SessionStatus.FINISHED)
             )
