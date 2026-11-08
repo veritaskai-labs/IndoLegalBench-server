@@ -129,6 +129,13 @@ class ProgressResponse(BaseModel):
         description="Waktu sesi mulai berjalan, null selama sesi masih antre"
     )
     updated_at: datetime = Field(description="Waktu angka ini terakhir diperbarui")
+    completed_cases: int = Field(
+        description="Kasus yang semua pengulangannya sudah punya hasil akhir (SCRUM-265)"
+    )
+    total_cases: int = Field(description="Kasus di sesi. 0 selama antre")
+    percent_cases_complete: int = Field(
+        description="Persen kasus selesai, bulat ke bawah, 0 sampai 100. 0 bila belum ada kasus"
+    )
 
 
 class SessionProgressRead(BaseModel):
@@ -138,6 +145,13 @@ class SessionProgressRead(BaseModel):
         description="Percobaan yang sudah punya hasil akhir: berhasil atau gagal teknis"
     )
     total: int = Field(description="Semua percobaan sesi, kasus kali pengulangan. 0 selama antre")
+    completed_cases: int = Field(
+        description="Kasus yang semua pengulangannya sudah punya hasil akhir (SCRUM-265)"
+    )
+    total_cases: int = Field(description="Kasus di sesi. 0 selama antre")
+    percent_cases_complete: int = Field(
+        description="Persen kasus selesai, bulat ke bawah, 0 sampai 100. 0 bila belum ada kasus"
+    )
 
 
 class SessionListItem(BaseModel):
