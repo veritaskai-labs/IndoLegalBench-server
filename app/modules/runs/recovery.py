@@ -7,10 +7,10 @@ Tujuan:
    Berjalan (RUNNING) dan worker-nya sudah mati ditandai Dihentikan (PAUSED) dengan
    stop_reason = RESTART.
 2. Tidak lanjut otomatis: Admin menekan 'Lanjutkan' (AC8).
-3. Attempt yang sedang berjalan saat restart dibiarkan RUNNING (uncertain) sesuai
-   MEASUREMENT_WORKER.md baris 78-80; tidak di-reset ke pending agar tidak memicu
-   panggilan berulang yang berpotensi berbayar saat resume. Rekonsiliasi attempt
-   diserahkan ke kontrol resume (SCRUM-216).
+3. Attempt yang sedang berjalan saat proses mati ditandai TECHNICAL_FAILURE (SCRUM-268,
+   opsi A). Tidak di-reset ke pending: panggilan itu mungkin sudah ditagih provider,
+   jadi hanya Coba ulang yang dipilih Admin yang boleh mengirimnya lagi. Sesi lalu
+   selesai dengan kegagalan lewat alur Lanjutkan yang sudah ada.
 4. Worker liveness: sesi Berjalan yang heartbeat-nya lewat batas waktu (stale)
    ditandai Dihentikan lewat layanan transisi (SessionStatusRepository).
 """
@@ -20,10 +20,12 @@ import uuid
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
 
-from sqlalchemy import select, update
+from sqlalchemy import case, select, update
 from sqlalchemy.orm import Session
 
 from app.modules.runs.models import (
+    Attempt,
+    AttemptStatus,
     MeasurementSession,
     SessionStatus,
     SessionType,
@@ -48,6 +50,24 @@ def _as_utc(dt: datetime | None) -> datetime | None:
     return dt.astimezone(UTC)
 
 
+def fail_interrupted_attempts(db: Session, session_id: uuid.UUID, *, at: datetime) -> int:
+    """Tandai attempt RUNNING milik sesi ini sebagai gagal teknis, tanpa commit.
+
+    Hanya dipanggil saat tidak ada dispatcher yang memegang lease, jadi attempt RUNNING
+    pasti yatim: panggilannya terputus. Baris call_logs tidak ditambah karena biaya
+    panggilan yang terputus tidak diketahui. Idempoten: baris yang sudah gagal tidak
+    disentuh lagi. finished_at hanya diisi bila started_at ada (CHECK finished_needs_started).
+    """
+    return db.execute(
+        update(Attempt)
+        .where(Attempt.session_id == session_id, Attempt.status == AttemptStatus.RUNNING)
+        .values(
+            status=AttemptStatus.TECHNICAL_FAILURE,
+            finished_at=case((Attempt.started_at.is_not(None), at), else_=Attempt.finished_at),
+        )
+    ).rowcount
+
+
 class RecoveryService:
     """Layanan pemulihan sesi saat restart dan pemantauan heartbeat worker."""
 
@@ -68,7 +88,7 @@ class RecoveryService:
         Sesuai D5 langkah 7 (nomor 39-41) dan MEASUREMENT_WORKER.md:
         - SELECT sesi status = running (dan session_type = automatic)
         - UPDATE status = paused, stop_reason = 'restart', stopped_at = now
-        - Attempt in-flight dibiarkan RUNNING (uncertain) untuk rekonsiliasi SCRUM-216.
+        - Attempt in-flight ditandai TECHNICAL_FAILURE dalam transaksi yang sama (SCRUM-268).
         - Tidak lanjut otomatis; Admin menekan Lanjutkan.
         """
         now = self._clock()
@@ -86,7 +106,7 @@ class RecoveryService:
         recovered_ids: list[uuid.UUID] = []
         for session_id in running_sessions:
             try:
-                # Transition session to paused with stop_reason restart
+                fail_interrupted_attempts(self._db, session_id, at=now)
                 self._status_repo.change_status(
                     session_id,
                     SessionStatus.PAUSED,

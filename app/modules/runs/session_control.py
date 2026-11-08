@@ -9,6 +9,7 @@ from sqlalchemy.orm import Session
 from app.modules.runs import repository
 from app.modules.runs.execution import worker_lease
 from app.modules.runs.models import AttemptStatus, SessionStatus, SessionType, StopReason
+from app.modules.runs.recovery import fail_interrupted_attempts
 from app.modules.runs.schemas import SessionControlResponse, SessionResumeResponse
 from app.modules.runs.session_control_repository import (
     SessionControlRepository,
@@ -70,7 +71,7 @@ def _long_stop(stopped_at, now, days):
 
 
 def _dispatcher_is_active(db):
-    # An orphan running attempt is recovery's responsibility; SQLite has no advisory lease.
+    # SQLite has no advisory lease, so a running attempt there is always an orphan.
     if db.get_bind().dialect.name != "postgresql":
         return False
     with worker_lease(db.get_bind()) as acquired:
@@ -117,7 +118,9 @@ def resume_session(
         unverified = _check_version(row, copy, reads, actor, confirm_unverified_version)
         states = reads.attempt_states(session_id)
         if AttemptStatus.RUNNING in states and not _dispatcher_is_active(db):
-            raise ConflictError("Percobaan belum direkonsiliasi.", code="ATTEMPT_RECOVERY_REQUIRED")
+            # SCRUM-268: no dispatcher owns it, so the call was cut off; never resend it here.
+            fail_interrupted_attempts(db, session_id, at=now)
+            states = reads.attempt_states(session_id)
         # A never-started cancellation needs the queue's original snapshot/preparation path.
         target = SessionStatus.QUEUED if copy is None else SessionStatus.RUNNING
         if target == SessionStatus.RUNNING and reads.another_running(session_id):

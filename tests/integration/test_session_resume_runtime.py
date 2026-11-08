@@ -250,19 +250,26 @@ def test_cancel_before_start_requeues_through_original_preparation(siap):
     assert siap.db.get(MeasurementSession, session_id).status == "finished"
 
 
-def test_orphan_running_attempt_is_not_resent(siap):
-    session_id, _, _ = paused(siap)
+def test_orphan_running_attempt_is_failed_on_resume_and_not_resent(siap):
+    """SCRUM-268: without a live dispatcher the orphan becomes a technical failure, never a call."""
+    session_id, provider, run = paused(siap)
     attempt = siap.db.scalar(
-        select(Attempt).where(
-            Attempt.session_id == session_id, Attempt.status == AttemptStatus.PENDING
-        )
+        select(Attempt)
+        .where(Attempt.session_id == session_id, Attempt.status == AttemptStatus.PENDING)
+        .order_by(Attempt.id)
     )
     attempt.status = AttemptStatus.RUNNING
     siap.db.commit()
+    calls_before = len(provider.calls)
     response = siap.sebagai(Role.ADMIN).post(f"/measurements/{session_id}/resume")
-    assert response.status_code == 409 and response.json()["code"] == "ATTEMPT_RECOVERY_REQUIRED"
-    assert siap.db.get(MeasurementSession, session_id).status == "paused"
-    assert siap.db.get(Attempt, attempt.id).status == AttemptStatus.RUNNING
+    assert response.status_code == 202 and response.json()["status"] == "running"
+    provider.on_call = None
+    assert run()
+    siap.db.expire_all()
+    assert len(provider.calls) == calls_before + 7  # 9 attempts: 1 done, 1 orphan, 7 pending
+    assert siap.db.get(Attempt, attempt.id).status == AttemptStatus.TECHNICAL_FAILURE
+    assert siap.db.get(MeasurementSession, session_id).status == "finished_with_failures"
+    assert not list(siap.db.scalars(select(CallLog).where(CallLog.attempt_id == attempt.id)))
 
 
 @pytest.mark.postgres
