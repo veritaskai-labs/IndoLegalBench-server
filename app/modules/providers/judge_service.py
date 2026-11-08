@@ -96,8 +96,9 @@ class JudgeBinding:
     """Penilai siap pakai untuk judge.run_judge (SCRUM-224).
 
     asker sudah dibungkus SafeProviderAdapter. Harga dan anggaran bulanan milik produk AI
-    yang dipilih sebagai penilai, tidak ada anggaran penilai terpisah (SCRUM-271); harga
-    boleh kosong. Kurs harian disusun pemanggil menjadi JudgePrices. is_active dilaporkan,
+    yang dipilih sebagai penilai, tidak ada anggaran penilai terpisah (SCRUM-271). Harga bisa
+    kosong di produknya, tetapi penilaian menolak penilai tanpa harga lengkap sebelum
+    memanggilnya (JudgePricingMissing). Kurs harian disusun pemanggil menjadi JudgePrices. is_active dilaporkan,
     tidak ditolak di sini.
     """
 

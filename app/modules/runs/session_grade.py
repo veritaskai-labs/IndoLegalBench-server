@@ -42,7 +42,12 @@ from app.modules.providers import service as providers_service
 from app.modules.runs.call_log import month_start
 from app.modules.runs.citation_score import CitationScorer
 from app.modules.runs.exchange_rate import ExchangeRateProvider
-from app.modules.runs.judge_budget import JudgeMeter, JudgeUsage, open_judge_meter
+from app.modules.runs.judge_budget import (
+    JudgeMeter,
+    JudgePricingMissing,
+    JudgeUsage,
+    open_judge_meter,
+)
 from app.modules.runs.manual_grade_gate import ManualGradeGate
 from app.modules.runs.models import (
     Attempt,
@@ -1865,6 +1870,28 @@ def _open_judge_meter(
     return open_judge_meter(binding=binding, spent_idr=spent, rates=rates)
 
 
+def _open_judge_meter_or_error(
+    db: Session,
+    binding: object | None,
+    rates: ExchangeRateProvider | None,
+    now: datetime | None,
+) -> tuple[JudgeMeter | None, str | None]:
+    """Meter penilai, atau JUDGE_UNAVAILABLE bila harga token produk penilai belum lengkap.
+
+    Penilai yang tidak bisa ditagih dengan benar tidak dipanggil sama sekali (AC4, AC6),
+    supaya tidak ada panggilan berbayar yang tidak masuk ke pengeluaran bulanan produk.
+    """
+    try:
+        return _open_judge_meter(db, binding, rates, now), None
+    except JudgePricingMissing:
+        # Hanya id penilai yang dicatat, tanpa kredensial.
+        logger.error(
+            "Judge %s has no token price, attempts will be marked judge_unavailable",
+            binding.judge_provider_id,
+        )
+        return None, JUDGE_UNAVAILABLE
+
+
 def _should_grade_with_judge(att: AttemptGradeInput) -> bool:
     return not check_technical_disruption(
         status=att.status,
@@ -2000,7 +2027,9 @@ def grade_session(
     product_name = p_names.get(session.product_id, "")
 
     active_asker, judge_load_error, binding = _resolve_active_judge_asker(db, session, judge_asker)
-    meter = _open_judge_meter(db, binding, rates, now)
+    meter, pricing_error = _open_judge_meter_or_error(db, binding, rates, now)
+    if pricing_error is not None:
+        active_asker, judge_load_error = None, pricing_error
     _execute_judge_for_all_cases(active_asker, judge_load_error, cases, meter)
 
     response = grade_session_data(

@@ -56,7 +56,13 @@ class JudgeMeter:
 def open_judge_meter(
     *, binding: object, spent_idr: Decimal, rates: ExchangeRateProvider
 ) -> JudgeMeter:
-    """Meter dari harga dan batas bulanan milik produk penilai (judge_service.JudgeBinding)."""
+    """Meter dari harga dan batas bulanan milik produk penilai (judge_service.JudgeBinding).
+
+    Harga token masuk dan keluar wajib ada: tanpa itu biaya panggilan tidak bisa dihitung
+    setelah panggilan berbayar selesai, jadi penolakannya di sini, sebelum penilai dipanggil.
+    """
+    if binding.price_input_usd_per_mtok is None or binding.price_output_usd_per_mtok is None:
+        raise JudgePricingMissing
     prices = JudgePrices(
         usd_per_million_input_tokens=binding.price_input_usd_per_mtok,
         usd_per_million_output_tokens=binding.price_output_usd_per_mtok,
