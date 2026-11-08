@@ -133,6 +133,7 @@ RUN_FAILED = "failed"
 JUDGE_NOT_CONFIGURED = "judge_not_configured"
 JUDGE_UNAVAILABLE = "judge_unavailable"
 JUDGE_BUDGET_EXHAUSTED = "judge_budget_exhausted"
+JUDGE_INCOMPLETE = "judge_incomplete"
 
 
 def round_two_digits(val: Decimal | float | int | None) -> Decimal | None:
@@ -1165,6 +1166,39 @@ class DbGradingStore:
         self.db.add(format_row)
         self.db.flush()
 
+    def _save_unscored_judge_records(
+        self,
+        grading_result_id: uuid.UUID,
+        case_code: str,
+        rep_no: int,
+        usage: Mapping[str, JudgeUsage],
+    ) -> None:
+        """Simpan panggilan penilai berbiaya dari percobaan tanpa skor sebagai baris failed.
+
+        Token yang sudah terpakai tetap ditagih penyedia, jadi biayanya harus masuk ke
+        pengeluaran bulanan produk penilai (PBI-14 AC6). Panggilan tanpa token tidak
+        membuat baris.
+        """
+        from app.modules.grading.models import JudgeKind, JudgeStatus, LlmJudgeResult
+
+        for kind, item in usage.items():
+            if item.input_tokens is None and item.output_tokens is None:
+                continue
+            self.db.add(
+                LlmJudgeResult(
+                    id=uuid.uuid4(),
+                    grading_result_id=grading_result_id,
+                    judge_run_no=rep_no,
+                    kind=JudgeKind(kind),
+                    status=JudgeStatus.FAILED,
+                    prompt=f"Penilaian {kind} untuk kasus {case_code} tanpa skor",
+                    failure_kind=_unscored_judge_failure_kind(item),
+                    error="judge call did not give a usable score",
+                    **_usage_columns(item),
+                )
+            )
+        self.db.flush()
+
     def _save_llm_judge_records(
         self,
         grading_result_id: uuid.UUID,
@@ -1173,9 +1207,10 @@ class DbGradingStore:
         usage: Mapping[str, JudgeUsage] | None = None,
     ) -> None:
         rep_no = max(1, min(5, att.repetition_no))
-        if att.is_technical_disruption or att.score is None:
-            return
         usage = usage or {}
+        if att.is_technical_disruption or att.score is None:
+            self._save_unscored_judge_records(grading_result_id, case_code, rep_no, usage)
+            return
 
         if att.score.quality is not None:
             self._save_quality_judge_record(
@@ -1186,6 +1221,11 @@ class DbGradingStore:
             self._save_format_judge_record(
                 grading_result_id, case_code, rep_no, att.score.format, usage.get("format")
             )
+
+
+def _unscored_judge_failure_kind(usage: JudgeUsage) -> str:
+    """Jenis gagal baris tanpa skor: milik panggilannya, atau pasangannya yang gagal."""
+    return usage.failure_kind or JUDGE_INCOMPLETE
 
 
 def _usage_columns(usage: JudgeUsage | None) -> dict[str, Any]:
@@ -1652,7 +1692,7 @@ def _execute_judge_for_attempt(
             if meter is not None:
                 meter.charge(row.cost_idr)
         if att.judge_error is None and (att.quality_score is None or att.format_score is None):
-            att.judge_error = "judge_incomplete"
+            att.judge_error = JUDGE_INCOMPLETE
     except Exception as exc:
         att.judge_error = str(exc)
 

@@ -67,6 +67,11 @@ def _kasus(*percobaan: AttemptGradeInput) -> CaseGradeInput:
     )
 
 
+def _angka(usage: JudgeUsage) -> tuple:
+    """Token, biaya, dan kurs satu panggilan, tanpa jenis gagalnya."""
+    return (usage.input_tokens, usage.output_tokens, usage.cost_idr, usage.usd_idr_rate)
+
+
 def _meter(sisa: str) -> JudgeMeter:
     return JudgeMeter(_HARGA, Decimal(sisa))
 
@@ -98,8 +103,11 @@ def test_biaya_tiap_panggilan_tercatat_per_jenis_dan_memotong_anggaran():
     )
 
     # Assert
-    harapan = JudgeUsage(25, 30, _BIAYA_PER_PANGGILAN, _RATE)
-    assert percobaan.judge_usage == {"quality": harapan, "format": harapan}
+    harapan = (25, 30, _BIAYA_PER_PANGGILAN, _RATE)
+    assert {k: _angka(v) for k, v in percobaan.judge_usage.items()} == {
+        "quality": harapan,
+        "format": harapan,
+    }
     assert percobaan.judge_error != "judge_budget_exhausted"
 
 
@@ -132,7 +140,7 @@ def test_tanpa_meter_penilai_tetap_dipanggil_dan_biaya_kosong():
 
     # Assert
     assert percobaan.judge_error != "judge_budget_exhausted"
-    assert percobaan.judge_usage["quality"] == JudgeUsage(25, 30, None, None)
+    assert _angka(percobaan.judge_usage["quality"]) == (25, 30, None, None)
 
 
 def test_meter_tidak_dibuka_tanpa_ikatan_penilai_atau_tanpa_kurs():
