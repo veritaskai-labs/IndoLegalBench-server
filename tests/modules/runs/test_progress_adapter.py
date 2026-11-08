@@ -112,3 +112,39 @@ def test_waktu_tanpa_zona_dari_database_dipasangi_utc():
     assert hasil is not None
     assert hasil.started_at == datetime(2026, 11, 3, 10, 0, tzinfo=UTC)
     assert hasil.updated_at == datetime(2026, 11, 3, 10, 0, tzinfo=UTC)
+
+
+def test_kasus_selesai_dibaca_dari_hitungan_kasus_sesi():
+    """Positif: SCRUM-265, layar progres dan daftar sesi memakai repository.case_completion yang sama."""
+    # Arrange
+    db = MagicMock()
+    with (
+        patch("app.modules.runs.adapters.repository.session_progress", return_value=_baris()),
+        patch(
+            "app.modules.runs.adapters.repository.case_completion",
+            return_value={SESI: (2, 3)},
+        ) as kasus,
+    ):
+        # Act
+        hasil = SessionProgressAdapter(db).progress(SESI)
+
+    # Assert
+    kasus.assert_called_once_with(db, [SESI])
+    assert hasil is not None
+    assert (hasil.completed_cases, hasil.total_cases) == (2, 3)
+
+
+def test_sesi_antre_tanpa_kasus_bernilai_nol_dari_nol():
+    """Edge: SCRUM-265, sesi tanpa attempts tidak ada di hasil case_completion."""
+    # Arrange
+    db = MagicMock()
+    with (
+        patch("app.modules.runs.adapters.repository.session_progress", return_value=_baris()),
+        patch("app.modules.runs.adapters.repository.case_completion", return_value={}),
+    ):
+        # Act
+        hasil = SessionProgressAdapter(db).progress(SESI)
+
+    # Assert
+    assert hasil is not None
+    assert (hasil.completed_cases, hasil.total_cases) == (0, 0)

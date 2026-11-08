@@ -130,6 +130,7 @@ def _permintaan(**ubah) -> "schemas.ManualStartRequest":
         "repeat_count": 2,
         "label": "LegalHero November",
         "purpose": "official",
+        "judge_provider_id": JUDGE_ID,
     }
     nilai.update(ubah)
     return schemas.ManualStartRequest(**nilai)
@@ -191,6 +192,7 @@ def test_sesi_manual_dibuat_belum_terisi_dengan_pilihan_admin(modul):
         case_filter=schemas.CaseFilter.DEV,
         repetitions=2,
         created_by=ADMIN_ID,
+        judge_provider_id=JUDGE_ID,
     )
     assert hasil == schemas.ManualStartResponse(
         session_id=SESSION_ID,
@@ -323,7 +325,12 @@ def test_jumlah_percobaan_standar_satu(nilai):
 
     # Act
     permintaan = schemas.ManualStartRequest(
-        suite_ids=[SUITE_A], product_id=PRODUCT_ID, label="L", purpose="trial", **isian
+        suite_ids=[SUITE_A],
+        product_id=PRODUCT_ID,
+        label="L",
+        purpose="trial",
+        judge_provider_id=JUDGE_ID,
+        **isian,
     )
 
     # Assert
@@ -348,17 +355,6 @@ def test_label_kosong_ditolak():
 # --- Penilai LLM (SCRUM-258) ------------------------------------------------------
 # ManualStartRequest mewarisi judge_provider_id dari StartRequest. Sejak FK SCRUM-258,
 # id yang tidak dikenal tanpa pemeriksaan ini menjadi 500 dari database.
-
-
-def test_sesi_manual_tanpa_penilai_tidak_mengunci_penilai(modul):
-    """Edge: keputusan PO K2, penilai boleh kosong; untuk sesi manual D2 masih [USULAN SA]."""
-    penilai = _Penilai()
-    layanan, penyimpan = _service(modul, penilai=penilai)
-
-    layanan.create(_permintaan(), created_by=ADMIN_ID)
-
-    assert penilai.dikunci == []
-    assert penyimpan.dibuat[0][0].judge_provider_id is None
 
 
 def test_sesi_manual_menyimpan_penilai_aktif_yang_dikunci(modul):

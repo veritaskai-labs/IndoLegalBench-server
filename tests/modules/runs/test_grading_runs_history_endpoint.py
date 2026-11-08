@@ -19,7 +19,7 @@ from app.modules.grading.models import RubricVersion
 from app.modules.runs.models import SessionStatus
 from app.shared.security import Role
 from tests.modules.providers.test_product_lists import _otomatis
-from tests.modules.runs.test_session_grade import _setup_sesi_lengkap
+from tests.modules.runs.test_session_grade import _setup_sesi_lengkap, pasang_penilai_tiruan
 
 
 @pytest.fixture
@@ -60,11 +60,12 @@ def _tambah_versi_dua(db_session, pembuat) -> None:
 
 
 def test_admin_melihat_penilaian_pertama_dan_nilai_ulang_terbaru_di_atas(
-    as_role, db_session, produk, pembuat
+    as_role, db_session, produk, pembuat, monkeypatch
 ):
     """Positif: nilai lalu nilai ulang menghasilkan dua baris, yang terbaru bertanda."""
     # Arrange
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    pasang_penilai_tiruan(db_session, sesi, monkeypatch)
     _tambah_versi_dua(db_session, pembuat)
     admin = as_role(Role.ADMIN)
     assert admin.post(_url(sesi.id).replace("grading-runs", "grade"), json={}).status_code == 200

@@ -35,6 +35,8 @@ class _SessionsFake:
             started_at=_MULAI,
             updated_at=_SEKARANG,
             running_cost_idr=Decimal("120000.00"),
+            completed_cases=7,
+            total_cases=20,
         )
 
 
@@ -87,6 +89,9 @@ def test_admin_membaca_angka_progres(as_role, service_palsu):
     assert Decimal(str(isi["percent_failed"])) == Decimal("5.0")
     assert isi["remaining_seconds"] == 600
     assert Decimal(str(isi["remaining_budget_idr"])) == Decimal("380000.00")
+    assert isi["completed_cases"] == 7
+    assert isi["total_cases"] == 20
+    assert isi["percent_cases_complete"] == 35
 
 
 def test_developer_ai_boleh_memantau(as_role, service_palsu):

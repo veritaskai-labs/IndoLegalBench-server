@@ -8300,7 +8300,7 @@
           "status": {
             "type": "string",
             "title": "Status",
-            "description": "completed bila sudah selesai dinilai"
+            "description": "completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
           },
           "triggered_by": {
             "type": "string",
@@ -9817,17 +9817,10 @@
             "description": "official = Pengukuran Resmi, trial = Uji Coba"
           },
           "judge_provider_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "format": "uuid",
             "title": "Judge Provider Id",
-            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Boleh kosong; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
+            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Wajib; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
           }
         },
         "type": "object",
@@ -9835,7 +9828,8 @@
           "suite_ids",
           "product_id",
           "label",
-          "purpose"
+          "purpose",
+          "judge_provider_id"
         ],
         "title": "ManualStartRequest",
         "description": "Body POST /manual-measurements (PBI-22 AC1, SCRUM-230).\n\nIsian sesi otomatis diwarisi (suite, filter, label, tujuan, penilai), supaya aturan\nvalidasinya satu. Bedanya: produk harus manual, dan percobaan standar 1, bukan 3."
@@ -10285,6 +10279,21 @@
             "format": "date-time",
             "title": "Updated At",
             "description": "Waktu angka ini terakhir diperbarui"
+          },
+          "completed_cases": {
+            "type": "integer",
+            "title": "Completed Cases",
+            "description": "Kasus yang semua pengulangannya sudah punya hasil akhir (SCRUM-265)"
+          },
+          "total_cases": {
+            "type": "integer",
+            "title": "Total Cases",
+            "description": "Kasus di sesi. 0 selama antre"
+          },
+          "percent_cases_complete": {
+            "type": "integer",
+            "title": "Percent Cases Complete",
+            "description": "Persen kasus selesai, bulat ke bawah, 0 sampai 100. 0 bila belum ada kasus"
           }
         },
         "type": "object",
@@ -10298,7 +10307,10 @@
           "running_cost_idr",
           "remaining_budget_idr",
           "started_at",
-          "updated_at"
+          "updated_at",
+          "completed_cases",
+          "total_cases",
+          "percent_cases_complete"
         ],
         "title": "ProgressResponse",
         "description": "Angka layar progres yang di-poll tiap beberapa detik (PBI-12 AC5, AC6).\n\nTidak memuat jumlah coba ulang yang sedang berjalan dan tidak memuat\npenanda produk bermasalah (AC5). Uang dikirim sebagai string."
@@ -11771,7 +11783,7 @@
           "status": {
             "type": "string",
             "title": "Status",
-            "description": "completed bila sudah selesai dinilai"
+            "description": "completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
           },
           "triggered_by": {
             "type": "string",
@@ -11927,12 +11939,30 @@
             "type": "integer",
             "title": "Total",
             "description": "Semua percobaan sesi, kasus kali pengulangan. 0 selama antre"
+          },
+          "completed_cases": {
+            "type": "integer",
+            "title": "Completed Cases",
+            "description": "Kasus yang semua pengulangannya sudah punya hasil akhir (SCRUM-265)"
+          },
+          "total_cases": {
+            "type": "integer",
+            "title": "Total Cases",
+            "description": "Kasus di sesi. 0 selama antre"
+          },
+          "percent_cases_complete": {
+            "type": "integer",
+            "title": "Percent Cases Complete",
+            "description": "Persen kasus selesai, bulat ke bawah, 0 sampai 100. 0 bila belum ada kasus"
           }
         },
         "type": "object",
         "required": [
           "completed",
-          "total"
+          "total",
+          "completed_cases",
+          "total_cases",
+          "percent_cases_complete"
         ],
         "title": "SessionProgressRead",
         "description": "Progres \"X dari N\" di daftar sesi (PBI-11 AC10)."
@@ -12145,17 +12175,10 @@
             "description": "official = Pengukuran Resmi, trial = Uji Coba"
           },
           "judge_provider_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "format": "uuid",
             "title": "Judge Provider Id",
-            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Boleh kosong; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
+            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Wajib; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
           }
         },
         "type": "object",
@@ -12163,7 +12186,8 @@
           "suite_ids",
           "product_id",
           "label",
-          "purpose"
+          "purpose",
+          "judge_provider_id"
         ],
         "title": "StartRequest",
         "description": "Body POST /measurements (PBI-11 AC1, SCRUM-207).\n\nIsian ringkasan diwarisi supaya Mulai divalidasi dengan aturan yang sama\nseperti Lihat ringkasan, ditambah label dan tujuan yang wajib."
