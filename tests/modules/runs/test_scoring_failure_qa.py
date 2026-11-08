@@ -86,10 +86,7 @@ def test_subjek_pihak_lain_tidak_dianggap_penolakan_ai_berulang():
     )
 
     assert is_ai_refusal(teks) is False
-    assert (
-        check_technical_disruption(status=AttemptStatus.SUCCEEDED, answer_text=teks)
-        is False
-    )
+    assert check_technical_disruption(status=AttemptStatus.SUCCEEDED, answer_text=teks) is False
 
 
 @pytest.mark.parametrize(
