@@ -613,6 +613,13 @@ class MemoryGradingStore:
             return history[-1] if history else None
 
 
+def pilih_run_terbaru(
+    runs: Sequence[SessionGradingResponse],
+) -> SessionGradingResponse | None:
+    """Run yang ditampilkan sebagai hasil sesi."""
+    return runs[-1] if runs else None
+
+
 def _extract_d6_criteria(crits: list[Any]) -> tuple[list[dict[str, Any]], list[str]]:
     crit_dicts: list[dict[str, Any]] = []
     reasons: list[str] = []
