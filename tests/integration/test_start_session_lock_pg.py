@@ -16,14 +16,17 @@ import os
 import threading
 import time
 import uuid
+from decimal import Decimal
 
 import pytest
 from cryptography.fernet import Fernet
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
+from app.modules.providers import judge_service
 from app.modules.providers import repository as providers_repository
 from app.modules.providers import service as providers_service
+from app.modules.providers.judge_schemas import JudgeProviderCreate
 from app.modules.providers.models import MeasurementType
 from app.modules.providers.schemas import AiProductUpdate
 from app.modules.runs import adapters, repository, schemas, service
@@ -98,8 +101,26 @@ def _mulai(db, produk: tuple[uuid.UUID, uuid.UUID, uuid.UUID]) -> schemas.StartR
         judge_lock=adapters.JudgeLockAdapter(db),
     )
     product_id, admin_id, suite_id = produk
+    penilai = judge_service.create_judge(
+        db,
+        JudgeProviderCreate(
+            name=f"Penilai 207 {uuid.uuid4().hex[:8]}",
+            provider_type="openai_compatible",
+            base_url="https://judge.example.test/v1",
+            model_name="judge-uji",
+            credential="rahasia-uji-207-pg",  # pragma: allowlist secret
+            price_input_usd_per_mtok=Decimal("0.27"),
+            price_output_usd_per_mtok=Decimal("1.1"),
+            monthly_budget_idr=Decimal("500000"),
+        ),
+        created_by=admin_id,
+    )
     permintaan = schemas.StartRequest(
-        suite_ids=[suite_id], product_id=product_id, label="Run PG", purpose="trial"
+        suite_ids=[suite_id],
+        product_id=product_id,
+        label="Run PG",
+        purpose="trial",
+        judge_provider_id=penilai.id,
     )
     return start.start(permintaan, created_by=admin_id)
 

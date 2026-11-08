@@ -109,6 +109,7 @@ def start(siap, **changes):
         "case_filter": "both",
         "label": "Runtime QA",
         "purpose": "trial",
+        "judge_provider_id": str(siap.penilai.id),
     }
     body.update(changes)
     response = siap.sebagai(Role.ADMIN).post("/measurements", json=body)
