@@ -18,9 +18,11 @@ from app.modules.runs.schemas import ScorePair
 from app.modules.runs.session_grade import (
     AttemptGradeInput,
     CaseGradeInput,
+    get_session_results,
     grade_session,
     grade_session_data,
     list_grading_runs,
+    pilih_run_terbaru,
 )
 from app.shared.security import Role
 from tests.modules.runs.test_session_grade import (  # noqa: F401
@@ -146,3 +148,68 @@ def test_nilai_ulang_gagal_tidak_menggeser_hasil_terbaru_yang_baik(
         select(GradingRun).where(GradingRun.session_id == sesi.id, GradingRun.is_latest)
     ).one()
     assert terbaru.id == pertama.grading_run_id
+
+
+def test_hasil_terbaru_tetap_run_yang_bagus_setelah_nilai_ulang_gagal(
+    db_session,
+    produk,  # noqa: F811
+    pembuat,  # noqa: F811
+):
+    """Negatif: GET /results tidak boleh menampilkan run gagal menggantikan hasil yang bagus."""
+    # Arrange
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat)
+    pertama = grade_session(
+        db_session,
+        sesi.id,
+        actor_id=pembuat.id,
+        actor_role=Role.ADMIN,
+        judge_asker=_MockJudgeAsker(text=_BALASAN_PENILAI),
+    )
+    sesi.judge_provider_id = None
+    db_session.commit()
+    grade_session(db_session, sesi.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
+
+    # Act
+    hasil = get_session_results(db_session, sesi.id, viewer_role=Role.ADMIN)
+
+    # Assert
+    assert hasil.grading_run_id == pertama.grading_run_id
+    assert hasil.status == "completed"
+    assert hasil.is_latest is True
+    assert hasil.scores.dev.quality is not None
+
+
+def test_hasil_penilaian_pertama_yang_gagal_tetap_dikembalikan(
+    db_session,
+    produk,  # noqa: F811
+    pembuat,  # noqa: F811
+):
+    """Edge: tanpa run yang bagus, run gagal tetap tampil supaya alasannya terbaca."""
+    # Arrange
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat)
+    sesi.judge_provider_id = None
+    db_session.commit()
+    gagal = grade_session(db_session, sesi.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
+
+    # Act
+    hasil = get_session_results(db_session, sesi.id, viewer_role=Role.ADMIN)
+
+    # Assert
+    assert hasil.grading_run_id == gagal.grading_run_id
+    assert hasil.status == "failed"
+    assert hasil.cases[0].attempts[0].is_technical_disruption is True
+
+
+def test_run_yang_dipilih_sebagai_terbaru_mengikuti_is_latest_bukan_waktu():
+    """Edge: aturan yang sama dipakai penyimpanan memori dan database."""
+    # Arrange
+    bagus = _nilai([_kasus(gangguan=False)]).model_copy(update={"is_latest": True})
+    gagal = _nilai([_kasus(gangguan=True)])
+
+    # Act
+    dipilih = pilih_run_terbaru([bagus, gagal])
+
+    # Assert
+    assert dipilih is bagus
+    assert pilih_run_terbaru([gagal]) is gagal
+    assert pilih_run_terbaru([]) is None
