@@ -42,6 +42,7 @@ from app.modules.runs.recovery import (
     record_heartbeat,
     recover_after_restart,
 )
+from app.modules.runs.repository import CallLogRepository
 from app.shared.security import Role
 
 WAKTU_MULAI = datetime(2026, 11, 5, 8, 0, tzinfo=UTC)
@@ -620,3 +621,50 @@ def test_check_worker_liveness_skips_session_when_pause_fails(
     assert stale == []
     db_session.expire_all()
     assert db_session.get(MeasurementSession, sesi.id).status == SessionStatus.RUNNING
+
+
+def test_recover_after_restart_keeps_budget_counting_rows_with_tokens_only(
+    db_session, produk_otomatis, admin_user
+):
+    """Edge: keputusan PO SCRUM-268 poin 2, anggaran sesudah crash.
+
+    Baris call_logs yang tertinggal dan punya token tetap dihitung; baris tanpa token
+    (biaya kosong) dan upaya terputus tanpa baris dicatat sebagai biaya tidak diketahui.
+    """
+    # Arrange
+    sesi = _buat_sesi(db_session, produk_otomatis, admin_user, status=SessionStatus.RUNNING)
+    dengan_token, tanpa_token, tanpa_baris = _tambah_snapshot_dan_attempts(
+        db_session, sesi, [AttemptStatus.RUNNING] * 3
+    )
+    for attempt, tokens, cost in ((dengan_token, 10, 150), (tanpa_token, None, None)):
+        db_session.add(
+            CallLog(
+                attempt_id=attempt.id,
+                product_id=produk_otomatis.id,
+                started_at=WAKTU_MULAI,
+                ended_at=WAKTU_MULAI,
+                duration_ms=0,
+                input_tokens=tokens,
+                output_tokens=tokens,
+                cost_idr=cost,
+                usd_idr_rate=16000,
+                model_version="",
+                result="technical_failure",
+                failure_kind="provider_error",
+                raw={},
+                try_no=1,
+            )
+        )
+    db_session.commit()
+
+    # Act
+    recover_after_restart(db_session, at=WAKTU_RESTART)
+
+    # Assert
+    db_session.expire_all()
+    terpakai = CallLogRepository(db_session).sum_cost_since(produk_otomatis.id, WAKTU_MULAI)
+    assert terpakai == 150
+    assert db_session.scalar(select(CallLog).where(CallLog.attempt_id == tanpa_baris.id)) is None
+    assert {
+        db_session.get(Attempt, a.id).status for a in (dengan_token, tanpa_token, tanpa_baris)
+    } == {AttemptStatus.TECHNICAL_FAILURE}
