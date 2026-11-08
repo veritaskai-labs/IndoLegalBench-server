@@ -9817,17 +9817,10 @@
             "description": "official = Pengukuran Resmi, trial = Uji Coba"
           },
           "judge_provider_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "format": "uuid",
             "title": "Judge Provider Id",
-            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Boleh kosong; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
+            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Wajib; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
           }
         },
         "type": "object",
@@ -9835,7 +9828,8 @@
           "suite_ids",
           "product_id",
           "label",
-          "purpose"
+          "purpose",
+          "judge_provider_id"
         ],
         "title": "ManualStartRequest",
         "description": "Body POST /manual-measurements (PBI-22 AC1, SCRUM-230).\n\nIsian sesi otomatis diwarisi (suite, filter, label, tujuan, penilai), supaya aturan\nvalidasinya satu. Bedanya: produk harus manual, dan percobaan standar 1, bukan 3."
@@ -12145,17 +12139,10 @@
             "description": "official = Pengukuran Resmi, trial = Uji Coba"
           },
           "judge_provider_id": {
-            "anyOf": [
-              {
-                "type": "string",
-                "format": "uuid"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
+            "format": "uuid",
             "title": "Judge Provider Id",
-            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Boleh kosong; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
+            "description": "Provider penilai (LLM judge) dari GET /judge-providers. Wajib; penilai yang tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
           }
         },
         "type": "object",
@@ -12163,7 +12150,8 @@
           "suite_ids",
           "product_id",
           "label",
-          "purpose"
+          "purpose",
+          "judge_provider_id"
         ],
         "title": "StartRequest",
         "description": "Body POST /measurements (PBI-11 AC1, SCRUM-207).\n\nIsian ringkasan diwarisi supaya Mulai divalidasi dengan aturan yang sama\nseperti Lihat ringkasan, ditambah label dan tujuan yang wajib."
