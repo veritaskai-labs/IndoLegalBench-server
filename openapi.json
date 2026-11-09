@@ -4264,8 +4264,8 @@
         "tags": [
           "results"
         ],
-        "summary": "Daftar sesi selesai yang telah dinilai untuk Admin dan Viewer (SCRUM-226)",
-        "description": "Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin dan Viewer.",
+        "summary": "Daftar sesi selesai yang telah dinilai untuk Admin, Viewer, dan Kontributor (SCRUM-226)",
+        "description": "Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin, Viewer, dan Kontributor.",
         "operationId": "list_graded_sessions_endpoint_results_sessions_get",
         "responses": {
           "200": {

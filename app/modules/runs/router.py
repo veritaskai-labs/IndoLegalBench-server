@@ -450,13 +450,13 @@ results_router = APIRouter(prefix="/results", tags=["results"])
 @results_router.get(
     "/sessions",
     response_model=list[GradedSessionListItem],
-    summary="Daftar sesi selesai yang telah dinilai untuk Admin dan Viewer (SCRUM-226)",
+    summary="Daftar sesi selesai yang telah dinilai untuk Admin, Viewer, dan Kontributor (SCRUM-226)",
 )
 def list_graded_sessions_endpoint(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> list[GradedSessionListItem]:
-    """Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin dan Viewer."""
+    """Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin, Viewer, dan Kontributor."""
     return list_graded_sessions(db, viewer_role=user.role)
 
 
