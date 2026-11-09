@@ -12,7 +12,8 @@ Fitur utama:
    hasil lama tetap tersimpan (AC7) di tabel D6 (grading_runs, grading_results).
 5. Visibilitas hasil & Server-enforced Masking (AC8, D10):
    - Sesi berjalan: hanya Admin. Viewer & Developer AI ditolak (403).
-   - Sesi selesai: Admin & Viewer melihat hasil lengkap; Developer AI melihat kasus
+   - Sesi selesai: Admin melihat hasil lengkap; Viewer & Kontributor melihat skor dan alasan
+     tanpa pertanyaan dan jawaban (SCRUM-276); Developer AI melihat kasus
      dev lengkap, sedangkan kasus test disamarkan per-kasus (pertanyaan, jawaban, skor
      kasus, dan kategori null; judul terproteksi), namun skor agregat test tetap terlihat di ThreeScores.
 """
@@ -1442,6 +1443,11 @@ def _mask_for_developer_ai(grading: SessionGradingResponse) -> SessionGradingRes
     )
 
 
+# Peran dengan hak baca Viewer di Laporan: lihat skor dan alasan, tanpa question dan answer_text
+# (SCRUM-227, SCRUM-276). Satu tempat supaya daftar dan detail hasil tidak berbeda aturan.
+MASKED_READER_ROLES = frozenset({Role.VIEWER, Role.CONTRIBUTOR})
+
+
 def _mask_for_viewer(grading: SessionGradingResponse) -> SessionGradingResponse:
     masked_cases = [
         c.model_copy(
@@ -1467,7 +1473,7 @@ def apply_visibility_mask(
       namun question dan raw answer_text disamarkan (null) sesuai keputusan PO (SCRUM-227).
       Developer AI melihat kasus dev, sedangkan kasus test disamarkan per-kasus (isi & skor kasus disembunyikan),
       namun skor total agregat test tetap terlihat di ThreeScores.
-    - Kontributor: ditolak (403).
+    - Kontributor: sama dengan Viewer (SCRUM-276).
     """
     status_str = (
         session_status.value if isinstance(session_status, SessionStatus) else str(session_status)
@@ -1481,16 +1487,10 @@ def apply_visibility_mask(
             )
         return grading
 
-    if viewer_role == Role.CONTRIBUTOR:
-        raise ForbiddenError(
-            "Peran Kontributor tidak berwenang melihat hasil penilaian.",
-            code="FORBIDDEN",
-        )
-
     if viewer_role == Role.ADMIN:
         return grading
 
-    if viewer_role == Role.VIEWER:
+    if viewer_role in MASKED_READER_ROLES:
         return _mask_for_viewer(grading)
 
     if viewer_role == Role.DEVELOPER_AI:
@@ -2185,12 +2185,12 @@ def list_graded_sessions(
     *,
     viewer_role: Role | str,
 ) -> list[GradedSessionListItem]:
-    """Daftar sesi selesai yang telah dinilai untuk Admin dan Viewer (SCRUM-226, SCRUM-227).
+    """Daftar sesi selesai yang telah dinilai untuk Admin, Viewer, dan Kontributor (SCRUM-226, SCRUM-276).
 
     Hanya sesi yang sudah selesai, tidak diarsipkan, dan memiliki hasil penilaian.
     """
     role = Role(viewer_role) if isinstance(viewer_role, str) else viewer_role
-    if role not in (Role.ADMIN, Role.VIEWER):
+    if role != Role.ADMIN and role not in MASKED_READER_ROLES:
         raise ForbiddenError(
             "Peran Anda tidak berwenang melihat daftar hasil penilaian.",
             code="FORBIDDEN",
