@@ -514,15 +514,47 @@ def test_visibilitas_developer_ai_kasus_test_tersamar_dan_skor_agregat_terbuka()
     assert res.scores.combined.format == Decimal("0.88")
 
 
-def test_kontributor_ditolak_melihat_hasil():
-    """D10: Kontributor tidak berwenang melihat hasil penilaian."""
+def test_kontributor_melihat_hasil_sesi_selesai_seperti_viewer():
+    """SCRUM-276: Kontributor punya hak baca Viewer; question dan answer_text disamarkan."""
+    # Arrange
     grading = grade_session_data(
         session_id=uuid.uuid4(),
         cases_input=_buat_kasus_sample(),
         triggered_by=uuid.uuid4(),
     )
-    with pytest.raises(ForbiddenError):
-        apply_visibility_mask(grading, viewer_role=Role.CONTRIBUTOR, session_status="finished")
+
+    # Act
+    res_kontributor = apply_visibility_mask(
+        grading, viewer_role=Role.CONTRIBUTOR, session_status="finished"
+    )
+    res_viewer = apply_visibility_mask(grading, viewer_role=Role.VIEWER, session_status="finished")
+
+    # Assert
+    assert res_kontributor == res_viewer
+    assert all(c.question is None for c in res_kontributor.cases)
+    assert all(a.answer_text is None for c in res_kontributor.cases for a in c.attempts)
+    assert res_kontributor.scores == grading.scores
+
+
+def test_developer_ai_tetap_disamarkan_per_kasus_bukan_seperti_kontributor():
+    """SCRUM-276: pelebaran hak Kontributor tidak mengubah aturan Developer AI."""
+    # Arrange
+    grading = grade_session_data(
+        session_id=uuid.uuid4(),
+        cases_input=_buat_kasus_sample(),
+        triggered_by=uuid.uuid4(),
+    )
+
+    # Act
+    res_dev = apply_visibility_mask(
+        grading, viewer_role=Role.DEVELOPER_AI, session_status="finished"
+    )
+    res_kontributor = apply_visibility_mask(
+        grading, viewer_role=Role.CONTRIBUTOR, session_status="finished"
+    )
+
+    # Assert
+    assert res_dev != res_kontributor
 
 
 # ---------------------------------------------------------------------------
@@ -1413,9 +1445,8 @@ def test_list_graded_sessions_logic(db_session, produk, pembuat):
     # 1. Saat belum ada sesi selesai dinilai -> []
     assert list_graded_sessions(db_session, viewer_role=Role.VIEWER) == []
 
-    # 2. Peran Kontributor & Developer AI ditolak
-    with pytest.raises(ForbiddenError, match="tidak berwenang"):
-        list_graded_sessions(db_session, viewer_role=Role.CONTRIBUTOR)
+    # 2. Kontributor boleh membaca (SCRUM-276), Developer AI tetap ditolak
+    assert list_graded_sessions(db_session, viewer_role=Role.CONTRIBUTOR) == []
     with pytest.raises(ForbiddenError, match="tidak berwenang"):
         list_graded_sessions(db_session, viewer_role=Role.DEVELOPER_AI)
 
@@ -1479,9 +1510,10 @@ def test_list_graded_sessions_api_endpoints(as_role, db_session, produk, pembuat
     res_old = as_role(Role.VIEWER).get("/measurements/results/sessions")
     assert res_old.status_code == 404
 
-    # Contributor & Developer AI are rejected with 403
+    # Contributor can read the list (SCRUM-276), Developer AI is rejected with 403
     res3 = as_role(Role.CONTRIBUTOR).get("/results/sessions")
-    assert res3.status_code == 403
+    assert res3.status_code == 200
+    assert res3.json()[0]["session_id"] == str(sesi.id)
     res4 = as_role(Role.DEVELOPER_AI).get("/results/sessions")
     assert res4.status_code == 403
 
