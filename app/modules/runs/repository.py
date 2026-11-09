@@ -18,6 +18,7 @@ from sqlalchemy import Row, and_, case, exists, func, null, select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
+from app.modules.runs.attempt_display_status import display_attempt_status
 from app.modules.runs.models import (
     AnswerHistory,
     Attempt,
@@ -329,15 +330,14 @@ class SessionListRepository:
     def _attempt_counts(self, ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, dict[str, int]]:
         terisi = Attempt.filled_at.is_not(None)
         rows = self._db.execute(
-            select(Attempt.session_id, Attempt.status, terisi, func.count())
+            select(Attempt.session_id, Attempt.status, Attempt.source, terisi, func.count())
             .where(Attempt.session_id.in_(ids))
-            .group_by(Attempt.session_id, Attempt.status, terisi)
+            .group_by(Attempt.session_id, Attempt.status, Attempt.source, terisi)
         )
         counts: dict[uuid.UUID, dict[str, int]] = defaultdict(lambda: defaultdict(int))
-        for session_id, status, filled, count in rows:
-            # PBI-22 D8: percobaan manual tetap pending; jawaban yang terisi (filled_at)
-            # sudah punya hasil akhir, jadi dihitung selesai seperti succeeded.
-            kunci = AttemptStatus.SUCCEEDED.value if filled else AttemptStatus(status).value
+        for session_id, status, source, filled, count in rows:
+            # PBI-22 D8: aturan percobaan manual terisi dipakai bersama laporan dan detail sesi.
+            kunci = display_attempt_status(status, source, filled=filled).value
             counts[session_id][kunci] += count
         return {session_id: dict(per_status) for session_id, per_status in counts.items()}
 
