@@ -574,6 +574,7 @@ class AttemptGradeInput:
     repetition_no: int
     status: AttemptStatus | str
     source: AttemptSource | str = AttemptSource.AUTOMATIC
+    filled_at: datetime | None = None
     answer_text: str | None = None
     failure_kind: str | None = None
     platform_refused: bool = False
@@ -1745,6 +1746,7 @@ def _build_attempt_input(
         repetition_no=a.repetition_no,
         status=a.status,
         source=a.source,
+        filled_at=a.filled_at,
         answer_text=a.answer_text,
         failure_kind=f_kind,
         platform_refused=platform_refused,

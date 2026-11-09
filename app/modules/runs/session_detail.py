@@ -22,7 +22,7 @@ from app.modules.cases.models import SplitTag
 from app.modules.cases.schemas import VersionSections
 from app.modules.cases.service import MASKED_CASE_CODE, MASKED_TITLE
 from app.modules.runs.case_visibility import can_view_case_content
-from app.modules.runs.models import AttemptStatus, StopReason
+from app.modules.runs.models import AttemptSource, AttemptStatus, StopReason
 from app.modules.runs.schemas import AttemptResult, SessionCaseResult, SessionDetail
 from app.modules.runs.session_list import NameLookup, SessionRow, to_list_item
 from app.modules.runs.session_rules import is_report_eligible
@@ -39,6 +39,8 @@ class AttemptRow:
     model_version: str | None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    source: AttemptSource = AttemptSource.AUTOMATIC
+    filled_at: datetime | None = None
 
 
 @dataclass(frozen=True)

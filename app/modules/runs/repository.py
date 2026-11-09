@@ -286,6 +286,8 @@ class SessionListRepository:
                     model_version=attempt.model_version,
                     started_at=attempt.started_at,
                     finished_at=attempt.finished_at,
+                    source=AttemptSource(attempt.source),
+                    filled_at=attempt.filled_at,
                 )
             )
         return [
