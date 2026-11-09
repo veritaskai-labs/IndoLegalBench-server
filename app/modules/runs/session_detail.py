@@ -21,8 +21,9 @@ from typing import Any, Protocol
 from app.modules.cases.models import SplitTag
 from app.modules.cases.schemas import VersionSections
 from app.modules.cases.service import MASKED_CASE_CODE, MASKED_TITLE
+from app.modules.runs.attempt_display_status import display_attempt_status
 from app.modules.runs.case_visibility import can_view_case_content
-from app.modules.runs.models import AttemptStatus, StopReason
+from app.modules.runs.models import AttemptSource, AttemptStatus, StopReason
 from app.modules.runs.schemas import AttemptResult, SessionCaseResult, SessionDetail
 from app.modules.runs.session_list import NameLookup, SessionRow, to_list_item
 from app.modules.runs.session_rules import is_report_eligible
@@ -39,6 +40,8 @@ class AttemptRow:
     model_version: str | None
     started_at: datetime | None = None
     finished_at: datetime | None = None
+    source: AttemptSource = AttemptSource.AUTOMATIC
+    filled_at: datetime | None = None
 
 
 @dataclass(frozen=True)
@@ -141,7 +144,9 @@ def _case(case: CaseRow, *, viewer_role: Role) -> SessionCaseResult:
                 # Tidak disamarkan: FE perlu id untuk coba ulang per kasus (SCRUM-218).
                 id=attempt.id,
                 repetition_no=attempt.repetition_no,
-                status=attempt.status,
+                status=display_attempt_status(
+                    attempt.status, attempt.source, filled=attempt.filled_at is not None
+                ),
                 answer_text=None if masked else attempt.answer_text,
                 model_version=attempt.model_version,
                 # Waktu tidak memuat isi kasus, jadi tidak ikut disamarkan.

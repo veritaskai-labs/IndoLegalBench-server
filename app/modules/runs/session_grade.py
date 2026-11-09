@@ -39,6 +39,7 @@ from app.modules.cases.service import MASKED_CASE_CODE, MASKED_TITLE
 from app.modules.legal_refs.seed import load_regulation_types
 from app.modules.legal_refs.service import TypeName
 from app.modules.providers import service as providers_service
+from app.modules.runs.attempt_display_status import display_attempt_status
 from app.modules.runs.call_log import month_start
 from app.modules.runs.citation_score import CitationScorer
 from app.modules.runs.exchange_rate import ExchangeRateProvider
@@ -574,6 +575,7 @@ class AttemptGradeInput:
     repetition_no: int
     status: AttemptStatus | str
     source: AttemptSource | str = AttemptSource.AUTOMATIC
+    filled_at: datetime | None = None
     answer_text: str | None = None
     failure_kind: str | None = None
     platform_refused: bool = False
@@ -729,7 +731,9 @@ class DbGradingStore:
         return AttemptGradeResult(
             attempt_id=att_in.attempt_id,
             repetition_no=att_in.repetition_no,
-            status=att_in.status,
+            status=display_attempt_status(
+                att_in.status, att_in.source, filled=att_in.filled_at is not None
+            ),
             source=att_in.source,
             is_technical_disruption=is_disrupted,
             score=sc,
@@ -1289,9 +1293,7 @@ def _grade_single_attempt(
         judge_error=att.judge_error,
     )
     score = None if disrupted else _evaluate_attempt_score(att, case)
-    att_status = (
-        att.status if isinstance(att.status, AttemptStatus) else AttemptStatus(str(att.status))
-    )
+    att_status = display_attempt_status(att.status, att.source, filled=att.filled_at is not None)
     att_source = (
         att.source if isinstance(att.source, AttemptSource) else AttemptSource(str(att.source))
     )
@@ -1745,6 +1747,7 @@ def _build_attempt_input(
         repetition_no=a.repetition_no,
         status=a.status,
         source=a.source,
+        filled_at=a.filled_at,
         answer_text=a.answer_text,
         failure_kind=f_kind,
         platform_refused=platform_refused,
