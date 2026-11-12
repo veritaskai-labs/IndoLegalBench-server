@@ -151,6 +151,7 @@ def test_usage_diambil_dari_baris_judge():
         cost_idr=Decimal("12.50"),
         usd_idr_rate=_RATE,
         failure_kind="provider_error",
+        model_version="judge-model-1",
     )
 
     # Act
@@ -163,4 +164,5 @@ def test_usage_diambil_dari_baris_judge():
         cost_idr=Decimal("12.50"),
         usd_idr_rate=_RATE,
         failure_kind="provider_error",
+        model_version="judge-model-1",
     )

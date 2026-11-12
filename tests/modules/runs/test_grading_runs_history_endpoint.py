@@ -106,6 +106,7 @@ def test_baris_riwayat_tidak_membawa_rincian_kasus(as_role, db_session, produk, 
         "triggered_at",
         "is_latest",
         "scores",
+        "judge",
     }
     assert set(res.json()[0]["scores"]) == {"dev", "test", "combined"}
 
