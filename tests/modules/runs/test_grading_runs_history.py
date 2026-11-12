@@ -116,6 +116,7 @@ def test_ringkasan_tidak_membawa_rincian_kasus(pembuat):
         "triggered_at",
         "is_latest",
         "scores",
+        "judge",
     }
 
 

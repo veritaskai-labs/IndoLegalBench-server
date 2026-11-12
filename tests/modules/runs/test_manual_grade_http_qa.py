@@ -68,7 +68,7 @@ def rubrik(siap_manual, monkeypatch):
     monkeypatch.setattr(
         session_grade,
         "_resolve_active_judge_asker",
-        lambda db, session, judge_asker: (judge_asker or PenilaiUji(), None, None),
+        lambda db, session, judge_asker, judge_id=None: (judge_asker or PenilaiUji(), None, None),
     )
     siap_manual.db.add(
         RubricVersion(
@@ -146,7 +146,7 @@ def test_penilai_tidak_tersedia_nilai_gagal_lalu_bisa_dinilai_lagi(rubrik, monke
         m.setattr(
             session_grade,
             "_resolve_active_judge_asker",
-            lambda db, session, judge_asker: (None, "judge_unavailable", None),
+            lambda db, session, judge_asker, judge_id=None: (None, "judge_unavailable", None),
         )
         sesi = buat_sesi(rubrik, repeat_count=1)
         isi_semua(rubrik, sesi["id"])

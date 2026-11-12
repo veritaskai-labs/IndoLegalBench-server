@@ -72,13 +72,14 @@ from app.modules.runs.schemas import (
     CategoryScore,
     GradedSessionListItem,
     GradeSessionRequest,
+    GradingJudge,
     GradingRunSummary,
     ScorePair,
     SessionGradingResponse,
     ThreeScores,
 )
 from app.modules.runs.session_rules import has_ended
-from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError
+from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
 from app.shared.security import Role
 
 _DUA_DIGIT = Decimal("0.01")
@@ -87,6 +88,8 @@ DEFAULT_RUBRIC_VERSION = "v1"
 MEASUREMENT_NOT_FOUND_MESSAGE = "Pengukuran tidak ditemukan."
 ACTION_MEASUREMENT_SESSION_GRADED = "measurement_session.graded"
 ACTION_MEASUREMENT_SESSION_REGRADED = "measurement_session.regraded"
+JUDGE_NOT_ELIGIBLE = "JUDGE_NOT_ELIGIBLE"
+GRADING_RUN_NOT_FOUND = "GRADING_RUN_NOT_FOUND"
 REASON_CRITERION_UNMET = "criterion_unmet"
 _MAX_REFUSAL_LENGTH = 250
 
@@ -853,6 +856,7 @@ class DbGradingStore:
             triggered_by=run_db.triggered_by,
             triggered_at=run_db.triggered_at,
             is_latest=run_db.is_latest,
+            judge=run_judge_info(self.db, run_db.id, run_db.judge_provider_id),
             scores=compute_three_scores(cases_result),
             category_scores=compute_category_scores(cases_result),
             cases=cases_result,
@@ -1007,6 +1011,7 @@ class DbGradingStore:
         self,
         run: SessionGradingResponse,
         cases_input: Sequence[CaseGradeInput] | None = None,
+        judge_provider_id: uuid.UUID | None = None,
     ) -> None:
         from app.modules.audit.models import AuditEntityType, AuditLog
         from app.modules.grading.models import (
@@ -1017,8 +1022,9 @@ class DbGradingStore:
 
         rubric_version_id = self._resolve_db_rubric_version_id(run.rubric_version)
 
-        session = self.db.get(MeasurementSession, run.session_id)
-        judge_provider_id = session.judge_provider_id if session else None
+        if judge_provider_id is None:
+            session = self.db.get(MeasurementSession, run.session_id)
+            judge_provider_id = session.judge_provider_id if session else None
 
         has_earlier = bool(
             self.db.scalar(
@@ -1078,6 +1084,7 @@ class DbGradingStore:
                 "grading_run_id": str(run.grading_run_id),
                 "rubric_version": run.rubric_version,
                 "kind": run.kind,
+                "judge_provider_id": str(judge_provider_id) if judge_provider_id else None,
             },
             reason=f"Rubrik {run.rubric_version} - {run.kind}",
         )
@@ -1262,6 +1269,7 @@ def _usage_columns(usage: JudgeUsage | None) -> dict[str, Any]:
         "output_tokens": usage.output_tokens,
         "cost_idr": usage.cost_idr,
         "usd_idr_rate": usage.usd_idr_rate,
+        "model_version": usage.model_version,
     }
 
 
@@ -1437,6 +1445,7 @@ def _mask_for_developer_ai(grading: SessionGradingResponse) -> SessionGradingRes
         triggered_by=grading.triggered_by,
         triggered_at=grading.triggered_at,
         is_latest=grading.is_latest,
+        judge=grading.judge,
         scores=grading.scores,
         category_scores=dev_category_scores,
         cases=masked_cases,
@@ -1841,26 +1850,79 @@ def _resolve_active_judge_asker(
     db: Session,
     session: MeasurementSession,
     judge_asker: object | None,
+    judge_id: uuid.UUID | None = None,
 ) -> tuple[object | None, str | None, object | None]:
-    """Asker penilai, kode galat bila gagal, dan JudgeBinding yang dimuat (kosong bila disuntik)."""
+    """Asker penilai, kode galat bila gagal, dan JudgeBinding yang dimuat (kosong bila disuntik).
+
+    judge_id adalah judge pilihan Admin (SCRUM-280); tanpa itu dipakai judge sesi.
+    """
     if judge_asker is not None:
         return judge_asker, None, None
-    if session.judge_provider_id is None:
+    judge_id = judge_id or session.judge_provider_id
+    if judge_id is None:
         # Sesi lama dari sebelum penilai wajib dipilih (PBI-14): gangguan teknis, bukan skip.
         return None, JUDGE_NOT_CONFIGURED, None
     try:
         from app.modules.providers.judge_service import build_judge
 
-        binding = build_judge(db, session.judge_provider_id)
+        binding = build_judge(db, judge_id)
         return binding.asker, None, binding
     except Exception:
         # Hanya id penilai yang dicatat: pesan galat bisa memuat isi kredensial.
         logger.error(
             "Judge %s could not be built, attempts will be marked judge_unavailable",
-            session.judge_provider_id,
+            judge_id,
             exc_info=False,
         )
         return None, JUDGE_UNAVAILABLE, None
+
+
+def resolve_judge_id(
+    db: Session, session: MeasurementSession, requested: uuid.UUID | None
+) -> uuid.UUID | None:
+    """Judge untuk satu penilaian: pilihan Admin, atau judge sesi bila tidak memilih.
+
+    Pilihan Admin dicek di server sebelum ada panggilan berbayar atau run tersimpan:
+    hanya produk AI otomatis yang aktif (SCRUM-271, SCRUM-280).
+    """
+    if requested is None:
+        return session.judge_provider_id
+    from app.modules.providers.judge_service import is_eligible_judge
+
+    if not is_eligible_judge(db, requested):
+        raise ValidationError(
+            "LLM judge harus produk AI otomatis yang aktif.",
+            code=JUDGE_NOT_ELIGIBLE,
+            field="judge_provider_id",
+        )
+    return requested
+
+
+def run_judge_info(
+    db: Session, run_id: uuid.UUID, judge_provider_id: uuid.UUID | None
+) -> GradingJudge | None:
+    """Judge satu run: nama produk, model yang dilaporkan judge, dan total biayanya.
+
+    Model diambil dari jawaban judge (llm_judge_results.model_version), bukan dari isian
+    produk, supaya yang tercatat adalah model yang benar-benar menilai (SCRUM-280).
+    """
+    if judge_provider_id is None:
+        return None
+    from app.modules.grading.models import GradingResult, LlmJudgeResult
+
+    rows = db.execute(
+        select(LlmJudgeResult.model_version, LlmJudgeResult.cost_idr)
+        .join(GradingResult, GradingResult.id == LlmJudgeResult.grading_result_id)
+        .where(GradingResult.grading_run_id == run_id)
+        .order_by(LlmJudgeResult.created_at, LlmJudgeResult.id)
+    ).all()
+    costs = [cost for _, cost in rows if cost is not None]
+    return GradingJudge(
+        judge_provider_id=judge_provider_id,
+        name=providers_service.product_names(db, {judge_provider_id}).get(judge_provider_id),
+        model_version=next((model for model, _ in rows if model), None),
+        cost_idr=sum(costs, Decimal(0)) if costs else None,
+    )
 
 
 def _open_judge_meter(
@@ -2027,6 +2089,7 @@ def grade_session(
     # Satu waktu untuk hasil penilaian dan status Dinilai (review Elision #121).
     now = now or datetime.now(UTC)
 
+    judge_id = resolve_judge_id(db, session, payload.judge_provider_id if payload else None)
     grading_store = store or DbGradingStore(db)
     cases = _load_case_grade_inputs(db, session_id)
 
@@ -2037,7 +2100,9 @@ def grade_session(
     p_names = providers_service.product_names(db, {session.product_id})
     product_name = p_names.get(session.product_id, "")
 
-    active_asker, judge_load_error, binding = _resolve_active_judge_asker(db, session, judge_asker)
+    active_asker, judge_load_error, binding = _resolve_active_judge_asker(
+        db, session, judge_asker, judge_id
+    )
     meter, pricing_error = _open_judge_meter_or_error(db, binding, rates, now)
     if pricing_error is not None:
         active_asker, judge_load_error = None, pricing_error
@@ -2056,7 +2121,10 @@ def grade_session(
     # Kunci dipegang dari sini sampai commit: simpan jawaban, unggah bukti, dan arsip menunggu.
     ensure_unchanged_since_load(db, session_id, cases)
     if isinstance(grading_store, DbGradingStore):
-        grading_store.save_grading_run(response, cases_input=cases)
+        grading_store.save_grading_run(response, cases_input=cases, judge_provider_id=judge_id)
+        response = response.model_copy(
+            update={"judge": run_judge_info(db, response.grading_run_id, judge_id)}
+        )
     else:
         grading_store.save_grading_run(response)
     # D8: Lengkap -> Dinilai di transaksi yang sama dengan hasilnya; sesi otomatis tidak berubah.
@@ -2114,6 +2182,7 @@ def to_run_summary(run: SessionGradingResponse) -> GradingRunSummary:
         triggered_by=run.triggered_by,
         triggered_at=run.triggered_at,
         is_latest=run.is_latest,
+        judge=run.judge,
         scores=run.scores,
     )
 
@@ -2137,6 +2206,27 @@ def list_grading_runs(
         grading_store.get_grading_runs(session_id), key=lambda r: r.triggered_at, reverse=True
     )
     return [to_run_summary(run) for run in runs]
+
+
+def get_grading_run(
+    db: Session,
+    session_id: uuid.UUID,
+    grading_run_id: uuid.UUID,
+    *,
+    store: GradingStore | None = None,
+) -> SessionGradingResponse:
+    """Satu run penilaian lengkap, termasuk run lama atau judge lain (SCRUM-280).
+
+    Run dicari hanya di antara run sesi ini, jadi id run sesi lain dijawab 404.
+    """
+    if db.get(MeasurementSession, session_id) is None:
+        raise NotFoundError(MEASUREMENT_NOT_FOUND_MESSAGE, code="MEASUREMENT_NOT_FOUND")
+
+    grading_store = store or DbGradingStore(db)
+    for run in grading_store.get_grading_runs(session_id):
+        if run.grading_run_id == grading_run_id:
+            return run
+    raise NotFoundError("Hasil penilaian tidak ditemukan.", code=GRADING_RUN_NOT_FOUND)
 
 
 def _resolve_session_rubric_map(db: Session, session_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:

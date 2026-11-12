@@ -4115,11 +4115,11 @@
             }
           },
           "422": {
-            "description": "Validation Error",
+            "description": "LLM judge yang dipilih bukan produk AI otomatis yang aktif (`JUDGE_NOT_ELIGIBLE`).",
             "content": {
               "application/json": {
                 "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
+                  "$ref": "#/components/schemas/ErrorBody"
                 }
               }
             }
@@ -4174,6 +4174,80 @@
           },
           "404": {
             "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/measurements/{session_id}/grading-runs/{grading_run_id}": {
+      "get": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Satu hasil penilaian sesi, termasuk run lama atau LLM judge lain (Admin)",
+        "description": "Run tertentu dari riwayat penilaian, lengkap dengan judge-nya (SCRUM-280).",
+        "operationId": "get_grading_run_endpoint_measurements__session_id__grading_runs__grading_run_id__get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          },
+          {
+            "name": "grading_run_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Grading Run Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SessionGradingResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya Admin yang dapat melihat riwayat penilaian (`FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`) atau run penilaian tidak ada di sesi ini (`GRADING_RUN_NOT_FOUND`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -8662,6 +8736,19 @@
             ],
             "title": "Rubric Version",
             "description": "Versi rubrik yang dipilih Admin. Bila kosong, memakai versi aktif (default 'v1')."
+          },
+          "judge_provider_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Provider Id",
+            "description": "LLM judge untuk penilaian ini: produk AI otomatis yang aktif. Bila kosong, memakai judge sesi. Judge lain ditolak 422 JUDGE_NOT_ELIGIBLE (SCRUM-280)."
           }
         },
         "type": "object",
@@ -8730,6 +8817,59 @@
         "title": "GraderPath",
         "description": "Jalur penilaian satu dimensi rubrik (D6): deterministik atau LLM judge."
       },
+      "GradingJudge": {
+        "properties": {
+          "judge_provider_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Judge Provider Id",
+            "description": "ID produk AI yang menjadi judge"
+          },
+          "name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Name",
+            "description": "Nama produk judge"
+          },
+          "model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Model Version",
+            "description": "Versi model yang dilaporkan judge di jawabannya; null bila tidak ada jawaban"
+          },
+          "cost_idr": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Idr",
+            "description": "Total biaya panggilan judge pada run ini, Rupiah"
+          }
+        },
+        "type": "object",
+        "required": [
+          "judge_provider_id"
+        ],
+        "title": "GradingJudge",
+        "description": "LLM judge yang menilai satu run (SCRUM-280, feedback UAT K-17 dan K-18)."
+      },
       "GradingRunSummary": {
         "properties": {
           "grading_run_id": {
@@ -8772,6 +8912,17 @@
             "type": "boolean",
             "title": "Is Latest",
             "description": "True bila ini hasil penilaian terbaru sesi tersebut"
+          },
+          "judge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GradingJudge"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "LLM judge run ini; null untuk run lama tanpa judge"
           },
           "scores": {
             "$ref": "#/components/schemas/ThreeScores",
@@ -12279,6 +12430,17 @@
             "title": "Is Latest",
             "description": "True bila merupakan hasil penilaian terbaru untuk sesi ini",
             "default": true
+          },
+          "judge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GradingJudge"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "LLM judge run ini; null untuk run lama tanpa judge"
           },
           "scores": {
             "$ref": "#/components/schemas/ThreeScores",
