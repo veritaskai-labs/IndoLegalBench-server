@@ -47,6 +47,11 @@ class JudgeMeter:
         self.prices = prices
         self._remaining_idr = remaining_idr
 
+    @property
+    def remaining_idr(self) -> Decimal:
+        """Sisa anggaran apa adanya, bisa negatif bila percobaan terakhir melampauinya."""
+        return self._remaining_idr
+
     def has_budget(self) -> bool:
         return self._remaining_idr > 0
 
