@@ -614,6 +614,15 @@ class GradingStore(Protocol):
     def get_grading_runs(self, session_id: uuid.UUID) -> list[SessionGradingResponse]: ...
     def save_grading_run(self, run: SessionGradingResponse) -> None: ...
     def get_latest_grading_run(self, session_id: uuid.UUID) -> SessionGradingResponse | None: ...
+    def get_grading_run(
+        self, session_id: uuid.UUID, grading_run_id: uuid.UUID
+    ) -> SessionGradingResponse | None: ...
+
+
+def _find_run(
+    runs: Sequence[SessionGradingResponse], grading_run_id: uuid.UUID
+) -> SessionGradingResponse | None:
+    return next((run for run in runs if run.grading_run_id == grading_run_id), None)
 
 
 class MemoryGradingStore:
@@ -641,6 +650,11 @@ class MemoryGradingStore:
     def get_latest_grading_run(self, session_id: uuid.UUID) -> SessionGradingResponse | None:
         with self._lock:
             return pilih_run_terbaru(self._runs.get(session_id, []))
+
+    def get_grading_run(
+        self, session_id: uuid.UUID, grading_run_id: uuid.UUID
+    ) -> SessionGradingResponse | None:
+        return _find_run(self.get_grading_runs(session_id), grading_run_id)
 
 
 def pilih_run_terbaru(
@@ -1093,6 +1107,24 @@ class DbGradingStore:
 
     def get_latest_grading_run(self, session_id: uuid.UUID) -> SessionGradingResponse | None:
         return pilih_run_terbaru(self.get_grading_runs(session_id))
+
+    def get_grading_run(
+        self, session_id: uuid.UUID, grading_run_id: uuid.UUID
+    ) -> SessionGradingResponse | None:
+        """Satu run D6 milik sesi ini, tanpa membangun ulang run lain beserta kasusnya.
+
+        Bila tidak ada di D6, cari di riwayat lama dari audit (sesi sebelum tabel D6).
+        """
+        from app.modules.grading.models import GradingRun
+
+        run_db = self.db.scalars(
+            select(GradingRun).where(
+                GradingRun.id == grading_run_id, GradingRun.session_id == session_id
+            )
+        ).first()
+        if run_db is not None:
+            return self._build_run_from_d6(run_db, self.db.get(MeasurementSession, session_id))
+        return _find_run(self._get_grading_runs_from_audit(session_id), grading_run_id)
 
     def _save_criterion_records(
         self,
@@ -2222,11 +2254,10 @@ def get_grading_run(
     if db.get(MeasurementSession, session_id) is None:
         raise NotFoundError(MEASUREMENT_NOT_FOUND_MESSAGE, code="MEASUREMENT_NOT_FOUND")
 
-    grading_store = store or DbGradingStore(db)
-    for run in grading_store.get_grading_runs(session_id):
-        if run.grading_run_id == grading_run_id:
-            return run
-    raise NotFoundError("Hasil penilaian tidak ditemukan.", code=GRADING_RUN_NOT_FOUND)
+    run = (store or DbGradingStore(db)).get_grading_run(session_id, grading_run_id)
+    if run is None:
+        raise NotFoundError("Hasil penilaian tidak ditemukan.", code=GRADING_RUN_NOT_FOUND)
+    return run
 
 
 def _resolve_session_rubric_map(db: Session, session_ids: list[uuid.UUID]) -> dict[uuid.UUID, str]:
