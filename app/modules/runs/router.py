@@ -52,6 +52,7 @@ from app.modules.runs.session_archive import archive_session
 from app.modules.runs.session_control_router import router as control_router
 from app.modules.runs.session_detail import SessionDetailService
 from app.modules.runs.session_grade import (
+    get_grading_run,
     get_session_results,
     grade_session,
     list_graded_sessions,
@@ -413,6 +414,13 @@ _RESPONS_GRADE = {
             "(`SESSION_ARCHIVED`): tidak ada hasil yang tersimpan, picu lagi."
         ),
     },
+    422: {
+        "model": ErrorBody,
+        "description": (
+            "LLM judge yang dipilih bukan produk AI otomatis yang aktif (`JUDGE_NOT_ELIGIBLE`). "
+            "Body yang bentuknya tidak valid tetap dijawab `detail` bawaan FastAPI."
+        ),
+    },
 }
 
 _RESPONS_GRADING_RUNS = {
@@ -423,6 +431,17 @@ _RESPONS_GRADING_RUNS = {
     404: {
         "model": ErrorBody,
         "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+    },
+}
+
+_RESPONS_GRADING_RUN = {
+    403: _RESPONS_GRADING_RUNS[403],
+    404: {
+        "model": ErrorBody,
+        "description": (
+            "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`) atau run penilaian tidak "
+            "ada di sesi ini (`GRADING_RUN_NOT_FOUND`)."
+        ),
     },
 }
 
@@ -499,6 +518,22 @@ def list_grading_runs_endpoint(
 ) -> list[GradingRunSummary]:
     """Semua penilaian sesi ini, termasuk hasil lama sebelum nilai ulang (PBI-14 AC7)."""
     return list_grading_runs(db, session_id)
+
+
+@router.get(
+    "/{session_id}/grading-runs/{grading_run_id}",
+    response_model=SessionGradingResponse,
+    summary="Satu hasil penilaian sesi, termasuk run lama atau LLM judge lain (Admin)",
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+    responses=_RESPONS_GRADING_RUN,
+)
+def get_grading_run_endpoint(
+    session_id: uuid.UUID,
+    grading_run_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> SessionGradingResponse:
+    """Run tertentu dari riwayat penilaian, lengkap dengan judge-nya (SCRUM-280)."""
+    return get_grading_run(db, session_id, grading_run_id)
 
 
 @router.get(

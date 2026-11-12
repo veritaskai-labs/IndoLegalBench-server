@@ -20,6 +20,7 @@ class JudgeUsage:
     cost_idr: Decimal | None
     usd_idr_rate: Decimal | None
     failure_kind: str | None = None
+    model_version: str | None = None
 
     @classmethod
     def from_row(cls, row: object) -> "JudgeUsage":
@@ -29,6 +30,7 @@ class JudgeUsage:
             cost_idr=row.cost_idr,
             usd_idr_rate=row.usd_idr_rate,
             failure_kind=row.failure_kind,
+            model_version=row.model_version,
         )
 
 

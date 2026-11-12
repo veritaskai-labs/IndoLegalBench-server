@@ -151,6 +151,12 @@ def lock_available_for_new_session(db: Session, judge_id: uuid.UUID) -> bool:
     return _bisa_jadi_penilai(produk) and produk.is_active
 
 
+def is_eligible_judge(db: Session, judge_id: uuid.UUID) -> bool:
+    """Judge yang boleh dipilih Admin saat menilai: produk otomatis yang aktif (SCRUM-280)."""
+    produk = judge_repository.get_product(db, judge_id)
+    return _bisa_jadi_penilai(produk) and bool(produk.is_active)
+
+
 def _bisa_jadi_penilai(produk: AiProduct | None) -> bool:
     return produk is not None and produk.measurement_type == MeasurementType.AUTOMATIC
 

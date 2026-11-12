@@ -9,6 +9,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 
+from app.modules.audit.models import AuditEntityType, AuditLog
 from app.modules.auth.models import User
 from app.modules.runs.schemas import (
     CaseGradeResult,
@@ -18,7 +19,10 @@ from app.modules.runs.schemas import (
     ThreeScores,
 )
 from app.modules.runs.session_grade import (
+    ACTION_MEASUREMENT_SESSION_GRADED,
+    DbGradingStore,
     MemoryGradingStore,
+    get_grading_run,
     list_grading_runs,
     to_run_summary,
 )
@@ -116,6 +120,7 @@ def test_ringkasan_tidak_membawa_rincian_kasus(pembuat):
         "triggered_at",
         "is_latest",
         "scores",
+        "judge",
     }
 
 
@@ -223,3 +228,67 @@ def test_riwayat_hanya_milik_sesi_yang_diminta(db_session, produk, pembuat):
 
     # Assert
     assert len(riwayat) == 1
+
+
+# ---------------------------------------------------------------------------
+# get_grading_run (SCRUM-280)
+# ---------------------------------------------------------------------------
+
+
+def test_satu_run_dibuka_dari_store_tanpa_run_lain(db_session, produk, pembuat):
+    """Positif: run lama dikembalikan apa adanya, bukan run terbaru."""
+    # Arrange
+    sesi = _sesi(db_session, produk, pembuat)
+    store = MemoryGradingStore()
+    lama = _run(sesi.id, pembuat.id, triggered_at=AWAL)
+    store.save_grading_run(lama)
+    store.save_grading_run(_run(sesi.id, pembuat.id, triggered_at=AWAL + timedelta(hours=1)))
+
+    # Act
+    hasil = get_grading_run(db_session, sesi.id, lama.grading_run_id, store=store)
+
+    # Assert
+    assert hasil.grading_run_id == lama.grading_run_id
+    assert hasil.is_latest is False
+
+
+def test_run_yang_tidak_ada_di_sesi_ditolak_404(db_session, produk, pembuat):
+    """Negatif: id run yang tidak dikenal sesi ini dijawab GRADING_RUN_NOT_FOUND."""
+    # Arrange
+    sesi = _sesi(db_session, produk, pembuat)
+    store = MemoryGradingStore()
+    store.save_grading_run(_run(sesi.id, pembuat.id))
+
+    # Act
+    with pytest.raises(NotFoundError) as galat:
+        get_grading_run(db_session, sesi.id, uuid.uuid4(), store=store)
+
+    # Assert
+    assert galat.value.code == "GRADING_RUN_NOT_FOUND"
+
+
+def test_run_lama_dari_jejak_audit_tetap_bisa_dibuka(db_session, produk, pembuat):
+    """Edge: sesi yang dinilai sebelum tabel D6 hanya punya riwayat di audit."""
+    # Arrange
+    sesi = _sesi(db_session, produk, pembuat)
+    lama = _run(sesi.id, pembuat.id)
+    db_session.add(
+        AuditLog(
+            occurred_at=AWAL,
+            actor_user_id=pembuat.id,
+            actor_role=Role.ADMIN.value,
+            action=ACTION_MEASUREMENT_SESSION_GRADED,
+            entity_type=AuditEntityType.MEASUREMENT_SESSION,
+            entity_id=sesi.id,
+            after=lama.model_dump(mode="json"),
+        )
+    )
+    db_session.commit()
+
+    # Act
+    hasil = DbGradingStore(db_session).get_grading_run(sesi.id, lama.grading_run_id)
+
+    # Assert
+    assert hasil is not None
+    assert hasil.grading_run_id == lama.grading_run_id
+    assert hasil.judge is None

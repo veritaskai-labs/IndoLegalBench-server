@@ -665,6 +665,27 @@ class GradeSessionRequest(BaseModel):
         default=None,
         description="Versi rubrik yang dipilih Admin. Bila kosong, memakai versi aktif (default 'v1').",
     )
+    judge_provider_id: uuid.UUID | None = Field(
+        default=None,
+        description=(
+            "LLM judge untuk penilaian ini: produk AI otomatis yang aktif. Bila kosong, "
+            "memakai judge sesi. Judge lain ditolak 422 JUDGE_NOT_ELIGIBLE (SCRUM-280)."
+        ),
+    )
+
+
+class GradingJudge(BaseModel):
+    """LLM judge yang menilai satu run (SCRUM-280, feedback UAT K-17 dan K-18)."""
+
+    judge_provider_id: uuid.UUID = Field(description="ID produk AI yang menjadi judge")
+    name: str | None = Field(default=None, description="Nama produk judge")
+    model_version: str | None = Field(
+        default=None,
+        description="Versi model yang dilaporkan judge di jawabannya; null bila tidak ada jawaban",
+    )
+    cost_idr: Decimal | None = Field(
+        default=None, description="Total biaya panggilan judge pada run ini, Rupiah"
+    )
 
 
 class AttemptGradeResult(BaseModel):
@@ -743,6 +764,9 @@ class SessionGradingResponse(BaseModel):
     is_latest: bool = Field(
         default=True, description="True bila merupakan hasil penilaian terbaru untuk sesi ini"
     )
+    judge: GradingJudge | None = Field(
+        default=None, description="LLM judge run ini; null untuk run lama tanpa judge"
+    )
     scores: ThreeScores = Field(description="Tiga skor terpisah: dev, test, dan gabungan")
     category_scores: list[CategoryScore] = Field(
         default_factory=list, description="Pecahan skor per kategori kasus"
@@ -766,6 +790,9 @@ class GradingRunSummary(BaseModel):
     triggered_by: uuid.UUID = Field(description="Admin yang memicu penilaian")
     triggered_at: datetime = Field(description="Waktu pemicuan penilaian")
     is_latest: bool = Field(description="True bila ini hasil penilaian terbaru sesi tersebut")
+    judge: GradingJudge | None = Field(
+        default=None, description="LLM judge run ini; null untuk run lama tanpa judge"
+    )
     scores: ThreeScores = Field(description="Tiga skor terpisah: dev, test, dan gabungan")
 
 

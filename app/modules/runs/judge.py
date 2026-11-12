@@ -85,6 +85,7 @@ class JudgeRow:
     output_tokens: int | None = None
     cost_idr: Decimal | None = None
     usd_idr_rate: Decimal | None = None
+    model_version: str | None = None
 
 
 @dataclass
@@ -156,7 +157,14 @@ def _row(
         output_tokens=response.output_tokens,
         cost_idr=_cost(response, prices),
         usd_idr_rate=None if prices is None else prices.usd_idr_rate,
+        model_version=_reported_model(response),
     )
+
+
+def _reported_model(response: object) -> str | None:
+    """Versi model yang dilaporkan penilai di jawabannya (SCRUM-280); kosong menjadi None."""
+    value = getattr(response, "model_version", None)
+    return value.strip() if isinstance(value, str) and value.strip() else None
 
 
 def _rejected(failed: bool, aligned: tuple[CriterionJudgement, ...] | None) -> bool:

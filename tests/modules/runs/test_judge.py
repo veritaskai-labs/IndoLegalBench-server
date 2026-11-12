@@ -1,6 +1,7 @@
 """Pesan user penilai. SCRUM-224."""
 
 from decimal import Decimal
+from types import SimpleNamespace
 
 from app.modules.providers.adapters.base import ProviderResponse
 from app.modules.runs.call_cost import actual_cost_idr
@@ -348,3 +349,32 @@ def test_panggilan_gagal_tetap_membawa_token_yang_terpakai():
     assert hasil.rows[0].score is None
     assert hasil.rows[0].input_tokens == 40
     assert hasil.rows[0].cost_idr is not None
+
+
+def test_baris_membawa_versi_model_yang_dilaporkan_penilai():
+    """Positif: versi model dari jawaban penilai disimpan, untuk metadata run (SCRUM-280)."""
+    # Arrange
+    judge = _ScriptedJudge([_ok(_reply(("a", True))), _ok(_reply(("a", True)))])
+
+    # Act
+    hasil = run_judge(judge, _INPUTS, repetitions=1)
+
+    # Assert
+    assert [baris.model_version for baris in hasil.rows] == ["mock-judge", "mock-judge"]
+
+
+def test_versi_model_kosong_atau_tidak_ada_menjadi_none():
+    """Edge: penyedia yang tidak melaporkan versi tidak menyimpan string kosong."""
+    # Arrange
+    kosong = _ok(_reply(("a", True)))
+    kosong.model_version = "  "
+    tanpa_atribut = SimpleNamespace(
+        text=_reply(("a", True)), error=None, failure_kind=None, input_tokens=1, output_tokens=1
+    )
+    judge = _ScriptedJudge([kosong, tanpa_atribut])
+
+    # Act
+    hasil = run_judge(judge, _INPUTS, repetitions=1)
+
+    # Assert
+    assert [baris.model_version for baris in hasil.rows] == [None, None]
