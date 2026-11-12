@@ -384,13 +384,15 @@ class StartRequest(SummaryRequest):
         min_length=1, max_length=_PANJANG_LABEL, description="Nama sesi, wajib, maksimal 200"
     )
     purpose: MeasurementPurpose = Field(description="official = Pengukuran Resmi, trial = Uji Coba")
-    # AC1, D3 langkah 19. Wajib sejak PBI-14: sesi tanpa penilai tidak punya skor kualitas dan
-    # format. Tidak ada penilai bawaan, pilihannya hanya dari penilai yang sudah terdaftar;
-    # StartSessionService memeriksa penilai ada dan aktif (SCRUM-258).
-    judge_provider_id: uuid.UUID = Field(
+    # K-14 (SCRUM-281): penilai dipilih di langkah penilaian (GradeSessionRequest), karena satu
+    # sesi bisa dinilai beberapa penilai (SCRUM-280). Field tetap diterima untuk klien lama;
+    # bila diisi, StartSessionService tetap memeriksa penilai ada dan aktif (SCRUM-258).
+    judge_provider_id: uuid.UUID | None = Field(
+        default=None,
         description=(
-            "Provider penilai (LLM judge) dari GET /judge-providers. Wajib; penilai yang "
-            "tidak dikenal atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
+            "Opsional. Penilai bawaan sesi dari GET /judge-providers; penilai dipilih saat "
+            "menilai (POST /measurements/{id}/grade). Bila diisi, penilai yang tidak dikenal "
+            "atau nonaktif ditolak 422 JUDGE_PROVIDER_NOT_AVAILABLE"
         ),
     )
 
@@ -669,7 +671,8 @@ class GradeSessionRequest(BaseModel):
         default=None,
         description=(
             "LLM judge untuk penilaian ini: produk AI otomatis yang aktif. Bila kosong, "
-            "memakai judge sesi. Judge lain ditolak 422 JUDGE_NOT_ELIGIBLE (SCRUM-280)."
+            "memakai judge sesi. Judge lain ditolak 422 JUDGE_NOT_ELIGIBLE (SCRUM-280). "
+            "Tanpa judge di sini maupun di sesi ditolak 422 JUDGE_REQUIRED (SCRUM-281)."
         ),
     )
 

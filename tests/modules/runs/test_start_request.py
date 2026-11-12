@@ -124,32 +124,19 @@ def test_label_dan_tujuan_tidak_boleh_dihilangkan(kolom):
         schemas.StartRequest(**body)
 
 
-def test_provider_penilai_wajib_dikirim():
-    """Negatif: PBI-14, sesi tanpa penilai menghasilkan skor kosong, jadi kuncinya wajib ada."""
-    # Arrange
-    body = _body()
-    del body["judge_provider_id"]
-
-    # Act
-    with pytest.raises(ValidationError) as galat:
-        schemas.StartRequest(**body)
-
-    # Assert
-    assert galat.value.errors()[0]["loc"] == ("judge_provider_id",)
-    assert galat.value.errors()[0]["type"] == "missing"
-
-
-def test_provider_penilai_null_ditolak():
-    """Negatif: null eksplisit sama dengan tidak memilih, dan ditolak."""
+@pytest.mark.parametrize("kosong", ["tanpa-kunci", "null-eksplisit"])
+def test_provider_penilai_boleh_kosong_saat_membuat_sesi(kosong):
+    """Positif: K-14 (SCRUM-281), penilai dipilih saat menilai, bukan saat membuat sesi."""
     # Arrange
     body = _body(judge_provider_id=None)
+    if kosong == "tanpa-kunci":
+        del body["judge_provider_id"]
 
     # Act
-    with pytest.raises(ValidationError) as galat:
-        schemas.StartRequest(**body)
+    request = schemas.StartRequest(**body)
 
     # Assert
-    assert galat.value.errors()[0]["loc"] == ("judge_provider_id",)
+    assert request.judge_provider_id is None
 
 
 def test_provider_penilai_yang_dipilih_diterima():

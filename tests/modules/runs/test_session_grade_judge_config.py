@@ -11,9 +11,12 @@ import uuid
 from unittest.mock import MagicMock
 
 import pytest
+from sqlalchemy import select
 
+from app.modules.grading.models import GradingRun
 from app.modules.runs import session_grade
 from app.modules.runs.session_grade import grade_session
+from app.shared.exceptions import ValidationError
 from app.shared.security import Role
 from tests.modules.runs.test_session_grade import (  # noqa: F401  (fixture)
     _setup_sesi_lengkap,
@@ -97,25 +100,26 @@ def test_penilai_terdaftar_dimuat_dari_database(monkeypatch):
     assert dimuat is ikatan
 
 
-def test_grade_sesi_tanpa_penilai_menandai_percobaan_gangguan_teknis(
+def test_grade_sesi_tanpa_penilai_ditolak_judge_required_tanpa_run(
     db_session,
     produk,  # noqa: F811
     pembuat,  # noqa: F811
 ):
-    """Negatif: percobaan tidak diberi skor dan alasannya terbaca di penjelasan."""
+    """Negatif: K-14 (SCRUM-281), tanpa penilai di permintaan maupun sesi, penilaian ditolak
+    sebelum ada run yang semua percobaannya gagal judge_not_configured."""
     # Arrange
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat)
     sesi.judge_provider_id = None
     db_session.commit()
 
     # Act
-    hasil = grade_session(db_session, sesi.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
+    with pytest.raises(ValidationError) as galat:
+        grade_session(db_session, sesi.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
 
     # Assert
-    percobaan = hasil.cases[0].attempts[0]
-    assert percobaan.is_technical_disruption is True
-    assert percobaan.score is None
-    assert percobaan.explanation == "judge_not_configured"
+    assert galat.value.code == "JUDGE_REQUIRED"
+    assert galat.value.field == "judge_provider_id"
+    assert db_session.scalars(select(GradingRun)).first() is None
 
 
 @pytest.mark.parametrize("galat", ["judge_not_configured", "judge_unavailable"])

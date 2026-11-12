@@ -71,7 +71,7 @@ from app.modules.runs.session_grade import (
     score_deterministic_citations,
     score_judge_criteria,
 )
-from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError
+from app.shared.exceptions import ConflictError, ForbiddenError, InternalError, NotFoundError
 from app.shared.security import Role
 from tests.modules.providers.test_product_lists import _otomatis
 from tests.modules.runs.test_session_list_endpoint import _sesi
@@ -824,9 +824,10 @@ def test_post_grade_sesi_tidak_ada_ditolak_404(as_role):
     assert res.json()["code"] == "MEASUREMENT_NOT_FOUND"
 
 
-def test_get_results_sesi_berjalan_hanya_admin(as_role, db_session, produk, pembuat):
+def test_get_results_sesi_berjalan_hanya_admin(as_role, db_session, produk, pembuat, monkeypatch):
     """AC8: Hasil sesi berjalan hanya dapat dilihat Admin; Viewer & Dev AI 403."""
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.RUNNING)
+    pasang_penilai_tiruan(db_session, sesi, monkeypatch)
 
     # Pemicu nilai oleh Admin
     post_res = as_role(Role.ADMIN).post(f"/measurements/{sesi.id}/grade", json={})
@@ -945,9 +946,12 @@ def test_regrade_via_api(as_role, db_session, produk, pembuat, monkeypatch):
     assert res_unknown.status_code == 404
 
 
-def test_get_grade_endpoint_is_not_allowed_for_read(as_role, db_session, produk, pembuat):
+def test_get_grade_endpoint_is_not_allowed_for_read(
+    as_role, db_session, produk, pembuat, monkeypatch
+):
     """GET /measurements/{id}/grade tidak tersedia sebagai alias baca hasil (hanya GET /results)."""
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    pasang_penilai_tiruan(db_session, sesi, monkeypatch)
     admin = as_role(Role.ADMIN)
     admin.post(f"/measurements/{sesi.id}/grade", json={})
 
@@ -1114,10 +1118,11 @@ def test_db_grading_store_persists_across_instances(db_session, produk, pembuat)
 
 
 def test_judge_error_dari_call_logs_terdeteksi_gangguan_teknis(
-    as_role, db_session, produk, pembuat
+    as_role, db_session, produk, pembuat, monkeypatch
 ):
     """Error penilai LLM pada CallLog database terdeteksi sebagai gangguan teknis (AC4)."""
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    pasang_penilai_tiruan(db_session, sesi, monkeypatch)
     attempts = db_session.scalars(select(Attempt).where(Attempt.session_id == sesi.id)).all()
     target_attempt = attempts[0]
 
@@ -1149,10 +1154,11 @@ def test_judge_error_dari_call_logs_terdeteksi_gangguan_teknis(
 
 
 def test_grade_session_commits_trigger_and_timestamp_audit_record(
-    as_role, db_session, produk, pembuat
+    as_role, db_session, produk, pembuat, monkeypatch
 ):
     """Pemicu dan waktu penilaian tersimpan dan ter-commit otomatis di database (AC6, AC7)."""
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    pasang_penilai_tiruan(db_session, sesi, monkeypatch)
     admin = as_role(Role.ADMIN)
 
     res = admin.post(f"/measurements/{sesi.id}/grade", json={"rubric_version": "v1"})
@@ -1406,6 +1412,7 @@ def test_edge_cases_and_error_handling(db_session, produk, pembuat, monkeypatch)
 
     # 15. grade_session with non-DbGradingStore
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat)
+    pasang_penilai_tiruan(db_session, sesi, monkeypatch)
     mem_store_custom = MemoryGradingStore()
     resp_mem = grade_session(
         db_session,
@@ -1417,9 +1424,10 @@ def test_edge_cases_and_error_handling(db_session, produk, pembuat, monkeypatch)
     assert resp_mem.grading_run_id is not None
 
 
-def test_session_label_and_product_name_in_results(db_session, produk, pembuat):
+def test_session_label_and_product_name_in_results(db_session, produk, pembuat, monkeypatch):
     """Memastikan session_label dan product_name tercantum di hasil penilaian (SCRUM-226/227)."""
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    pasang_penilai_tiruan(db_session, sesi, monkeypatch)
     graded = grade_session(db_session, sesi.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
 
     assert graded.session_label == sesi.label
@@ -1440,7 +1448,7 @@ def test_session_label_and_product_name_in_results(db_session, produk, pembuat):
     assert fetched_fallback.product_name == produk.name
 
 
-def test_list_graded_sessions_logic(db_session, produk, pembuat):
+def test_list_graded_sessions_logic(db_session, produk, pembuat, monkeypatch):
     """Memastikan list_graded_sessions hanya mengembalikan sesi selesai yang memiliki hasil penilaian."""
     # 1. Saat belum ada sesi selesai dinilai -> []
     assert list_graded_sessions(db_session, viewer_role=Role.VIEWER) == []
@@ -1459,6 +1467,7 @@ def test_list_graded_sessions_logic(db_session, produk, pembuat):
     assert list_graded_sessions(db_session, viewer_role=Role.ADMIN) == []
 
     # 5. Sesi selesai dan sudah dinilai -> masuk
+    pasang_penilai_tiruan(db_session, sesi_finished, monkeypatch)
     grade_session(db_session, sesi_finished.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
     results = list_graded_sessions(db_session, viewer_role=Role.VIEWER)
     assert len(results) == 1
@@ -1492,9 +1501,10 @@ def test_list_graded_sessions_logic(db_session, produk, pembuat):
     assert any(r.session_id == sesi_audit.id and r.rubric_version == "v2" for r in audit_results)
 
 
-def test_list_graded_sessions_api_endpoints(as_role, db_session, produk, pembuat):
+def test_list_graded_sessions_api_endpoints(as_role, db_session, produk, pembuat, monkeypatch):
     """Memastikan endpoint canonical GET /results/sessions dapat diakses Viewer, alias lama 404."""
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    pasang_penilai_tiruan(db_session, sesi, monkeypatch)
     grade_session(db_session, sesi.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
 
     # Viewer can access canonical GET /results/sessions
@@ -1551,8 +1561,8 @@ _BALASAN_PENILAI = (
 def pasang_penilai_tiruan(db_session, sesi, monkeypatch) -> None:
     """Beri sesi penilai terdaftar dan ganti pemuatnya dengan asker tiruan (PBI-14).
 
-    Sesi tanpa penilai kini menjadi gangguan teknis tanpa skor, jadi tes yang menilai
-    lewat endpoint harus memilih penilai seperti sesi nyata.
+    Sejak SCRUM-281 penilaian tanpa penilai sama sekali ditolak 422 JUDGE_REQUIRED, jadi
+    tes yang menilai harus memilih penilai seperti sesi nyata.
     """
     sesi.judge_provider_id = uuid.uuid4()
     db_session.commit()
@@ -1565,6 +1575,21 @@ def pasang_penilai_tiruan(db_session, sesi, monkeypatch) -> None:
     )
     monkeypatch.setattr("app.modules.providers.judge_service.build_judge", lambda db, j: ikatan)
     app.dependency_overrides[get_exchange_rate] = lambda: ConfiguredExchangeRate(Decimal("16000"))
+
+
+def pasang_penilai_rusak(db_session, sesi, monkeypatch) -> None:
+    """Beri sesi penilai yang gagal dimuat, sehingga semua percobaan judge_unavailable.
+
+    Pengganti sesi tanpa penilai untuk tes run gagal: sejak SCRUM-281 sesi tanpa penilai
+    ditolak 422 sebelum ada run.
+    """
+    sesi.judge_provider_id = uuid.uuid4()
+    db_session.commit()
+
+    def gagal(db, judge_id):
+        raise InternalError("judge credential unavailable")
+
+    monkeypatch.setattr("app.modules.providers.judge_service.build_judge", gagal)
 
 
 def test_llm_judge_integration_and_d6_persistence(db_session, produk, pembuat):
