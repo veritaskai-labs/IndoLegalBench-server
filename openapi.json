@@ -4115,7 +4115,7 @@
             }
           },
           "422": {
-            "description": "LLM judge yang dipilih bukan produk AI otomatis yang aktif (`JUDGE_NOT_ELIGIBLE`).",
+            "description": "LLM judge yang dipilih bukan produk AI otomatis yang aktif (`JUDGE_NOT_ELIGIBLE`). Body yang bentuknya tidak valid tetap dijawab `detail` bawaan FastAPI.",
             "content": {
               "application/json": {
                 "schema": {
