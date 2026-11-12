@@ -199,6 +199,45 @@ def test_tanpa_judge_di_permintaan_memakai_judge_sesi(
     assert run.judge_provider_id == penilai.a.id
 
 
+def test_sesi_tanpa_judge_dinilai_dengan_judge_pilihan_admin(
+    as_role, db_session, produk, pembuat, penilai, pasang_penilai
+):
+    """Positif: K-14 (SCRUM-281), sesi dibuat tanpa judge; judge dipilih di langkah penilaian."""
+    # Arrange
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    pasang_penilai(sesi)
+    sesi.judge_provider_id = None
+    db_session.commit()
+
+    # Act
+    res = as_role(Role.ADMIN).post(_grade(sesi.id), json={"judge_provider_id": str(penilai.b.id)})
+
+    # Assert
+    assert res.status_code == 200, res.text
+    assert res.json()["judge"]["judge_provider_id"] == str(penilai.b.id)
+
+
+@pytest.mark.parametrize("badan", [{}, {"judge_provider_id": None}])
+def test_tanpa_judge_di_permintaan_maupun_sesi_ditolak_422_tanpa_run(
+    badan, as_role, db_session, produk, pembuat, pasang_penilai
+):
+    """Negatif: K-14 (SCRUM-281), tanpa judge sama sekali penilaian ditolak sebelum ada
+    panggilan atau run, bukan run yang semua percobaannya gagal judge_not_configured."""
+    # Arrange
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    pasang_penilai(sesi)
+    sesi.judge_provider_id = None
+    db_session.commit()
+
+    # Act
+    res = as_role(Role.ADMIN).post(_grade(sesi.id), json=badan)
+
+    # Assert
+    assert res.status_code == 422
+    assert res.json()["code"] == "JUDGE_REQUIRED"
+    assert db_session.scalar(select(func.count()).select_from(GradingRun)) == 0
+
+
 @pytest.mark.parametrize("jenis", ["manual", "nonaktif", "tidak_ada"])
 def test_judge_tidak_layak_ditolak_422_tanpa_membuat_run(
     jenis, as_role, db_session, produk, pembuat, pasang_penilai

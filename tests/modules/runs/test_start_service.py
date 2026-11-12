@@ -293,6 +293,20 @@ def test_penilai_tidak_tersedia_ditolak_422_tanpa_sesi():
     assert antrean.dibuat == []
 
 
+def test_sesi_tanpa_penilai_tidak_mengunci_penilai_dan_tersimpan_kosong():
+    """Positif: K-14 (SCRUM-281), sesi otomatis dibuat tanpa penilai; penilai dipilih saat menilai."""
+    # Arrange
+    penilai = _Penilai()
+    start, _, antrean = _service(penilai=penilai)
+
+    # Act
+    start.start(_permintaan(judge_provider_id=None), created_by=ADMIN_ID)
+
+    # Assert
+    assert penilai.dikunci == []
+    assert antrean.dibuat[0].judge_provider_id is None
+
+
 def test_produk_manual_ditolak_sebelum_penilai_diperiksa():
     """Edge: galat produk lebih dulu, jadi Admin memperbaiki pilihan dari atas form."""
     # Arrange

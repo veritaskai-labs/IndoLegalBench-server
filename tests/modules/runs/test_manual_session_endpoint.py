@@ -316,8 +316,8 @@ def test_sesi_manual_menyimpan_penilai_terdaftar(siap_manual):
     assert sesi.judge_provider_id == judge
 
 
-def test_sesi_manual_tanpa_penilai_ditolak_422_dan_tidak_membuat_sesi(siap_manual):
-    """Negatif: PBI-14, sesi manual juga wajib memilih penilai dari daftar."""
+def test_sesi_manual_tanpa_penilai_dibuat_dengan_penilai_kosong(siap_manual):
+    """Positif: K-14 (SCRUM-281), sesi manual dibuat tanpa penilai; dipilih saat menilai."""
     # Arrange
     client = siap_manual.sebagai(Role.ADMIN)
     badan = _badan(siap_manual)
@@ -327,5 +327,6 @@ def test_sesi_manual_tanpa_penilai_ditolak_422_dan_tidak_membuat_sesi(siap_manua
     respons = client.post(URL, json=badan)
 
     # Assert
-    assert respons.status_code == 422
-    assert _jumlah(siap_manual.db, MeasurementSession) == 0
+    assert respons.status_code == 201, respons.text
+    sesi = siap_manual.db.get(MeasurementSession, uuid.UUID(respons.json()["session_id"]))
+    assert sesi.judge_provider_id is None

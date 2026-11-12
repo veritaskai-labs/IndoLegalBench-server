@@ -367,6 +367,20 @@ def test_sesi_manual_menyimpan_penilai_aktif_yang_dikunci(modul):
     assert penyimpan.dibuat[0][0].judge_provider_id == JUDGE_ID
 
 
+def test_sesi_manual_tanpa_penilai_tersimpan_kosong_tanpa_kunci(modul):
+    """Positif: K-14 (SCRUM-281), sesi manual juga boleh dibuat tanpa penilai."""
+    # Arrange
+    penilai = _Penilai()
+    layanan, penyimpan = _service(modul, penilai=penilai)
+
+    # Act
+    layanan.create(_permintaan(judge_provider_id=None), created_by=ADMIN_ID)
+
+    # Assert
+    assert penilai.dikunci == []
+    assert penyimpan.dibuat[0][0].judge_provider_id is None
+
+
 def test_sesi_manual_dengan_penilai_tidak_tersedia_ditolak_tanpa_sesi(modul):
     """Negatif: 422 dengan code dan field yang sama seperti Mulai otomatis, bukan 500 FK."""
     layanan, penyimpan = _service(modul, penilai=_Penilai(aktif=frozenset()))

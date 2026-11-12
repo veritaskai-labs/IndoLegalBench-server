@@ -71,8 +71,9 @@ def test_sesi_tidak_bisa_dihapus_lewat_http(siap):
 
 
 @pytest.mark.parametrize("kosong", ["null-eksplisit", "tanpa-kunci"])
-def test_penilai_kosong_ditolak_422_dan_tidak_membuat_sesi(siap, kosong):
-    """Negatif: PBI-14, sesi tanpa penilai dulu tersimpan dan dinilai kosong; sekarang 422."""
+def test_sesi_tanpa_penilai_dibuat_dengan_penilai_kosong(siap, kosong):
+    """Positif: K-14 (SCRUM-281), penilai tidak lagi dipilih saat membuat sesi; sesi tetap
+    dibuat dan penilainya dipilih Admin di langkah penilaian."""
     # Arrange
     client = siap.sebagai(Role.ADMIN)
     badan = _badan(siap, judge_provider_id=None)
@@ -83,8 +84,9 @@ def test_penilai_kosong_ditolak_422_dan_tidak_membuat_sesi(siap, kosong):
     response = client.post(URL, json=badan)
 
     # Assert
-    assert response.status_code == 422
-    assert _jumlah_sesi(siap.db) == 0
+    assert response.status_code == 201, response.text
+    tersimpan = siap.db.get(MeasurementSession, uuid.UUID(response.json()["session_id"]))
+    assert tersimpan.judge_provider_id is None
 
 
 def test_penilai_berupa_nama_model_ditolak_422(siap):
