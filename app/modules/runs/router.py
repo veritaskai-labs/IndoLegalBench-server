@@ -24,11 +24,14 @@ from app.modules.runs.dependencies import (
     get_session_list_service,
     get_start_service,
     get_summary_service,
+    get_token_counter,
 )
 from app.modules.runs.exchange_rate import ExchangeRateProvider
+from app.modules.runs.grade_estimate_service import estimate_session_grade
 from app.modules.runs.schemas import (
     AttemptCalls,
     GradedSessionListItem,
+    GradeEstimateResponse,
     GradeSessionRequest,
     GradingRunSummary,
     ProgressResponse,
@@ -61,6 +64,8 @@ from app.modules.runs.session_grade import (
 from app.modules.runs.session_list import SessionListService
 from app.modules.runs.session_retry import retry_failed_attempts
 from app.modules.runs.session_unarchive import unarchive_session
+from app.modules.runs.tokenizer import TokenCounter
+from app.shared.config import Settings, get_settings
 from app.shared.database import get_db
 from app.shared.security import CurrentUser, Role, get_current_user, require_roles
 
@@ -423,6 +428,38 @@ _RESPONS_GRADE = {
     },
 }
 
+_RESPONS_GRADE_ESTIMATE = {
+    403: {
+        "model": ErrorBody,
+        "description": "Hanya Admin yang dapat melihat perkiraan biaya penilaian (`FORBIDDEN`).",
+    },
+    404: {
+        "model": ErrorBody,
+        "description": (
+            "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`), versi rubrik tidak ada "
+            "(`RUBRIC_VERSION_NOT_FOUND`), atau produk judge sesi bukan produk AI otomatis "
+            "(`JUDGE_PROVIDER_NOT_FOUND`)."
+        ),
+    },
+    409: {
+        "model": ErrorBody,
+        "description": (
+            "Sesi belum bisa dinilai, aturannya sama dengan tombol Nilai: diarsipkan "
+            "(`SESSION_ARCHIVED`), dalam antrean (`SESSION_NOT_GRADABLE`), atau sesi manual "
+            "yang masih ada jawaban kosong (`NOT_COMPLETE`)."
+        ),
+    },
+    422: {
+        "model": ErrorBody,
+        "description": (
+            "LLM judge bukan produk AI otomatis yang aktif (`JUDGE_NOT_ELIGIBLE`), sesi tidak "
+            "punya judge dan tidak ada yang dipilih (`JUDGE_NOT_CONFIGURED`), atau harga token "
+            "masuk atau keluar produk judge belum lengkap (`JUDGE_PRICING_MISSING`). Body yang "
+            "bentuknya tidak valid tetap dijawab `detail` bawaan FastAPI."
+        ),
+    },
+}
+
 _RESPONS_GRADING_RUNS = {
     403: {
         "model": ErrorBody,
@@ -502,6 +539,38 @@ def trigger_grade_endpoint(
         actor_role=user.role,
         now=datetime.now(UTC),
         rates=rates,
+    )
+
+
+@router.post(
+    "/{session_id}/grade/estimate",
+    response_model=GradeEstimateResponse,
+    summary="Perkiraan biaya penilaian sebelum tombol Nilai (Admin)",
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+    responses=_RESPONS_GRADE_ESTIMATE,
+)
+def estimate_grade_endpoint(
+    session_id: uuid.UUID,
+    payload: GradeSessionRequest | None = None,
+    user: CurrentUser = Depends(require_roles(Role.ADMIN)),
+    db: Session = Depends(get_db),
+    rates: ExchangeRateProvider = Depends(get_exchange_rate),
+    counter: TokenCounter = Depends(get_token_counter),
+    settings: Settings = Depends(get_settings),
+) -> GradeEstimateResponse:
+    """Berapa percobaan, panggilan judge, token, dan rupiah yang akan terpakai bila Nilai ditekan.
+
+    Body sama dengan POST /grade. Tidak memanggil judge dan tidak menyimpan apa pun (SCRUM-286).
+    """
+    return estimate_session_grade(
+        db,
+        session_id,
+        payload,
+        actor_role=user.role,
+        rates=rates,
+        counter=counter,
+        output_tokens_per_call=settings.judge_estimate_output_tokens,
+        now=datetime.now(UTC),
     )
 
 

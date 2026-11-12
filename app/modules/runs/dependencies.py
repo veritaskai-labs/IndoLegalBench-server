@@ -48,7 +48,7 @@ from app.modules.runs.service import (
 from app.modules.runs.session_detail import SessionDetailService
 from app.modules.runs.session_list import SessionListService
 from app.modules.runs.session_ports import SessionQueueStore
-from app.modules.runs.tokenizer import TiktokenCounter
+from app.modules.runs.tokenizer import TiktokenCounter, TokenCounter
 from app.modules.runs.worker import run_next
 from app.shared.config import Settings, get_settings
 from app.shared.database import get_db
@@ -63,6 +63,11 @@ def get_exchange_rate() -> ExchangeRateProvider:
         api_key=settings.jisdor_api_key,
         fallback=ConfiguredExchangeRate(settings.cost_usd_idr_fallback_rate),
     )
+
+
+def get_token_counter() -> TokenCounter:
+    """Penghitung token untuk perkiraan biaya penilaian. Titik ganti untuk test."""
+    return TiktokenCounter()
 
 
 def get_summary_service(
