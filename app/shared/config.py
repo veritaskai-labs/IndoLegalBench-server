@@ -92,6 +92,10 @@ class Settings(BaseSettings):
     # Aturan perkiraan biaya saat belum ada riwayat pengukuran masih TBA (PBI-11 AC5).
     # Tanpa nilai bawaan: kosong berarti 500 untuk produk yang belum punya riwayat.
     cost_default_avg_answer_tokens: Decimal | None = Field(default=None, gt=0)
+    # SCRUM-286: perkiraan token jawaban judge per panggilan (kualitas dan format) untuk
+    # perkiraan biaya sebelum Nilai. Bukan harga, jadi ada nilai bawaan; sesuaikan bila
+    # jawaban judge nyata jauh lebih pendek atau panjang.
+    judge_estimate_output_tokens: int = Field(default=300, gt=0)
     # Kurs harian JISDOR lewat layanan pihak ketiga. Key tanpa nilai bawaan:
     # kosong berarti tidak ada panggilan, dan kurs cadangan yang dipakai.
     jisdor_api_url: str = "https://allratestoday.com/api/v1/central-bank/bi/latest"
