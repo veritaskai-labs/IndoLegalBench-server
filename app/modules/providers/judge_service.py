@@ -133,6 +133,37 @@ def build_judge(db: Session, judge_id: uuid.UUID) -> JudgeBinding:
     )
 
 
+@dataclass(frozen=True)
+class JudgePricing:
+    """Harga token dan batas bulanan produk penilai, tanpa adapter dan tanpa kredensial.
+
+    Untuk perkiraan biaya (SCRUM-286): bentuknya cocok dengan yang dibaca open_judge_meter dari
+    JudgeBinding, jadi harga dan anggaran yang dihitung sama dengan penilaian sungguhan.
+    """
+
+    judge_provider_id: uuid.UUID
+    provider_type: str
+    price_input_usd_per_mtok: Decimal | None
+    price_output_usd_per_mtok: Decimal | None
+    monthly_budget_idr: Decimal
+
+
+def judge_pricing(db: Session, judge_id: uuid.UUID) -> JudgePricing:
+    """Harga dan anggaran produk penilai. Kredensial tidak pernah dibuka (beda dengan build_judge).
+
+    Produk yang sah sama dengan build_judge: hanya produk AI otomatis. Aktif atau tidaknya
+    dicek saat memilih judge (is_eligible_judge), bukan di sini.
+    """
+    produk = _produk_penilai(db, judge_id)
+    return JudgePricing(
+        judge_provider_id=produk.id,
+        provider_type=produk.provider_type.value,
+        price_input_usd_per_mtok=produk.price_input_usd_per_mtok,
+        price_output_usd_per_mtok=produk.price_output_usd_per_mtok,
+        monthly_budget_idr=produk.monthly_budget_idr,
+    )
+
+
 def judge_names(db: Session, judge_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
     """Nama penilai untuk kolom Objek audit log (PBI-18 F-06), termasuk yang nonaktif."""
     if not judge_ids:

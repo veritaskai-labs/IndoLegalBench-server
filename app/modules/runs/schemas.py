@@ -825,3 +825,26 @@ class EvidenceRead(BaseModel):
     url: str | None = Field(description="Tautan bukti; null untuk berkas")
     uploaded_by: uuid.UUID
     uploaded_at: UtcDateTime
+
+
+class GradeEstimateResponse(BaseModel):
+    """Perkiraan biaya penilaian sebelum tombol Nilai (PBI-14 AC6, SCRUM-286). Uang berupa string.
+
+    Percobaan gangguan teknis (jawaban kosong, AI menolak) tidak dihitung karena tidak dikirim ke
+    judge. Harga dan kurs sama dengan biaya nyata penilaian.
+    """
+
+    judge_provider_id: uuid.UUID = Field(
+        description="Judge yang dipakai: pilihan Admin atau judge sesi"
+    )
+    rubric_version: str = Field(description="Versi rubrik yang akan dipakai, mis. 'v1'")
+    attempts_to_grade: int = Field(description="Percobaan yang akan dikirim ke judge")
+    judge_calls: int = Field(description="Dua panggilan judge per percobaan: kualitas dan format")
+    estimated_input_tokens: int = Field(description="Perkiraan token prompt ke judge")
+    estimated_output_tokens: int = Field(description="Perkiraan token jawaban judge")
+    estimated_cost_idr: Decimal = Field(description="Perkiraan biaya dalam rupiah, dua desimal")
+    usd_idr_rate: Decimal = Field(description="Kurs rupiah per USD yang dipakai hari ini")
+    remaining_budget_idr: Decimal = Field(
+        description="Sisa anggaran bulan ini untuk produk judge, tidak pernah negatif"
+    )
+    budget_sufficient: bool = Field(description="Perkiraan biaya tidak melebihi sisa anggaran")
