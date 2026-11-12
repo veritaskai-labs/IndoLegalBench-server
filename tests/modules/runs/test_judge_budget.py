@@ -166,3 +166,30 @@ def test_usage_diambil_dari_baris_judge():
         failure_kind="provider_error",
         model_version="judge-model-1",
     )
+
+
+def test_meter_melaporkan_sisa_anggaran_dan_memotongnya_tiap_panggilan():
+    """Positif: sisa adalah batas dikurangi pengeluaran, lalu berkurang oleh tiap biaya panggilan."""
+    # Arrange
+    meter = open_judge_meter(
+        binding=_ikatan(budget="1000"), spent_idr=Decimal("400"), rates=_Rates()
+    )
+
+    # Act
+    sebelum = meter.remaining_idr
+    meter.charge(Decimal("1.36"))
+
+    # Assert
+    assert sebelum == Decimal("600")
+    assert meter.remaining_idr == Decimal("598.64")
+
+
+def test_meter_melaporkan_sisa_negatif_apa_adanya_saat_terlampaui():
+    """Edge: pengeluaran di atas batas menjadi sisa negatif, pembulatan ke nol urusan pemakai."""
+    # Act
+    meter = open_judge_meter(
+        binding=_ikatan(budget="100"), spent_idr=Decimal("250"), rates=_Rates()
+    )
+
+    # Assert
+    assert meter.remaining_idr == Decimal("-150")
