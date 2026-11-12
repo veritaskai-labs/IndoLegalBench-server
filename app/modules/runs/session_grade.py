@@ -89,6 +89,7 @@ MEASUREMENT_NOT_FOUND_MESSAGE = "Pengukuran tidak ditemukan."
 ACTION_MEASUREMENT_SESSION_GRADED = "measurement_session.graded"
 ACTION_MEASUREMENT_SESSION_REGRADED = "measurement_session.regraded"
 JUDGE_NOT_ELIGIBLE = "JUDGE_NOT_ELIGIBLE"
+JUDGE_REQUIRED = "JUDGE_REQUIRED"
 GRADING_RUN_NOT_FOUND = "GRADING_RUN_NOT_FOUND"
 REASON_CRITERION_UNMET = "criterion_unmet"
 _MAX_REFUSAL_LENGTH = 250
@@ -2122,6 +2123,14 @@ def grade_session(
     now = now or datetime.now(UTC)
 
     judge_id = resolve_judge_id(db, session, payload.judge_provider_id if payload else None)
+    if judge_id is None and judge_asker is None:
+        # K-14 (SCRUM-281): sesi boleh dibuat tanpa penilai, jadi Admin wajib memilihnya di
+        # sini. Ditolak sebelum ada panggilan berbayar atau run yang semua percobaannya gagal.
+        raise ValidationError(
+            "Pilih LLM judge untuk penilaian ini.",
+            code=JUDGE_REQUIRED,
+            field="judge_provider_id",
+        )
     grading_store = store or DbGradingStore(db)
     cases = _load_case_grade_inputs(db, session_id)
 

@@ -86,10 +86,13 @@ def test_admin_melihat_penilaian_pertama_dan_nilai_ulang_terbaru_di_atas(
     assert baris[0]["grading_run_id"] == nilai_ulang.json()["grading_run_id"]
 
 
-def test_baris_riwayat_tidak_membawa_rincian_kasus(as_role, db_session, produk, pembuat):
+def test_baris_riwayat_tidak_membawa_rincian_kasus(
+    as_role, db_session, produk, pembuat, monkeypatch
+):
     """Positif: hanya ringkasan; kasus dan jawaban mentah tidak ikut terkirim."""
     # Arrange
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    pasang_penilai_tiruan(db_session, sesi, monkeypatch)
     admin = as_role(Role.ADMIN)
     admin.post(_url(sesi.id).replace("grading-runs", "grade"), json={})
 

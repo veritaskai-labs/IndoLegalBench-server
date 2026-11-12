@@ -28,6 +28,7 @@ from app.shared.security import Role
 from tests.modules.runs.test_session_grade import (  # noqa: F401
     _MockJudgeAsker,
     _setup_sesi_lengkap,
+    pasang_penilai_rusak,
     pembuat,
     produk,
 )
@@ -96,16 +97,16 @@ def test_run_dengan_satu_skor_tetap_completed():
     assert hasil.is_latest is True
 
 
-def test_sesi_tanpa_penilai_disimpan_failed_dan_tidak_menjadi_terbaru(
+def test_penilai_tidak_tersedia_disimpan_failed_dan_tidak_menjadi_terbaru(
     db_session,
     produk,  # noqa: F811
     pembuat,  # noqa: F811
+    monkeypatch,
 ):
     """Negatif: run gagal tersimpan di riwayat, tetapi bukan hasil terbaru."""
     # Arrange
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat)
-    sesi.judge_provider_id = None
-    db_session.commit()
+    pasang_penilai_rusak(db_session, sesi, monkeypatch)
 
     # Act
     hasil = grade_session(db_session, sesi.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
@@ -124,8 +125,9 @@ def test_nilai_ulang_gagal_tidak_menggeser_hasil_terbaru_yang_baik(
     db_session,
     produk,  # noqa: F811
     pembuat,  # noqa: F811
+    monkeypatch,
 ):
-    """Edge: nilai ulang tanpa penilai tidak boleh menghapus hasil bagus sebelumnya."""
+    """Edge: nilai ulang yang penilainya gagal dimuat tidak boleh menghapus hasil bagus sebelumnya."""
     # Arrange
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat)
     pertama = grade_session(
@@ -135,8 +137,7 @@ def test_nilai_ulang_gagal_tidak_menggeser_hasil_terbaru_yang_baik(
         actor_role=Role.ADMIN,
         judge_asker=_MockJudgeAsker(text=_BALASAN_PENILAI),
     )
-    sesi.judge_provider_id = None
-    db_session.commit()
+    pasang_penilai_rusak(db_session, sesi, monkeypatch)
 
     # Act
     kedua = grade_session(db_session, sesi.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
@@ -154,6 +155,7 @@ def test_hasil_terbaru_tetap_run_yang_bagus_setelah_nilai_ulang_gagal(
     db_session,
     produk,  # noqa: F811
     pembuat,  # noqa: F811
+    monkeypatch,
 ):
     """Negatif: GET /results tidak boleh menampilkan run gagal menggantikan hasil yang bagus."""
     # Arrange
@@ -165,8 +167,7 @@ def test_hasil_terbaru_tetap_run_yang_bagus_setelah_nilai_ulang_gagal(
         actor_role=Role.ADMIN,
         judge_asker=_MockJudgeAsker(text=_BALASAN_PENILAI),
     )
-    sesi.judge_provider_id = None
-    db_session.commit()
+    pasang_penilai_rusak(db_session, sesi, monkeypatch)
     grade_session(db_session, sesi.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
 
     # Act
@@ -183,12 +184,12 @@ def test_hasil_penilaian_pertama_yang_gagal_tetap_dikembalikan(
     db_session,
     produk,  # noqa: F811
     pembuat,  # noqa: F811
+    monkeypatch,
 ):
     """Edge: tanpa run yang bagus, run gagal tetap tampil supaya alasannya terbaca."""
     # Arrange
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat)
-    sesi.judge_provider_id = None
-    db_session.commit()
+    pasang_penilai_rusak(db_session, sesi, monkeypatch)
     gagal = grade_session(db_session, sesi.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
 
     # Act
