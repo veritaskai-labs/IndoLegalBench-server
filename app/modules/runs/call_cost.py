@@ -55,13 +55,7 @@ def _priced_tokens(tokens: int | None, price: Decimal | None, side: str) -> Deci
 
 
 def _unrated_bucket_rate(ordinary: Decimal | None) -> Decimal | None:
-    """Harga bagian cache yang belum punya tarif sendiri.
-
-    Aturan ini masih terbuka (rencana biaya nyata, "Open point"). Sekarang
-    bagian itu memakai tarif input biasa supaya baris Laporan tetap punya
-    angka rupiah. Mengembalikan None di sini membuat biaya panggilan kosong
-    bila Dra memilih aturan itu.
-    """
+    """Bagian cache tanpa tarif sendiri dihitung sebagai token input biasa."""
     return ordinary
 
 
@@ -75,15 +69,48 @@ def actual_cost_idr(
     usage: TokenUsage | None = None,
     cache_rates: CacheRates | None = None,
 ) -> Decimal | None:
-    """Token kali harga per juta, kali kurs. Keduanya kosong berarti biaya kosong."""
+    """Token kali harga per juta, kali kurs. Keduanya kosong berarti biaya kosong.
+
+    cache_rates boleh kosong. Tanpa tarif cache, token yang penyedia tandai
+    sebagai cache tetap masuk ke jumlah input dan memakai tarif input.
+    """
+    rates = cache_rates or CacheRates()
     if usage is not None and _usage_reported(usage):
+        if not _cache_rate_given(rates):
+            return _input_output_cost(
+                usage.input_tokens,
+                usage.output,
+                usd_per_million_input_tokens,
+                usd_per_million_output_tokens,
+                usd_idr_rate,
+            )
         return _usage_cost_idr(
             usage,
             usd_per_million_input_tokens=usd_per_million_input_tokens,
             usd_per_million_output_tokens=usd_per_million_output_tokens,
-            cache_rates=cache_rates or CacheRates(),
+            cache_rates=rates,
             usd_idr_rate=usd_idr_rate,
         )
+    return _input_output_cost(
+        input_tokens,
+        output_tokens,
+        usd_per_million_input_tokens,
+        usd_per_million_output_tokens,
+        usd_idr_rate,
+    )
+
+
+def _cache_rate_given(rates: CacheRates) -> bool:
+    return any(rate is not None for rate in (rates.read, rates.write, rates.long))
+
+
+def _input_output_cost(
+    input_tokens: int | None,
+    output_tokens: int | None,
+    usd_per_million_input_tokens: Decimal | None,
+    usd_per_million_output_tokens: Decimal | None,
+    usd_idr_rate: Decimal,
+) -> Decimal | None:
     if input_tokens is None and output_tokens is None:
         return None
     parts = [

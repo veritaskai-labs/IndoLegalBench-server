@@ -1,8 +1,8 @@
 """Biaya dari usage yang sudah di-stub. Tidak ada panggilan penyedia.
 
-Bagian cache yang punya token tetapi belum punya tarif sendiri memakai tarif
-input biasa. Pilihan itu masih terbuka dan hanya hidup di satu fungsi. Angka 0
-tidak butuh tarif.
+Tarif cache boleh kosong. Kalau kosong, setiap token masukan — termasuk yang
+penyedia tandai sebagai cache — dihitung dengan tarif input biasa, dan token
+keluaran dengan tarif output. Angka 0 tidak butuh tarif.
 
 Setiap tes diberi label di docstring-nya:
 - Positif: perilaku yang memang diharapkan terjadi.
@@ -67,10 +67,37 @@ def test_deepseek_stub_prices_miss_at_the_input_rate():
 
 
 def test_cache_without_its_own_rate_uses_the_input_rate():
-    """Edge: tarif cache kosong memakai tarif input, supaya total rupiah tetap ada."""
+    """Edge: tarif cache kosong. Token cache ikut tarif input, bukan tarif cache."""
     usage = TokenUsage(uncached_input=0, cache_read=1_000_000, output=0)
 
     assert _cost(usage, read=None) == Decimal("10000.00")
+
+
+def _peak_cost(usage: TokenUsage | None, cache_rates: CacheRates | None = None) -> Decimal | None:
+    """Harga puncak DeepSeek per juta token: miss 0.30, output 1.20. Hit hanya bila diisi."""
+    return actual_cost_idr(
+        input_tokens=1692,
+        output_tokens=1,
+        usd_per_million_input_tokens=Decimal("0.30"),
+        usd_per_million_output_tokens=Decimal("1.20"),
+        usd_idr_rate=Decimal("18149.79"),
+        usage=usage,
+        cache_rates=cache_rates,
+    )
+
+
+def test_omitted_cache_prices_bill_cached_tokens_as_ordinary_input():
+    """Positif: tanpa argumen tarif cache, hit dan miss dijumlah sebagai input."""
+    usage = TokenUsage(uncached_input=156, cache_read=1536, output=1)
+
+    assert _peak_cost(usage) == _peak_cost(None) == Decimal("9.23")
+
+
+def test_peak_cache_hit_price_lowers_the_cached_portion():
+    """Positif: tarif hit puncak DeepSeek hanya dipakai bila diisi. Miss dan output tetap."""
+    usage = TokenUsage(uncached_input=156, cache_read=1536, output=1)
+
+    assert _peak_cost(usage, CacheRates(read=Decimal("0.006"))) == Decimal("1.04")
 
 
 def test_headline_input_is_not_charged_again():
