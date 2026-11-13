@@ -4429,9 +4429,9 @@
         "tags": [
           "results"
         ],
-        "summary": "Daftar sesi selesai yang telah dinilai untuk Admin, Viewer, dan Kontributor (SCRUM-226)",
-        "description": "Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin, Viewer, dan Kontributor.",
-        "operationId": "list_graded_sessions_endpoint_results_sessions_get",
+        "summary": "Daftar laporan, satu baris per grading run, untuk Admin, Viewer, dan Kontributor (SCRUM-296)",
+        "description": "Satu baris per grading run: nilai ulang menambah baris, baris lama tetap ada.",
+        "operationId": "list_graded_runs_endpoint_results_sessions_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -4439,10 +4439,10 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/GradedSessionListItem"
+                    "$ref": "#/components/schemas/GradedRunListItem"
                   },
                   "type": "array",
-                  "title": "Response List Graded Sessions Endpoint Results Sessions Get"
+                  "title": "Response List Graded Runs Endpoint Results Sessions Get"
                 }
               }
             }
@@ -8919,13 +8919,19 @@
         "title": "GradeSessionRequest",
         "description": "Pemicu penilaian manual oleh Admin (PBI-14 AC6, AC7)."
       },
-      "GradedSessionListItem": {
+      "GradedRunListItem": {
         "properties": {
+          "grading_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Grading Run Id",
+            "description": "ID grading run, unik per baris"
+          },
           "session_id": {
             "type": "string",
             "format": "uuid",
             "title": "Session Id",
-            "description": "ID sesi pengukuran"
+            "description": "ID sesi pengukuran yang dinilai"
           },
           "label": {
             "type": "string",
@@ -8935,42 +8941,69 @@
           "product_name": {
             "type": "string",
             "title": "Product Name",
-            "description": "Nama produk AI yang diuji"
+            "description": "Nama produk AI yang diukur"
           },
-          "finished_at": {
+          "session_type": {
+            "type": "string",
+            "enum": [
+              "automatic",
+              "manual"
+            ],
+            "title": "Session Type",
+            "description": "Jenis sesi pengukuran"
+          },
+          "judge": {
             "anyOf": [
               {
-                "type": "string",
-                "format": "date-time"
+                "$ref": "#/components/schemas/GradingJudge"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Finished At",
-            "description": "Waktu sesi selesai (null bila belum tercatat)"
+            "description": "LLM judge run ini; null untuk run lama tanpa judge"
           },
           "rubric_version": {
-            "anyOf": [
-              {
-                "type": "string"
-              },
-              {
-                "type": "null"
-              }
-            ],
+            "type": "string",
             "title": "Rubric Version",
-            "description": "Versi rubrik yang digunakan pada penilaian terbaru (mis. 'v1')"
+            "description": "Versi rubrik yang digunakan (mis. 'v1')"
+          },
+          "graded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Graded At",
+            "description": "Waktu penilaian dipicu, selalu UTC"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
+          },
+          "is_latest": {
+            "type": "boolean",
+            "title": "Is Latest",
+            "description": "True bila ini run terbaru sesi tersebut"
+          },
+          "scores": {
+            "$ref": "#/components/schemas/ThreeScores",
+            "description": "Tiga skor terpisah: dev, test, dan gabungan"
           }
         },
         "type": "object",
         "required": [
+          "grading_run_id",
           "session_id",
           "label",
-          "product_name"
+          "product_name",
+          "session_type",
+          "rubric_version",
+          "graded_at",
+          "status",
+          "is_latest",
+          "scores"
         ],
-        "title": "GradedSessionListItem",
-        "description": "Ringkasan sesi pengukuran selesai yang telah dinilai untuk Admin dan Viewer (PBI-14, SCRUM-226, SCRUM-227)."
+        "title": "GradedRunListItem",
+        "description": "Satu baris laporan: satu grading run beserta judge dan versi rubriknya (SCRUM-296, K-21)."
       },
       "GraderPath": {
         "type": "string",
