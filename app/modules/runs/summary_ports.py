@@ -27,6 +27,9 @@ class ProductInfo:
     monthly_budget_idr: Decimal | None
     price_output_usd_per_mtok: Decimal | None
     price_input_usd_per_mtok: Decimal | None = None
+    price_cache_read_usd_per_mtok: Decimal | None = None
+    price_cache_write_usd_per_mtok: Decimal | None = None
+    price_cache_write_long_usd_per_mtok: Decimal | None = None
 
 
 class ProductPort(Protocol):

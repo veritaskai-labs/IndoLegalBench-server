@@ -184,6 +184,9 @@ def _apply_measurement_type_switch(product: AiProduct, tipe_baru: MeasurementTyp
         product.model_params = None
         product.price_input_usd_per_mtok = None
         product.price_output_usd_per_mtok = None
+        product.price_cache_read_usd_per_mtok = None
+        product.price_cache_write_usd_per_mtok = None
+        product.price_cache_write_long_usd_per_mtok = None
     else:
         product.vendor_name = None
         product.site_url = None
@@ -457,6 +460,9 @@ def _tampilkan(product: AiProduct) -> AiProductRead:
         model_params=product.model_params,
         price_input_usd_per_mtok=product.price_input_usd_per_mtok,
         price_output_usd_per_mtok=product.price_output_usd_per_mtok,
+        price_cache_read_usd_per_mtok=product.price_cache_read_usd_per_mtok,
+        price_cache_write_usd_per_mtok=product.price_cache_write_usd_per_mtok,
+        price_cache_write_long_usd_per_mtok=product.price_cache_write_long_usd_per_mtok,
         vendor_name=product.vendor_name,
         vendor_label=_label_penyedia(product),
         site_url=product.site_url,

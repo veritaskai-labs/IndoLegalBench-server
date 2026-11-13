@@ -35,9 +35,15 @@ class ConfigPriceCatalog:
         prices: Mapping[str, Decimal],
         *,
         input_prices: Mapping[str, Decimal] | None = None,
+        cache_read_prices: Mapping[str, Decimal] | None = None,
+        cache_write_prices: Mapping[str, Decimal] | None = None,
+        cache_write_long_prices: Mapping[str, Decimal] | None = None,
     ) -> None:
         self._prices = dict(prices)
         self._input_prices = dict(input_prices or {})
+        self._cache_read_prices = dict(cache_read_prices or {})
+        self._cache_write_prices = dict(cache_write_prices or {})
+        self._cache_write_long_prices = dict(cache_write_long_prices or {})
 
     def usd_per_million_output_tokens(self, provider_type: str, model_name: str) -> Decimal:
         price = self._prices.get(f"{provider_type}:{model_name}")
@@ -58,3 +64,19 @@ class ConfigPriceCatalog:
                 code="PRICE_NOT_CONFIGURED",
             )
         return price
+
+    def usd_per_million_cache_read_tokens(
+        self, provider_type: str, model_name: str
+    ) -> Decimal | None:
+        """Tarif baca cache, atau None bila peta tidak memuat model itu."""
+        return self._cache_read_prices.get(f"{provider_type}:{model_name}")
+
+    def usd_per_million_cache_write_tokens(
+        self, provider_type: str, model_name: str
+    ) -> Decimal | None:
+        return self._cache_write_prices.get(f"{provider_type}:{model_name}")
+
+    def usd_per_million_cache_write_long_tokens(
+        self, provider_type: str, model_name: str
+    ) -> Decimal | None:
+        return self._cache_write_long_prices.get(f"{provider_type}:{model_name}")

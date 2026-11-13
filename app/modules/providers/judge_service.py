@@ -108,6 +108,9 @@ class JudgeBinding:
     price_output_usd_per_mtok: Decimal | None
     monthly_budget_idr: Decimal
     is_active: bool
+    price_cache_read_usd_per_mtok: Decimal | None = None
+    price_cache_write_usd_per_mtok: Decimal | None = None
+    price_cache_write_long_usd_per_mtok: Decimal | None = None
 
 
 def build_judge(db: Session, judge_id: uuid.UUID) -> JudgeBinding:
@@ -130,6 +133,9 @@ def build_judge(db: Session, judge_id: uuid.UUID) -> JudgeBinding:
         price_output_usd_per_mtok=produk.price_output_usd_per_mtok,
         monthly_budget_idr=produk.monthly_budget_idr,
         is_active=produk.is_active,
+        price_cache_read_usd_per_mtok=produk.price_cache_read_usd_per_mtok,
+        price_cache_write_usd_per_mtok=produk.price_cache_write_usd_per_mtok,
+        price_cache_write_long_usd_per_mtok=produk.price_cache_write_long_usd_per_mtok,
     )
 
 
@@ -146,6 +152,9 @@ class JudgePricing:
     price_input_usd_per_mtok: Decimal | None
     price_output_usd_per_mtok: Decimal | None
     monthly_budget_idr: Decimal
+    price_cache_read_usd_per_mtok: Decimal | None = None
+    price_cache_write_usd_per_mtok: Decimal | None = None
+    price_cache_write_long_usd_per_mtok: Decimal | None = None
 
 
 def judge_pricing(db: Session, judge_id: uuid.UUID) -> JudgePricing:
@@ -161,6 +170,9 @@ def judge_pricing(db: Session, judge_id: uuid.UUID) -> JudgePricing:
         price_input_usd_per_mtok=produk.price_input_usd_per_mtok,
         price_output_usd_per_mtok=produk.price_output_usd_per_mtok,
         monthly_budget_idr=produk.monthly_budget_idr,
+        price_cache_read_usd_per_mtok=produk.price_cache_read_usd_per_mtok,
+        price_cache_write_usd_per_mtok=produk.price_cache_write_usd_per_mtok,
+        price_cache_write_long_usd_per_mtok=produk.price_cache_write_long_usd_per_mtok,
     )
 
 

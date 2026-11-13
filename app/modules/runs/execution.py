@@ -6,6 +6,7 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from sqlalchemy import text
 
@@ -69,6 +70,13 @@ def worker_lease(bind):
                 connection.commit()
 
 
+def _frozen_cache_price(copied: object, catalog: Decimal | None) -> Decimal | None:
+    """Tarif cache salinan didahulukan. Katalog yang kosong tetap None, tidak 500."""
+    if isinstance(copied, Decimal):
+        return copied
+    return catalog
+
+
 class _ClaimedQueue:
     """SessionQueue sudah membuat snapshot; worker tidak boleh claim sesi lain lagi."""
 
@@ -84,7 +92,11 @@ class _FrozenProduct:
         self.live_products = live_products
         settings = get_settings()
         catalog = ConfigPriceCatalog(
-            settings.cost_model_prices, input_prices=settings.cost_model_input_prices
+            settings.cost_model_prices,
+            input_prices=settings.cost_model_input_prices,
+            cache_read_prices=getattr(settings, "cost_model_cache_read_prices", {}),
+            cache_write_prices=getattr(settings, "cost_model_cache_write_prices", {}),
+            cache_write_long_prices=getattr(settings, "cost_model_cache_write_long_prices", {}),
         )
         input_price = copy.price_input_usd_per_mtok
         output_price = copy.price_output_usd_per_mtok
@@ -94,6 +106,18 @@ class _FrozenProduct:
             output_price = catalog.usd_per_million_output_tokens(
                 copy.provider_type, copy.model_name
             )
+        cache_read = _frozen_cache_price(
+            copy.price_cache_read_usd_per_mtok,
+            catalog.usd_per_million_cache_read_tokens(copy.provider_type, copy.model_name),
+        )
+        cache_write = _frozen_cache_price(
+            copy.price_cache_write_usd_per_mtok,
+            catalog.usd_per_million_cache_write_tokens(copy.provider_type, copy.model_name),
+        )
+        cache_write_long = _frozen_cache_price(
+            copy.price_cache_write_long_usd_per_mtok,
+            catalog.usd_per_million_cache_write_long_tokens(copy.provider_type, copy.model_name),
+        )
         self.product = ProductInfo(
             id=copy.product_id,
             name=copy.name,
@@ -104,6 +128,9 @@ class _FrozenProduct:
             monthly_budget_idr=copy.monthly_budget_idr,
             price_input_usd_per_mtok=input_price,
             price_output_usd_per_mtok=output_price,
+            price_cache_read_usd_per_mtok=cache_read,
+            price_cache_write_usd_per_mtok=cache_write,
+            price_cache_write_long_usd_per_mtok=cache_write_long,
         )
 
     def get(self, product_id):

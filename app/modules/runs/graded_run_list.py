@@ -6,14 +6,17 @@ sama seperti riwayat penilaian, jadi judge, versi rubrik, dan skornya tidak dihi
 di sini.
 """
 
-from sqlalchemy import select
+from decimal import Decimal
+
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.modules.providers import service as providers_service
-from app.modules.runs.models import MeasurementSession
+from app.modules.runs.models import Attempt, CallLog, MeasurementSession
 from app.modules.runs.schemas import GradedRunListItem, SessionGradingResponse
 from app.modules.runs.session_grade import MASKED_READER_ROLES, DbGradingStore, GradingStore
 from app.modules.runs.session_rules import has_ended
+from app.modules.runs.stored_cost import recorded_sum, rupiah_sum
 from app.shared.exceptions import ForbiddenError
 from app.shared.security import Role
 
@@ -22,8 +25,19 @@ def _status_text(session: MeasurementSession) -> str:
     return getattr(session.status, "value", str(session.status))
 
 
-def to_list_item(session: MeasurementSession, product_name: str, run: SessionGradingResponse):
-    """Satu baris laporan dari satu run dan sesi pemiliknya."""
+def to_list_item(
+    session: MeasurementSession,
+    product_name: str,
+    run: SessionGradingResponse,
+    *,
+    measurement_cost_idr: Decimal | None,
+):
+    """Satu baris laporan dari satu run dan sesi pemiliknya.
+
+    Biaya pengukuran dibaca dari call_logs sesi itu. Biaya penilai dibaca dari
+    run. Keduanya tidak dihitung ulang di sini.
+    """
+    judge_cost = None if run.judge is None else run.judge.cost_idr
     return GradedRunListItem(
         grading_run_id=run.grading_run_id,
         session_id=session.id,
@@ -36,6 +50,9 @@ def to_list_item(session: MeasurementSession, product_name: str, run: SessionGra
         status=run.status,
         is_latest=run.is_latest,
         scores=run.scores,
+        measurement_cost_idr=measurement_cost_idr,
+        judge_cost_idr=judge_cost,
+        total_cost_idr=rupiah_sum(measurement_cost_idr, judge_cost),
     )
 
 
@@ -69,9 +86,47 @@ def list_graded_runs(
 
     grading_store = store or DbGradingStore(db)
     product_names = providers_service.product_names(db, {s.product_id for s in sessions})
+    costs = _measurement_costs(db, sessions)
     items = [
-        to_list_item(session, product_names.get(session.product_id, ""), run)
+        to_list_item(
+            session,
+            product_names.get(session.product_id, ""),
+            run,
+            measurement_cost_idr=costs[session.id],
+        )
         for session in sessions
         for run in grading_store.get_grading_runs(session.id)
     ]
     return sorted(items, key=lambda item: item.graded_at, reverse=True)
+
+
+def _measurement_costs(db: Session, sessions: list[MeasurementSession]) -> dict:
+    """Manual selalu 0. Otomatis tanpa panggilan 0. Panggilan yang semuanya kosong tetap kosong."""
+    costs: dict = {}
+    automatic: list = []
+    for session in sessions:
+        if _is_manual(session):
+            costs[session.id] = Decimal("0.00")
+        else:
+            automatic.append(session.id)
+            costs[session.id] = Decimal("0.00")
+    if not automatic:
+        return costs
+    rows = db.execute(
+        select(
+            Attempt.session_id,
+            func.count(CallLog.id),
+            func.count(CallLog.cost_idr),
+            func.coalesce(func.sum(CallLog.cost_idr), 0),
+        )
+        .join(CallLog, CallLog.attempt_id == Attempt.id)
+        .where(Attempt.session_id.in_(automatic))
+        .group_by(Attempt.session_id)
+    )
+    for session_id, call_count, priced_count, total in rows:
+        costs[session_id] = recorded_sum(call_count, priced_count, total)
+    return costs
+
+
+def _is_manual(session: MeasurementSession) -> bool:
+    return getattr(session.session_type, "value", session.session_type) == "manual"

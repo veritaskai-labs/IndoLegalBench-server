@@ -74,5 +74,10 @@ def open_judge_meter(
         usd_per_million_input_tokens=binding.price_input_usd_per_mtok,
         usd_per_million_output_tokens=binding.price_output_usd_per_mtok,
         usd_idr_rate=rates.usd_idr(),
+        usd_per_million_cache_read_tokens=getattr(binding, "price_cache_read_usd_per_mtok", None),
+        usd_per_million_cache_write_tokens=getattr(binding, "price_cache_write_usd_per_mtok", None),
+        usd_per_million_cache_write_long_tokens=getattr(
+            binding, "price_cache_write_long_usd_per_mtok", None
+        ),
     )
     return JudgeMeter(prices, binding.monthly_budget_idr - spent_idr)

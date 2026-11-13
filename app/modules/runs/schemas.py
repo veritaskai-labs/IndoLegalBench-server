@@ -324,6 +324,13 @@ class SessionCaseResult(BaseModel):
         description="Delapan bagian kasus dari snapshot (AC7). null bila disamarkan"
     )
     attempts: list[AttemptResult]
+    cost_idr: Decimal | None = Field(
+        default=None,
+        description=(
+            "Biaya panggilan produk untuk kasus ini, rupiah, termasuk pengulangan dan coba ulang. "
+            "null bila sesi otomatis belum punya biaya tercatat. Tetap diisi saat kasus disamarkan"
+        ),
+    )
 
 
 class SessionDetail(SessionListItem):
@@ -814,6 +821,21 @@ class GradedRunListItem(BaseModel):
     status: str = Field(description=RUN_STATUS_DESCRIPTION)
     is_latest: bool = Field(description="True bila ini run terbaru sesi tersebut")
     scores: ThreeScores = Field(description=THREE_SCORES_DESCRIPTION)
+    measurement_cost_idr: Decimal | None = Field(
+        description=(
+            "Biaya panggilan produk yang sudah tersimpan untuk sesi ini, rupiah. "
+            "Sesi manual 0. null bila ada panggilan tetapi biayanya belum tercatat"
+        )
+    )
+    judge_cost_idr: Decimal | None = Field(
+        description="Biaya penilai yang sudah tersimpan pada run ini, rupiah. null bila belum ada"
+    )
+    total_cost_idr: Decimal | None = Field(
+        description=(
+            "measurement_cost_idr ditambah judge_cost_idr. null bila salah satu sisi null, "
+            "supaya biaya yang hilang tidak menjadi Rp 0"
+        )
+    )
 
 
 class EvidenceRead(BaseModel):

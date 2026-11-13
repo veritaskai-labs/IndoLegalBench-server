@@ -6376,6 +6376,54 @@
             ],
             "title": "Price Output Usd Per Mtok"
           },
+          "price_cache_read_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Read Usd Per Mtok"
+          },
+          "price_cache_write_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Usd Per Mtok"
+          },
+          "price_cache_write_long_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Long Usd Per Mtok"
+          },
           "vendor_name": {
             "anyOf": [
               {
@@ -6553,6 +6601,42 @@
               }
             ],
             "title": "Price Output Usd Per Mtok"
+          },
+          "price_cache_read_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Read Usd Per Mtok"
+          },
+          "price_cache_write_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Usd Per Mtok"
+          },
+          "price_cache_write_long_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Long Usd Per Mtok"
           },
           "vendor_name": {
             "anyOf": [
@@ -6848,6 +6932,42 @@
             ],
             "title": "Price Output Usd Per Mtok"
           },
+          "price_cache_read_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Read Usd Per Mtok"
+          },
+          "price_cache_write_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Usd Per Mtok"
+          },
+          "price_cache_write_long_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Long Usd Per Mtok"
+          },
           "vendor_name": {
             "anyOf": [
               {
@@ -7121,6 +7241,54 @@
               }
             ],
             "title": "Price Output Usd Per Mtok"
+          },
+          "price_cache_read_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Read Usd Per Mtok"
+          },
+          "price_cache_write_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Usd Per Mtok"
+          },
+          "price_cache_write_long_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Long Usd Per Mtok"
           },
           "vendor_name": {
             "anyOf": [
@@ -8987,6 +9155,45 @@
           "scores": {
             "$ref": "#/components/schemas/ThreeScores",
             "description": "Tiga skor terpisah: dev, test, dan gabungan"
+          },
+          "measurement_cost_idr": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Measurement Cost Idr",
+            "description": "Biaya panggilan produk yang sudah tersimpan untuk sesi ini, rupiah. Sesi manual 0. null bila ada panggilan tetapi biayanya belum tercatat"
+          },
+          "judge_cost_idr": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Cost Idr",
+            "description": "Biaya penilai yang sudah tersimpan pada run ini, rupiah. null bila belum ada"
+          },
+          "total_cost_idr": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cost Idr",
+            "description": "measurement_cost_idr ditambah judge_cost_idr. null bila salah satu sisi null, supaya biaya yang hilang tidak menjadi Rp 0"
           }
         },
         "type": "object",
@@ -9000,7 +9207,10 @@
           "graded_at",
           "status",
           "is_latest",
-          "scores"
+          "scores",
+          "measurement_cost_idr",
+          "judge_cost_idr",
+          "total_cost_idr"
         ],
         "title": "GradedRunListItem",
         "description": "Satu baris laporan: satu grading run beserta judge dan versi rubriknya (SCRUM-296, K-21)."
@@ -12251,6 +12461,19 @@
             },
             "type": "array",
             "title": "Attempts"
+          },
+          "cost_idr": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Idr",
+            "description": "Biaya panggilan produk untuk kasus ini, rupiah, termasuk pengulangan dan coba ulang. null bila sesi otomatis belum punya biaya tercatat. Tetap diisi saat kasus disamarkan"
           }
         },
         "type": "object",

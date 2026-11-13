@@ -52,6 +52,7 @@ from app.modules.runs.session_ports import (
     WaitingSession,
 )
 from app.modules.runs.session_transitions import invalid_transition, sources_of
+from app.modules.runs.stored_cost import recorded_sum
 from app.shared.exceptions import ConflictError, NotFoundError, ValidationError
 
 # Panggilan yang sudah diproses dan tidak diulang lagi (PBI-12 AC5).
@@ -291,15 +292,38 @@ class SessionListRepository:
                     filled_at=attempt.filled_at,
                 )
             )
+        session_type = self._db.scalar(
+            select(MeasurementSession.session_type).where(MeasurementSession.id == session_id)
+        )
+        manual = getattr(session_type, "value", session_type) == "manual"
+        costs = {} if manual else self._case_costs(session_id)
         return [
             CaseRow(
                 snapshot_item_id=item.id,
                 case_id=item.case_id,
                 body=item.body,
                 attempts=attempts.get(item.id, []),
+                cost_idr=Decimal("0.00") if manual else costs.get(item.id),
             )
             for item in items
         ]
+
+    def _case_costs(self, session_id: uuid.UUID) -> dict[uuid.UUID, Decimal | None]:
+        rows = self._db.execute(
+            select(
+                Attempt.snapshot_item_id,
+                func.count(CallLog.id),
+                func.count(CallLog.cost_idr),
+                func.coalesce(func.sum(CallLog.cost_idr), 0),
+            )
+            .join(CallLog, CallLog.attempt_id == Attempt.id)
+            .where(Attempt.session_id == session_id)
+            .group_by(Attempt.snapshot_item_id)
+        )
+        return {
+            item_id: recorded_sum(call_count, priced_count, total)
+            for item_id, call_count, priced_count, total in rows
+        }
 
     def _rows(self, sessions: Sequence[MeasurementSession]) -> list[SessionRow]:
         if not sessions:
@@ -1201,6 +1225,9 @@ def _product_copy_row(session_id: uuid.UUID, product: ProductCopy) -> SessionPro
         model_params=product.model_params if product.model_params is not None else null(),
         price_input_usd_per_mtok=product.price_input_usd_per_mtok,
         price_output_usd_per_mtok=product.price_output_usd_per_mtok,
+        price_cache_read_usd_per_mtok=product.price_cache_read_usd_per_mtok,
+        price_cache_write_usd_per_mtok=product.price_cache_write_usd_per_mtok,
+        price_cache_write_long_usd_per_mtok=product.price_cache_write_long_usd_per_mtok,
         monthly_budget_idr=product.monthly_budget_idr,
         vendor_name=product.vendor_name,
         site_url=product.site_url,

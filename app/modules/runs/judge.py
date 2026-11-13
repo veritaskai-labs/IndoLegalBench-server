@@ -60,6 +60,9 @@ class JudgePrices:
     usd_per_million_input_tokens: Decimal | None
     usd_per_million_output_tokens: Decimal | None
     usd_idr_rate: Decimal
+    usd_per_million_cache_read_tokens: Decimal | None = None
+    usd_per_million_cache_write_tokens: Decimal | None = None
+    usd_per_million_cache_write_long_tokens: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -282,4 +285,8 @@ def _cost(response: object, prices: JudgePrices | None) -> Decimal | None:
         usd_per_million_input_tokens=prices.usd_per_million_input_tokens,
         usd_per_million_output_tokens=prices.usd_per_million_output_tokens,
         usd_idr_rate=prices.usd_idr_rate,
+        usage=getattr(response, "usage", None),
+        usd_per_million_cache_read_tokens=prices.usd_per_million_cache_read_tokens,
+        usd_per_million_cache_write_tokens=prices.usd_per_million_cache_write_tokens,
+        usd_per_million_cache_write_long_tokens=prices.usd_per_million_cache_write_long_tokens,
     )

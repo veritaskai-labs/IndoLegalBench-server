@@ -133,6 +133,9 @@ class AiProduct(Base):
                 AND model_params IS NULL
                 AND price_input_usd_per_mtok IS NULL
                 AND price_output_usd_per_mtok IS NULL
+                AND price_cache_read_usd_per_mtok IS NULL
+                AND price_cache_write_usd_per_mtok IS NULL
+                AND price_cache_write_long_usd_per_mtok IS NULL
             )""",
             name="ck_ai_products_type_fields",
         ),
@@ -198,6 +201,11 @@ class AiProduct(Base):
     model_params: Mapped[dict | None] = mapped_column(_JSONB, nullable=True)
     price_input_usd_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     price_output_usd_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    price_cache_read_usd_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    price_cache_write_usd_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    price_cache_write_long_usd_per_mtok: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4), nullable=True
+    )
 
     # Khusus Manual (wajib terisi vendor_name & site_url untuk manual, NULL untuk automatic)
     vendor_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
