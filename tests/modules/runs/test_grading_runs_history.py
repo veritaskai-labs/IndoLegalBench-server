@@ -11,7 +11,9 @@ import pytest
 
 from app.modules.audit.models import AuditEntityType, AuditLog
 from app.modules.auth.models import User
+from app.modules.runs.models import AttemptStatus, SessionStatus
 from app.modules.runs.schemas import (
+    AttemptGradeResult,
     CaseGradeResult,
     GradingRunSummary,
     ScorePair,
@@ -26,7 +28,7 @@ from app.modules.runs.session_grade import (
     list_grading_runs,
     to_run_summary,
 )
-from app.shared.exceptions import NotFoundError
+from app.shared.exceptions import ForbiddenError, NotFoundError
 from app.shared.security import Role
 from tests.modules.providers.test_product_lists import _otomatis
 from tests.modules.runs.test_session_list_endpoint import _sesi
@@ -245,7 +247,9 @@ def test_satu_run_dibuka_dari_store_tanpa_run_lain(db_session, produk, pembuat):
     store.save_grading_run(_run(sesi.id, pembuat.id, triggered_at=AWAL + timedelta(hours=1)))
 
     # Act
-    hasil = get_grading_run(db_session, sesi.id, lama.grading_run_id, store=store)
+    hasil = get_grading_run(
+        db_session, sesi.id, lama.grading_run_id, viewer_role=Role.ADMIN, store=store
+    )
 
     # Assert
     assert hasil.grading_run_id == lama.grading_run_id
@@ -261,10 +265,105 @@ def test_run_yang_tidak_ada_di_sesi_ditolak_404(db_session, produk, pembuat):
 
     # Act
     with pytest.raises(NotFoundError) as galat:
-        get_grading_run(db_session, sesi.id, uuid.uuid4(), store=store)
+        get_grading_run(db_session, sesi.id, uuid.uuid4(), viewer_role=Role.ADMIN, store=store)
 
     # Assert
     assert galat.value.code == "GRADING_RUN_NOT_FOUND"
+
+
+def _run_dengan_jawaban(session_id, pembuat_id, **ubah) -> SessionGradingResponse:
+    """Run satu kasus yang membawa soal dan jawaban mentah, bahan uji penyamaran."""
+    kasus = CaseGradeResult(
+        snapshot_item_id=uuid.uuid4(),
+        case_id=uuid.uuid4(),
+        case_code="KASUS-01",
+        title="Kasus satu",
+        question="Apa akibat wanprestasi?",
+        attempts=[
+            AttemptGradeResult(
+                attempt_id=uuid.uuid4(),
+                repetition_no=1,
+                status=AttemptStatus.SUCCEEDED,
+                is_technical_disruption=False,
+                answer_text="Ganti rugi.",
+                explanation="Sesuai Pasal 1243 KUHPerdata",
+            )
+        ],
+    )
+    return _run(session_id, pembuat_id, cases=[kasus], **ubah)
+
+
+def _simpan_run(db_session, produk, pembuat, status=SessionStatus.FINISHED, **ubah_run):
+    sesi = _sesi(db_session, produk, pembuat, status=status)
+    store = MemoryGradingStore()
+    run = _run_dengan_jawaban(sesi.id, pembuat.id, **ubah_run)
+    store.save_grading_run(run)
+    return sesi, store, run
+
+
+@pytest.mark.parametrize("peran", [Role.VIEWER, Role.CONTRIBUTOR])
+def test_run_dibuka_pembaca_laporan_dengan_soal_dan_jawaban_disamarkan(
+    peran, db_session, produk, pembuat
+):
+    """Positif: Viewer dan Kontributor melihat skor dan penjelasan, bukan soal dan jawaban mentah."""
+    # Arrange
+    sesi, store, run = _simpan_run(db_session, produk, pembuat)
+
+    # Act
+    hasil = get_grading_run(db_session, sesi.id, run.grading_run_id, viewer_role=peran, store=store)
+
+    # Assert
+    kasus = hasil.cases[0]
+    assert kasus.question is None
+    assert kasus.attempts[0].answer_text is None
+    assert kasus.attempts[0].explanation == "Sesuai Pasal 1243 KUHPerdata"
+    assert hasil.scores == run.scores
+
+
+def test_run_dibuka_admin_tetap_lengkap(db_session, produk, pembuat):
+    """Positif: Admin tidak disamarkan."""
+    # Arrange
+    sesi, store, run = _simpan_run(db_session, produk, pembuat)
+
+    # Act
+    hasil = get_grading_run(
+        db_session, sesi.id, run.grading_run_id, viewer_role=Role.ADMIN, store=store
+    )
+
+    # Assert
+    assert hasil.cases[0].question == "Apa akibat wanprestasi?"
+    assert hasil.cases[0].attempts[0].answer_text == "Ganti rugi."
+
+
+@pytest.mark.parametrize("peran", [Role.VIEWER, Role.CONTRIBUTOR])
+def test_run_sesi_yang_masih_berjalan_ditolak_untuk_pembaca_laporan(
+    peran, db_session, produk, pembuat
+):
+    """Negatif: hasil sesi berjalan hanya untuk Admin, sama dengan /results."""
+    # Arrange
+    sesi, store, run = _simpan_run(db_session, produk, pembuat, status=SessionStatus.RUNNING)
+
+    # Act
+    with pytest.raises(ForbiddenError) as galat:
+        get_grading_run(db_session, sesi.id, run.grading_run_id, viewer_role=peran, store=store)
+
+    # Assert
+    assert galat.value.code == "FORBIDDEN"
+
+
+def test_run_tanpa_label_dan_produk_dilengkapi_dari_sesi(db_session, produk, pembuat):
+    """Edge: run lama dari audit tanpa nama sesi dan produk memakai data sesi saat ini."""
+    # Arrange
+    sesi, store, run = _simpan_run(db_session, produk, pembuat, session_label="", product_name="")
+
+    # Act
+    hasil = get_grading_run(
+        db_session, sesi.id, run.grading_run_id, viewer_role=Role.VIEWER, store=store
+    )
+
+    # Assert
+    assert hasil.session_label == sesi.label
+    assert hasil.product_name == produk.name
 
 
 def test_run_lama_dari_jejak_audit_tetap_bisa_dibuka(db_session, produk, pembuat):

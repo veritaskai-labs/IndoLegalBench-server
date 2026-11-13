@@ -343,17 +343,71 @@ def test_detail_run_sesi_tidak_ada_ditolak_404(as_role):
     assert res.json()["code"] == "MEASUREMENT_NOT_FOUND"
 
 
-@pytest.mark.parametrize("peran", [Role.VIEWER, Role.DEVELOPER_AI, Role.CONTRIBUTOR])
-def test_detail_run_selain_admin_ditolak_403(peran, as_role, db_session, produk, pembuat):
-    """Negatif: detail run mengikuti aturan riwayat, hanya Admin."""
+def test_detail_run_developer_ai_ditolak_403(as_role, db_session, produk, pembuat):
+    """Negatif: Developer AI tidak ikut membaca Laporan, jadi detail run tetap tertutup."""
     # Arrange
     sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
 
     # Act
-    res = as_role(peran).get(f"{_riwayat(sesi.id)}/{uuid.uuid4()}")
+    res = as_role(Role.DEVELOPER_AI).get(f"{_riwayat(sesi.id)}/{uuid.uuid4()}")
 
     # Assert
     assert res.status_code == 403
+
+
+@pytest.mark.parametrize("peran", [Role.VIEWER, Role.CONTRIBUTOR])
+def test_detail_run_dibuka_pembaca_laporan_dengan_jawaban_disamarkan(
+    peran, as_role, db_session, produk, pembuat, penilai, pasang_penilai
+):
+    """Positif: baris Laporan bisa dibuka Viewer dan Kontributor, tanpa soal dan jawaban mentah."""
+    # Arrange
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    pasang_penilai(sesi)
+    run_id = as_role(Role.ADMIN).post(_grade(sesi.id), json={}).json()["grading_run_id"]
+
+    # Act
+    res = as_role(peran).get(f"{_riwayat(sesi.id)}/{run_id}")
+
+    # Assert
+    assert res.status_code == 200
+    body = res.json()
+    assert body["grading_run_id"] == run_id
+    assert all(kasus["question"] is None for kasus in body["cases"])
+    assert all(
+        percobaan["answer_text"] is None
+        for kasus in body["cases"]
+        for percobaan in kasus["attempts"]
+    )
+
+
+def test_detail_run_pembaca_laporan_dari_sesi_lain_ditolak_404(
+    as_role, db_session, produk, pembuat, penilai, pasang_penilai
+):
+    """Negatif: pembaca Laporan juga tidak bisa membuka run sesi lain lewat sesi ini."""
+    # Arrange
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    lain = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+    pasang_penilai(lain)
+    run_lain = as_role(Role.ADMIN).post(_grade(lain.id), json={}).json()["grading_run_id"]
+
+    # Act
+    res = as_role(Role.VIEWER).get(f"{_riwayat(sesi.id)}/{run_lain}")
+
+    # Assert
+    assert res.status_code == 404
+    assert res.json()["code"] == "GRADING_RUN_NOT_FOUND"
+
+
+def test_detail_run_id_bukan_uuid_ditolak_422(as_role, db_session, produk, pembuat):
+    """Edge: id run yang bukan UUID ditolak validasi path, bukan 500."""
+    # Arrange
+    sesi = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
+
+    # Act
+    res = as_role(Role.VIEWER).get(f"{_riwayat(sesi.id)}/bukan-uuid")
+
+    # Assert
+    assert res.status_code == 422
 
 
 def test_audit_penilaian_mencatat_judge_yang_dipakai(
