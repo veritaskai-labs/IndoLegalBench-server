@@ -799,18 +799,24 @@ class GradingRunSummary(BaseModel):
     scores: ThreeScores = Field(description="Tiga skor terpisah: dev, test, dan gabungan")
 
 
-class GradedSessionListItem(BaseModel):
-    """Ringkasan sesi pengukuran selesai yang telah dinilai untuk Admin dan Viewer (PBI-14, SCRUM-226, SCRUM-227)."""
+class GradedRunListItem(BaseModel):
+    """Satu baris laporan: satu grading run beserta judge dan versi rubriknya (SCRUM-296, K-21)."""
 
-    session_id: uuid.UUID = Field(description="ID sesi pengukuran")
+    grading_run_id: uuid.UUID = Field(description="ID grading run, unik per baris")
+    session_id: uuid.UUID = Field(description="ID sesi pengukuran yang dinilai")
     label: str = Field(description="Label sesi pengukuran")
-    product_name: str = Field(description="Nama produk AI yang diuji")
-    finished_at: datetime | None = Field(
-        default=None, description="Waktu sesi selesai (null bila belum tercatat)"
+    product_name: str = Field(description="Nama produk AI yang diukur")
+    session_type: Literal["automatic", "manual"] = Field(description="Jenis sesi pengukuran")
+    judge: GradingJudge | None = Field(
+        default=None, description="LLM judge run ini; null untuk run lama tanpa judge"
     )
-    rubric_version: str | None = Field(
-        default=None, description="Versi rubrik yang digunakan pada penilaian terbaru (mis. 'v1')"
+    rubric_version: str = Field(description="Versi rubrik yang digunakan (mis. 'v1')")
+    graded_at: UtcDateTime = Field(description="Waktu penilaian dipicu, selalu UTC")
+    status: str = Field(
+        description="completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
     )
+    is_latest: bool = Field(description="True bila ini run terbaru sesi tersebut")
+    scores: ThreeScores = Field(description="Tiga skor terpisah: dev, test, dan gabungan")
 
 
 class EvidenceRead(BaseModel):
