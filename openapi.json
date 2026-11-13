@@ -4291,8 +4291,8 @@
         "tags": [
           "measurements"
         ],
-        "summary": "Satu hasil penilaian sesi, termasuk run lama atau LLM judge lain (Admin)",
-        "description": "Run tertentu dari riwayat penilaian, lengkap dengan judge-nya (SCRUM-280).",
+        "summary": "Satu hasil penilaian sesi, termasuk run lama atau LLM judge lain (Admin, Viewer, Kontributor)",
+        "description": "Run tertentu dari baris Laporan, lengkap dengan judge-nya (SCRUM-280, SCRUM-297).\n\nViewer dan Kontributor mendapat soal dan jawaban mentah yang disamarkan.",
         "operationId": "get_grading_run_endpoint_measurements__session_id__grading_runs__grading_run_id__get",
         "parameters": [
           {
@@ -4328,7 +4328,7 @@
             }
           },
           "403": {
-            "description": "Hanya Admin yang dapat melihat riwayat penilaian (`FORBIDDEN`).",
+            "description": "Peran tidak berwenang (`FORBIDDEN`), atau sesi masih berjalan dan pembacanya bukan Admin.",
             "content": {
               "application/json": {
                 "schema": {
