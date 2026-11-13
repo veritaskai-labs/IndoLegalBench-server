@@ -231,6 +231,10 @@ def _attempt_record(
         failure_kind=None if kind is None else str(kind),
         input_tokens=response.input_tokens,
         output_tokens=response.output_tokens,
+        uncached_input_tokens=None if response.usage is None else response.usage.uncached_input,
+        cache_read_tokens=None if response.usage is None else response.usage.cache_read,
+        cache_write_tokens=None if response.usage is None else response.usage.cache_write,
+        cache_write_long_tokens=None if response.usage is None else response.usage.cache_write_long,
         ended_at=ended_at,
     )
 

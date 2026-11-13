@@ -28,9 +28,10 @@ from app.modules.runs.dependencies import (
 )
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.grade_estimate_service import estimate_session_grade
+from app.modules.runs.graded_run_list import list_graded_runs
 from app.modules.runs.schemas import (
     AttemptCalls,
-    GradedSessionListItem,
+    GradedRunListItem,
     GradeEstimateResponse,
     GradeSessionRequest,
     GradingRunSummary,
@@ -58,7 +59,6 @@ from app.modules.runs.session_grade import (
     get_grading_run,
     get_session_results,
     grade_session,
-    list_graded_sessions,
     list_grading_runs,
 )
 from app.modules.runs.session_list import SessionListService
@@ -505,15 +505,15 @@ results_router = APIRouter(prefix="/results", tags=["results"])
 
 @results_router.get(
     "/sessions",
-    response_model=list[GradedSessionListItem],
-    summary="Daftar sesi selesai yang telah dinilai untuk Admin, Viewer, dan Kontributor (SCRUM-226)",
+    response_model=list[GradedRunListItem],
+    summary="Daftar laporan, satu baris per grading run, untuk Admin, Viewer, dan Kontributor (SCRUM-296)",
 )
-def list_graded_sessions_endpoint(
+def list_graded_runs_endpoint(
     user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
-) -> list[GradedSessionListItem]:
-    """Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin, Viewer, dan Kontributor."""
-    return list_graded_sessions(db, viewer_role=user.role)
+) -> list[GradedRunListItem]:
+    """Satu baris per grading run: nilai ulang menambah baris, baris lama tetap ada."""
+    return list_graded_runs(db, viewer_role=user.role)
 
 
 @router.post(

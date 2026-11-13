@@ -85,6 +85,9 @@ class ProductCopy:
     vendor_name: str | None = None
     site_url: str | None = None
     manual_params: str | None = None
+    price_cache_read_usd_per_mtok: Decimal | None = None
+    price_cache_write_usd_per_mtok: Decimal | None = None
+    price_cache_write_long_usd_per_mtok: Decimal | None = None
 
 
 class SessionQueueStore(Protocol):

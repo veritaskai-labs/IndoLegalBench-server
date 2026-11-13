@@ -1,14 +1,45 @@
 """Biaya satu panggilan. Bukan rumus perkiraan SCRUM-206."""
 
 import logging
+from dataclasses import dataclass
 from decimal import ROUND_HALF_UP, Decimal
 
+from app.modules.providers.usage import TokenUsage
 from app.shared.exceptions import InternalError
 
 logger = logging.getLogger(__name__)
 
 _ONE_MILLION = Decimal(1_000_000)
 _CENT = Decimal("0.01")
+_UNPRICED = object()
+
+
+@dataclass(frozen=True)
+class CacheRates:
+    """Tarif USD per juta token untuk tiga bagian cache. None berarti tarif khusus belum diisi."""
+
+    read: Decimal | None = None
+    write: Decimal | None = None
+    long: Decimal | None = None
+
+
+def cache_rates_from(source: object) -> CacheRates:
+    """Baca tarif cache dari objek produk. Field yang hilang atau bukan Decimal menjadi None."""
+    stored = getattr(source, "cache_rates", None)
+    if isinstance(stored, CacheRates):
+        return stored
+    return CacheRates(
+        read=_decimal_attr(source, "price_cache_read_usd_per_mtok"),
+        write=_decimal_attr(source, "price_cache_write_usd_per_mtok"),
+        long=_decimal_attr(source, "price_cache_write_long_usd_per_mtok"),
+    )
+
+
+def _decimal_attr(source: object, name: str) -> Decimal | None:
+    value = getattr(source, name, None)
+    if isinstance(value, Decimal):
+        return value
+    return None
 
 
 def _priced_tokens(tokens: int | None, price: Decimal | None, side: str) -> Decimal | None:
@@ -23,6 +54,11 @@ def _priced_tokens(tokens: int | None, price: Decimal | None, side: str) -> Deci
     return Decimal(tokens) / _ONE_MILLION * price
 
 
+def _unrated_bucket_rate(ordinary: Decimal | None) -> Decimal | None:
+    """Bagian cache tanpa tarif sendiri dihitung sebagai token input biasa."""
+    return ordinary
+
+
 def actual_cost_idr(
     *,
     input_tokens: int | None,
@@ -30,8 +66,51 @@ def actual_cost_idr(
     usd_per_million_input_tokens: Decimal | None,
     usd_per_million_output_tokens: Decimal | None,
     usd_idr_rate: Decimal,
+    usage: TokenUsage | None = None,
+    cache_rates: CacheRates | None = None,
 ) -> Decimal | None:
-    """Token kali harga per juta, kali kurs. Keduanya kosong berarti biaya kosong."""
+    """Token kali harga per juta, kali kurs. Keduanya kosong berarti biaya kosong.
+
+    cache_rates boleh kosong. Tanpa tarif cache, token yang penyedia tandai
+    sebagai cache tetap masuk ke jumlah input dan memakai tarif input.
+    """
+    rates = cache_rates or CacheRates()
+    if usage is not None and _usage_reported(usage):
+        if not _cache_rate_given(rates):
+            return _input_output_cost(
+                usage.input_tokens,
+                usage.output,
+                usd_per_million_input_tokens,
+                usd_per_million_output_tokens,
+                usd_idr_rate,
+            )
+        return _usage_cost_idr(
+            usage,
+            usd_per_million_input_tokens=usd_per_million_input_tokens,
+            usd_per_million_output_tokens=usd_per_million_output_tokens,
+            cache_rates=rates,
+            usd_idr_rate=usd_idr_rate,
+        )
+    return _input_output_cost(
+        input_tokens,
+        output_tokens,
+        usd_per_million_input_tokens,
+        usd_per_million_output_tokens,
+        usd_idr_rate,
+    )
+
+
+def _cache_rate_given(rates: CacheRates) -> bool:
+    return any(rate is not None for rate in (rates.read, rates.write, rates.long))
+
+
+def _input_output_cost(
+    input_tokens: int | None,
+    output_tokens: int | None,
+    usd_per_million_input_tokens: Decimal | None,
+    usd_per_million_output_tokens: Decimal | None,
+    usd_idr_rate: Decimal,
+) -> Decimal | None:
     if input_tokens is None and output_tokens is None:
         return None
     parts = [
@@ -42,6 +121,60 @@ def actual_cost_idr(
         )
         if part is not None
     ]
+    return _rupiah(parts, usd_idr_rate)
+
+
+def _usage_reported(usage: TokenUsage) -> bool:
+    return any(
+        part is not None
+        for part in (
+            usage.uncached_input,
+            usage.cache_read,
+            usage.cache_write,
+            usage.cache_write_long,
+            usage.output,
+        )
+    )
+
+
+def _usage_cost_idr(
+    usage: TokenUsage,
+    *,
+    usd_per_million_input_tokens: Decimal | None,
+    usd_per_million_output_tokens: Decimal | None,
+    cache_rates: CacheRates,
+    usd_idr_rate: Decimal,
+) -> Decimal | None:
+    ordinary = usd_per_million_input_tokens
+    parts = [
+        _priced_tokens(usage.uncached_input, ordinary, "input"),
+        _cache_part(usage.cache_read, cache_rates.read, ordinary),
+        _cache_part(usage.cache_write, cache_rates.write, ordinary),
+        _cache_part(usage.cache_write_long, cache_rates.long, ordinary),
+        _priced_tokens(usage.output, usd_per_million_output_tokens, "output"),
+    ]
+    if _UNPRICED in parts:
+        return None
+    priced = [part for part in parts if part is not None]
+    if not priced:
+        return None
+    return _rupiah(priced, usd_idr_rate)
+
+
+def _cache_part(
+    tokens: int | None, dedicated: Decimal | None, ordinary: Decimal | None
+) -> Decimal | object | None:
+    if tokens is None:
+        return None
+    if tokens == 0:
+        return Decimal(0)
+    price = dedicated if dedicated is not None else _unrated_bucket_rate(ordinary)
+    if price is None:
+        return _UNPRICED
+    return _priced_tokens(tokens, price, "cache")
+
+
+def _rupiah(parts: list[Decimal], usd_idr_rate: Decimal) -> Decimal:
     if usd_idr_rate <= 0:
         raise InternalError("Exchange rate must be positive.", code="COST_ESTIMATE_INVALID_INPUT")
     usd = sum(parts, Decimal(0))

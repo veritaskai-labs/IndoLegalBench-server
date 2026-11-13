@@ -3,6 +3,7 @@
 from dataclasses import dataclass
 from decimal import Decimal
 
+from app.modules.runs.call_cost import cache_rates_from
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.judge import JudgePrices
 
@@ -74,5 +75,6 @@ def open_judge_meter(
         usd_per_million_input_tokens=binding.price_input_usd_per_mtok,
         usd_per_million_output_tokens=binding.price_output_usd_per_mtok,
         usd_idr_rate=rates.usd_idr(),
+        cache_rates=cache_rates_from(binding),
     )
     return JudgeMeter(prices, binding.monthly_budget_idr - spent_idr)

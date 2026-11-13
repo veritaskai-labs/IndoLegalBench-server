@@ -7,6 +7,13 @@ import httpx
 
 from app.modules.providers.adapters.base import FailureKind, ProviderResponse
 from app.modules.providers.adapters.http import clip, http_failure, json_object, post_json
+from app.modules.providers.usage import (
+    TokenUsage,
+    normalize_anthropic,
+    normalize_gemini,
+    normalize_openai,
+    normalize_usage,
+)
 
 _CONNECT_SECONDS = 15.0
 _TRUNCATED = "truncated by length limit"
@@ -98,7 +105,7 @@ def transport_failure(
     if 200 <= response.status_code < 300:
         return None
     raw = _raw_from_response(response, secret)
-    input_tokens, output_tokens = _tokens_from_body(raw)
+    usage = normalize_usage(raw)
     return ProviderResponse(
         text="",
         model_version="",
@@ -106,8 +113,9 @@ def transport_failure(
         raw=raw,
         error=http_failure(response, secret),
         failure_kind=_http_failure_kind(response.status_code),
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
+        input_tokens=usage.input_tokens,
+        output_tokens=usage.output_tokens,
+        usage=usage,
     )
 
 
@@ -122,32 +130,6 @@ def _invalid(latency_ms: int, secret: str, raw: dict) -> ProviderResponse:
     )
 
 
-def _count(value: object) -> int | None:
-    if isinstance(value, bool) or not isinstance(value, int):
-        return None
-    return value
-
-
-def _usage_pair(payload: dict, input_key: str, output_key: str) -> tuple[int | None, int | None]:
-    usage = payload.get("usage")
-    if not isinstance(usage, dict):
-        return None, None
-    return _count(usage.get(input_key)), _count(usage.get(output_key))
-
-
-def _tokens_from_body(payload: dict) -> tuple[int | None, int | None]:
-    """Ambil usage dari body sukses atau gagal. 0 tetap 0. Field hilang tetap None."""
-    for input_key, output_key in (
-        ("total_input_tokens", "total_output_tokens"),
-        ("prompt_tokens", "completion_tokens"),
-        ("input_tokens", "output_tokens"),
-    ):
-        found = _usage_pair(payload, input_key, output_key)
-        if found != (None, None):
-            return found
-    return None, None
-
-
 def _done(
     *,
     text: str,
@@ -157,8 +139,7 @@ def _done(
     secret: str,
     kind: FailureKind | None,
     error: str | None,
-    input_tokens: int | None = None,
-    output_tokens: int | None = None,
+    usage: TokenUsage | None = None,
 ) -> ProviderResponse:
     return ProviderResponse(
         text=scrub(text, secret),
@@ -167,8 +148,9 @@ def _done(
         raw=raw,
         error=None if error is None else clip(error, secret),
         failure_kind=kind,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
+        input_tokens=None if usage is None else usage.input_tokens,
+        output_tokens=None if usage is None else usage.output_tokens,
+        usage=usage,
     )
 
 
@@ -205,7 +187,6 @@ def interpret_openai(
         kind = FailureKind.EMPTY
         error = _EMPTY
     model = payload.get("model")
-    input_tokens, output_tokens = _usage_pair(payload, "prompt_tokens", "completion_tokens")
     return _done(
         text=text,
         model_version=model if isinstance(model, str) else model_name,
@@ -214,8 +195,7 @@ def interpret_openai(
         secret=secret,
         kind=kind,
         error=error,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
+        usage=normalize_openai(payload),
     )
 
 
@@ -323,7 +303,6 @@ def interpret_gemini(
     text = _gemini_text(payload)
     kind, error = _gemini_outcome(payload, text)
     model = payload.get("model")
-    input_tokens, output_tokens = _usage_pair(payload, "total_input_tokens", "total_output_tokens")
     return _done(
         text=text,
         model_version=model if isinstance(model, str) else model_name,
@@ -332,8 +311,7 @@ def interpret_gemini(
         secret=secret,
         kind=kind,
         error=error,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
+        usage=normalize_gemini(payload),
     )
 
 
@@ -363,7 +341,6 @@ def interpret_anthropic(
         kind = FailureKind.EMPTY
         error = _EMPTY
     model = payload.get("model")
-    input_tokens, output_tokens = _usage_pair(payload, "input_tokens", "output_tokens")
     return _done(
         text=text,
         model_version=model if isinstance(model, str) else model_name,
@@ -372,6 +349,5 @@ def interpret_anthropic(
         secret=secret,
         kind=kind,
         error=error,
-        input_tokens=input_tokens,
-        output_tokens=output_tokens,
+        usage=normalize_anthropic(payload),
     )

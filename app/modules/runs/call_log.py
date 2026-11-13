@@ -5,7 +5,8 @@ from datetime import UTC, datetime
 from decimal import Decimal
 from zoneinfo import ZoneInfo
 
-from app.modules.runs.call_cost import actual_cost_idr
+from app.modules.providers.usage import TokenUsage
+from app.modules.runs.call_cost import actual_cost_idr, cache_rates_from
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.models import CallLog
 from app.modules.runs.ports import AttemptRecord
@@ -62,13 +63,7 @@ class CallLogService:
         """Kurs dan harga dicek sebelum attempt disimpan, supaya tidak ada baris yatim."""
         rate = self._rates.usd_idr()
         product = self._products.get(product_id)
-        actual_cost_idr(
-            input_tokens=record.input_tokens,
-            output_tokens=record.output_tokens,
-            usd_per_million_input_tokens=_side_price(product, "price_input_usd_per_mtok"),
-            usd_per_million_output_tokens=_side_price(product, "price_output_usd_per_mtok"),
-            usd_idr_rate=rate,
-        )
+        _call_cost(product, record, rate)
         return rate
 
     def record(
@@ -92,13 +87,11 @@ class CallLogService:
             duration_ms=max(int((ended - started).total_seconds() * 1000), 0),
             input_tokens=record.input_tokens,
             output_tokens=record.output_tokens,
-            cost_idr=actual_cost_idr(
-                input_tokens=record.input_tokens,
-                output_tokens=record.output_tokens,
-                usd_per_million_input_tokens=_side_price(product, "price_input_usd_per_mtok"),
-                usd_per_million_output_tokens=_side_price(product, "price_output_usd_per_mtok"),
-                usd_idr_rate=rate,
-            ),
+            uncached_input_tokens=record.uncached_input_tokens,
+            cache_read_tokens=record.cache_read_tokens,
+            cache_write_tokens=record.cache_write_tokens,
+            cache_write_long_tokens=record.cache_write_long_tokens,
+            cost_idr=_call_cost(product, record, rate),
             usd_idr_rate=rate,
             model_version=record.model_version,
             result=label,
@@ -127,10 +120,40 @@ def technical_result(record: AttemptRecord) -> tuple[str, str | None]:
     return "ok", None
 
 
+def _call_cost(product, record: AttemptRecord, rate: Decimal) -> Decimal | None:
+    return actual_cost_idr(
+        input_tokens=record.input_tokens,
+        output_tokens=record.output_tokens,
+        usd_per_million_input_tokens=_side_price(product, "price_input_usd_per_mtok"),
+        usd_per_million_output_tokens=_side_price(product, "price_output_usd_per_mtok"),
+        usd_idr_rate=rate,
+        usage=_usage_of(record),
+        cache_rates=cache_rates_from(product),
+    )
+
+
+def _usage_of(record: AttemptRecord) -> TokenUsage | None:
+    parts = (
+        record.uncached_input_tokens,
+        record.cache_read_tokens,
+        record.cache_write_tokens,
+        record.cache_write_long_tokens,
+    )
+    if all(part is None for part in parts):
+        return None
+    return TokenUsage(
+        uncached_input=record.uncached_input_tokens,
+        cache_read=record.cache_read_tokens,
+        cache_write=record.cache_write_tokens,
+        cache_write_long=record.cache_write_long_tokens,
+        output=record.output_tokens,
+    )
+
+
 def _side_price(product, field_name: str) -> Decimal | None:
     if product is None:
         return None
-    value = getattr(product, field_name)
-    if value is None:
+    value = getattr(product, field_name, None)
+    if not isinstance(value, Decimal):
         return None
     return value

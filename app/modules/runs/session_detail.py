@@ -16,6 +16,7 @@ import uuid
 from collections.abc import Mapping
 from dataclasses import dataclass
 from datetime import datetime
+from decimal import Decimal
 from typing import Any, Protocol
 
 from app.modules.cases.models import SplitTag
@@ -50,6 +51,7 @@ class CaseRow:
     case_id: uuid.UUID
     body: Mapping[str, Any]
     attempts: list[AttemptRow]
+    cost_idr: Decimal | None = None
 
 
 @dataclass(frozen=True)
@@ -155,4 +157,5 @@ def _case(case: CaseRow, *, viewer_role: Role) -> SessionCaseResult:
             )
             for attempt in case.attempts
         ],
+        cost_idr=case.cost_idr,
     )

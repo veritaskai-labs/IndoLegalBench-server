@@ -30,6 +30,10 @@ class AttemptRecord:
     failure_kind: str | None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    uncached_input_tokens: int | None = None
+    cache_read_tokens: int | None = None
+    cache_write_tokens: int | None = None
+    cache_write_long_tokens: int | None = None
     attempt_id: uuid.UUID | None = None
     # Saat respons diterima atau gagal. None untuk store lama; store tabel mengisi saat simpan.
     ended_at: datetime | None = None

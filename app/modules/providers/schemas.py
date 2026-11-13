@@ -58,6 +58,15 @@ class AiProductCreate(BaseModel):
     price_output_usd_per_mtok: Decimal | None = Field(
         default=None, ge=0, max_digits=12, decimal_places=4
     )
+    price_cache_read_usd_per_mtok: Decimal | None = Field(
+        default=None, ge=0, max_digits=12, decimal_places=4
+    )
+    price_cache_write_usd_per_mtok: Decimal | None = Field(
+        default=None, ge=0, max_digits=12, decimal_places=4
+    )
+    price_cache_write_long_usd_per_mtok: Decimal | None = Field(
+        default=None, ge=0, max_digits=12, decimal_places=4
+    )
     # Manual
     vendor_name: str | None = Field(default=None, min_length=1, max_length=200)
     site_url: str | None = Field(default=None, min_length=1, max_length=2048)
@@ -99,6 +108,15 @@ class AiProductUpdate(BaseModel):
     price_output_usd_per_mtok: Decimal | None = Field(
         default=None, ge=0, max_digits=12, decimal_places=4
     )
+    price_cache_read_usd_per_mtok: Decimal | None = Field(
+        default=None, ge=0, max_digits=12, decimal_places=4
+    )
+    price_cache_write_usd_per_mtok: Decimal | None = Field(
+        default=None, ge=0, max_digits=12, decimal_places=4
+    )
+    price_cache_write_long_usd_per_mtok: Decimal | None = Field(
+        default=None, ge=0, max_digits=12, decimal_places=4
+    )
     vendor_name: str | None = Field(default=None, min_length=1, max_length=200)
     site_url: str | None = Field(default=None, min_length=1, max_length=2048)
     access_note: str | None = Field(default=None, max_length=_PANJANG_TEKS_MANUAL)
@@ -137,6 +155,9 @@ class AiProductRead(BaseModel):
     model_params: ModelParams | None = None
     price_input_usd_per_mtok: Decimal | None = None
     price_output_usd_per_mtok: Decimal | None = None
+    price_cache_read_usd_per_mtok: Decimal | None = None
+    price_cache_write_usd_per_mtok: Decimal | None = None
+    price_cache_write_long_usd_per_mtok: Decimal | None = None
     vendor_name: str | None = None
     vendor_label: str | None = Field(
         default=None,

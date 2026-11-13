@@ -314,6 +314,15 @@ class SessionProductCopy(Base):
     model_version_at_start: Mapped[str | None] = mapped_column(String(200), nullable=True)
     price_input_usd_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     price_output_usd_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    price_cache_read_usd_per_mtok: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4), nullable=True
+    )
+    price_cache_write_usd_per_mtok: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4), nullable=True
+    )
+    price_cache_write_long_usd_per_mtok: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4), nullable=True
+    )
     monthly_budget_idr: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     # Produk manual (PBI-23 AC3). access_note tidak disalin, sama seperti kredensial.
     vendor_name: Mapped[str | None] = mapped_column(String(200), nullable=True)
@@ -456,6 +465,10 @@ class CallLog(Base):
     duration_ms: Mapped[int] = mapped_column(Integer, nullable=False)
     input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     output_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    uncached_input_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cache_read_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cache_write_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    cache_write_long_tokens: Mapped[int | None] = mapped_column(Integer, nullable=True)
     cost_idr: Mapped[object | None] = mapped_column(Numeric(18, 2), nullable=True)
     usd_idr_rate: Mapped[object] = mapped_column(Numeric(18, 4), nullable=False)
     model_version: Mapped[str] = mapped_column(String(200), nullable=False)

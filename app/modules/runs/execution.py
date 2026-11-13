@@ -6,11 +6,13 @@ from collections.abc import Callable
 from contextlib import contextmanager
 from dataclasses import dataclass, replace
 from datetime import UTC, datetime
+from decimal import Decimal
 
 from sqlalchemy import text
 
 from app.modules.providers import service as providers_service
 from app.modules.runs.adapters import ProductAdapter
+from app.modules.runs.call_cost import CacheRates
 from app.modules.runs.call_log import CallLogService
 from app.modules.runs.dependencies import build_session_queue, get_exchange_rate
 from app.modules.runs.exchange_rate import ExchangeRateProvider
@@ -69,6 +71,22 @@ def worker_lease(bind):
                 connection.commit()
 
 
+def _frozen_cache_price(copied: object, catalog: Decimal | None) -> Decimal | None:
+    """Tarif cache salinan didahulukan. Katalog yang kosong tetap None, tidak 500."""
+    if isinstance(copied, Decimal):
+        return copied
+    return catalog
+
+
+def _frozen_cache_rates(copy, catalog: ConfigPriceCatalog):
+    rates = catalog.cache_rates(copy.provider_type, copy.model_name)
+    return CacheRates(
+        read=_frozen_cache_price(copy.price_cache_read_usd_per_mtok, rates.read),
+        write=_frozen_cache_price(copy.price_cache_write_usd_per_mtok, rates.write),
+        long=_frozen_cache_price(copy.price_cache_write_long_usd_per_mtok, rates.long),
+    )
+
+
 class _ClaimedQueue:
     """SessionQueue sudah membuat snapshot; worker tidak boleh claim sesi lain lagi."""
 
@@ -84,7 +102,11 @@ class _FrozenProduct:
         self.live_products = live_products
         settings = get_settings()
         catalog = ConfigPriceCatalog(
-            settings.cost_model_prices, input_prices=settings.cost_model_input_prices
+            settings.cost_model_prices,
+            input_prices=settings.cost_model_input_prices,
+            cache_read_prices=getattr(settings, "cost_model_cache_read_prices", {}),
+            cache_write_prices=getattr(settings, "cost_model_cache_write_prices", {}),
+            cache_write_long_prices=getattr(settings, "cost_model_cache_write_long_prices", {}),
         )
         input_price = copy.price_input_usd_per_mtok
         output_price = copy.price_output_usd_per_mtok
@@ -94,6 +116,7 @@ class _FrozenProduct:
             output_price = catalog.usd_per_million_output_tokens(
                 copy.provider_type, copy.model_name
             )
+        cache_rates = _frozen_cache_rates(copy, catalog)
         self.product = ProductInfo(
             id=copy.product_id,
             name=copy.name,
@@ -104,6 +127,9 @@ class _FrozenProduct:
             monthly_budget_idr=copy.monthly_budget_idr,
             price_input_usd_per_mtok=input_price,
             price_output_usd_per_mtok=output_price,
+            price_cache_read_usd_per_mtok=cache_rates.read,
+            price_cache_write_usd_per_mtok=cache_rates.write,
+            price_cache_write_long_usd_per_mtok=cache_rates.long,
         )
 
     def get(self, product_id):

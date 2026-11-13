@@ -65,7 +65,6 @@ from app.modules.runs.session_grade import (
     grade_session_data,
     is_ai_refusal,
     is_empty_answer,
-    list_graded_sessions,
     normalize_legal_refs,
     round_two_digits,
     score_deterministic_citations,
@@ -1446,59 +1445,6 @@ def test_session_label_and_product_name_in_results(db_session, produk, pembuat, 
     )
     assert fetched_fallback.session_label == sesi.label
     assert fetched_fallback.product_name == produk.name
-
-
-def test_list_graded_sessions_logic(db_session, produk, pembuat, monkeypatch):
-    """Memastikan list_graded_sessions hanya mengembalikan sesi selesai yang memiliki hasil penilaian."""
-    # 1. Saat belum ada sesi selesai dinilai -> []
-    assert list_graded_sessions(db_session, viewer_role=Role.VIEWER) == []
-
-    # 2. Kontributor boleh membaca (SCRUM-276), Developer AI tetap ditolak
-    assert list_graded_sessions(db_session, viewer_role=Role.CONTRIBUTOR) == []
-    with pytest.raises(ForbiddenError, match="tidak berwenang"):
-        list_graded_sessions(db_session, viewer_role=Role.DEVELOPER_AI)
-
-    # 3. Sesi running tidak masuk
-    _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.RUNNING)
-    assert list_graded_sessions(db_session, viewer_role=Role.ADMIN) == []
-
-    # 4. Sesi selesai tetapi belum dinilai -> tidak masuk
-    sesi_finished = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
-    assert list_graded_sessions(db_session, viewer_role=Role.ADMIN) == []
-
-    # 5. Sesi selesai dan sudah dinilai -> masuk
-    pasang_penilai_tiruan(db_session, sesi_finished, monkeypatch)
-    grade_session(db_session, sesi_finished.id, actor_id=pembuat.id, actor_role=Role.ADMIN)
-    results = list_graded_sessions(db_session, viewer_role=Role.VIEWER)
-    assert len(results) == 1
-    item = results[0]
-    assert item.session_id == sesi_finished.id
-    assert item.label == sesi_finished.label
-    assert item.product_name == produk.name
-    assert item.rubric_version == "v1"
-
-    # 6. Sesi diarsipkan -> tidak muncul
-    sesi_finished.archived_at = datetime.now(UTC)
-    sesi_finished.archived_by = pembuat.id
-    db_session.commit()
-    assert list_graded_sessions(db_session, viewer_role=Role.ADMIN) == []
-
-    # 7. Fallback AuditLog: sesi selesai dengan grading di AuditLog tetapi tanpa baris GradingRun
-    sesi_audit = _setup_sesi_lengkap(db_session, produk, pembuat, status=SessionStatus.FINISHED)
-    log = AuditLog(
-        occurred_at=datetime.now(UTC),
-        actor_user_id=pembuat.id,
-        actor_role=Role.ADMIN.value,
-        action="measurement_session.graded",
-        entity_type="measurement_session",
-        entity_id=sesi_audit.id,
-        after={"rubric_version": "v2"},
-        reason="manual grade audit",
-    )
-    db_session.add(log)
-    db_session.commit()
-    audit_results = list_graded_sessions(db_session, viewer_role=Role.ADMIN)
-    assert any(r.session_id == sesi_audit.id and r.rubric_version == "v2" for r in audit_results)
 
 
 def test_list_graded_sessions_api_endpoints(as_role, db_session, produk, pembuat, monkeypatch):

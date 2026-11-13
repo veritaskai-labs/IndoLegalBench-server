@@ -4,7 +4,7 @@ from collections.abc import Sequence
 from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 
-from app.modules.runs.call_cost import actual_cost_idr
+from app.modules.runs.call_cost import CacheRates, actual_cost_idr
 
 _QUALITY_LEAD = (
     "Score the quality of the provider answer against each criterion. "
@@ -60,6 +60,7 @@ class JudgePrices:
     usd_per_million_input_tokens: Decimal | None
     usd_per_million_output_tokens: Decimal | None
     usd_idr_rate: Decimal
+    cache_rates: CacheRates | None = None
 
 
 @dataclass(frozen=True)
@@ -282,4 +283,6 @@ def _cost(response: object, prices: JudgePrices | None) -> Decimal | None:
         usd_per_million_input_tokens=prices.usd_per_million_input_tokens,
         usd_per_million_output_tokens=prices.usd_per_million_output_tokens,
         usd_idr_rate=prices.usd_idr_rate,
+        usage=getattr(response, "usage", None),
+        cache_rates=prices.cache_rates,
     )

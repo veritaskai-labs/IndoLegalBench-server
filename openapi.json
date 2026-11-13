@@ -4429,9 +4429,9 @@
         "tags": [
           "results"
         ],
-        "summary": "Daftar sesi selesai yang telah dinilai untuk Admin, Viewer, dan Kontributor (SCRUM-226)",
-        "description": "Daftar sesi selesai yang telah dinilai. Dapat diakses oleh Admin, Viewer, dan Kontributor.",
-        "operationId": "list_graded_sessions_endpoint_results_sessions_get",
+        "summary": "Daftar laporan, satu baris per grading run, untuk Admin, Viewer, dan Kontributor (SCRUM-296)",
+        "description": "Satu baris per grading run: nilai ulang menambah baris, baris lama tetap ada.",
+        "operationId": "list_graded_runs_endpoint_results_sessions_get",
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -4439,10 +4439,10 @@
               "application/json": {
                 "schema": {
                   "items": {
-                    "$ref": "#/components/schemas/GradedSessionListItem"
+                    "$ref": "#/components/schemas/GradedRunListItem"
                   },
                   "type": "array",
-                  "title": "Response List Graded Sessions Endpoint Results Sessions Get"
+                  "title": "Response List Graded Runs Endpoint Results Sessions Get"
                 }
               }
             }
@@ -6376,6 +6376,54 @@
             ],
             "title": "Price Output Usd Per Mtok"
           },
+          "price_cache_read_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Read Usd Per Mtok"
+          },
+          "price_cache_write_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Usd Per Mtok"
+          },
+          "price_cache_write_long_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Long Usd Per Mtok"
+          },
           "vendor_name": {
             "anyOf": [
               {
@@ -6553,6 +6601,42 @@
               }
             ],
             "title": "Price Output Usd Per Mtok"
+          },
+          "price_cache_read_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Read Usd Per Mtok"
+          },
+          "price_cache_write_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Usd Per Mtok"
+          },
+          "price_cache_write_long_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Long Usd Per Mtok"
           },
           "vendor_name": {
             "anyOf": [
@@ -6848,6 +6932,42 @@
             ],
             "title": "Price Output Usd Per Mtok"
           },
+          "price_cache_read_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Read Usd Per Mtok"
+          },
+          "price_cache_write_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Usd Per Mtok"
+          },
+          "price_cache_write_long_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Long Usd Per Mtok"
+          },
           "vendor_name": {
             "anyOf": [
               {
@@ -7121,6 +7241,54 @@
               }
             ],
             "title": "Price Output Usd Per Mtok"
+          },
+          "price_cache_read_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Read Usd Per Mtok"
+          },
+          "price_cache_write_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Usd Per Mtok"
+          },
+          "price_cache_write_long_usd_per_mtok": {
+            "anyOf": [
+              {
+                "type": "number",
+                "minimum": 0.0
+              },
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*(?:\\d{0,8}|(?=[\\d.]{1,13}0*$)\\d{0,8}\\.\\d{0,4}0*$)"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Price Cache Write Long Usd Per Mtok"
           },
           "vendor_name": {
             "anyOf": [
@@ -8919,13 +9087,19 @@
         "title": "GradeSessionRequest",
         "description": "Pemicu penilaian manual oleh Admin (PBI-14 AC6, AC7)."
       },
-      "GradedSessionListItem": {
+      "GradedRunListItem": {
         "properties": {
+          "grading_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Grading Run Id",
+            "description": "ID grading run, unik per baris"
+          },
           "session_id": {
             "type": "string",
             "format": "uuid",
             "title": "Session Id",
-            "description": "ID sesi pengukuran"
+            "description": "ID sesi pengukuran yang dinilai"
           },
           "label": {
             "type": "string",
@@ -8935,42 +9109,111 @@
           "product_name": {
             "type": "string",
             "title": "Product Name",
-            "description": "Nama produk AI yang diuji"
+            "description": "Nama produk AI yang diukur"
           },
-          "finished_at": {
+          "session_type": {
+            "type": "string",
+            "enum": [
+              "automatic",
+              "manual"
+            ],
+            "title": "Session Type",
+            "description": "Jenis sesi pengukuran"
+          },
+          "judge": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/GradingJudge"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "LLM judge run ini; null untuk run lama tanpa judge"
+          },
+          "rubric_version": {
+            "type": "string",
+            "title": "Rubric Version",
+            "description": "Versi rubrik yang digunakan (mis. 'v1')"
+          },
+          "graded_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Graded At",
+            "description": "Waktu penilaian dipicu, selalu UTC"
+          },
+          "status": {
+            "type": "string",
+            "title": "Status",
+            "description": "completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
+          },
+          "is_latest": {
+            "type": "boolean",
+            "title": "Is Latest",
+            "description": "True bila ini run terbaru sesi tersebut"
+          },
+          "scores": {
+            "$ref": "#/components/schemas/ThreeScores",
+            "description": "Tiga skor terpisah: dev, test, dan gabungan"
+          },
+          "measurement_cost_idr": {
             "anyOf": [
               {
                 "type": "string",
-                "format": "date-time"
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Finished At",
-            "description": "Waktu sesi selesai (null bila belum tercatat)"
+            "title": "Measurement Cost Idr",
+            "description": "Biaya panggilan produk yang sudah tersimpan untuk sesi ini, rupiah. Sesi manual 0. null bila ada panggilan tetapi biayanya belum tercatat"
           },
-          "rubric_version": {
+          "judge_cost_idr": {
             "anyOf": [
               {
-                "type": "string"
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
               },
               {
                 "type": "null"
               }
             ],
-            "title": "Rubric Version",
-            "description": "Versi rubrik yang digunakan pada penilaian terbaru (mis. 'v1')"
+            "title": "Judge Cost Idr",
+            "description": "Biaya penilai yang sudah tersimpan pada run ini, rupiah. null bila belum ada"
+          },
+          "total_cost_idr": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Cost Idr",
+            "description": "measurement_cost_idr ditambah judge_cost_idr. null bila salah satu sisi null, supaya biaya yang hilang tidak menjadi Rp 0"
           }
         },
         "type": "object",
         "required": [
+          "grading_run_id",
           "session_id",
           "label",
-          "product_name"
+          "product_name",
+          "session_type",
+          "rubric_version",
+          "graded_at",
+          "status",
+          "is_latest",
+          "scores",
+          "measurement_cost_idr",
+          "judge_cost_idr",
+          "total_cost_idr"
         ],
-        "title": "GradedSessionListItem",
-        "description": "Ringkasan sesi pengukuran selesai yang telah dinilai untuk Admin dan Viewer (PBI-14, SCRUM-226, SCRUM-227)."
+        "title": "GradedRunListItem",
+        "description": "Satu baris laporan: satu grading run beserta judge dan versi rubriknya (SCRUM-296, K-21)."
       },
       "GraderPath": {
         "type": "string",
@@ -12218,6 +12461,19 @@
             },
             "type": "array",
             "title": "Attempts"
+          },
+          "cost_idr": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Cost Idr",
+            "description": "Biaya panggilan produk untuk kasus ini, rupiah, termasuk pengulangan dan coba ulang. null bila sesi otomatis belum punya biaya tercatat. Tetap diisi saat kasus disamarkan"
           }
         },
         "type": "object",
