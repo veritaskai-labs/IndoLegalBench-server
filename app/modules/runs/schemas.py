@@ -748,6 +748,15 @@ class CaseGradeResult(BaseModel):
     attempts: list[AttemptGradeResult] = Field(default_factory=list)
 
 
+# Deskripsi field yang sama di hasil run, riwayat run, dan baris laporan.
+RUBRIC_VERSION_DESCRIPTION = "Versi rubrik yang digunakan (mis. 'v1')"
+RUN_STATUS_DESCRIPTION = (
+    "completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
+)
+RUN_JUDGE_DESCRIPTION = "LLM judge run ini; null untuk run lama tanpa judge"
+THREE_SCORES_DESCRIPTION = "Tiga skor terpisah: dev, test, dan gabungan"
+
+
 class SessionGradingResponse(BaseModel):
     """Hasil penilaian sesi pengukuran (PBI-14 AC3, AC6, AC7, AC8)."""
 
@@ -755,22 +764,18 @@ class SessionGradingResponse(BaseModel):
     session_id: uuid.UUID
     session_label: str | None = Field(default=None, description="Label sesi pengukuran yang diuji")
     product_name: str | None = Field(default=None, description="Nama produk AI yang diuji")
-    rubric_version: str = Field(description="Versi rubrik yang digunakan (mis. 'v1')")
+    rubric_version: str = Field(description=RUBRIC_VERSION_DESCRIPTION)
     kind: Literal["initial", "regrade"] = Field(
         description="initial untuk penilaian pertama, regrade untuk nilai ulang"
     )
-    status: str = Field(
-        description="completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
-    )
+    status: str = Field(description=RUN_STATUS_DESCRIPTION)
     triggered_by: uuid.UUID = Field(description="Admin yang memicu penilaian")
     triggered_at: datetime = Field(description="Waktu pemicuan penilaian")
     is_latest: bool = Field(
         default=True, description="True bila merupakan hasil penilaian terbaru untuk sesi ini"
     )
-    judge: GradingJudge | None = Field(
-        default=None, description="LLM judge run ini; null untuk run lama tanpa judge"
-    )
-    scores: ThreeScores = Field(description="Tiga skor terpisah: dev, test, dan gabungan")
+    judge: GradingJudge | None = Field(default=None, description=RUN_JUDGE_DESCRIPTION)
+    scores: ThreeScores = Field(description=THREE_SCORES_DESCRIPTION)
     category_scores: list[CategoryScore] = Field(
         default_factory=list, description="Pecahan skor per kategori kasus"
     )
@@ -783,20 +788,16 @@ class GradingRunSummary(BaseModel):
     """Satu baris riwayat penilaian sesi, tanpa rincian kasus (PBI-14 AC7)."""
 
     grading_run_id: uuid.UUID
-    rubric_version: str = Field(description="Versi rubrik yang digunakan (mis. 'v1')")
+    rubric_version: str = Field(description=RUBRIC_VERSION_DESCRIPTION)
     kind: Literal["initial", "regrade"] = Field(
         description="initial untuk penilaian pertama, regrade untuk nilai ulang"
     )
-    status: str = Field(
-        description="completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
-    )
+    status: str = Field(description=RUN_STATUS_DESCRIPTION)
     triggered_by: uuid.UUID = Field(description="Admin yang memicu penilaian")
     triggered_at: datetime = Field(description="Waktu pemicuan penilaian")
     is_latest: bool = Field(description="True bila ini hasil penilaian terbaru sesi tersebut")
-    judge: GradingJudge | None = Field(
-        default=None, description="LLM judge run ini; null untuk run lama tanpa judge"
-    )
-    scores: ThreeScores = Field(description="Tiga skor terpisah: dev, test, dan gabungan")
+    judge: GradingJudge | None = Field(default=None, description=RUN_JUDGE_DESCRIPTION)
+    scores: ThreeScores = Field(description=THREE_SCORES_DESCRIPTION)
 
 
 class GradedRunListItem(BaseModel):
@@ -807,16 +808,12 @@ class GradedRunListItem(BaseModel):
     label: str = Field(description="Label sesi pengukuran")
     product_name: str = Field(description="Nama produk AI yang diukur")
     session_type: Literal["automatic", "manual"] = Field(description="Jenis sesi pengukuran")
-    judge: GradingJudge | None = Field(
-        default=None, description="LLM judge run ini; null untuk run lama tanpa judge"
-    )
-    rubric_version: str = Field(description="Versi rubrik yang digunakan (mis. 'v1')")
+    judge: GradingJudge | None = Field(default=None, description=RUN_JUDGE_DESCRIPTION)
+    rubric_version: str = Field(description=RUBRIC_VERSION_DESCRIPTION)
     graded_at: UtcDateTime = Field(description="Waktu penilaian dipicu, selalu UTC")
-    status: str = Field(
-        description="completed bila ada skor; failed bila tidak satu pun percobaan bisa dinilai"
-    )
+    status: str = Field(description=RUN_STATUS_DESCRIPTION)
     is_latest: bool = Field(description="True bila ini run terbaru sesi tersebut")
-    scores: ThreeScores = Field(description="Tiga skor terpisah: dev, test, dan gabungan")
+    scores: ThreeScores = Field(description=THREE_SCORES_DESCRIPTION)
 
 
 class EvidenceRead(BaseModel):
