@@ -22,6 +22,7 @@ from dataclasses import dataclass
 from enum import StrEnum
 
 from app.modules.providers.adapters.params import ASK_TIMEOUT_SECONDS, ModelParameters
+from app.modules.providers.usage import TokenUsage
 
 
 @dataclass(frozen=True)
@@ -75,6 +76,7 @@ class ProviderResponse:
     failure_kind: str | None = None
     input_tokens: int | None = None
     output_tokens: int | None = None
+    usage: TokenUsage | None = None
 
 
 class ProviderAdapter(ABC):

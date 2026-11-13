@@ -212,8 +212,8 @@ def test_gemini_stub_adds_thoughts_and_ignores_tool_tokens(monkeypatch):
     assert _buckets(_gemini().ask("q")) == (8, 0, None, None, 18, 8, 18)
 
 
-def test_stub_keeps_missing_unset_and_zero_as_zero(monkeypatch):
-    """Edge: field yang tidak ada pada stub bukan 0. Angka 0 pada stub tetap 0."""
+def test_stub_keeps_a_missing_count_unset(monkeypatch):
+    """Edge: field yang tidak ada pada stub bukan 0."""
     _stub(
         monkeypatch,
         {
@@ -222,9 +222,14 @@ def test_stub_keeps_missing_unset_and_zero_as_zero(monkeypatch):
             "usage": {"prompt_tokens": 2},
         },
     )
+
     missing = _openai().ask("q")
+
     assert _buckets(missing) == (2, None, None, None, None, 2, None)
 
+
+def test_stub_keeps_an_explicit_zero(monkeypatch):
+    """Edge: angka 0 pada stub tetap 0. Satu stub per tes, supaya transport tidak bertumpuk."""
     _stub(
         monkeypatch,
         {
@@ -237,5 +242,7 @@ def test_stub_keeps_missing_unset_and_zero_as_zero(monkeypatch):
             },
         },
     )
+
     zero = _gemini().ask("q")
+
     assert _buckets(zero) == (0, 0, None, None, 0, 0, 0)
