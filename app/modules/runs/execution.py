@@ -12,6 +12,7 @@ from sqlalchemy import text
 
 from app.modules.providers import service as providers_service
 from app.modules.runs.adapters import ProductAdapter
+from app.modules.runs.call_cost import CacheRates
 from app.modules.runs.call_log import CallLogService
 from app.modules.runs.dependencies import build_session_queue, get_exchange_rate
 from app.modules.runs.exchange_rate import ExchangeRateProvider
@@ -77,6 +78,15 @@ def _frozen_cache_price(copied: object, catalog: Decimal | None) -> Decimal | No
     return catalog
 
 
+def _frozen_cache_rates(copy, catalog: ConfigPriceCatalog):
+    rates = catalog.cache_rates(copy.provider_type, copy.model_name)
+    return CacheRates(
+        read=_frozen_cache_price(copy.price_cache_read_usd_per_mtok, rates.read),
+        write=_frozen_cache_price(copy.price_cache_write_usd_per_mtok, rates.write),
+        long=_frozen_cache_price(copy.price_cache_write_long_usd_per_mtok, rates.long),
+    )
+
+
 class _ClaimedQueue:
     """SessionQueue sudah membuat snapshot; worker tidak boleh claim sesi lain lagi."""
 
@@ -106,18 +116,7 @@ class _FrozenProduct:
             output_price = catalog.usd_per_million_output_tokens(
                 copy.provider_type, copy.model_name
             )
-        cache_read = _frozen_cache_price(
-            copy.price_cache_read_usd_per_mtok,
-            catalog.usd_per_million_cache_read_tokens(copy.provider_type, copy.model_name),
-        )
-        cache_write = _frozen_cache_price(
-            copy.price_cache_write_usd_per_mtok,
-            catalog.usd_per_million_cache_write_tokens(copy.provider_type, copy.model_name),
-        )
-        cache_write_long = _frozen_cache_price(
-            copy.price_cache_write_long_usd_per_mtok,
-            catalog.usd_per_million_cache_write_long_tokens(copy.provider_type, copy.model_name),
-        )
+        cache_rates = _frozen_cache_rates(copy, catalog)
         self.product = ProductInfo(
             id=copy.product_id,
             name=copy.name,
@@ -128,9 +127,9 @@ class _FrozenProduct:
             monthly_budget_idr=copy.monthly_budget_idr,
             price_input_usd_per_mtok=input_price,
             price_output_usd_per_mtok=output_price,
-            price_cache_read_usd_per_mtok=cache_read,
-            price_cache_write_usd_per_mtok=cache_write,
-            price_cache_write_long_usd_per_mtok=cache_write_long,
+            price_cache_read_usd_per_mtok=cache_rates.read,
+            price_cache_write_usd_per_mtok=cache_rates.write,
+            price_cache_write_long_usd_per_mtok=cache_rates.long,
         )
 
     def get(self, product_id):

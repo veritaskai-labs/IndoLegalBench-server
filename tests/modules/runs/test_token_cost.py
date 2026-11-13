@@ -12,7 +12,7 @@ Setiap tes diberi label di docstring-nya:
 from decimal import Decimal
 
 from app.modules.providers.usage import TokenUsage
-from app.modules.runs.call_cost import actual_cost_idr
+from app.modules.runs.call_cost import CacheRates, actual_cost_idr
 
 _INPUT = Decimal("1")
 _OUTPUT = Decimal("3")
@@ -27,9 +27,11 @@ def _cost(usage: TokenUsage, **rates: Decimal | None) -> Decimal | None:
         usd_per_million_output_tokens=_OUTPUT,
         usd_idr_rate=_RATE,
         usage=usage,
-        usd_per_million_cache_read_tokens=rates.get("read"),
-        usd_per_million_cache_write_tokens=rates.get("write"),
-        usd_per_million_cache_write_long_tokens=rates.get("long"),
+        cache_rates=CacheRates(
+            read=rates.get("read"),
+            write=rates.get("write"),
+            long=rates.get("long"),
+        ),
     )
 
 

@@ -5,6 +5,7 @@ from collections.abc import Mapping
 from decimal import Decimal
 from typing import Protocol
 
+from app.modules.runs.call_cost import CacheRates
 from app.shared.exceptions import InternalError
 
 logger = logging.getLogger(__name__)
@@ -65,18 +66,11 @@ class ConfigPriceCatalog:
             )
         return price
 
-    def usd_per_million_cache_read_tokens(
-        self, provider_type: str, model_name: str
-    ) -> Decimal | None:
-        """Tarif baca cache, atau None bila peta tidak memuat model itu."""
-        return self._cache_read_prices.get(f"{provider_type}:{model_name}")
-
-    def usd_per_million_cache_write_tokens(
-        self, provider_type: str, model_name: str
-    ) -> Decimal | None:
-        return self._cache_write_prices.get(f"{provider_type}:{model_name}")
-
-    def usd_per_million_cache_write_long_tokens(
-        self, provider_type: str, model_name: str
-    ) -> Decimal | None:
-        return self._cache_write_long_prices.get(f"{provider_type}:{model_name}")
+    def cache_rates(self, provider_type: str, model_name: str) -> CacheRates:
+        """Tarif cache, atau None pada bagian yang petanya tidak memuat model itu."""
+        key = f"{provider_type}:{model_name}"
+        return CacheRates(
+            read=self._cache_read_prices.get(key),
+            write=self._cache_write_prices.get(key),
+            long=self._cache_write_long_prices.get(key),
+        )

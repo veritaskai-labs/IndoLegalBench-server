@@ -6,7 +6,7 @@ from decimal import Decimal
 from zoneinfo import ZoneInfo
 
 from app.modules.providers.usage import TokenUsage
-from app.modules.runs.call_cost import actual_cost_idr
+from app.modules.runs.call_cost import actual_cost_idr, cache_rates_from
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.models import CallLog
 from app.modules.runs.ports import AttemptRecord
@@ -128,11 +128,7 @@ def _call_cost(product, record: AttemptRecord, rate: Decimal) -> Decimal | None:
         usd_per_million_output_tokens=_side_price(product, "price_output_usd_per_mtok"),
         usd_idr_rate=rate,
         usage=_usage_of(record),
-        usd_per_million_cache_read_tokens=_side_price(product, "price_cache_read_usd_per_mtok"),
-        usd_per_million_cache_write_tokens=_side_price(product, "price_cache_write_usd_per_mtok"),
-        usd_per_million_cache_write_long_tokens=_side_price(
-            product, "price_cache_write_long_usd_per_mtok"
-        ),
+        cache_rates=cache_rates_from(product),
     )
 
 

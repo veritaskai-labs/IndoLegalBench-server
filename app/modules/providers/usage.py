@@ -47,22 +47,15 @@ class TokenUsage:
 
 
 def normalize_usage(payload: dict) -> TokenUsage:
-    """Pilih bentuk dari isi body. Dipakai bila jalur HTTP belum tahu penyedianya."""
+    """Pilih bentuk dari isi body. Dipakai bila jalur HTTP belum tahu penyedianya.
+
+    Urutan pembaca adalah strateginya: bentuk pertama yang cocok menang, karena
+    beberapa penyedia memakai nama field yang sama.
+    """
     usage = payload.get("usage")
-    if isinstance(usage, dict) and (
-        "total_input_tokens" in usage or "total_output_tokens" in usage
-    ):
-        return normalize_gemini(payload)
-    if "usageMetadata" in payload:
-        return normalize_gemini(payload)
-    if isinstance(usage, dict) and (
-        "prompt_tokens" in usage
-        or "prompt_cache_hit_tokens" in usage
-        or "prompt_cache_miss_tokens" in usage
-    ):
-        return normalize_openai(payload)
-    if isinstance(usage, dict) and ("input_tokens" in usage or "output_tokens" in usage):
-        return normalize_anthropic(payload)
+    for matches, reader in _READERS:
+        if matches(payload, usage):
+            return reader(payload)
     return TokenUsage()
 
 
@@ -86,16 +79,9 @@ def normalize_openai(payload: dict) -> TokenUsage:
             cache_read=hit,
             output=completion,
         )
-    details = usage.get("prompt_tokens_details")
-    cached = write = None
-    if isinstance(details, dict):
-        cached = _count(details.get("cached_tokens"))
-        write = _count(details.get("cache_write_tokens"))
-    uncached = prompt
-    if prompt is not None and (cached is not None or write is not None):
-        uncached = max(prompt - (cached or 0) - (write or 0), 0)
+    cached, write = _openai_cache_details(usage)
     return TokenUsage(
-        uncached_input=uncached,
+        uncached_input=_subtract(prompt, cached, write),
         cache_read=cached,
         cache_write=write,
         output=completion,
@@ -107,15 +93,7 @@ def normalize_anthropic(payload: dict) -> TokenUsage:
     usage = _usage(payload)
     if usage is None:
         return TokenUsage()
-    write_total = _count(usage.get("cache_creation_input_tokens"))
-    short, long = _write_tiers(usage.get("cache_creation"))
-    if short is not None or long is not None:
-        tier_sum = (short or 0) + (long or 0)
-        if write_total is not None and tier_sum != write_total and tier_sum == 0:
-            short, long = write_total, None
-        write, write_long = short, long
-    else:
-        write, write_long = write_total, None
+    write, write_long = _anthropic_writes(usage)
     return TokenUsage(
         uncached_input=_count(usage.get("input_tokens")),
         cache_read=_count(usage.get("cache_read_input_tokens")),
@@ -127,30 +105,45 @@ def normalize_anthropic(payload: dict) -> TokenUsage:
 
 def normalize_gemini(payload: dict) -> TokenUsage:
     """Interactions atau usageMetadata. Token berpikir ditambahkan ke keluaran."""
-    usage = _usage(payload)
-    if usage is None and isinstance(payload.get("usageMetadata"), dict):
-        usage = payload["usageMetadata"]
-    if not isinstance(usage, dict):
+    usage = _gemini_usage(payload)
+    if usage is None:
         return TokenUsage()
-    prompt = _count(usage.get("total_input_tokens"))
-    if prompt is None:
-        prompt = _count(usage.get("promptTokenCount"))
-    cached = _count(usage.get("total_cached_tokens"))
-    if cached is None:
-        cached = _count(usage.get("cachedContentTokenCount"))
-    output = _count(usage.get("total_output_tokens"))
-    if output is None:
-        output = _count(usage.get("candidatesTokenCount"))
-    thoughts = _count(usage.get("total_thought_tokens"))
-    if thoughts is None:
-        thoughts = _count(usage.get("thoughtsTokenCount"))
-    uncached = prompt
-    if prompt is not None and cached is not None:
-        uncached = max(prompt - cached, 0)
-    billable = None
-    if output is not None or thoughts is not None:
-        billable = (output or 0) + (thoughts or 0)
-    return TokenUsage(uncached_input=uncached, cache_read=cached, output=billable)
+    prompt = _first_count(usage, "total_input_tokens", "promptTokenCount")
+    cached = _first_count(usage, "total_cached_tokens", "cachedContentTokenCount")
+    output = _first_count(usage, "total_output_tokens", "candidatesTokenCount")
+    thoughts = _first_count(usage, "total_thought_tokens", "thoughtsTokenCount")
+    return TokenUsage(
+        uncached_input=_subtract(prompt, cached),
+        cache_read=cached,
+        output=_add(output, thoughts),
+    )
+
+
+def _looks_like_gemini(payload: dict, usage: object) -> bool:
+    if isinstance(usage, dict) and _has_any(usage, "total_input_tokens", "total_output_tokens"):
+        return True
+    return "usageMetadata" in payload
+
+
+def _looks_like_openai(_payload: dict, usage: object) -> bool:
+    return isinstance(usage, dict) and _has_any(
+        usage, "prompt_tokens", "prompt_cache_hit_tokens", "prompt_cache_miss_tokens"
+    )
+
+
+def _looks_like_anthropic(_payload: dict, usage: object) -> bool:
+    return isinstance(usage, dict) and _has_any(usage, "input_tokens", "output_tokens")
+
+
+_READERS = (
+    (_looks_like_gemini, normalize_gemini),
+    (_looks_like_openai, normalize_openai),
+    (_looks_like_anthropic, normalize_anthropic),
+)
+
+
+def _has_any(usage: dict, *keys: str) -> bool:
+    return any(key in usage for key in keys)
 
 
 def _usage(payload: dict) -> dict | None:
@@ -171,3 +164,52 @@ def _count(value: object) -> int | None:
     if isinstance(value, bool) or not isinstance(value, int):
         return None
     return value
+
+
+def _openai_cache_details(usage: dict) -> tuple[int | None, int | None]:
+    details = usage.get("prompt_tokens_details")
+    if not isinstance(details, dict):
+        return None, None
+    return _count(details.get("cached_tokens")), _count(details.get("cache_write_tokens"))
+
+
+def _anthropic_writes(usage: dict) -> tuple[int | None, int | None]:
+    """Tingkatan yang lengkap menang. Jumlah nol dengan total terisi tetap memakai total."""
+    write_total = _count(usage.get("cache_creation_input_tokens"))
+    short, long = _write_tiers(usage.get("cache_creation"))
+    if short is None and long is None:
+        return write_total, None
+    tier_sum = (short or 0) + (long or 0)
+    if write_total is not None and tier_sum == 0 and tier_sum != write_total:
+        return write_total, None
+    return short, long
+
+
+def _gemini_usage(payload: dict) -> dict | None:
+    usage = _usage(payload)
+    if usage is not None:
+        return usage
+    metadata = payload.get("usageMetadata")
+    if isinstance(metadata, dict):
+        return metadata
+    return None
+
+
+def _first_count(usage: dict, *keys: str) -> int | None:
+    for key in keys:
+        count = _count(usage.get(key))
+        if count is not None:
+            return count
+    return None
+
+
+def _subtract(total: int | None, *parts: int | None) -> int | None:
+    if total is None or all(part is None for part in parts):
+        return total
+    return max(total - sum(part or 0 for part in parts), 0)
+
+
+def _add(left: int | None, right: int | None) -> int | None:
+    if left is None and right is None:
+        return None
+    return (left or 0) + (right or 0)

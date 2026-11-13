@@ -29,6 +29,7 @@ from app.modules.providers.judge_schemas import (
     JudgeProviderUpdate,
 )
 from app.modules.providers.models import AiProduct, JudgeProvider, MeasurementType
+from app.modules.runs.call_cost import CacheRates, cache_rates_from
 from app.shared.exceptions import ConflictError, InternalError, NotFoundError, ValidationError
 
 NAME_TAKEN = "JUDGE_PROVIDER_NAME_TAKEN"
@@ -108,9 +109,7 @@ class JudgeBinding:
     price_output_usd_per_mtok: Decimal | None
     monthly_budget_idr: Decimal
     is_active: bool
-    price_cache_read_usd_per_mtok: Decimal | None = None
-    price_cache_write_usd_per_mtok: Decimal | None = None
-    price_cache_write_long_usd_per_mtok: Decimal | None = None
+    cache_rates: CacheRates | None = None
 
 
 def build_judge(db: Session, judge_id: uuid.UUID) -> JudgeBinding:
@@ -133,9 +132,7 @@ def build_judge(db: Session, judge_id: uuid.UUID) -> JudgeBinding:
         price_output_usd_per_mtok=produk.price_output_usd_per_mtok,
         monthly_budget_idr=produk.monthly_budget_idr,
         is_active=produk.is_active,
-        price_cache_read_usd_per_mtok=produk.price_cache_read_usd_per_mtok,
-        price_cache_write_usd_per_mtok=produk.price_cache_write_usd_per_mtok,
-        price_cache_write_long_usd_per_mtok=produk.price_cache_write_long_usd_per_mtok,
+        cache_rates=cache_rates_from(produk),
     )
 
 
@@ -152,9 +149,7 @@ class JudgePricing:
     price_input_usd_per_mtok: Decimal | None
     price_output_usd_per_mtok: Decimal | None
     monthly_budget_idr: Decimal
-    price_cache_read_usd_per_mtok: Decimal | None = None
-    price_cache_write_usd_per_mtok: Decimal | None = None
-    price_cache_write_long_usd_per_mtok: Decimal | None = None
+    cache_rates: CacheRates | None = None
 
 
 def judge_pricing(db: Session, judge_id: uuid.UUID) -> JudgePricing:
@@ -170,9 +165,7 @@ def judge_pricing(db: Session, judge_id: uuid.UUID) -> JudgePricing:
         price_input_usd_per_mtok=produk.price_input_usd_per_mtok,
         price_output_usd_per_mtok=produk.price_output_usd_per_mtok,
         monthly_budget_idr=produk.monthly_budget_idr,
-        price_cache_read_usd_per_mtok=produk.price_cache_read_usd_per_mtok,
-        price_cache_write_usd_per_mtok=produk.price_cache_write_usd_per_mtok,
-        price_cache_write_long_usd_per_mtok=produk.price_cache_write_long_usd_per_mtok,
+        cache_rates=cache_rates_from(produk),
     )
 
 
