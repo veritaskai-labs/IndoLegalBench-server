@@ -472,7 +472,13 @@ _RESPONS_GRADING_RUNS = {
 }
 
 _RESPONS_GRADING_RUN = {
-    403: _RESPONS_GRADING_RUNS[403],
+    403: {
+        "model": ErrorBody,
+        "description": (
+            "Peran tidak berwenang (`FORBIDDEN`), atau sesi masih berjalan dan pembacanya "
+            "bukan Admin."
+        ),
+    },
     404: {
         "model": ErrorBody,
         "description": (
@@ -592,17 +598,21 @@ def list_grading_runs_endpoint(
 @router.get(
     "/{session_id}/grading-runs/{grading_run_id}",
     response_model=SessionGradingResponse,
-    summary="Satu hasil penilaian sesi, termasuk run lama atau LLM judge lain (Admin)",
-    dependencies=[Depends(require_roles(Role.ADMIN))],
+    summary="Satu hasil penilaian sesi, termasuk run lama atau LLM judge lain (Admin, Viewer, Kontributor)",
+    dependencies=[Depends(require_roles(Role.ADMIN, Role.VIEWER, Role.CONTRIBUTOR))],
     responses=_RESPONS_GRADING_RUN,
 )
 def get_grading_run_endpoint(
     session_id: uuid.UUID,
     grading_run_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
     db: Session = Depends(get_db),
 ) -> SessionGradingResponse:
-    """Run tertentu dari riwayat penilaian, lengkap dengan judge-nya (SCRUM-280)."""
-    return get_grading_run(db, session_id, grading_run_id)
+    """Run tertentu dari baris Laporan, lengkap dengan judge-nya (SCRUM-280, SCRUM-297).
+
+    Viewer dan Kontributor mendapat soal dan jawaban mentah yang disamarkan.
+    """
+    return get_grading_run(db, session_id, grading_run_id, viewer_role=user.role)
 
 
 @router.get(
