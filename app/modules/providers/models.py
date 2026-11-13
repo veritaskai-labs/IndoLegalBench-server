@@ -201,8 +201,12 @@ class AiProduct(Base):
     model_params: Mapped[dict | None] = mapped_column(_JSONB, nullable=True)
     price_input_usd_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
     price_output_usd_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
-    price_cache_read_usd_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
-    price_cache_write_usd_per_mtok: Mapped[Decimal | None] = mapped_column(Numeric(12, 4), nullable=True)
+    price_cache_read_usd_per_mtok: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4), nullable=True
+    )
+    price_cache_write_usd_per_mtok: Mapped[Decimal | None] = mapped_column(
+        Numeric(12, 4), nullable=True
+    )
     price_cache_write_long_usd_per_mtok: Mapped[Decimal | None] = mapped_column(
         Numeric(12, 4), nullable=True
     )
