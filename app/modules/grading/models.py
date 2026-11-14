@@ -58,6 +58,8 @@ _VERSION_COLUMN = "rubric_version_id"
 # Partial unique index: satu baris bertanda per kelompok. Sama untuk PostgreSQL dan SQLite.
 _ONLY_ACTIVE = text("is_active")
 _ONLY_LATEST = text("is_latest")
+# SCRUM-284: satu run antre atau berjalan per sesi; worker dan dua klik bersamaan tidak membuat dua.
+_ONLY_UNFINISHED = text("status IN ('queued', 'running')")
 
 
 class GraderPath(StrEnum):
@@ -257,6 +259,13 @@ class GradingRun(Base):
             postgresql_where=_ONLY_LATEST,
             sqlite_where=_ONLY_LATEST,
         ),
+        Index(
+            "uq_grading_runs_one_active",
+            "session_id",
+            unique=True,
+            postgresql_where=_ONLY_UNFINISHED,
+            sqlite_where=_ONLY_UNFINISHED,
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -290,6 +299,34 @@ class GradingRun(Base):
         DateTime(timezone=True), nullable=False, server_default=func.now()
     )
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+
+
+class GradingRunProgress(Base):
+    """Progres satu grading run yang dikerjakan di latar belakang (SCRUM-284, K-13).
+
+    Tabel terpisah dari grading_runs: trigger grading_runs_guard menjaga identitas run tetap
+    (append-only), sedangkan progres berubah tiap percobaan. Run dari POST /grade lama tidak punya
+    baris ini; progresnya dihitung dari hasil yang tersimpan.
+    """
+
+    __tablename__ = "grading_run_progress"
+    __table_args__ = (
+        CheckConstraint(
+            "attempts_graded BETWEEN 0 AND attempts_total",
+            name="ck_grading_run_progress_count",
+        ),
+    )
+
+    grading_run_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("grading_runs.id"), primary_key=True
+    )
+    attempts_total: Mapped[int] = mapped_column(Integer, nullable=False)
+    attempts_graded: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default=text("0")
+    )
+    started_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class GradingResult(Base):

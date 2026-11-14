@@ -248,6 +248,8 @@ def test_run_kedua_harus_regrade(conn, sesi_id, versi_id, admin_id):
 def test_dua_run_terbaru_untuk_satu_sesi_ditolak(conn, sesi_id, versi_id, admin_id):
     lama = buat_run(conn, sesi_id, versi_id, admin_id)
     ubah_run(conn, lama, is_latest=True)
+    # SCRUM-284: satu run aktif per sesi, jadi run lama selesai dulu sebelum nilai ulang.
+    selesaikan_run(conn, lama)
     baru = buat_run(conn, sesi_id, versi_id, admin_id, kind="regrade")
 
     sqlstate = galat(conn, lambda: ubah_run(conn, baru, is_latest=True)).sqlstate
@@ -395,6 +397,8 @@ def test_percobaan_yang_sama_dinilai_lagi_di_run_baru(
 ):
     """Nilai ulang menulis baris baru; baris run lama tetap."""
     buat_hasil(conn, run_id, percobaan_id)
+    # SCRUM-284: satu run aktif per sesi, jadi run lama selesai dulu sebelum nilai ulang.
+    selesaikan_run(conn, run_id)
     baru = buat_run(conn, sesi_id, versi_id, admin_id, kind="regrade")
     jalankan_run(conn, baru)
 

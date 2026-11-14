@@ -791,6 +791,35 @@ class SessionGradingResponse(BaseModel):
     )
 
 
+class GradingRunQueued(BaseModel):
+    """Balasan 202 POST /measurements/{id}/grading-runs (SCRUM-284, K-13)."""
+
+    grading_run_id: uuid.UUID = Field(description="ID grading run yang dibuat")
+    status: Literal["queued"] = Field(
+        description="Selalu queued: judge dipanggil worker penilaian di latar belakang"
+    )
+
+
+class GradingProgress(BaseModel):
+    """Progres penilaian terbaru satu sesi untuk progress bar (SCRUM-284, K-13)."""
+
+    grading_run_id: uuid.UUID = Field(description="ID grading run terbaru sesi ini")
+    status: Literal["queued", "running", "finished", "failed"] = Field(
+        description="queued = menunggu worker, running = sedang dinilai, finished/failed = selesai"
+    )
+    attempts_graded: int = Field(ge=0, description="Percobaan yang sudah dinilai")
+    attempts_total: int = Field(ge=0, description="Semua percobaan sesi yang dinilai run ini")
+    percent: int = Field(
+        ge=0, le=100, description="attempts_graded / attempts_total, dibulatkan ke bawah"
+    )
+    error_code: str | None = Field(
+        default=None,
+        description="Alasan run gagal (misalnya GRADING_INTERRUPTED); kosong bila tidak gagal",
+    )
+    triggered_at: datetime = Field(description="Waktu Admin memicu penilaian")
+    finished_at: datetime | None = Field(default=None, description="Waktu run berakhir")
+
+
 class GradingRunSummary(BaseModel):
     """Satu baris riwayat penilaian sesi, tanpa rincian kasus (PBI-14 AC7)."""
 

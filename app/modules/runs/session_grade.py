@@ -89,6 +89,7 @@ ACTION_MEASUREMENT_SESSION_GRADED = "measurement_session.graded"
 ACTION_MEASUREMENT_SESSION_REGRADED = "measurement_session.regraded"
 JUDGE_NOT_ELIGIBLE = "JUDGE_NOT_ELIGIBLE"
 JUDGE_REQUIRED = "JUDGE_REQUIRED"
+GRADING_IN_PROGRESS = "GRADING_IN_PROGRESS"
 GRADING_RUN_NOT_FOUND = "GRADING_RUN_NOT_FOUND"
 REASON_CRITERION_UNMET = "criterion_unmet"
 _MAX_REFUSAL_LENGTH = 250
@@ -657,6 +658,13 @@ class MemoryGradingStore:
         return _find_run(self.get_grading_runs(session_id), grading_run_id)
 
 
+def _ended_run_statuses() -> tuple[object, ...]:
+    """Run yang sudah berakhir dan punya hasil; queued dan running belum (SCRUM-284)."""
+    from app.modules.grading.models import GradingRunStatus
+
+    return (GradingRunStatus.FINISHED, GradingRunStatus.FAILED)
+
+
 def pilih_run_terbaru(
     runs: Sequence[SessionGradingResponse],
 ) -> SessionGradingResponse | None:
@@ -908,9 +916,12 @@ class DbGradingStore:
     def get_grading_runs(self, session_id: uuid.UUID) -> list[SessionGradingResponse]:
         from app.modules.grading.models import GradingRun
 
+        # Run yang masih antre atau berjalan belum punya hasil (SCRUM-284).
         runs_db = self.db.scalars(
             select(GradingRun)
-            .where(GradingRun.session_id == session_id)
+            .where(
+                GradingRun.session_id == session_id, GradingRun.status.in_(_ended_run_statuses())
+            )
             .order_by(GradingRun.triggered_at.asc(), GradingRun.id.asc())
         ).all()
 
@@ -1119,7 +1130,9 @@ class DbGradingStore:
 
         run_db = self.db.scalars(
             select(GradingRun).where(
-                GradingRun.id == grading_run_id, GradingRun.session_id == session_id
+                GradingRun.id == grading_run_id,
+                GradingRun.session_id == session_id,
+                GradingRun.status.in_(_ended_run_statuses()),
             )
         ).first()
         if run_db is not None:
@@ -2093,6 +2106,81 @@ def ensure_unchanged_since_load(
         )
 
 
+@dataclass(frozen=True)
+class PreparedGrading:
+    """Hasil pemeriksaan sebelum penilaian, dipakai POST /grade dan antrean penilaian (SCRUM-284)."""
+
+    session: MeasurementSession
+    gate: ManualGradeGate
+    judge_id: uuid.UUID | None
+    rubric_version: str
+
+
+def prepare_grading(
+    db: Session,
+    session_id: uuid.UUID,
+    payload: GradeSessionRequest | None,
+    *,
+    actor_role: Role,
+    judge_asker: object | None = None,
+) -> PreparedGrading:
+    """Aturan sebelum penilaian, sama untuk POST /grade dan penilaian di latar belakang.
+
+    Admin saja, sesi ada dan bisa dinilai (gate D7 untuk sesi manual, D4 untuk otomatis), judge
+    layak atau ditolak sebelum ada panggilan berbayar, versi rubrik dikenal, dan tidak ada run
+    lain yang masih antre atau berjalan (SCRUM-284).
+    """
+    if actor_role != Role.ADMIN:
+        raise ForbiddenError("Hanya Admin yang dapat memicu penilaian.", code="FORBIDDEN")
+
+    session = db.get(MeasurementSession, session_id)
+    if session is None:
+        raise NotFoundError(MEASUREMENT_NOT_FOUND_MESSAGE, code="MEASUREMENT_NOT_FOUND")
+
+    # PBI-22 AC9 (SCRUM-233): sesi manual memakai prasyarat D7 (409 NOT_COMPLETE) dan arsip
+    # dari gate; sesi otomatis tetap aturan D4. Gate tidak mengunci selama judge berjalan.
+    gate = ManualGradeGate(ManualSessionRepository(db))
+    if gate.before_grading(session_id) is None:
+        ensure_session_gradable(session)
+    ensure_no_active_run(db, session_id)
+
+    judge_id = resolve_judge_id(db, session, payload.judge_provider_id if payload else None)
+    if judge_id is None and judge_asker is None:
+        # K-14 (SCRUM-281): sesi boleh dibuat tanpa penilai, jadi Admin wajib memilihnya di
+        # sini. Ditolak sebelum ada panggilan berbayar atau run yang semua percobaannya gagal.
+        raise ValidationError(
+            "Pilih LLM judge untuk penilaian ini.",
+            code=JUDGE_REQUIRED,
+            field="judge_provider_id",
+        )
+    rubric_version = _resolve_rubric_version(db, payload.rubric_version if payload else None)
+    return PreparedGrading(session, gate, judge_id, rubric_version)
+
+
+def ensure_no_active_run(db: Session, session_id: uuid.UUID) -> None:
+    """Satu sesi hanya punya satu run antre atau berjalan (SCRUM-284).
+
+    Index uq_grading_runs_one_active tetap menjaga dua permintaan yang lolos cek ini bersamaan.
+    """
+    from app.modules.grading.models import GradingRun, GradingRunStatus
+
+    active = db.scalar(
+        select(
+            select(GradingRun.id)
+            .where(
+                GradingRun.session_id == session_id,
+                GradingRun.status.in_((GradingRunStatus.QUEUED, GradingRunStatus.RUNNING)),
+            )
+            .exists()
+        )
+    )
+    if active:
+        raise ConflictError(
+            "Penilaian sesi ini masih berjalan. Tunggu sampai selesai.",
+            code=GRADING_IN_PROGRESS,
+        )
+
+
 def grade_session(
     db: Session,
     session_id: uuid.UUID,
@@ -2106,35 +2194,16 @@ def grade_session(
     rates: ExchangeRateProvider | None = None,
 ) -> SessionGradingResponse:
     """Memicu penilaian manual untuk sesi pengukuran (AC6, AC7)."""
-    if actor_role != Role.ADMIN:
-        raise ForbiddenError("Hanya Admin yang dapat memicu penilaian.", code="FORBIDDEN")
-
-    session = db.get(MeasurementSession, session_id)
-    if session is None:
-        raise NotFoundError(MEASUREMENT_NOT_FOUND_MESSAGE, code="MEASUREMENT_NOT_FOUND")
-
-    # PBI-22 AC9 (SCRUM-233): sesi manual memakai prasyarat D7 (409 NOT_COMPLETE) dan arsip
-    # dari gate; sesi otomatis tetap aturan D4. Gate tidak mengunci selama judge berjalan.
-    gate = ManualGradeGate(ManualSessionRepository(db))
-    if gate.before_grading(session_id) is None:
-        ensure_session_gradable(session)
+    prepared = prepare_grading(
+        db, session_id, payload, actor_role=actor_role, judge_asker=judge_asker
+    )
+    session, gate, judge_id = prepared.session, prepared.gate, prepared.judge_id
     # Satu waktu untuk hasil penilaian dan status Dinilai (review Elision #121).
     now = now or datetime.now(UTC)
 
-    judge_id = resolve_judge_id(db, session, payload.judge_provider_id if payload else None)
-    if judge_id is None and judge_asker is None:
-        # K-14 (SCRUM-281): sesi boleh dibuat tanpa penilai, jadi Admin wajib memilihnya di
-        # sini. Ditolak sebelum ada panggilan berbayar atau run yang semua percobaannya gagal.
-        raise ValidationError(
-            "Pilih LLM judge untuk penilaian ini.",
-            code=JUDGE_REQUIRED,
-            field="judge_provider_id",
-        )
     grading_store = store or DbGradingStore(db)
     cases = _load_case_grade_inputs(db, session_id)
-
-    raw_rubric_version = payload.rubric_version if payload else None
-    rubric_version = _resolve_rubric_version(db, raw_rubric_version)
+    rubric_version = prepared.rubric_version
     existing_runs = grading_store.get_grading_runs(session_id)
 
     p_names = providers_service.product_names(db, {session.product_id})
