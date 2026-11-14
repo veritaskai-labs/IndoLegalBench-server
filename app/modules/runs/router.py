@@ -402,6 +402,8 @@ def start(
     return service.start(payload, created_by=uuid.UUID(str(user.user_id)))
 
 
+_MEASUREMENT_NOT_FOUND_DOC = "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`)."
+
 _RESPONS_GRADE = {
     403: {
         "model": ErrorBody,
@@ -409,7 +411,7 @@ _RESPONS_GRADE = {
     },
     404: {
         "model": ErrorBody,
-        "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+        "description": _MEASUREMENT_NOT_FOUND_DOC,
     },
     409: {
         "model": ErrorBody,
@@ -473,7 +475,7 @@ _RESPONS_GRADING_PROGRESS = {
     },
     404: {
         "model": ErrorBody,
-        "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+        "description": _MEASUREMENT_NOT_FOUND_DOC,
     },
 }
 
@@ -484,7 +486,7 @@ _RESPONS_GRADING_RUNS = {
     },
     404: {
         "model": ErrorBody,
-        "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+        "description": _MEASUREMENT_NOT_FOUND_DOC,
     },
 }
 
