@@ -39,7 +39,7 @@ main() {
   docker compose build
   docker compose up -d db
   # A worker must not dispatch against a schema being migrated.
-  docker compose stop worker
+  docker compose stop worker grading-worker
   docker compose run --rm api alembic upgrade head
   # --remove-orphans also drops the old per-stack Caddy of the single-stack
   # layout, if it is still there.

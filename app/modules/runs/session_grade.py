@@ -25,7 +25,7 @@ import re
 import threading
 import uuid
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -1038,7 +1038,6 @@ class DbGradingStore:
         cases_input: Sequence[CaseGradeInput] | None = None,
         judge_provider_id: uuid.UUID | None = None,
     ) -> None:
-        from app.modules.audit.models import AuditEntityType, AuditLog
         from app.modules.grading.models import (
             GradingRun,
             GradingRunKind,
@@ -1077,6 +1076,46 @@ class DbGradingStore:
 
         grading_run_row.status = GradingRunStatus.RUNNING
         self.db.flush()
+        self._finish_run(
+            grading_run_row,
+            run,
+            cases_input,
+            judge_provider_id=judge_provider_id,
+            run_kind=run_kind,
+            finished_at=run.triggered_at,
+        )
+
+    def complete_grading_run(
+        self,
+        grading_run_row: Any,
+        run: SessionGradingResponse,
+        cases_input: Sequence[CaseGradeInput],
+        *,
+        finished_at: datetime,
+    ) -> None:
+        """Simpan hasil worker penilaian ke run running yang sudah ada (SCRUM-284)."""
+        self._finish_run(
+            grading_run_row,
+            run,
+            cases_input,
+            judge_provider_id=grading_run_row.judge_provider_id,
+            run_kind=grading_run_row.kind,
+            finished_at=finished_at,
+        )
+
+    def _finish_run(
+        self,
+        grading_run_row: Any,
+        run: SessionGradingResponse,
+        cases_input: Sequence[CaseGradeInput] | None,
+        *,
+        judge_provider_id: uuid.UUID | None,
+        run_kind: Any,
+        finished_at: datetime,
+    ) -> None:
+        """Hasil per percobaan, tanda terbaru, status akhir, dan audit untuk run yang running."""
+        from app.modules.audit.models import AuditEntityType, AuditLog
+        from app.modules.grading.models import GradingRunKind, GradingRunStatus
 
         catalog = _get_jenis_catalog(self.db)
         scorer = CitationScorer(catalog)
@@ -1088,7 +1127,7 @@ class DbGradingStore:
         grading_run_row.status = (
             GradingRunStatus.FINISHED if run.status == RUN_COMPLETED else GradingRunStatus.FAILED
         )
-        grading_run_row.finished_at = run.triggered_at
+        grading_run_row.finished_at = finished_at
         if run.is_latest:
             grading_run_row.is_latest = True
         self.db.flush()
@@ -2031,7 +2070,9 @@ def _execute_judge_for_all_cases(
     judge_load_error: str | None,
     cases: Sequence[CaseGradeInput],
     meter: JudgeMeter | None = None,
+    on_attempt: Callable[[], None] | None = None,
 ) -> None:
+    """Panggil judge per percobaan; on_attempt dipanggil sesudah tiap percobaan (SCRUM-284)."""
     if judge_load_error:
         _set_cases_judge_error(cases, judge_load_error)
         return
@@ -2039,12 +2080,20 @@ def _execute_judge_for_all_cases(
         return
     for case in cases:
         for att in case.attempts:
-            if not _should_grade_with_judge(att):
-                continue
-            if meter is not None and not meter.has_budget():
-                att.judge_error = JUDGE_BUDGET_EXHAUSTED
-                continue
-            _execute_judge_for_attempt(asker, att, case, meter)
+            _judge_one_attempt(asker, att, case, meter)
+            if on_attempt is not None:
+                on_attempt()
+
+
+def _judge_one_attempt(
+    asker: object, att: AttemptGradeInput, case: CaseGradeInput, meter: JudgeMeter | None
+) -> None:
+    if not _should_grade_with_judge(att):
+        return
+    if meter is not None and not meter.has_budget():
+        att.judge_error = JUDGE_BUDGET_EXHAUSTED
+        return
+    _execute_judge_for_attempt(asker, att, case, meter)
 
 
 def ensure_unchanged_since_load(

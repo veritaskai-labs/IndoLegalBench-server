@@ -10,11 +10,13 @@ ConfiguredExchangeRate, dan waktu disuntikkan lewat argumen now supaya tidak ada
 Label: Positif = alur yang diharapkan, Negatif = run gagal dengan alasan, Edge = batas waktu.
 """
 
+import signal
 import threading
 import uuid
 from contextlib import contextmanager
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
+from types import SimpleNamespace
 
 import pytest
 from sqlalchemy import func, select
@@ -345,3 +347,90 @@ def test_loop_worker_tetap_hidup_saat_putaran_gagal(db_session, caplog):
     # Assert
     assert putaran["n"] == 2
     assert "rahasia-kredensial" not in caplog.text
+
+
+def test_harga_judge_belum_lengkap_run_gagal_tanpa_memanggil_judge(
+    as_role,
+    db_session,
+    sesi,
+    penilai,  # noqa: F811
+    monkeypatch,
+):
+    """Negatif: judge tanpa harga token tidak dipanggil (biayanya tidak bisa ditagih), run NO_SCORE."""
+    # Arrange
+    dipanggil: list[str] = []
+
+    class _TercatatTanpaHarga(_PenilaiBerversi):
+        def ask(self, prompt: str):
+            dipanggil.append(prompt)
+            return super().ask(prompt)
+
+    ikatan = SimpleNamespace(
+        judge_provider_id=penilai.a.id,
+        asker=_TercatatTanpaHarga("model-a-2026"),
+        price_input_usd_per_mtok=None,
+        price_output_usd_per_mtok=None,
+        monthly_budget_idr=Decimal("1000000"),
+    )
+    monkeypatch.setattr("app.modules.providers.judge_service.build_judge", lambda db, j: ikatan)
+    run_id = _antre(as_role, sesi.id)
+    grading_worker.claim_next_run(db_session, now=T0)
+
+    # Act
+    grading_worker.execute_run(db_session, run_id, now=T0, rates=KURS)
+
+    # Assert
+    run, progres = _segarkan(db_session, run_id)
+    assert dipanggil == []
+    assert run.status == GradingRunStatus.FAILED
+    assert progres.error_code == "NO_SCORE"
+
+
+def test_tanpa_waktu_suntikan_memakai_jam_sungguhan(as_role, db_session, sesi):
+    """Edge: worker sungguhan tidak menyuntik waktu; heartbeat dan waktu selesai dari jam UTC."""
+    # Arrange
+    run_id = _antre(as_role, sesi.id)
+    sebelum = datetime.now(UTC)
+
+    # Act
+    grading_worker.run_once(db_session, rates=KURS)
+
+    # Assert
+    run, progres = _segarkan(db_session, run_id)
+    assert run.finished_at.replace(tzinfo=UTC) >= sebelum
+    assert progres.heartbeat_at.replace(tzinfo=UTC) >= sebelum
+
+
+def test_main_mendaftarkan_penghentian_rapi(monkeypatch):
+    """Positif: SIGTERM dan SIGINT menghentikan loop dengan rapi (deploy memberi waktu tunggu)."""
+    # Arrange
+    penangan = {}
+    monkeypatch.setattr(signal, "signal", lambda kunci, nilai: penangan.update({kunci: nilai}))
+
+    def serve(stop, **kwargs):
+        penangan[signal.SIGINT]()
+        assert stop.is_set()
+        stop.clear()
+        penangan[signal.SIGTERM]()
+        assert stop.is_set()
+
+    monkeypatch.setattr(entry, "serve", serve)
+
+    # Act + Assert
+    entry.main()
+
+
+def test_modul_bisa_dijalankan_dan_langsung_berhenti(monkeypatch):
+    """Edge: python -m app.grading_worker tanpa pekerjaan saat sudah diminta berhenti."""
+    # Arrange
+    import runpy
+    import sys
+
+    stop = threading.Event()
+    stop.set()
+    monkeypatch.setattr(threading, "Event", lambda: stop)
+    monkeypatch.setattr(signal, "signal", lambda *_: None)
+    monkeypatch.delitem(sys.modules, "app.grading_worker")
+
+    # Act + Assert
+    runpy.run_module("app.grading_worker", run_name="__main__")
