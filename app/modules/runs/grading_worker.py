@@ -30,12 +30,12 @@ from app.modules.runs.repository import ManualSessionRepository
 from app.modules.runs.session_grade import (
     RUN_COMPLETED,
     DbGradingStore,
-    _execute_judge_for_all_cases,
-    _load_case_grade_inputs,
-    _open_judge_meter_or_error,
-    _resolve_active_judge_asker,
     ensure_unchanged_since_load,
+    execute_judge_for_all_cases,
     grade_session_data,
+    load_case_grade_inputs,
+    open_judge_meter_or_error,
+    resolve_active_judge_asker,
 )
 from app.shared.exceptions import ConflictError
 
@@ -130,12 +130,12 @@ def _grade(
     run = db.get(GradingRun, run_id)
     progress = db.get(GradingRunProgress, run_id)
     session = db.get(MeasurementSession, run.session_id)
-    cases = _load_case_grade_inputs(db, session.id)
+    cases = load_case_grade_inputs(db, session.id)
 
-    asker, judge_error, binding = _resolve_active_judge_asker(
+    asker, judge_error, binding = resolve_active_judge_asker(
         db, session, None, run.judge_provider_id
     )
-    meter, pricing_error = _open_judge_meter_or_error(db, binding, rates, clock())
+    meter, pricing_error = open_judge_meter_or_error(db, binding, rates, clock())
     if pricing_error is not None:
         asker, judge_error = None, pricing_error
 
@@ -144,7 +144,7 @@ def _grade(
         progress.heartbeat_at = clock()
         db.commit()
 
-    _execute_judge_for_all_cases(asker, judge_error, cases, meter, on_attempt=tick)
+    execute_judge_for_all_cases(asker, judge_error, cases, meter, on_attempt=tick)
     progress.attempts_graded = progress.attempts_total
 
     store = DbGradingStore(db)

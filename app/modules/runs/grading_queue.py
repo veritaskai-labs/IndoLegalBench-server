@@ -76,7 +76,10 @@ def enqueue_grading(
 def is_active_run_conflict(exc: IntegrityError) -> bool:
     """True bila galat berasal dari index satu run aktif, bukan FK atau NOT NULL (review #142).
 
-    PostgreSQL menyebut nama index-nya; SQLite hanya menyebut kolom unik grading_runs.session_id.
+    Pencocokan memakai teks galat dari driver, jadi hanya andal untuk pesan PostgreSQL yang
+    menyebut nama index uq_grading_runs_one_active (yang dipakai di dev dan prod). Cabang SQLite
+    (kolom unik grading_runs.session_id) hanya untuk tes lokal; bila driver mengganti teksnya,
+    galat diteruskan apa adanya, tidak salah dilaporkan sebagai 409 (review #143).
     """
     message = str(exc.orig)
     return (

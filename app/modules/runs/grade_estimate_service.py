@@ -27,10 +27,10 @@ from app.modules.runs.schemas import GradeEstimateResponse, GradeSessionRequest
 from app.modules.runs.session_grade import (
     MEASUREMENT_NOT_FOUND_MESSAGE,
     _build_judge_inputs,
-    _load_case_grade_inputs,
     _resolve_rubric_version,
     _should_grade_with_judge,
     ensure_session_gradable,
+    load_case_grade_inputs,
     resolve_judge_id,
 )
 from app.modules.runs.tokenizer import TokenCounter
@@ -133,7 +133,7 @@ def _attempt_prompt_tokens(
 ) -> list[tuple[int, int]]:
     """Token prompt kualitas dan format tiap percobaan yang akan dikirim ke judge."""
     tokens: list[tuple[int, int]] = []
-    for case in _load_case_grade_inputs(db, session_id):
+    for case in load_case_grade_inputs(db, session_id):
         for attempt in case.attempts:
             if not _should_grade_with_judge(attempt):
                 continue

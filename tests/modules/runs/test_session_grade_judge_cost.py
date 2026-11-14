@@ -83,7 +83,7 @@ def test_anggaran_habis_menandai_percobaan_dan_tidak_memanggil_penilai():
     percobaan = _percobaan()
 
     # Act
-    session_grade._execute_judge_for_all_cases(penilai, None, [_kasus(percobaan)], _meter("0"))
+    session_grade.execute_judge_for_all_cases(penilai, None, [_kasus(percobaan)], _meter("0"))
 
     # Assert
     assert percobaan.judge_error == "judge_budget_exhausted"
@@ -98,7 +98,7 @@ def test_biaya_tiap_panggilan_tercatat_per_jenis_dan_memotong_anggaran():
     meter = _meter("100")
 
     # Act
-    session_grade._execute_judge_for_all_cases(
+    session_grade.execute_judge_for_all_cases(
         _MockJudgeAsker(text=_BALASAN_PENILAI), None, [_kasus(percobaan)], meter
     )
 
@@ -119,7 +119,7 @@ def test_anggaran_habis_di_tengah_sesi_menandai_percobaan_berikutnya():
     penilai = _MockJudgeAsker(text=_BALASAN_PENILAI)
 
     # Act
-    session_grade._execute_judge_for_all_cases(penilai, None, [_kasus(pertama, kedua)], meter)
+    session_grade.execute_judge_for_all_cases(penilai, None, [_kasus(pertama, kedua)], meter)
 
     # Assert
     assert pertama.judge_error != "judge_budget_exhausted"
@@ -134,7 +134,7 @@ def test_tanpa_meter_penilai_tetap_dipanggil_dan_biaya_kosong():
     percobaan = _percobaan()
 
     # Act
-    session_grade._execute_judge_for_all_cases(
+    session_grade.execute_judge_for_all_cases(
         _MockJudgeAsker(text=_BALASAN_PENILAI), None, [_kasus(percobaan)]
     )
 

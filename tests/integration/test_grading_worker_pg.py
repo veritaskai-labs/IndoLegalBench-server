@@ -2,7 +2,7 @@
 
 Alur queued -> running -> finished harus diterima grading_runs_guard, dan hasil per percobaan
 ditulis saat run masih running (grading_results hanya menerima run yang belum berakhir).
-Judge tiruan disuntik lewat _resolve_active_judge_asker milik worker.
+Judge tiruan disuntik lewat resolve_active_judge_asker milik worker.
 
 Dilewati kalau TEST_POSTGRES_URL kosong.
 """
@@ -37,7 +37,7 @@ def test_worker_menilai_run_antre_sampai_selesai(pg, monkeypatch):  # noqa: F811
     admin_id, session_id, _ = _setup_pg_grade_session(conn)
     monkeypatch.setattr(
         grading_worker,
-        "_resolve_active_judge_asker",
+        "resolve_active_judge_asker",
         lambda db, session, judge_asker, judge_id=None: (_penilai_tiruan(), None, None),
     )
     queued = enqueue_grading(db, session_id, None, actor_id=admin_id, actor_role=Role.ADMIN, now=T0)
