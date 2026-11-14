@@ -4105,7 +4105,7 @@
             }
           },
           "409": {
-            "description": "Sesi diarsipkan (`SESSION_ARCHIVED`) atau sesi dalam antrean belum bisa dinilai (`SESSION_NOT_GRADABLE`). Sesi manual: masih ada jawaban kosong (`NOT_COMPLETE`) atau statusnya bukan status manual (`MANUAL_SESSION_STATUS_INVALID`). Jawaban ditimpa selama judge berjalan (`ANSWERS_CHANGED_DURING_GRADING`) atau sesi diarsipkan di tengah penilaian (`SESSION_ARCHIVED`): tidak ada hasil yang tersimpan, picu lagi.",
+            "description": "Sesi diarsipkan (`SESSION_ARCHIVED`) atau sesi dalam antrean belum bisa dinilai (`SESSION_NOT_GRADABLE`). Sesi manual: masih ada jawaban kosong (`NOT_COMPLETE`) atau statusnya bukan status manual (`MANUAL_SESSION_STATUS_INVALID`). Jawaban ditimpa selama judge berjalan (`ANSWERS_CHANGED_DURING_GRADING`) atau sesi diarsipkan di tengah penilaian (`SESSION_ARCHIVED`): tidak ada hasil yang tersimpan, picu lagi. Masih ada penilaian yang antre atau berjalan (`GRADING_IN_PROGRESS`, SCRUM-284).",
             "content": {
               "application/json": {
                 "schema": {
@@ -4120,6 +4120,235 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/measurements/{session_id}/grading-runs": {
+      "post": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Antre penilaian sesi di latar belakang (Admin)",
+        "description": "Catat run queued dan langsung balas 202; worker penilaian yang memanggil judge (K-13).\n\nBody dan aturan sama dengan POST /grade. Progres dibaca lewat GET /grading-progress.",
+        "operationId": "enqueue_grading_endpoint_measurements__session_id__grading_runs_post",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "anyOf": [
+                  {
+                    "$ref": "#/components/schemas/GradeSessionRequest"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ],
+                "title": "Payload"
+              }
+            }
+          }
+        },
+        "responses": {
+          "202": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/GradingRunQueued"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya Admin yang dapat memicu penilaian (`FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Sesi diarsipkan (`SESSION_ARCHIVED`) atau sesi dalam antrean belum bisa dinilai (`SESSION_NOT_GRADABLE`). Sesi manual: masih ada jawaban kosong (`NOT_COMPLETE`) atau statusnya bukan status manual (`MANUAL_SESSION_STATUS_INVALID`). Jawaban ditimpa selama judge berjalan (`ANSWERS_CHANGED_DURING_GRADING`) atau sesi diarsipkan di tengah penilaian (`SESSION_ARCHIVED`): tidak ada hasil yang tersimpan, picu lagi. Masih ada penilaian yang antre atau berjalan (`GRADING_IN_PROGRESS`, SCRUM-284).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "LLM judge yang dipilih bukan produk AI otomatis yang aktif (`JUDGE_NOT_ELIGIBLE`). Body yang bentuknya tidak valid tetap dijawab `detail` bawaan FastAPI.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      },
+      "get": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Riwayat penilaian sesi pengukuran, terbaru di atas (Admin)",
+        "description": "Semua penilaian sesi ini, termasuk hasil lama sebelum nilai ulang (PBI-14 AC7).",
+        "operationId": "list_grading_runs_endpoint_measurements__session_id__grading_runs_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/GradingRunSummary"
+                  },
+                  "title": "Response List Grading Runs Endpoint Measurements  Session Id  Grading Runs Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya Admin yang dapat melihat riwayat penilaian (`FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/measurements/{session_id}/grading-progress": {
+      "get": {
+        "tags": [
+          "measurements"
+        ],
+        "summary": "Progres penilaian terbaru sesi pengukuran (Admin)",
+        "description": "Status dan jumlah percobaan yang sudah dinilai untuk progress bar; null bila belum pernah dinilai.",
+        "operationId": "grading_progress_endpoint_measurements__session_id__grading_progress_get",
+        "parameters": [
+          {
+            "name": "session_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Session Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "anyOf": [
+                    {
+                      "$ref": "#/components/schemas/GradingProgress"
+                    },
+                    {
+                      "type": "null"
+                    }
+                  ],
+                  "title": "Response Grading Progress Endpoint Measurements  Session Id  Grading Progress Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya Admin yang dapat melihat progres penilaian (`FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -4211,74 +4440,6 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          }
-        }
-      }
-    },
-    "/measurements/{session_id}/grading-runs": {
-      "get": {
-        "tags": [
-          "measurements"
-        ],
-        "summary": "Riwayat penilaian sesi pengukuran, terbaru di atas (Admin)",
-        "description": "Semua penilaian sesi ini, termasuk hasil lama sebelum nilai ulang (PBI-14 AC7).",
-        "operationId": "list_grading_runs_endpoint_measurements__session_id__grading_runs_get",
-        "parameters": [
-          {
-            "name": "session_id",
-            "in": "path",
-            "required": true,
-            "schema": {
-              "type": "string",
-              "format": "uuid",
-              "title": "Session Id"
-            }
-          }
-        ],
-        "responses": {
-          "200": {
-            "description": "Successful Response",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "type": "array",
-                  "items": {
-                    "$ref": "#/components/schemas/GradingRunSummary"
-                  },
-                  "title": "Response List Grading Runs Endpoint Measurements  Session Id  Grading Runs Get"
-                }
-              }
-            }
-          },
-          "403": {
-            "description": "Hanya Admin yang dapat melihat riwayat penilaian (`FORBIDDEN`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "404": {
-            "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/ErrorBody"
-                }
-              }
-            }
-          },
-          "422": {
-            "description": "Validation Error",
-            "content": {
-              "application/json": {
-                "schema": {
-                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
@@ -9276,6 +9437,111 @@
         ],
         "title": "GradingJudge",
         "description": "LLM judge yang menilai satu run (SCRUM-280, feedback UAT K-17 dan K-18)."
+      },
+      "GradingProgress": {
+        "properties": {
+          "grading_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Grading Run Id",
+            "description": "ID grading run terbaru sesi ini"
+          },
+          "status": {
+            "type": "string",
+            "enum": [
+              "queued",
+              "running",
+              "finished",
+              "failed"
+            ],
+            "title": "Status",
+            "description": "queued = menunggu worker, running = sedang dinilai, finished/failed = selesai"
+          },
+          "attempts_graded": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Attempts Graded",
+            "description": "Percobaan yang sudah dinilai"
+          },
+          "attempts_total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Attempts Total",
+            "description": "Semua percobaan sesi yang dinilai run ini"
+          },
+          "percent": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Percent",
+            "description": "attempts_graded / attempts_total, dibulatkan ke bawah"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code",
+            "description": "Alasan run gagal (misalnya GRADING_INTERRUPTED); kosong bila tidak gagal"
+          },
+          "triggered_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Triggered At",
+            "description": "Waktu Admin memicu penilaian"
+          },
+          "finished_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Finished At",
+            "description": "Waktu run berakhir"
+          }
+        },
+        "type": "object",
+        "required": [
+          "grading_run_id",
+          "status",
+          "attempts_graded",
+          "attempts_total",
+          "percent",
+          "triggered_at"
+        ],
+        "title": "GradingProgress",
+        "description": "Progres penilaian terbaru satu sesi untuk progress bar (SCRUM-284, K-13)."
+      },
+      "GradingRunQueued": {
+        "properties": {
+          "grading_run_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Grading Run Id",
+            "description": "ID grading run yang dibuat"
+          },
+          "status": {
+            "type": "string",
+            "const": "queued",
+            "title": "Status",
+            "description": "Selalu queued: judge dipanggil worker penilaian di latar belakang"
+          }
+        },
+        "type": "object",
+        "required": [
+          "grading_run_id",
+          "status"
+        ],
+        "title": "GradingRunQueued",
+        "description": "Balasan 202 POST /measurements/{id}/grading-runs (SCRUM-284, K-13)."
       },
       "GradingRunSummary": {
         "properties": {

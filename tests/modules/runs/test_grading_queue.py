@@ -14,6 +14,7 @@ import pytest
 from sqlalchemy import func, select
 
 from app.modules.grading.models import GradingRun, GradingRunProgress, GradingRunStatus
+from app.modules.runs.grading_queue import progress_percent
 from app.modules.runs.models import Attempt, SessionStatus
 from app.shared.security import Role
 from tests.modules.runs.test_grading_runs_per_judge import (  # noqa: F401  (fixture)
@@ -215,3 +216,39 @@ def test_run_antre_belum_muncul_di_riwayat_hasil_dan_laporan(as_role, sesi):
     assert hasil.status_code == 404
     assert detail.status_code == 404
     assert all(baris["grading_run_id"] != run_id for baris in laporan)
+
+
+def test_dua_klik_bersamaan_ditolak_index_satu_run_aktif(as_role, db_session, sesi, monkeypatch):
+    """Edge: dua permintaan lolos cek aplikasi bersamaan; index unik menolak yang kedua dengan 409."""
+    # Arrange
+    admin = as_role(Role.ADMIN)
+    admin.post(_antre(sesi.id), json={})
+    # Permintaan kedua dianggap sudah lewat cek sebelum run pertama tersimpan.
+    monkeypatch.setattr(
+        "app.modules.runs.session_grade.ensure_no_active_run", lambda db, session_id: None
+    )
+
+    # Act
+    res = admin.post(_antre(sesi.id), json={})
+
+    # Assert
+    assert res.status_code == 409
+    assert res.json()["code"] == "GRADING_IN_PROGRESS"
+    assert _jumlah_run(db_session) == 1
+
+
+@pytest.mark.parametrize(
+    ("dinilai", "total", "selesai", "persen"),
+    [
+        (0, 0, False, 0),
+        (0, 0, True, 100),
+        (1, 3, False, 33),
+        (2, 3, False, 66),
+        (3, 3, True, 100),
+        (5, 4, False, 100),
+    ],
+)
+def test_persen_progres_dibulatkan_ke_bawah(dinilai, total, selesai, persen):
+    """Edge: 100 persen hanya saat semua dinilai; sesi tanpa percobaan tidak membagi nol."""
+    # Act + Assert
+    assert progress_percent(dinilai, total, finished=selesai) == persen

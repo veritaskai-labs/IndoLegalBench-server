@@ -29,11 +29,14 @@ from app.modules.runs.dependencies import (
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.grade_estimate_service import estimate_session_grade
 from app.modules.runs.graded_run_list import list_graded_runs
+from app.modules.runs.grading_queue import enqueue_grading, get_grading_progress
 from app.modules.runs.schemas import (
     AttemptCalls,
     GradedRunListItem,
     GradeEstimateResponse,
     GradeSessionRequest,
+    GradingProgress,
+    GradingRunQueued,
     GradingRunSummary,
     ProgressResponse,
     SessionAcceptRequest,
@@ -416,7 +419,8 @@ _RESPONS_GRADE = {
             "kosong (`NOT_COMPLETE`) atau statusnya bukan status manual "
             "(`MANUAL_SESSION_STATUS_INVALID`). Jawaban ditimpa selama judge berjalan "
             "(`ANSWERS_CHANGED_DURING_GRADING`) atau sesi diarsipkan di tengah penilaian "
-            "(`SESSION_ARCHIVED`): tidak ada hasil yang tersimpan, picu lagi."
+            "(`SESSION_ARCHIVED`): tidak ada hasil yang tersimpan, picu lagi. Masih ada "
+            "penilaian yang antre atau berjalan (`GRADING_IN_PROGRESS`, SCRUM-284)."
         ),
     },
     422: {
@@ -457,6 +461,19 @@ _RESPONS_GRADE_ESTIMATE = {
             "masuk atau keluar produk judge belum lengkap (`JUDGE_PRICING_MISSING`). Body yang "
             "bentuknya tidak valid tetap dijawab `detail` bawaan FastAPI."
         ),
+    },
+}
+
+_RESPONS_GRADING_RUN_QUEUE = {**_RESPONS_GRADE}
+
+_RESPONS_GRADING_PROGRESS = {
+    403: {
+        "model": ErrorBody,
+        "description": "Hanya Admin yang dapat melihat progres penilaian (`FORBIDDEN`).",
+    },
+    404: {
+        "model": ErrorBody,
+        "description": "Pengukuran tidak ditemukan (`MEASUREMENT_NOT_FOUND`).",
     },
 }
 
@@ -546,6 +563,49 @@ def trigger_grade_endpoint(
         now=datetime.now(UTC),
         rates=rates,
     )
+
+
+@router.post(
+    "/{session_id}/grading-runs",
+    response_model=GradingRunQueued,
+    status_code=status.HTTP_202_ACCEPTED,
+    summary="Antre penilaian sesi di latar belakang (Admin)",
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+    responses=_RESPONS_GRADING_RUN_QUEUE,
+)
+def enqueue_grading_endpoint(
+    session_id: uuid.UUID,
+    payload: GradeSessionRequest | None = None,
+    user: CurrentUser = Depends(require_roles(Role.ADMIN)),
+    db: Session = Depends(get_db),
+) -> GradingRunQueued:
+    """Catat run queued dan langsung balas 202; worker penilaian yang memanggil judge (K-13).
+
+    Body dan aturan sama dengan POST /grade. Progres dibaca lewat GET /grading-progress.
+    """
+    return enqueue_grading(
+        db,
+        session_id,
+        payload,
+        actor_id=uuid.UUID(str(user.user_id)),
+        actor_role=user.role,
+        now=datetime.now(UTC),
+    )
+
+
+@router.get(
+    "/{session_id}/grading-progress",
+    response_model=GradingProgress | None,
+    summary="Progres penilaian terbaru sesi pengukuran (Admin)",
+    dependencies=[Depends(require_roles(Role.ADMIN))],
+    responses=_RESPONS_GRADING_PROGRESS,
+)
+def grading_progress_endpoint(
+    session_id: uuid.UUID,
+    db: Session = Depends(get_db),
+) -> GradingProgress | None:
+    """Status dan jumlah percobaan yang sudah dinilai untuk progress bar; null bila belum pernah dinilai."""
+    return get_grading_progress(db, session_id)
 
 
 @router.post(
