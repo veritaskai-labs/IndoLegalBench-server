@@ -2195,20 +2195,27 @@ def get_session_results(
             code="GRADING_NOT_FOUND",
         )
 
-    if not latest_run.session_label or not latest_run.product_name:
-        p_names = providers_service.product_names(db, {session.product_id})
-        p_name = p_names.get(session.product_id, "")
-        latest_run = latest_run.model_copy(
-            update={
-                "session_label": latest_run.session_label or session.label,
-                "product_name": latest_run.product_name or p_name,
-            }
-        )
-
     return apply_visibility_mask(
-        latest_run,
+        _with_session_names(db, session, latest_run),
         viewer_role=viewer_role,
         session_status=session.status,
+    )
+
+
+def _with_session_names(
+    db: Session, session: MeasurementSession, run: SessionGradingResponse
+) -> SessionGradingResponse:
+    """Melengkapi nama sesi dan produk yang kosong di run lama dari data sesi saat ini."""
+    if run.session_label and run.product_name:
+        return run
+    product_name = providers_service.product_names(db, {session.product_id}).get(
+        session.product_id, ""
+    )
+    return run.model_copy(
+        update={
+            "session_label": run.session_label or session.label,
+            "product_name": run.product_name or product_name,
+        }
     )
 
 
@@ -2253,16 +2260,24 @@ def get_grading_run(
     session_id: uuid.UUID,
     grading_run_id: uuid.UUID,
     *,
+    viewer_role: Role,
     store: GradingStore | None = None,
 ) -> SessionGradingResponse:
-    """Satu run penilaian lengkap, termasuk run lama atau judge lain (SCRUM-280).
+    """Satu run penilaian lengkap, termasuk run lama atau judge lain (SCRUM-280, SCRUM-297).
 
-    Run dicari hanya di antara run sesi ini, jadi id run sesi lain dijawab 404.
+    Run dicari hanya di antara run sesi ini, jadi id run sesi lain dijawab 404. Aturan
+    visibilitas sama dengan hasil terbaru: Viewer dan Kontributor tidak melihat soal dan
+    jawaban mentah, dan sesi yang masih berjalan hanya untuk Admin.
     """
-    if db.get(MeasurementSession, session_id) is None:
+    session = db.get(MeasurementSession, session_id)
+    if session is None:
         raise NotFoundError(MEASUREMENT_NOT_FOUND_MESSAGE, code="MEASUREMENT_NOT_FOUND")
 
     run = (store or DbGradingStore(db)).get_grading_run(session_id, grading_run_id)
     if run is None:
         raise NotFoundError("Hasil penilaian tidak ditemukan.", code=GRADING_RUN_NOT_FOUND)
-    return run
+    return apply_visibility_mask(
+        _with_session_names(db, session, run),
+        viewer_role=viewer_role,
+        session_status=session.status,
+    )
