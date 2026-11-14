@@ -12,9 +12,10 @@ import uuid
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.modules.grading.models import GradingRun, GradingRunProgress, GradingRunStatus
-from app.modules.runs.grading_queue import progress_percent
+from app.modules.runs.grading_queue import is_active_run_conflict, progress_percent
 from app.modules.runs.models import Attempt, SessionStatus
 from app.shared.security import Role
 from tests.modules.runs.test_grading_runs_per_judge import (  # noqa: F401  (fixture)
@@ -252,3 +253,38 @@ def test_persen_progres_dibulatkan_ke_bawah(dinilai, total, selesai, persen):
     """Edge: 100 persen hanya saat semua dinilai; sesi tanpa percobaan tidak membagi nol."""
     # Act + Assert
     assert progress_percent(dinilai, total, finished=selesai) == persen
+
+
+@pytest.mark.parametrize(
+    ("pesan", "bentrok"),
+    [
+        ('duplicate key value violates unique constraint "uq_grading_runs_one_active"', True),
+        ("UNIQUE constraint failed: grading_runs.session_id", True),
+        ('insert or update on table "grading_runs" violates foreign key constraint', False),
+        ("NOT NULL constraint failed: grading_runs.rubric_version_id", False),
+    ],
+)
+def test_hanya_pelanggaran_index_run_aktif_dianggap_bentrok(pesan, bentrok):
+    """Review server#142: galat integritas lain (FK, NOT NULL) bukan GRADING_IN_PROGRESS."""
+    # Arrange
+    galat = IntegrityError("INSERT INTO grading_runs ...", {}, Exception(pesan))
+
+    # Act + Assert
+    assert is_active_run_conflict(galat) is bentrok
+
+
+def test_galat_integritas_lain_saat_antre_tidak_disamarkan_jadi_409(
+    as_role, db_session, sesi, monkeypatch
+):
+    """Negatif: galat integritas yang bukan run aktif diteruskan, tidak dilaporkan sebagai 409."""
+    # Arrange
+    admin = as_role(Role.ADMIN)
+    admin.post(_antre(sesi.id), json={})
+    monkeypatch.setattr(
+        "app.modules.runs.session_grade.ensure_no_active_run", lambda db, session_id: None
+    )
+    monkeypatch.setattr("app.modules.runs.grading_queue.is_active_run_conflict", lambda exc: False)
+
+    # Act + Assert
+    with pytest.raises(IntegrityError):
+        admin.post(_antre(sesi.id), json={})
