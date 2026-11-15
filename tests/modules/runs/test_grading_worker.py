@@ -174,7 +174,7 @@ def test_judge_gagal_semua_run_gagal_tanpa_menggeser_hasil(
     assert run.status == GradingRunStatus.FAILED
     assert run.is_latest is False
     assert progres.error_code == "GRADING_ERROR"
-    assert progres.attempts_graded == progres.attempts_total
+    assert progres.attempts_graded == 0
 
 
 def test_sesi_diarsipkan_saat_dinilai_run_gagal_tanpa_hasil(
