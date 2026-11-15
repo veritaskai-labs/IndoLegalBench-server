@@ -110,6 +110,10 @@ def test_baris_riwayat_tidak_membawa_rincian_kasus(
         "is_latest",
         "scores",
         "judge",
+        "error_code",
+        "attempts_graded",
+        "attempts_total",
+        "attempts_ungraded",
     }
     assert set(res.json()[0]["scores"]) == {"dev", "test", "combined"}
 

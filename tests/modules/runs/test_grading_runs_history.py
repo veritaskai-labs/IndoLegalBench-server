@@ -123,6 +123,10 @@ def test_ringkasan_tidak_membawa_rincian_kasus(pembuat):
         "is_latest",
         "scores",
         "judge",
+        "error_code",
+        "attempts_graded",
+        "attempts_total",
+        "attempts_ungraded",
     }
 
 
