@@ -29,7 +29,11 @@ from app.modules.runs.dependencies import (
 from app.modules.runs.exchange_rate import ExchangeRateProvider
 from app.modules.runs.grade_estimate_service import estimate_session_grade
 from app.modules.runs.graded_run_list import list_graded_runs
-from app.modules.runs.grading_queue import enqueue_grading, get_grading_progress
+from app.modules.runs.grading_queue import (
+    enqueue_grading,
+    get_grading_progress,
+    list_grading_runs_with_progress,
+)
 from app.modules.runs.schemas import (
     AttemptCalls,
     GradedRunListItem,
@@ -62,7 +66,6 @@ from app.modules.runs.session_grade import (
     get_grading_run,
     get_session_results,
     grade_session,
-    list_grading_runs,
 )
 from app.modules.runs.session_list import SessionListService
 from app.modules.runs.session_retry import retry_failed_attempts
@@ -654,7 +657,7 @@ def list_grading_runs_endpoint(
     db: Session = Depends(get_db),
 ) -> list[GradingRunSummary]:
     """Semua penilaian sesi ini, termasuk hasil lama sebelum nilai ulang (PBI-14 AC7)."""
-    return list_grading_runs(db, session_id)
+    return list_grading_runs_with_progress(db, session_id)
 
 
 @router.get(

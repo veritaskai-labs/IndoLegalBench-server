@@ -164,6 +164,8 @@ def _grade(
         # D8: sesi manual Lengkap -> Dinilai di transaksi yang sama dengan hasilnya.
         ManualGradeGate(ManualSessionRepository(db)).after_grading(session.id, now=finished_at)
     else:
+        # Run gagal tidak punya satu pun skor: tidak ada percobaan yang bisa disebut sudah dinilai.
+        progress.attempts_graded = 0
         progress.error_code = resolve_failure_code(
             (att.judge_error for case in cases for att in case.attempts),
             pricing_missing=pricing_error is not None,

@@ -791,6 +791,13 @@ class SessionGradingResponse(BaseModel):
     )
 
 
+RUN_ERROR_CODE_DESCRIPTION = (
+    "Alasan run gagal, kosong bila tidak gagal: judge_not_configured, judge_unavailable, "
+    "judge_pricing_missing, judge_budget_exhausted, judge_incomplete, NO_SCORE, GRADING_ERROR, "
+    "GRADING_INTERRUPTED, atau kode konflik seperti SESSION_ARCHIVED"
+)
+
+
 class GradingRunQueued(BaseModel):
     """Balasan 202 POST /measurements/{id}/grading-runs (SCRUM-284, K-13)."""
 
@@ -812,10 +819,10 @@ class GradingProgress(BaseModel):
     percent: int = Field(
         ge=0, le=100, description="attempts_graded / attempts_total, dibulatkan ke bawah"
     )
-    error_code: str | None = Field(
-        default=None,
-        description="Alasan run gagal (misalnya GRADING_INTERRUPTED); kosong bila tidak gagal",
+    attempts_ungraded: int = Field(
+        ge=0, description="Percobaan yang belum dinilai: attempts_total dikurangi attempts_graded"
     )
+    error_code: str | None = Field(default=None, description=RUN_ERROR_CODE_DESCRIPTION)
     triggered_at: datetime = Field(description="Waktu Admin memicu penilaian")
     finished_at: datetime | None = Field(default=None, description="Waktu run berakhir")
 
@@ -834,6 +841,14 @@ class GradingRunSummary(BaseModel):
     is_latest: bool = Field(description="True bila ini hasil penilaian terbaru sesi tersebut")
     judge: GradingJudge | None = Field(default=None, description=RUN_JUDGE_DESCRIPTION)
     scores: ThreeScores = Field(description=THREE_SCORES_DESCRIPTION)
+    error_code: str | None = Field(default=None, description=RUN_ERROR_CODE_DESCRIPTION)
+    attempts_graded: int = Field(default=0, ge=0, description="Percobaan yang sudah dinilai")
+    attempts_total: int = Field(default=0, ge=0, description="Semua percobaan sesi yang dinilai")
+    attempts_ungraded: int = Field(
+        default=0,
+        ge=0,
+        description="Percobaan yang belum dinilai (attempts_total - attempts_graded)",
+    )
 
 
 class GradedRunListItem(BaseModel):
