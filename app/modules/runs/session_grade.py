@@ -152,6 +152,7 @@ JUDGE_NOT_CONFIGURED = "judge_not_configured"
 JUDGE_UNAVAILABLE = "judge_unavailable"
 JUDGE_BUDGET_EXHAUSTED = "judge_budget_exhausted"
 JUDGE_INCOMPLETE = "judge_incomplete"
+JUDGE_ERROR = "judge_error"
 
 
 def round_two_digits(val: Decimal | float | int | None) -> Decimal | None:
@@ -1809,7 +1810,9 @@ def _execute_judge_for_attempt(
         if att.judge_error is None and (att.quality_score is None or att.format_score is None):
             att.judge_error = JUDGE_INCOMPLETE
     except Exception as exc:
-        att.judge_error = str(exc)
+        # Hanya jenis galat: pesan provider bisa memuat kredensial dan tampil sebagai penjelasan.
+        logger.error("Judge call failed for attempt %s (%s)", att.attempt_id, type(exc).__name__)
+        att.judge_error = JUDGE_ERROR
 
 
 def _is_platform_refused(saved: bool, answer_text: str | None, failure_kind: str | None) -> bool:
