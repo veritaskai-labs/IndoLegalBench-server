@@ -9476,6 +9476,12 @@
             "title": "Percent",
             "description": "attempts_graded / attempts_total, dibulatkan ke bawah"
           },
+          "attempts_ungraded": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Attempts Ungraded",
+            "description": "Percobaan yang belum dinilai: attempts_total dikurangi attempts_graded"
+          },
           "error_code": {
             "anyOf": [
               {
@@ -9486,7 +9492,7 @@
               }
             ],
             "title": "Error Code",
-            "description": "Alasan run gagal (misalnya GRADING_INTERRUPTED); kosong bila tidak gagal"
+            "description": "Alasan run gagal, kosong bila tidak gagal: judge_not_configured, judge_unavailable, judge_pricing_missing, judge_budget_exhausted, judge_incomplete, NO_SCORE, GRADING_ERROR, GRADING_INTERRUPTED, atau kode konflik seperti SESSION_ARCHIVED"
           },
           "triggered_at": {
             "type": "string",
@@ -9515,6 +9521,7 @@
           "attempts_graded",
           "attempts_total",
           "percent",
+          "attempts_ungraded",
           "triggered_at"
         ],
         "title": "GradingProgress",
@@ -9600,6 +9607,39 @@
           "scores": {
             "$ref": "#/components/schemas/ThreeScores",
             "description": "Tiga skor terpisah: dev, test, dan gabungan"
+          },
+          "error_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Error Code",
+            "description": "Alasan run gagal, kosong bila tidak gagal: judge_not_configured, judge_unavailable, judge_pricing_missing, judge_budget_exhausted, judge_incomplete, NO_SCORE, GRADING_ERROR, GRADING_INTERRUPTED, atau kode konflik seperti SESSION_ARCHIVED"
+          },
+          "attempts_graded": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Attempts Graded",
+            "description": "Percobaan yang sudah dinilai",
+            "default": 0
+          },
+          "attempts_total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Attempts Total",
+            "description": "Semua percobaan sesi yang dinilai",
+            "default": 0
+          },
+          "attempts_ungraded": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Attempts Ungraded",
+            "description": "Percobaan yang belum dinilai (attempts_total - attempts_graded)",
+            "default": 0
           }
         },
         "type": "object",

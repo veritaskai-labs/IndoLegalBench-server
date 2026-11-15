@@ -24,6 +24,7 @@ from app.modules.grading.models import (
     RubricVersion,
 )
 from app.modules.runs.exchange_rate import ExchangeRateProvider
+from app.modules.runs.grading_failure import GRADING_ERROR, resolve_failure_code
 from app.modules.runs.manual_grade_gate import ManualGradeGate
 from app.modules.runs.models import MeasurementSession
 from app.modules.runs.repository import ManualSessionRepository
@@ -41,8 +42,6 @@ from app.shared.exceptions import ConflictError
 
 logger = logging.getLogger(__name__)
 
-NO_SCORE = "NO_SCORE"
-GRADING_ERROR = "GRADING_ERROR"
 GRADING_INTERRUPTED = "GRADING_INTERRUPTED"
 # Satu panggilan judge dibatasi 240 detik (ASK_TIMEOUT_SECONDS); heartbeat diperbarui tiap
 # percobaan, jadi 300 detik tanpa heartbeat berarti worker sudah mati.
@@ -165,7 +164,12 @@ def _grade(
         # D8: sesi manual Lengkap -> Dinilai di transaksi yang sama dengan hasilnya.
         ManualGradeGate(ManualSessionRepository(db)).after_grading(session.id, now=finished_at)
     else:
-        progress.error_code = NO_SCORE
+        # Run gagal tidak punya satu pun skor: tidak ada percobaan yang bisa disebut sudah dinilai.
+        progress.attempts_graded = 0
+        progress.error_code = resolve_failure_code(
+            (att.judge_error for case in cases for att in case.attempts),
+            pricing_missing=pricing_error is not None,
+        )
     db.commit()
 
 

@@ -6,6 +6,7 @@ membalas 202; worker penilaian yang memanggil judge dan mengisi progres.
 """
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy import func, select
@@ -21,10 +22,16 @@ from app.modules.grading.models import (
     RubricVersion,
 )
 from app.modules.runs.models import Attempt, MeasurementSession
-from app.modules.runs.schemas import GradeSessionRequest, GradingProgress, GradingRunQueued
+from app.modules.runs.schemas import (
+    GradeSessionRequest,
+    GradingProgress,
+    GradingRunQueued,
+    GradingRunSummary,
+)
 from app.modules.runs.session_grade import (
     GRADING_IN_PROGRESS,
     MEASUREMENT_NOT_FOUND_MESSAGE,
+    list_grading_runs,
     prepare_grading,
 )
 from app.shared.exceptions import ConflictError, NotFoundError
@@ -100,26 +107,62 @@ def get_grading_progress(db: Session, session_id: uuid.UUID) -> GradingProgress 
     ).first()
     if run is None:
         return None
-    progress = db.get(GradingRunProgress, run.id)
-    if progress is None:
-        # Run dari POST /grade selesai dalam satu request: semua hasilnya sudah tersimpan.
-        graded = _result_count(db, run.id)
-        total, error_code = graded, None
-    else:
-        graded, total, error_code = (
-            progress.attempts_graded,
-            progress.attempts_total,
-            progress.error_code,
-        )
+    counts = read_run_counts(db, run.id)
     return GradingProgress(
         grading_run_id=run.id,
         status=run.status.value,
-        attempts_graded=graded,
-        attempts_total=total,
-        percent=progress_percent(graded, total, finished=run.status == GradingRunStatus.FINISHED),
-        error_code=error_code,
+        attempts_graded=counts.graded,
+        attempts_total=counts.total,
+        attempts_ungraded=counts.total - counts.graded,
+        percent=progress_percent(
+            counts.graded, counts.total, finished=run.status == GradingRunStatus.FINISHED
+        ),
+        error_code=counts.error_code,
         triggered_at=run.triggered_at,
         finished_at=run.finished_at,
+    )
+
+
+def list_grading_runs_with_progress(db: Session, session_id: uuid.UUID) -> list[GradingRunSummary]:
+    """Riwayat penilaian sesi, tiap baris dengan kode gagal dan jumlah percobaannya (K-19)."""
+    summaries = list_grading_runs(db, session_id)
+    rows = []
+    for summary in summaries:
+        counts = read_run_counts(db, summary.grading_run_id)
+        rows.append(
+            summary.model_copy(
+                update={
+                    "error_code": counts.error_code,
+                    "attempts_graded": counts.graded,
+                    "attempts_total": counts.total,
+                    "attempts_ungraded": counts.total - counts.graded,
+                }
+            )
+        )
+    return rows
+
+
+@dataclass(frozen=True)
+class RunCounts:
+    graded: int
+    total: int
+    error_code: str | None
+
+
+def read_run_counts(db: Session, run_id: uuid.UUID) -> RunCounts:
+    """Percobaan yang sudah dinilai, totalnya, dan kode gagal satu run.
+
+    Run dari POST /grade lama tidak punya baris progres: semua hasilnya sudah tersimpan dalam
+    satu request, jadi jumlahnya dari hasil yang tersimpan dan kode gagalnya kosong.
+    """
+    progress = db.get(GradingRunProgress, run_id)
+    if progress is None:
+        graded = _result_count(db, run_id)
+        return RunCounts(graded=graded, total=graded, error_code=None)
+    return RunCounts(
+        graded=progress.attempts_graded,
+        total=progress.attempts_total,
+        error_code=progress.error_code,
     )
 
 

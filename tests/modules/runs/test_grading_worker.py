@@ -160,7 +160,7 @@ def test_judge_gagal_semua_run_gagal_tanpa_menggeser_hasil(
     sesi,
     pasang_penilai,  # noqa: F811
 ):
-    """Negatif: tanpa satu pun skor run berakhir failed NO_SCORE dan bukan hasil terbaru."""
+    """Negatif: tanpa satu pun skor run berakhir failed GRADING_ERROR dan bukan hasil terbaru."""
     # Arrange
     run_id = _antre(as_role, sesi.id)
     pasang_penilai(sesi, asker_a=_MockJudgeAsker(raise_exc=True))
@@ -173,8 +173,8 @@ def test_judge_gagal_semua_run_gagal_tanpa_menggeser_hasil(
     run, progres = _segarkan(db_session, run_id)
     assert run.status == GradingRunStatus.FAILED
     assert run.is_latest is False
-    assert progres.error_code == "NO_SCORE"
-    assert progres.attempts_graded == progres.attempts_total
+    assert progres.error_code == "GRADING_ERROR"
+    assert progres.attempts_graded == 0
 
 
 def test_sesi_diarsipkan_saat_dinilai_run_gagal_tanpa_hasil(
@@ -356,7 +356,7 @@ def test_harga_judge_belum_lengkap_run_gagal_tanpa_memanggil_judge(
     penilai,  # noqa: F811
     monkeypatch,
 ):
-    """Negatif: judge tanpa harga token tidak dipanggil (biayanya tidak bisa ditagih), run NO_SCORE."""
+    """Negatif: judge tanpa harga token tidak dipanggil (biayanya tidak bisa ditagih), run judge_pricing_missing."""
     # Arrange
     dipanggil: list[str] = []
 
@@ -383,7 +383,7 @@ def test_harga_judge_belum_lengkap_run_gagal_tanpa_memanggil_judge(
     run, progres = _segarkan(db_session, run_id)
     assert dipanggil == []
     assert run.status == GradingRunStatus.FAILED
-    assert progres.error_code == "NO_SCORE"
+    assert progres.error_code == "judge_pricing_missing"
 
 
 def test_tanpa_waktu_suntikan_memakai_jam_sungguhan(as_role, db_session, sesi):
