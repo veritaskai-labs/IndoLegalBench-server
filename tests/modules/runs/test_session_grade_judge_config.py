@@ -37,9 +37,7 @@ def test_asker_dari_pemanggil_dipakai_apa_adanya():
     asker = object()
 
     # Act
-    hasil, galat, ikatan = session_grade._resolve_active_judge_asker(
-        MagicMock(), _sesi(None), asker
-    )
+    hasil, galat, ikatan = session_grade.resolve_active_judge_asker(MagicMock(), _sesi(None), asker)
 
     # Assert
     assert hasil is asker
@@ -53,7 +51,7 @@ def test_sesi_tanpa_penilai_ditandai_judge_not_configured():
     sesi = _sesi(None)
 
     # Act
-    hasil, galat, ikatan = session_grade._resolve_active_judge_asker(MagicMock(), sesi, None)
+    hasil, galat, ikatan = session_grade.resolve_active_judge_asker(MagicMock(), sesi, None)
 
     # Assert
     assert hasil is None
@@ -73,7 +71,7 @@ def test_penilai_gagal_dimuat_ditandai_judge_unavailable_dan_dicatat_di_log(monk
 
     # Act
     with caplog.at_level(logging.ERROR, logger=session_grade.__name__):
-        hasil, galat, ikatan = session_grade._resolve_active_judge_asker(MagicMock(), sesi, None)
+        hasil, galat, ikatan = session_grade.resolve_active_judge_asker(MagicMock(), sesi, None)
 
     # Assert
     assert hasil is None
@@ -90,7 +88,7 @@ def test_penilai_terdaftar_dimuat_dari_database(monkeypatch):
     monkeypatch.setattr("app.modules.providers.judge_service.build_judge", lambda db, j: ikatan)
 
     # Act
-    hasil, galat, dimuat = session_grade._resolve_active_judge_asker(
+    hasil, galat, dimuat = session_grade.resolve_active_judge_asker(
         MagicMock(), _sesi(uuid.uuid4()), None
     )
 
@@ -130,7 +128,7 @@ def test_galat_penilai_sampai_ke_semua_percobaan(galat):
     kasus = [MagicMock(attempts=percobaan[:1]), MagicMock(attempts=percobaan[1:])]
 
     # Act
-    session_grade._execute_judge_for_all_cases(None, galat, kasus)
+    session_grade.execute_judge_for_all_cases(None, galat, kasus)
 
     # Assert
     assert [p.judge_error for p in percobaan] == [galat, galat]

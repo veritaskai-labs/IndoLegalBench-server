@@ -31,8 +31,8 @@ from app.modules.runs.session_grade import (
     AttemptGradeInput,
     CaseGradeInput,
     DbGradingStore,
-    _load_case_grade_inputs,
     grade_session_data,
+    load_case_grade_inputs,
 )
 from app.modules.runs.session_list import SessionRow
 from app.shared.security import Role
@@ -247,7 +247,7 @@ def test_laporan_tersimpan_menampilkan_manual_terisi_sebagai_succeeded(db_sessio
         .values(source=AttemptSource.MANUAL, status=AttemptStatus.PENDING, filled_at=DIISI)
     )
     db_session.commit()
-    cases = _load_case_grade_inputs(db_session, sesi.id)
+    cases = load_case_grade_inputs(db_session, sesi.id)
     hasil = grade_session_data(
         session_id=sesi.id,
         cases_input=cases,

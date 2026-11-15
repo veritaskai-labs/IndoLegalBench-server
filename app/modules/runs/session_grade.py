@@ -25,7 +25,7 @@ import re
 import threading
 import uuid
 from collections import defaultdict
-from collections.abc import Iterable, Mapping, Sequence
+from collections.abc import Callable, Iterable, Mapping, Sequence
 from dataclasses import dataclass, field
 from datetime import UTC, datetime
 from decimal import ROUND_HALF_UP, Decimal
@@ -860,7 +860,7 @@ class DbGradingStore:
         for cr in crit_rows:
             crits_by_judge_id[cr.llm_judge_result_id].append(cr)
 
-        cases_input = _load_case_grade_inputs(self.db, session_id)
+        cases_input = load_case_grade_inputs(self.db, session_id)
         cases_result = [
             self._build_case_grade_from_d6(c, g_by_att, j_by_res, crits_by_judge_id)
             for c in cases_input
@@ -1038,7 +1038,6 @@ class DbGradingStore:
         cases_input: Sequence[CaseGradeInput] | None = None,
         judge_provider_id: uuid.UUID | None = None,
     ) -> None:
-        from app.modules.audit.models import AuditEntityType, AuditLog
         from app.modules.grading.models import (
             GradingRun,
             GradingRunKind,
@@ -1077,6 +1076,46 @@ class DbGradingStore:
 
         grading_run_row.status = GradingRunStatus.RUNNING
         self.db.flush()
+        self._finish_run(
+            grading_run_row,
+            run,
+            cases_input,
+            judge_provider_id=judge_provider_id,
+            run_kind=run_kind,
+            finished_at=run.triggered_at,
+        )
+
+    def complete_grading_run(
+        self,
+        grading_run_row: Any,
+        run: SessionGradingResponse,
+        cases_input: Sequence[CaseGradeInput],
+        *,
+        finished_at: datetime,
+    ) -> None:
+        """Simpan hasil worker penilaian ke run running yang sudah ada (SCRUM-284)."""
+        self._finish_run(
+            grading_run_row,
+            run,
+            cases_input,
+            judge_provider_id=grading_run_row.judge_provider_id,
+            run_kind=grading_run_row.kind,
+            finished_at=finished_at,
+        )
+
+    def _finish_run(
+        self,
+        grading_run_row: Any,
+        run: SessionGradingResponse,
+        cases_input: Sequence[CaseGradeInput] | None,
+        *,
+        judge_provider_id: uuid.UUID | None,
+        run_kind: Any,
+        finished_at: datetime,
+    ) -> None:
+        """Hasil per percobaan, tanda terbaru, status akhir, dan audit untuk run yang running."""
+        from app.modules.audit.models import AuditEntityType, AuditLog
+        from app.modules.grading.models import GradingRunKind, GradingRunStatus
 
         catalog = _get_jenis_catalog(self.db)
         scorer = CitationScorer(catalog)
@@ -1088,7 +1127,7 @@ class DbGradingStore:
         grading_run_row.status = (
             GradingRunStatus.FINISHED if run.status == RUN_COMPLETED else GradingRunStatus.FAILED
         )
-        grading_run_row.finished_at = run.triggered_at
+        grading_run_row.finished_at = finished_at
         if run.is_latest:
             grading_run_row.is_latest = True
         self.db.flush()
@@ -1834,7 +1873,7 @@ def _build_case_grade_input(
     )
 
 
-def _load_case_grade_inputs(db: Session, session_id: uuid.UUID) -> list[CaseGradeInput]:
+def load_case_grade_inputs(db: Session, session_id: uuid.UUID) -> list[CaseGradeInput]:
     """Membaca snapshot item dan attempts dari database untuk grading."""
     items = db.scalars(
         select(CaseSnapshotItem)
@@ -1891,7 +1930,7 @@ def _resolve_rubric_version(db: Session, requested_version: str | None) -> str:
     raise ConflictError("Tidak ada versi rubrik yang aktif.", code="RUBRIC_NOT_ACTIVE")
 
 
-def _resolve_active_judge_asker(
+def resolve_active_judge_asker(
     db: Session,
     session: MeasurementSession,
     judge_asker: object | None,
@@ -1988,7 +2027,7 @@ def _open_judge_meter(
     return open_judge_meter(binding=binding, spent_idr=spent, rates=rates)
 
 
-def _open_judge_meter_or_error(
+def open_judge_meter_or_error(
     db: Session,
     binding: object | None,
     rates: ExchangeRateProvider | None,
@@ -2026,12 +2065,14 @@ def _set_cases_judge_error(cases: Sequence[CaseGradeInput], error: str) -> None:
             att.judge_error = error
 
 
-def _execute_judge_for_all_cases(
+def execute_judge_for_all_cases(
     asker: object | None,
     judge_load_error: str | None,
     cases: Sequence[CaseGradeInput],
     meter: JudgeMeter | None = None,
+    on_attempt: Callable[[], None] | None = None,
 ) -> None:
+    """Panggil judge per percobaan; on_attempt dipanggil sesudah tiap percobaan (SCRUM-284)."""
     if judge_load_error:
         _set_cases_judge_error(cases, judge_load_error)
         return
@@ -2039,12 +2080,20 @@ def _execute_judge_for_all_cases(
         return
     for case in cases:
         for att in case.attempts:
-            if not _should_grade_with_judge(att):
-                continue
-            if meter is not None and not meter.has_budget():
-                att.judge_error = JUDGE_BUDGET_EXHAUSTED
-                continue
-            _execute_judge_for_attempt(asker, att, case, meter)
+            _judge_one_attempt(asker, att, case, meter)
+            if on_attempt is not None:
+                on_attempt()
+
+
+def _judge_one_attempt(
+    asker: object, att: AttemptGradeInput, case: CaseGradeInput, meter: JudgeMeter | None
+) -> None:
+    if not _should_grade_with_judge(att):
+        return
+    if meter is not None and not meter.has_budget():
+        att.judge_error = JUDGE_BUDGET_EXHAUSTED
+        return
+    _execute_judge_for_attempt(asker, att, case, meter)
 
 
 def ensure_unchanged_since_load(
@@ -2202,20 +2251,20 @@ def grade_session(
     now = now or datetime.now(UTC)
 
     grading_store = store or DbGradingStore(db)
-    cases = _load_case_grade_inputs(db, session_id)
+    cases = load_case_grade_inputs(db, session_id)
     rubric_version = prepared.rubric_version
     existing_runs = grading_store.get_grading_runs(session_id)
 
     p_names = providers_service.product_names(db, {session.product_id})
     product_name = p_names.get(session.product_id, "")
 
-    active_asker, judge_load_error, binding = _resolve_active_judge_asker(
+    active_asker, judge_load_error, binding = resolve_active_judge_asker(
         db, session, judge_asker, judge_id
     )
-    meter, pricing_error = _open_judge_meter_or_error(db, binding, rates, now)
+    meter, pricing_error = open_judge_meter_or_error(db, binding, rates, now)
     if pricing_error is not None:
         active_asker, judge_load_error = None, pricing_error
-    _execute_judge_for_all_cases(active_asker, judge_load_error, cases, meter)
+    execute_judge_for_all_cases(active_asker, judge_load_error, cases, meter)
 
     response = grade_session_data(
         session_id=session_id,

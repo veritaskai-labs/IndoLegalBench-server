@@ -30,6 +30,8 @@ from app.modules.runs.session_grade import (
 from app.shared.exceptions import ConflictError, NotFoundError
 from app.shared.security import Role
 
+_ACTIVE_RUN_INDEX = "uq_grading_runs_one_active"
+
 
 def enqueue_grading(
     db: Session,
@@ -57,9 +59,11 @@ def enqueue_grading(
     db.add(run)
     try:
         db.flush()
-    except IntegrityError:
-        # Dua klik bersamaan lolos cek run aktif; index uq_grading_runs_one_active menolak satu.
+    except IntegrityError as exc:
         db.rollback()
+        if not is_active_run_conflict(exc):
+            raise
+        # Dua klik bersamaan lolos cek run aktif; index uq_grading_runs_one_active menolak satu.
         raise ConflictError(
             "Penilaian sesi ini masih berjalan. Tunggu sampai selesai.",
             code=GRADING_IN_PROGRESS,
@@ -67,6 +71,21 @@ def enqueue_grading(
     db.add(GradingRunProgress(grading_run_id=run.id, attempts_total=_attempt_count(db, session_id)))
     db.commit()
     return GradingRunQueued(grading_run_id=run.id, status="queued")
+
+
+def is_active_run_conflict(exc: IntegrityError) -> bool:
+    """True bila galat berasal dari index satu run aktif, bukan FK atau NOT NULL (review #142).
+
+    Pencocokan memakai teks galat dari driver, jadi hanya andal untuk pesan PostgreSQL yang
+    menyebut nama index uq_grading_runs_one_active (yang dipakai di dev dan prod). Cabang SQLite
+    (kolom unik grading_runs.session_id) hanya untuk tes lokal; bila driver mengganti teksnya,
+    galat diteruskan apa adanya, tidak salah dilaporkan sebagai 409 (review #143).
+    """
+    message = str(exc.orig)
+    return (
+        _ACTIVE_RUN_INDEX in message
+        or "UNIQUE constraint failed: grading_runs.session_id" in message
+    )
 
 
 def get_grading_progress(db: Session, session_id: uuid.UUID) -> GradingProgress | None:
