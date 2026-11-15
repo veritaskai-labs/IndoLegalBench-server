@@ -356,7 +356,7 @@ def test_harga_judge_belum_lengkap_run_gagal_tanpa_memanggil_judge(
     penilai,  # noqa: F811
     monkeypatch,
 ):
-    """Negatif: judge tanpa harga token tidak dipanggil (biayanya tidak bisa ditagih), run NO_SCORE."""
+    """Negatif: judge tanpa harga token tidak dipanggil (biayanya tidak bisa ditagih), run judge_pricing_missing."""
     # Arrange
     dipanggil: list[str] = []
 
@@ -383,7 +383,7 @@ def test_harga_judge_belum_lengkap_run_gagal_tanpa_memanggil_judge(
     run, progres = _segarkan(db_session, run_id)
     assert dipanggil == []
     assert run.status == GradingRunStatus.FAILED
-    assert progres.error_code == "NO_SCORE"
+    assert progres.error_code == "judge_pricing_missing"
 
 
 def test_tanpa_waktu_suntikan_memakai_jam_sungguhan(as_role, db_session, sesi):
