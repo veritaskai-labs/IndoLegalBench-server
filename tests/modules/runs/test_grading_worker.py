@@ -160,7 +160,7 @@ def test_judge_gagal_semua_run_gagal_tanpa_menggeser_hasil(
     sesi,
     pasang_penilai,  # noqa: F811
 ):
-    """Negatif: tanpa satu pun skor run berakhir failed NO_SCORE dan bukan hasil terbaru."""
+    """Negatif: tanpa satu pun skor run berakhir failed GRADING_ERROR dan bukan hasil terbaru."""
     # Arrange
     run_id = _antre(as_role, sesi.id)
     pasang_penilai(sesi, asker_a=_MockJudgeAsker(raise_exc=True))
@@ -173,7 +173,7 @@ def test_judge_gagal_semua_run_gagal_tanpa_menggeser_hasil(
     run, progres = _segarkan(db_session, run_id)
     assert run.status == GradingRunStatus.FAILED
     assert run.is_latest is False
-    assert progres.error_code == "NO_SCORE"
+    assert progres.error_code == "GRADING_ERROR"
     assert progres.attempts_graded == progres.attempts_total
 
 
