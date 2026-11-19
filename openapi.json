@@ -9155,6 +9155,12 @@
             "title": "Label",
             "description": "Nama sesi, untuk membedakan dua sesi dari produk yang sama"
           },
+          "product_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Product Id",
+            "description": "Id produk; dua sesi dengan product_id sama tidak boleh dalam satu laporan"
+          },
           "product_name": {
             "type": "string",
             "title": "Product Name"
@@ -9181,6 +9187,18 @@
           "status": {
             "$ref": "#/components/schemas/SessionStatus"
           },
+          "judge_model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Model Version",
+            "description": "Versi model penilai yang menilai sesi; kosong bila belum dinilai"
+          },
           "eligible": {
             "type": "boolean",
             "title": "Eligible"
@@ -9198,11 +9216,13 @@
         "required": [
           "session_id",
           "label",
+          "product_id",
           "product_name",
           "created_at",
           "session_type",
           "purpose",
           "status",
+          "judge_model_version",
           "eligible",
           "reasons"
         ],
