@@ -34,7 +34,7 @@ from app.modules.reports.comparison_rules import (
     session_markers,
     shared_cases,
 )
-from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType
+from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType, SplitFilter
 from app.shared.exceptions import ConflictError
 
 RUBRIK = uuid.UUID("11111111-1111-1111-1111-111111111111")
@@ -43,11 +43,12 @@ SUITE = uuid.UUID("33333333-3333-3333-3333-333333333333")
 AWAL = datetime(2026, 11, 1, tzinfo=UTC)
 
 
-def _kasus(nomor: int, *, versi: int = 1) -> CaseRef:
+def _kasus(nomor: int, *, versi: int = 1, split: str = "test") -> CaseRef:
     return CaseRef(
         case_id=uuid.UUID(f"{nomor:032x}"),
         case_version_id=uuid.UUID(f"{nomor:016x}{versi:016x}"),
         case_code=f"CASE-{nomor:03d}",
+        split_tag=split,
     )
 
 
@@ -69,6 +70,7 @@ def _sesi(**ubah) -> SessionFacts:
         "answer_date_from": None,
         "answer_date_to": None,
         "scored_cases": (_kasus(1), _kasus(2)),
+        "split_filter": SplitFilter.TEST,
     }
     data = {**bawaan, **ubah}
     # Secara default snapshot = kasus yang dinilai; tes B1 mengisinya sendiri bila perlu.
@@ -217,11 +219,17 @@ def test_beda_versi_kasus_di_snapshot_tak_dinilai_tetap_ditolak():
 
 
 def test_sesi_test_dan_both_suite_sama_berbagi_kasus_test_tidak_ditolak():
-    # Blocker re-review: beda keanggotaan snapshot karena split (test vs both) itu sah.
-    # Kasus test (CASE-002) sama versi di keduanya; CASE-001 (dev) hanya ada di sesi "both".
-    # Tidak boleh ditolak sebagai beda versi suite.
-    sesi_test = _sesi(scored_cases=(_kasus(2),), snapshot_cases=(_kasus(2),))
-    sesi_both = _sesi(scored_cases=(_kasus(2),), snapshot_cases=(_kasus(1), _kasus(2)))
+    # Beda keanggotaan snapshot karena split (test vs both) itu sah.
+    sesi_test = _sesi(
+        scored_cases=(_kasus(2),),
+        snapshot_cases=(_kasus(2),),
+        split_filter=SplitFilter.TEST,
+    )
+    sesi_both = _sesi(
+        scored_cases=(_kasus(2),),
+        snapshot_cases=(_kasus(1, split="dev"), _kasus(2)),
+        split_filter=SplitFilter.BOTH,
+    )
 
     assert comparison_rejections((sesi_test, sesi_both)) == ()
 
@@ -230,8 +238,54 @@ def test_sesi_test_dan_both_suite_sama_berbagi_kasus_test_tidak_ditolak():
     assert [kasus.case_code for kasus in rencana.shared_cases] == ["CASE-002"]
 
 
+def test_suite_dengan_kasus_test_baru_ditolak_meskipun_kasus_bersama_tetap_sama():
+    a = _sesi(
+        scored_cases=(_kasus(2),),
+        snapshot_cases=(_kasus(2),),
+        split_filter=SplitFilter.TEST,
+    )
+    b = _sesi(
+        scored_cases=(_kasus(2),),
+        snapshot_cases=(_kasus(2), _kasus(3)),
+        split_filter=SplitFilter.BOTH,
+    )
+
+    hasil = comparison_rejections((a, b))
+    assert [x.requirement for x in hasil] == [SUITE_VERSION]
+    assert "CASE-003" in hasil[0].message
+
+
+def test_suite_dengan_kasus_test_dihapus_ditolak():
+    a = _sesi(snapshot_cases=(_kasus(1), _kasus(2)))
+    b = _sesi(snapshot_cases=(_kasus(1),))
+
+    assert [x.requirement for x in comparison_rejections((a, b))] == [SUITE_VERSION]
+
+
+def test_perubahan_hanya_pada_split_yang_tidak_dipilih_tidak_memblokir():
+    a = _sesi(snapshot_cases=(_kasus(2),), split_filter=SplitFilter.TEST)
+    b = _sesi(
+        snapshot_cases=(_kasus(1, split="dev"), _kasus(2)),
+        split_filter=SplitFilter.BOTH,
+    )
+
+    assert comparison_rejections((a, b)) == ()
+
+
+def test_invalid_split_tag_ditolak_sebagai_input_adapter_salah():
+    a = _sesi(snapshot_cases=(_kasus(1, split="unknown"),))
+    with pytest.raises(ValueError, match="Invalid case split tag"):
+        comparison_rejections((a, _sesi()))
+
+
+def test_snapshot_split_tidak_sesuai_filter_ditolak():
+    a = _sesi(snapshot_cases=(_kasus(1, split="dev"),))
+    with pytest.raises(ValueError, match="outside session split filter"):
+        comparison_rejections((a, _sesi()))
+
+
 def test_versi_model_penilai_tidak_diketahui_ditolak():
-    # Non-blocker: dua versi model None tak boleh lolos sebagai "sama". Identitas tak pasti.
+    # Dua versi model None tak boleh lolos sebagai "sama". Identitas tak pasti.
     a = _sesi(judge_model_version=None)
     b = _sesi(judge_model_version=None)
 
@@ -271,9 +325,7 @@ def test_versi_model_dan_jumlah_percobaan_sama_tidak_diberi_tanda():
 
 
 def test_sesi_manual_dan_otomatis_beda_repetisi_diberi_tanda_per_sesi():
-    # AC5: manual dan otomatis boleh dibandingkan; keduanya tetap punya identitas judge yang
-    # sama (penilaian manual pun lewat judge LLM). Beda repetisi jadi penanda perbandingan,
-    # dan rentang manual jadi penanda yang melekat ke sesi manualnya.
+    # AC5: manual dan otomatis tetap punya identitas judge yang sama.
     manual = _sesi(
         session_type=SessionType.MANUAL,
         status=SessionStatus.FINALIZED,
@@ -291,8 +343,7 @@ def test_sesi_manual_dan_otomatis_beda_repetisi_diberi_tanda_per_sesi():
 
 
 def test_sesi_tanpa_identitas_judge_ditolak():
-    # Blocker review ketiga: sesi dengan identitas judge kosong (mis. manual yang adapter-nya
-    # belum isi) dibandingkan dengan sesi berjudge jelas. Tak bisa diverifikasi, harus ditolak.
+    # Sesi dengan identitas judge kosong tidak bisa diverifikasi.
     tanpa_judge = _sesi(judge_provider_id=None, judge_model_version=None)
     berjudge = _sesi()
 
@@ -327,7 +378,6 @@ def test_irisan_hanya_kasus_yang_dijawab_semua_produk():
 
 
 def test_irisan_memakai_identitas_case_id_dan_versi():
-    # AC1: kasus yang sama pada versi berbeda bukan kasus yang sama, jadi bukan irisan.
     satu = _sesi(scored_cases=(_kasus(1, versi=1),))
     dua = _sesi(scored_cases=(_kasus(1, versi=2),))
 
@@ -347,7 +397,6 @@ def test_irisan_satu_kasus_tetap_dibandingkan_tanpa_batas_minimum():
 
 
 def test_irisan_kosong_menghasilkan_peringatan_tanpa_angka():
-    # Suite sama (snapshot sama), tetapi tiap produk dinilai pada kasus yang berlainan.
     penuh = (_kasus(1), _kasus(2))
     satu = _sesi(scored_cases=(_kasus(1),), snapshot_cases=penuh)
     dua = _sesi(scored_cases=(_kasus(2),), snapshot_cases=penuh)
