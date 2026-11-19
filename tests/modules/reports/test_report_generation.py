@@ -97,6 +97,8 @@ def _rekaman(nama: str, graded: list[GradedCase], **ubah) -> SessionRecord:
         facts=facts,
         graded_cases=tuple(graded),
         calls_by_split=ubah.pop("calls", {}),
+        label=ubah.pop("label", f"Sesi {nama}"),
+        created_at=ubah.pop("dibuat", AWAL),
     )
 
 

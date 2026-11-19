@@ -53,7 +53,9 @@ class TestList:
         assert [item["product_name"] for item in isi] == ["Produk A", "Produk B", "Produk C"]
         assert isi[0] == {
             "session_id": str(layak.facts.session_id),
+            "label": "Sesi Produk A",
             "product_name": "Produk A",
+            "created_at": "2026-11-01T00:00:00Z",
             "session_type": "automatic",
             "purpose": "official",
             "status": "finished",

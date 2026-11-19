@@ -14,7 +14,7 @@ from app.modules.reports.comparison_rules import (
 from app.modules.reports.eligible_sessions import EligibleSessionLister
 from app.modules.reports.models import MeasurementFilter
 from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType
-from tests.modules.reports.test_report_generation import PembacaPalsu, _nilai, _rekaman
+from tests.modules.reports.test_report_generation import AWAL, PembacaPalsu, _nilai, _rekaman
 
 
 def _daftar(*rekaman, **ubah):
@@ -31,6 +31,8 @@ def test_a_finished_and_graded_session_is_eligible_without_reasons():
     # Assert
     assert item.session_id == layak.facts.session_id
     assert item.product_name == "Produk A"
+    assert item.label == "Sesi Produk A"
+    assert item.created_at == AWAL
     assert item.session_type is SessionType.AUTOMATIC
     assert item.purpose is SessionPurpose.OFFICIAL
     assert item.status is SessionStatus.FINISHED

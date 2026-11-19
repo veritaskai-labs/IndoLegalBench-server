@@ -645,3 +645,16 @@ class TestListIds:
 
         # Assert
         assert hasil == []
+
+
+class TestRecordLabel:
+    def test_the_record_carries_the_session_label_and_creation_time(self, db_session, admin):
+        # Arrange
+        sesi = _sesi(db_session, admin, nama="Produk A", created_at=SEKARANG)
+
+        # Act
+        (rekaman,) = _baca(db_session, sesi.id)
+
+        # Assert
+        assert rekaman.label == "Sesi Produk A"
+        assert rekaman.created_at == SEKARANG
