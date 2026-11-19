@@ -500,6 +500,13 @@ class TestCallCounts:
 
 
 class TestSelection:
+    def test_reading_no_ids_gives_no_records_without_touching_the_database(self, db_session):
+        # Act
+        hasil = _baca(db_session)
+
+        # Assert
+        assert hasil == []
+
     def test_sessions_that_do_not_exist_are_left_out(self, db_session, admin):
         # Arrange
         ada = _sesi(db_session, admin)
