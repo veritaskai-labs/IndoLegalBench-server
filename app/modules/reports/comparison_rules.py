@@ -19,11 +19,12 @@ Kontrak yang wajib dipenuhi adapter saat mengisi SessionFacts (bukan diputuskan 
   tak diketahui, isi None, dan aturan ini akan menolak perbandingannya (bukan menganggap
   dua None sama). Penilaian memakai judge LLM untuk sesi otomatis MAUPUN manual (alur
   grading sama), jadi setiap sesi yang layak punya identitas judge; None = tak terverifikasi.
-- snapshot_cases diisi SELURUH case_snapshot_items sesi (dinilai atau tidak), supaya kasus
-  berversi beda yang tak dinilai tetap ketahuan. Beda keanggotaan snapshot karena split
-  dev/test itu sah dan tidak menolak perbandingan; yang ditolak hanya kasus beririsan yang
-  versinya beda. Perubahan komposisi suite murni (tanpa beda versi) tidak terdeteksi di sini
-  karena tak ada penanda revisi suite imutabel; deteksinya dikoordinasikan dengan adapter.
+- snapshot_cases diisi SELURUH case_snapshot_items sesi (dinilai atau tidak), termasuk
+  split_tag dari body.sections.split_tag. split_filter dibaca dari measurement_sessions.
+  Untuk AC13, kasus pada split yang sama dibandingkan versi DAN keanggotaannya. Perbedaan
+  snapshot yang memang disebabkan pilihan dev/test/both tidak dianggap konflik.
+  Perubahan pada split yang tidak terekam oleh sesi lama tidak bisa dibuktikan dari data
+  sekarang; versi suite imutabel penuh harus disediakan tersendiri oleh pemilik D2.
 - scored_cases sudah difilter ke split yang diminta (test, dev, atau keduanya) sebelum
   masuk; irisan kasus dihitung apa adanya dari scored_cases.
 """
@@ -34,7 +35,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 from app.modules.runs.manual_session_rules import date_range_exceeds
-from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType
+from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType, SplitFilter
 from app.modules.runs.session_rules import is_report_eligible
 from app.shared.exceptions import ConflictError
 
@@ -67,6 +68,12 @@ NO_SHARED_CASES = "NO_SHARED_CASES"
 # PBI-15 AC5. D8 membiarkan batasnya TBA; laporan memakai 7 hari.
 MANUAL_ANSWER_RANGE_LIMIT_DAYS = 7
 
+_SPLITS_FOR_FILTER = {
+    SplitFilter.DEV: frozenset({"dev"}),
+    SplitFilter.TEST: frozenset({"test"}),
+    SplitFilter.BOTH: frozenset({"dev", "test"}),
+}
+
 _ALASAN_STATUS = {
     SessionStatus.CANCELLED: SESSION_CANCELLED,
     SessionStatus.FAILED: SESSION_RUN_FAILED,
@@ -88,15 +95,12 @@ _PESAN_TIDAK_LAYAK = {
 
 @dataclass(frozen=True)
 class CaseRef:
-    """Identitas satu kasus di sebuah sesi.
-
-    case_id adalah reference id yang tetap lintas versi; case_version_id menyebut versi
-    yang dipakai; case_code hanya untuk pesan ke pembaca laporan.
-    """
+    """Identitas kasus; split_tag berasal dari snapshot body.sections.split_tag."""
 
     case_id: uuid.UUID
     case_version_id: uuid.UUID
     case_code: str
+    split_tag: str
 
 
 @dataclass(frozen=True)
@@ -104,8 +108,9 @@ class SessionFacts:
     """Satu sesi pengukuran, sebagaimana dibutuhkan aturan ini. Dibaca dari D2.
 
     scored_cases: kasus yang sudah punya skor, sudah difilter ke split yang diminta.
-    snapshot_cases: SELURUH kasus di snapshot sesi (dinilai atau tidak), untuk cek versi
-    suite. judge_model_version: identitas model penilai yang terekam saat grading.
+    snapshot_cases: SELURUH kasus yang masuk snapshot sesi, bukan suite keseluruhan.
+    split_filter: filter saat snapshot dibuat; diperlukan untuk cek komposisi yang adil.
+    judge_model_version: identitas model penilai yang terekam saat grading.
     Lihat kontrak adapter di docstring modul.
     """
 
@@ -126,6 +131,7 @@ class SessionFacts:
     answer_date_to: datetime | None
     scored_cases: tuple[CaseRef, ...]
     snapshot_cases: tuple[CaseRef, ...]
+    split_filter: SplitFilter
 
 
 @dataclass(frozen=True)
@@ -234,28 +240,46 @@ def session_markers(facts: SessionFacts) -> tuple[str, ...]:
 
 
 def _snapshot_conflicts(sessions: Sequence[SessionFacts]) -> list[str]:
-    """Kode kasus yang ada di lebih dari satu snapshot pada versi berbeda (B1).
+    """Konflik versi / komposisi kasus pada split yang bisa dibandingkan (AC13).
 
-    Memakai snapshot_cases (seluruh isi snapshot, dinilai atau tidak) supaya kasus berversi
-    beda yang tak dinilai tetap ketahuan. Konflik hanya dihitung pada kasus yang beririsan
-    antar snapshot: satu case_id yang muncul pada lebih dari satu versi.
-
-    Beda keanggotaan snapshot TIDAK dianggap konflik. Satu sesi bisa sah punya kasus yang
-    tak dimiliki sesi lain karena split_filter (dev/test/both) memang menyaring isi snapshot
-    saat sesi dibuat; menolaknya berarti menolak perbandingan dev/test yang sah. Perubahan
-    komposisi suite yang sesungguhnya (kasus ditambah/dihapus tanpa beda versi) tidak ada
-    penanda imutabelnya di skema (suite_snapshots sudah dipensiunkan), jadi deteksinya
-    dikoordinasikan dengan adapter (SCRUM-313), di luar lingkup aturan murni ini.
+    Split test dan both boleh memiliki anggota snapshot berbeda karena filter dev/test.
+    Namun bila dua sesi SAMA-SAMA menyertakan split test, keanggotaan seluruh kasus test
+    (termasuk yang belum mendapat skor) harus identik. Begitu pula untuk split dev.
     """
     versi: dict[uuid.UUID, set[uuid.UUID]] = {}
     kode: dict[uuid.UUID, str] = {}
 
     for sesi in sessions:
         for kasus in sesi.snapshot_cases:
+            if kasus.split_tag not in {"dev", "test"}:
+                raise ValueError(f"Invalid case split tag: {kasus.split_tag!r}")
+            if kasus.split_tag not in _SPLITS_FOR_FILTER[SplitFilter(sesi.split_filter)]:
+                raise ValueError(f"Case split {kasus.split_tag!r} is outside session split filter")
             versi.setdefault(kasus.case_id, set()).add(kasus.case_version_id)
             kode.setdefault(kasus.case_id, kasus.case_code)
 
-    return sorted(kode[case_id] for case_id in versi if len(versi[case_id]) > 1)
+    konflik = {case_id for case_id, versions in versi.items() if len(versions) > 1}
+
+    for split in ("dev", "test"):
+        acuan: dict[uuid.UUID, uuid.UUID] | None = None
+        for sesi in sessions:
+            if split not in _SPLITS_FOR_FILTER[SplitFilter(sesi.split_filter)]:
+                continue
+            sekarang = {
+                kasus.case_id: kasus.case_version_id
+                for kasus in sesi.snapshot_cases
+                if kasus.split_tag == split
+            }
+            if acuan is not None and sekarang != acuan:
+                konflik.update(acuan.keys() ^ sekarang.keys())
+                konflik.update(
+                    case_id
+                    for case_id in acuan.keys() & sekarang.keys()
+                    if acuan[case_id] != sekarang[case_id]
+                )
+            acuan = sekarang
+
+    return sorted(kode[case_id] for case_id in konflik)
 
 
 def comparison_rejections(sessions: Sequence[SessionFacts]) -> tuple[Rejection, ...]:
@@ -299,8 +323,8 @@ def comparison_rejections(sessions: Sequence[SessionFacts]) -> tuple[Rejection, 
         tolakan.append(
             Rejection(
                 SUITE_VERSION,
-                "Snapshot suite tidak identik antar sesi. "
-                f"Kasus yang berbeda versi atau komposisi: {', '.join(konflik)}.",
+                "Kasus pada snapshot suite berbeda versi atau komposisi dalam split yang sama: "
+                f"{', '.join(konflik)}.",
             )
         )
 
