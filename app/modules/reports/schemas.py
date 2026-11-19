@@ -226,11 +226,17 @@ class EligibleSessionRead(BaseModel):
 
     session_id: uuid.UUID
     label: str = Field(description="Nama sesi, untuk membedakan dua sesi dari produk yang sama")
+    product_id: uuid.UUID = Field(
+        description="Id produk; dua sesi dengan product_id sama tidak boleh dalam satu laporan"
+    )
     product_name: str
     created_at: datetime | None = Field(description="Waktu sesi dibuat")
     session_type: SessionType
     purpose: SessionPurpose
     status: SessionStatus
+    judge_model_version: str | None = Field(
+        description="Versi model penilai yang menilai sesi; kosong bila belum dinilai"
+    )
     eligible: bool
     reasons: list[EligibleSessionReasonRead] = Field(
         description="Semua alasan sesi belum layak; kosong bila eligible"
@@ -241,11 +247,13 @@ class EligibleSessionRead(BaseModel):
         return cls(
             session_id=item.session_id,
             label=item.label,
+            product_id=item.product_id,
             product_name=item.product_name,
             created_at=item.created_at,
             session_type=item.session_type,
             purpose=item.purpose,
             status=item.status,
+            judge_model_version=item.judge_model_version,
             eligible=item.eligible,
             reasons=[
                 EligibleSessionReasonRead(code=r.code, message=r.message) for r in item.reasons

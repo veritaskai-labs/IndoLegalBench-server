@@ -29,11 +29,13 @@ class IneligibilityReason:
 class EligibleSession:
     session_id: uuid.UUID
     label: str
+    product_id: uuid.UUID
     product_name: str
     created_at: datetime | None
     session_type: SessionType
     purpose: SessionPurpose
     status: SessionStatus
+    judge_model_version: str | None
     eligible: bool
     reasons: tuple[IneligibilityReason, ...]
 
@@ -60,11 +62,13 @@ class EligibleSessionLister:
                 EligibleSession(
                     session_id=facts.session_id,
                     label=record.label,
+                    product_id=facts.product_id,
                     product_name=facts.product_name,
                     created_at=record.created_at,
                     session_type=SessionType(facts.session_type),
                     purpose=SessionPurpose(facts.purpose),
                     status=SessionStatus(facts.status),
+                    judge_model_version=facts.judge_model_version,
                     eligible=not reasons,
                     reasons=reasons,
                 )
