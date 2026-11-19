@@ -11,6 +11,7 @@ Modul ini murni, tanpa database dan tanpa HTTP.
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
+from datetime import datetime
 from typing import Protocol, cast
 
 from app.modules.cases.models import SplitTag
@@ -34,6 +35,8 @@ class SessionRecord:
     facts: SessionFacts
     graded_cases: tuple[GradedCase, ...]
     calls_by_split: Mapping[SplitTag, CallCounts]
+    label: str = ""
+    created_at: datetime | None = None
 
     @property
     def measurement_kind(self) -> MeasurementKind:
