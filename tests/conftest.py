@@ -12,6 +12,8 @@ import os
 os.environ["AUTH_OIDC_MODE"] = "fake"
 os.environ["APP_ENV"] = "local"
 os.environ["AUTH_DONE_URL_OVERRIDE"] = ""
+# A DSN in a local .env must never make pytest send events to Sentry.
+os.environ["SENTRY_DSN"] = ""
 
 import pytest
 from fastapi.testclient import TestClient

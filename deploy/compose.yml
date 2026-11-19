@@ -57,6 +57,10 @@ services:
       CREDENTIAL_ENCRYPTION_KEY: ${CREDENTIAL_ENCRYPTION_KEY:-}
       # Only read by the audit retention job, see docs/DEPLOY.md section 12.
       AUDIT_RETENTION_DATABASE_URL: ${AUDIT_RETENTION_DATABASE_URL:-}
+      # Error and login monitoring, docs/DEPLOY.md section 13. Empty DSN = off.
+      # SENTRY_RELEASE is set by deploy.sh to the server commit being deployed.
+      SENTRY_DSN: ${SENTRY_DSN:-}
+      SENTRY_RELEASE: ${SENTRY_RELEASE:-}
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 30s

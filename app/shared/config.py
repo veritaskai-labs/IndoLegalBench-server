@@ -106,6 +106,14 @@ class Settings(BaseSettings):
     jisdor_api_url: str = "https://allratestoday.com/api/v1/central-bank/bi/latest"
     jisdor_api_key: str = ""
 
+    # Monitoring error dan login ke Sentry (app/shared/monitoring.py). DSN kosong berarti
+    # mati: lokal, CI, dan test tidak pernah mengirim apa pun. DSN hanya di deploy/.env.
+    sentry_dsn: str = ""
+    # Diisi deploy.sh dengan commit yang sedang jalan, supaya error bisa ditelusuri ke deploy.
+    sentry_release: str = ""
+    # Porsi request biasa yang ditrace. /health dan polling tidak pernah, login selalu.
+    sentry_traces_sample_rate: float = Field(default=0.2, ge=0, le=1)
+
     @property
     def frontend_origin(self) -> str:
         if self.cors_origins:

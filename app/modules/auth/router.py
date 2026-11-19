@@ -33,6 +33,7 @@ from app.modules.auth.service import AuthService
 from app.shared.config import get_settings
 from app.shared.database import get_db
 from app.shared.exceptions import DomainError
+from app.shared.monitoring import record_login_outcome
 from app.shared.security import (
     ABSOLUTE_EXPIRES_HEADER,
     ACTIVITY_HEADER,
@@ -157,11 +158,14 @@ def callback(
     try:
         result = service.complete_login(db, oidc=oidc, code=code, state=state)
     except DomainError as error:
+        # Kegagalan ini tidak pernah jadi 5xx, jadi monitoring hanya tahu lewat sini.
+        record_login_outcome(error.code)
         return RedirectResponse(
             url=_done_url_with_error(settings.auth_done_url, error.code),
             status_code=302,
         )
 
+    record_login_outcome(None)
     response = RedirectResponse(url=result.redirect_url, status_code=302)
     set_session_cookie(response, settings, result.session_id)
     return response

@@ -55,3 +55,7 @@ reportlab==5.0.1
 # paket ini untuk membaca multipart/form-data (UploadFile, Form); tanpa ini
 # aplikasi gagal start begitu route unggah terdaftar.
 python-multipart==0.0.33
+
+# Monitoring error, login, dan deploy ke Sentry (app/shared/monitoring.py). Mati
+# selama SENTRY_DSN kosong, jadi lokal dan CI tidak pernah mengirim apa pun.
+sentry-sdk==2.75.0

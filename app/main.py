@@ -46,6 +46,7 @@ from app.modules.suites.router import router as suites_router
 from app.shared.config import get_settings
 from app.shared.dev_db import bootstrap_local_sqlite
 from app.shared.exceptions import DomainError, SessionExpiredError
+from app.shared.monitoring import init_monitoring
 from app.shared.security import (
     ABSOLUTE_EXPIRES_HEADER,
     IDLE_DEADLINE_HEADER,
@@ -55,6 +56,9 @@ from app.shared.validation_errors import detail_aman
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+# Sebelum FastAPI dibuat, supaya integrasinya ikut terpasang. Mati bila SENTRY_DSN kosong.
+init_monitoring(settings)
 
 # PBI-18: setiap perubahan di tabel katalog D6a tercatat otomatis.
 audit_listener.install()

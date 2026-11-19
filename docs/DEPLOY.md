@@ -204,7 +204,9 @@ It pulls `DEPLOY_BRANCH` in both repos of that checkout, builds both images,
 starts the database, runs `alembic upgrade head`, then starts everything. The
 first build takes a few minutes, most of it the web app. Run the same command
 for every later update. Only one deploy runs at a time on the VM; a second one
-waits for the first.
+waits for the first. It ends by waiting up to 3 minutes for the new API to pass
+its healthcheck; if it does not, it prints the API's last log lines and exits 1,
+so a CD run that broke the API turns red (section 13).
 
 dev is redeployed automatically after every merge to `staging` (section 9).
 prod is deployed by hand after a release (section 10).
@@ -288,6 +290,8 @@ come from the env file.
 | `IDLE_TIMEOUT_MINUTES` | `30` | |
 | `ABSOLUTE_SESSION_LIFETIME_MINUTES` | `720` | 12 hours |
 | `CREDENTIAL_ENCRYPTION_KEY` | Fernet key (`.env`) | See section 3. Never change it on a running install |
+| `SENTRY_DSN` | DSN of Sentry project `indolegalbench-server` (`.env`) | Empty = monitoring off. Section 13 |
+| `SENTRY_RELEASE` | `indolegalbench-server@<commit>` | Set by `deploy.sh`, not by hand |
 
 Left unset on purpose: `ZITADEL_CLIENT_SECRET` and `ZITADEL_AUDIENCE` (public
 client with PKCE, audience defaults to the client ID) and `AUTH_DONE_URL_OVERRIDE`
@@ -545,9 +549,47 @@ older than 90 days, not only its own. The 89-day row stays until the nightly
 job removes it, within two nights. The step 3 command needs a checkout that
 already has the script, which is any `staging` deployed after it was merged.
 
+## 13. Monitoring (site, deploys, login)
+
+Tencent's console watches the VM itself (CPU, memory, disk). It cannot see
+whether the site works, whether a deploy broke the API, or whether people can
+log in, so those go to Sentry (org `indolegalbench`, EU region). AI provider and
+judge calls are traced separately, in Langfuse.
+
+| What | How | Alert |
+|---|---|---|
+| Site up | Sentry uptime monitor on `https://devapi.indolegalbench.veritask.ai/health`, from outside the VM | 2 failed checks in a row; TLS certificate close to expiry |
+| Deploys | `deploy.sh` waits for the API healthcheck and exits 1 if it fails; every error carries `SENTRY_RELEASE` | Failed CD run (GitHub emails whoever merged); new issue after a release |
+| Server errors | `sentry-sdk` FastAPI integration, `app/shared/monitoring.py` | New issue |
+| Login | Every `/auth/callback` outcome. Failures become one issue per code: `OIDC_EXCHANGE_FAILED` (error: Zitadel or config), `INVALID_OIDC_STATE` (warning: stale tab, or the API restarted mid-login), `USER_NOT_REGISTERED` / `USER_DEACTIVATED` (info: Admin action) | Failed logins above the threshold in 10 minutes |
+
+Why login needs its own signal: the callback always answers 302, even when it
+fails (section 6 lists the codes), so neither the uptime check nor 5xx error
+tracking ever sees a broken login.
+
+Turn it on for a stack:
+
+1. In Sentry, create the project `indolegalbench-server` (platform FastAPI)
+   and copy its DSN. Under **Settings > Security & Privacy**, keep **Data
+   Scrubber** and **Use Default Scrubbers** on.
+2. Put it in that stack's `deploy/.env` as `SENTRY_DSN=...` and run
+   `./deploy.sh`. Local runs, CI and pytest never send anything: the DSN is
+   empty there (and pytest forces it empty).
+3. Check: `/health` still answers, then log in once with a wrong account; a
+   `Login gagal: USER_NOT_REGISTERED` issue appears in Sentry within a minute.
+
+What is never sent: request bodies (case text, AI answers), cookies, the
+`Authorization` header, URL query strings, local variables, user IPs or
+emails. `code`, `state`, `id_token_hint` and the session cookie are also
+replaced with `[Filtered]` inside log messages and span names.
+`tests/shared/test_monitoring.py` proves each of these. `/health` and the
+polling endpoints (`/progress`, `/grading-progress`, `/unread-count`) are never
+traced; `/auth/login` and `/auth/callback` always are.
+
 ## Not covered yet
 
 - `/docs` and `/openapi.json` are public on both stacks. Worth closing on prod.
 - Sessions that simply expire in the browser are never deleted from the
   database. Harmless for now, needs a periodic cleanup later.
-- Monitoring. Veritask's own Tencent-based infra is the plan for that.
+- Monitoring of the nightly backup (heartbeat from `backup.sh`) and of the web
+  app (Sentry for Next.js). Planned next, section 13 will list them.
