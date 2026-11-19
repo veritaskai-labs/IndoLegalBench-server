@@ -22,7 +22,12 @@ from decimal import Decimal
 import pytest
 
 from app.modules.cases.models import SplitTag
-from app.modules.reports.pdf import ReportPdfRenderer, format_score, report_pdf_filename
+from app.modules.reports.pdf import (
+    DEFAULT_LOGO_PATH,
+    ReportPdfRenderer,
+    format_score,
+    report_pdf_filename,
+)
 from app.modules.reports.schemas import (
     MeasurementFilter,
     MeasurementKind,
@@ -283,6 +288,16 @@ def test_pdf_memakai_berkas_logo_bila_tersedia(tmp_path):
     isi = _pdf(_laporan(), logo_path=logo)
 
     # Assert
+    assert b"/Subtype /Image" in isi
+
+
+def test_logo_resmi_ikut_di_repo_dan_dipakai_bawaan():
+    """Positif: logo Veritask ada di app/ (ikut ter-copy ke image Docker) dan dipakai tanpa opsi."""
+    # Act
+    isi = ReportPdfRenderer(compress=False).render(_laporan())
+
+    # Assert
+    assert DEFAULT_LOGO_PATH.is_file()
     assert b"/Subtype /Image" in isi
 
 

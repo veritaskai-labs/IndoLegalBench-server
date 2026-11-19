@@ -34,8 +34,8 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 from app.modules.reports.models import MeasurementKind, ReportLanguage, ScoreSplit
 from app.modules.reports.schemas import ReportDetail, ReportMarker, ReportSessionRead
 
-# Berkas logo resmi belum ada di repo. Selama belum ada, bagian atas memakai
-# tulisan VERITASK supaya PDF tetap bisa diunduh.
+# Wordmark resmi Veritask (PNG transparan, rasio 4:1) untuk bagian atas laporan (AC tampilan).
+# Bila berkas hilang, bagian atas memakai tulisan VERITASK supaya PDF tetap bisa diunduh.
 DEFAULT_LOGO_PATH = Path(__file__).parent / "assets" / "veritask-logo.png"
 CONTACT_EMAIL = "indolegalbench@veritask.ai"
 _WIB = timezone(timedelta(hours=7))
@@ -231,7 +231,15 @@ class ReportPdfRenderer:
 
     def _kepala(self, report: ReportDetail, label: _Labels, styles) -> list:
         if self.logo_path.is_file():
-            logo = Image(str(self.logo_path), width=36 * mm, height=12 * mm, hAlign="LEFT")
+            # proportional: logo dimuat di kotak 48x12 mm tanpa melar; mask auto menjaga transparansi.
+            logo = Image(
+                str(self.logo_path),
+                width=48 * mm,
+                height=12 * mm,
+                kind="proportional",
+                mask="auto",
+                hAlign="LEFT",
+            )
         else:
             logo = Paragraph("<b>VERITASK</b>", styles["Heading2"])
         dibuat = report.created_at.astimezone(_WIB)
