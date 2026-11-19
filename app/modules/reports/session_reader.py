@@ -95,7 +95,7 @@ class SqlSessionRecordReader:
         attempts: list[tuple[uuid.UUID, uuid.UUID]],
         calls: Mapping[uuid.UUID, CallCounts],
     ) -> SessionRecord:
-        grades = self._grades.latest(session.id)
+        grades = self._grades.latest(session.id, round_judge_scores=False)
         refs = {}
         for item_id, case_id, version_id, body in items:
             facts = case_facts_from_body(item_id, body)
