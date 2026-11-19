@@ -105,6 +105,9 @@ class PembacaPalsu:
         self._by_id = {r.facts.session_id: r for r in rekaman}
         self.dipanggil: list[list[uuid.UUID]] = []
 
+    def list_ids(self):
+        return list(self._by_id)
+
     def read(self, session_ids):
         self.dipanggil.append(list(session_ids))
         return [self._by_id[i] for i in session_ids if i in self._by_id]
