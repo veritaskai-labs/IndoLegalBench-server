@@ -98,6 +98,18 @@ class ProductLabelMode(StrEnum):
     CODE = "code"
 
 
+class ReportMarkerCode(StrEnum):
+    """Kode penanda D2 per sesi di report_sessions.markers (keputusan SA, 19 Nov).
+
+    Uji Coba tidak punya kode di sini: disimpan hanya di is_trial supaya sumbernya satu.
+    """
+
+    MODEL_VERSION_DIFFERS = "model_version_differs"
+    REPETITIONS_DIFFER = "repetitions_differ"
+    MANUAL_DATE_SPAN_OVER_7_DAYS = "manual_date_span_over_7_days"
+    REFUSALS = "refusals"
+
+
 class ReportStatus(StrEnum):
     SAVED = "saved"
     PUBLISHED = "published"

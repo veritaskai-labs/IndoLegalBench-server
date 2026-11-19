@@ -36,6 +36,7 @@ FUNGSI = (
     "report_rows_forbid_change",
     "report_rows_check_insert",
     "published_reports_check_insert",
+    "published_reports_check_commit",
 )
 
 pytestmark = [
@@ -104,6 +105,7 @@ def test_head_memuat_tabel_enum_fungsi_dan_trigger(conn):
         "report_results_block_change",
         "report_results_check_insert",
         "published_reports_check_insert",
+        "published_reports_check_commit",
     } <= _trigger(conn)
 
 

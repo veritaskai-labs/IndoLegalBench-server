@@ -235,9 +235,10 @@ def test_produk_manual_tanpa_tingkat_kegagalan(satu_sesi):
         ({"cases_basis_count": 4, "cases_graded_count": 3}, "ck_report_results_counts"),
         ({"cases_graded_count": -1, "cases_basis_count": -1}, "ck_report_results_counts"),
         ({"repetitions": 0}, "ck_report_results_repetitions"),
-        ({"repetitions": 6}, "ck_report_results_repetitions"),
-        ({"total_score": None}, "ck_report_results_rank_total"),
         ({"rank": None}, "ck_report_results_rank_total"),
+        ({"det_score": None}, "ck_report_results_total_needs_both"),
+        ({"llm_score": None}, "ck_report_results_total_needs_both"),
+        ({"total_score": None, "rank": None}, "ck_report_results_total_needs_both"),
     ],
 )
 def test_angka_di_luar_batas_ditolak(satu_sesi, ubah, constraint):
@@ -462,3 +463,21 @@ def test_hasil_dan_dasar_tersimpan_bersama(siap):
 
     assert len(db.scalars(select(ReportResult)).all()) == 2
     assert len(db.scalars(select(ReportCaseBasis)).all()) == 2
+
+
+def test_jumlah_percobaan_di_atas_lima_tetap_tersimpan(satu_sesi):
+    """Edge: batas atas percobaan aturan bisnis yang bisa berubah, dijaga service, bukan tabel beku."""
+    db, report, sesi_a, _ = satu_sesi
+
+    _simpan(db, hasil(report, sesi_a, repetitions=7))
+
+
+def test_skor_kosong_berarti_total_dan_peringkat_kosong(satu_sesi):
+    """Positif: D1 keputusan SA, salah satu skor kosong maka total_score dan rank NULL."""
+    db, report, sesi_a, sesi_b = satu_sesi
+
+    _simpan(
+        db,
+        hasil(report, sesi_a, det_score=None, total_score=None, rank=None),
+        hasil(report, sesi_b, llm_score=None, total_score=None, rank=None),
+    )

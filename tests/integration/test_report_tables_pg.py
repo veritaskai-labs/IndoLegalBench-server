@@ -353,3 +353,80 @@ def test_nomor_versi_pengganti_harus_berikutnya(conn, dunia):
         _sqlstate(conn, lambda: terbitkan(conn, baru, dunia, version_no=3, supersedes=v1))
         == CHECK_VIOLATION
     )
+
+
+# --- Perbaikan review #146 (Kak Aileen, Kak Astha) ------------------------------------
+
+
+def test_jumlah_percobaan_di_atas_lima_tetap_tersimpan(conn, dunia):
+    """Edge: batas atas percobaan dijaga service, tabel beku hanya mewajibkan >= 1 (#2)."""
+    laporan = buat_laporan(conn, dunia)
+    tambah_sesi(conn, laporan, dunia.sesi_a, dunia.produk_a)
+
+    tambah_hasil(conn, laporan, dunia.sesi_a, repetitions=7)
+
+
+@pytest.mark.parametrize(
+    "ubah",
+    [{"det": None}, {"llm": None}, {"total": None, "rank": None}],
+    ids=["det-kosong", "llm-kosong", "total-kosong"],
+)
+def test_total_hanya_ada_kalau_kedua_skor_ada(conn, dunia, ubah):
+    """Negatif: salah satu skor kosong maka total dan peringkat NULL, keputusan SA D1 (#3)."""
+    laporan = buat_laporan(conn, dunia)
+    tambah_sesi(conn, laporan, dunia.sesi_a, dunia.produk_a)
+
+    assert (
+        _sqlstate(conn, lambda: tambah_hasil(conn, laporan, dunia.sesi_a, **ubah))
+        == CHECK_VIOLATION
+    )
+
+
+@pytest.mark.parametrize(
+    "markers", [{"code": "refusals"}, "refusals", 3], ids=["objek", "teks", "angka"]
+)
+def test_markers_harus_list(conn, dunia, markers):
+    """Negatif: markers selalu list objek, juga untuk INSERT langsung ke database (#9)."""
+    laporan = buat_laporan(conn, dunia)
+
+    sqlstate = _sqlstate(
+        conn, lambda: tambah_sesi(conn, laporan, dunia.sesi_a, dunia.produk_a, markers=markers)
+    )
+
+    assert sqlstate == CHECK_VIOLATION
+
+
+def _cek_saat_commit(conn) -> None:
+    """Jalankan constraint trigger yang ditunda, seperti saat COMMIT."""
+    conn.execute(text("SET CONSTRAINTS ALL IMMEDIATE"))
+
+
+def test_terbit_tanpa_ubah_status_ditolak_saat_commit(conn, dunia):
+    """Negatif: baris terbit ada tapi laporan masih saved, transaksi tidak boleh commit (#6)."""
+    laporan = laporan_utuh(conn, dunia)
+    terbitkan(conn, laporan, dunia)
+
+    assert _sqlstate(conn, lambda: _cek_saat_commit(conn)) == CHECK_VIOLATION
+
+
+def test_ganti_versi_tanpa_menandai_versi_lama_ditolak_saat_commit(conn, dunia):
+    """Negatif: v2 terbit tapi v1 masih published, dua versi terbit sekaligus tidak boleh (#6)."""
+    lama, baru = laporan_utuh(conn, dunia), laporan_utuh(conn, dunia)
+    v1 = terbitkan(conn, lama, dunia)
+    ubah_status(conn, lama, "published")
+    terbitkan(conn, baru, dunia, version_no=2, supersedes=v1)
+    ubah_status(conn, baru, "published")
+
+    assert _sqlstate(conn, lambda: _cek_saat_commit(conn)) == CHECK_VIOLATION
+
+
+def test_ganti_versi_lengkap_lolos_saat_commit(conn, dunia):
+    """Positif: INSERT v2, v2 published, v1 superseded dalam satu transaksi (#6)."""
+    lama, baru = laporan_utuh(conn, dunia), laporan_utuh(conn, dunia)
+    v1 = terbitkan(conn, lama, dunia)
+    ubah_status(conn, lama, "published")
+    terbitkan(conn, baru, dunia, version_no=2, supersedes=v1)
+    ubah_status(conn, baru, "published")
+    ubah_status(conn, lama, "superseded")
+
+    _cek_saat_commit(conn)

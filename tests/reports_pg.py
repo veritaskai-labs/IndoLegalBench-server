@@ -65,7 +65,12 @@ def buat_laporan(conn: Connection, dunia: Dunia, **ubah) -> uuid.UUID:
 
 
 def tambah_sesi(
-    conn: Connection, laporan: uuid.UUID, sesi: uuid.UUID, produk: uuid.UUID, kind: str = "manual"
+    conn: Connection,
+    laporan: uuid.UUID,
+    sesi: uuid.UUID,
+    produk: uuid.UUID,
+    kind: str = "manual",
+    markers: object = None,
 ) -> None:
     conn.execute(
         text(
@@ -78,7 +83,9 @@ def tambah_sesi(
             "sesi": sesi,
             "produk": produk,
             "kind": kind,
-            "markers": json.dumps([{"code": "repetitions_differ", "detail": "1 vs 3"}]),
+            "markers": json.dumps(
+                [{"code": "repetitions_differ", "detail": "1 vs 3"}] if markers is None else markers
+            ),
         },
     )
 
@@ -91,14 +98,18 @@ def tambah_hasil(conn: Connection, laporan: uuid.UUID, sesi: uuid.UUID, **ubah) 
         "split": "test",
         "failure_rate": None,
         "rank": 1,
+        "det": 0.75,
+        "llm": 0.50,
+        "total": 0.63,
+        "repetitions": 1,
     } | ubah
     return conn.execute(
         text(
             "INSERT INTO report_results (id, report_id, session_id, score_split, "
             "cases_graded_count, cases_basis_count, det_score, llm_score, total_score, "
             "failure_rate, rank, repetitions, product_model_version, judge_model_version) "
-            "VALUES (:id, :laporan, :sesi, CAST(:split AS report_score_split_enum), 3, 1, 0.75, "
-            "0.50, 0.63, :failure_rate, :rank, 1, 'model-a', 'judge-a') RETURNING id"
+            "VALUES (:id, :laporan, :sesi, CAST(:split AS report_score_split_enum), 3, 1, :det, "
+            ":llm, :total, :failure_rate, :rank, :repetitions, 'model-a', 'judge-a') RETURNING id"
         ),
         isi,
     ).scalar_one()
