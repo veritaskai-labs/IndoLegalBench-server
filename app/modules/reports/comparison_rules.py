@@ -4,20 +4,21 @@ PBI-15 SCRUM-79 SCRUM-301, D2. Dipakai bersama oleh PBI-15, PBI-16, dan PBI-17 s
 laporan perbandingan, laporan tren, dan halaman pembuat laporan memakai aturan yang
 sama, bukan tiga salinan yang pelan-pelan berbeda.
 
-Modul ini murni: tidak menyentuh database dan tidak mengenal HTTP. Pemanggil membaca
-D2 menjadi SessionFacts, lalu memakai hasilnya.
+Modul ini murni: tidak menyentuh database dan tidak mengenal HTTP. Pemanggil (adapter
+D2, dikerjakan SCRUM-313) membaca baris jadi SessionFacts, lalu memakai hasilnya. Impor
+app.modules.runs.models di sini hanya untuk enum status/tipe/tujuan sesi; modul grading
+pun mengimpornya lintas modul, jadi ini pola yang sudah diterima, bukan pelanggaran.
 
-Dua keputusan yang perlu dicatat:
+Kontrak yang wajib dipenuhi adapter saat mengisi SessionFacts (bukan diputuskan di sini):
 
-1. "Versi suite sama" (AC13 syarat c) dicek dari apa yang memang disimpan D2. Tabel
-   suites tidak punya nomor versi, dan suite_snapshots sudah dipensiunkan PBI-11
-   (SCRUM-207), jadi versi suite satu sesi = suite yang dipilih (measurement_session_suites)
-   ditambah versi kasus pada snapshot sesinya. Dua sesi dianggap beda versi suite bila
-   suite-nya berbeda, atau bila satu kasus yang sama muncul pada case_version_id berbeda.
-
-2. Karena versi kasus sudah dijaga syarat di atas, irisan kasus (AC1) cukup dikunci pada
-   reference id kasus; kasus yang sama pada versi berbeda ditolak dengan alasan, bukan
-   diam-diam dibuang dari irisan.
+- rubric_version_id dan judge_* diambil dari grading run TERAKHIR yang selesai
+  (grading_runs.is_latest dan status selesai). rubric_version_id kosong = belum dinilai.
+- judge_model_version diisi identitas model penilai yang terekam saat grading
+  (llm_judge_results.model_version), bukan sekadar id provider yang bisa berubah config.
+- snapshot_cases diisi SELURUH case_snapshot_items sesi (dinilai atau tidak), supaya
+  kesamaan versi suite dicek dari snapshot utuh, bukan hanya kasus yang kebetulan dinilai.
+- scored_cases sudah difilter ke split yang diminta (test, dev, atau keduanya) sebelum
+  masuk; irisan kasus dihitung apa adanya dari scored_cases.
 """
 
 import uuid
@@ -29,6 +30,10 @@ from app.modules.runs.manual_session_rules import date_range_exceeds
 from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType
 from app.modules.runs.session_rules import is_report_eligible
 from app.shared.exceptions import ConflictError
+
+# Seleksi tidak sah: bukan soal satu sesi, melainkan kombinasi yang diminta (NB5).
+NEED_AT_LEAST_TWO_PRODUCTS = "NEED_AT_LEAST_TWO_PRODUCTS"
+DUPLICATE_PRODUCT = "DUPLICATE_PRODUCT"
 
 # Alasan satu sesi tidak layak jadi dasar laporan (AC2, AC4).
 SESSION_NOT_FINISHED = "SESSION_NOT_FINISHED"
@@ -76,10 +81,10 @@ _PESAN_TIDAK_LAYAK = {
 
 @dataclass(frozen=True)
 class CaseRef:
-    """Identitas satu kasus yang sudah punya skor di sebuah sesi.
+    """Identitas satu kasus di sebuah sesi.
 
     case_id adalah reference id yang tetap lintas versi; case_version_id menyebut versi
-    yang benar-benar dijawab; case_code hanya untuk pesan ke pembaca laporan.
+    yang dipakai; case_code hanya untuk pesan ke pembaca laporan.
     """
 
     case_id: uuid.UUID
@@ -91,9 +96,10 @@ class CaseRef:
 class SessionFacts:
     """Satu sesi pengukuran, sebagaimana dibutuhkan aturan ini. Dibaca dari D2.
 
-    rubric_version_id dan judge_provider_id berasal dari grading run terakhir sesi
-    (grading_runs.is_latest); rubric_version_id kosong berarti sesi belum pernah dinilai.
-    scored_cases hanya berisi kasus yang sudah punya skor, bukan seluruh isi snapshot.
+    scored_cases: kasus yang sudah punya skor, sudah difilter ke split yang diminta.
+    snapshot_cases: SELURUH kasus di snapshot sesi (dinilai atau tidak), untuk cek versi
+    suite. judge_model_version: identitas model penilai yang terekam saat grading.
+    Lihat kontrak adapter di docstring modul.
     """
 
     session_id: uuid.UUID
@@ -105,12 +111,14 @@ class SessionFacts:
     accepted_as_is_at: datetime | None
     rubric_version_id: uuid.UUID | None
     judge_provider_id: uuid.UUID | None
+    judge_model_version: str | None
     suite_ids: frozenset[uuid.UUID]
     model_version: str | None
     repetitions: int
     answer_date_from: datetime | None
     answer_date_to: datetime | None
     scored_cases: tuple[CaseRef, ...]
+    snapshot_cases: tuple[CaseRef, ...]
 
 
 @dataclass(frozen=True)
@@ -126,19 +134,47 @@ class ComparisonPlan:
     """Hasil aturan untuk satu permintaan laporan.
 
     comparable False berarti laporan tidak boleh menampilkan angka perbandingan: alasannya
-    ada di ineligible (per sesi), rejections (per syarat), atau warning (irisan kosong).
+    ada di selection_errors (seleksi tidak sah), ineligible (per sesi), rejections (per
+    syarat), atau warning (irisan kosong). session_markers melekatkan penanda ke sesinya
+    (AC4, AC5); markers hanya penanda tingkat perbandingan (AC3).
     """
 
     sessions: tuple[SessionFacts, ...]
+    selection_errors: tuple[str, ...]
     ineligible: dict[uuid.UUID, tuple[str, ...]]
     rejections: tuple[Rejection, ...]
     markers: tuple[str, ...]
+    session_markers: dict[uuid.UUID, tuple[str, ...]]
     shared_cases: tuple[CaseRef, ...]
     warning: str | None
 
     @property
     def comparable(self) -> bool:
-        return not self.ineligible and not self.rejections and self.warning is None
+        return (
+            not self.selection_errors
+            and not self.ineligible
+            and not self.rejections
+            and self.warning is None
+        )
+
+
+def selection_errors(sessions: Sequence[SessionFacts]) -> tuple[str, ...]:
+    """Masalah pada kombinasi sesi yang dipilih, bukan pada satu sesi (NB5).
+
+    Perbandingan butuh minimal dua produk, dan satu produk hanya boleh diwakili satu sesi
+    dalam satu laporan (kontrak report-builder, UNIQUE report_id, product_id di D1).
+    """
+    galat: list[str] = []
+
+    if len(sessions) < 2:
+        galat.append(NEED_AT_LEAST_TWO_PRODUCTS)
+
+    product_ids = [sesi.product_id for sesi in sessions]
+    session_ids = [sesi.session_id for sesi in sessions]
+    if len(set(product_ids)) != len(product_ids) or len(set(session_ids)) != len(session_ids):
+        galat.append(DUPLICATE_PRODUCT)
+
+    return tuple(galat)
 
 
 def eligibility_problems(facts: SessionFacts) -> tuple[str, ...]:
@@ -146,7 +182,8 @@ def eligibility_problems(facts: SessionFacts) -> tuple[str, ...]:
 
     Status layak diputuskan is_report_eligible (D4, PBI-12 AC7 dan AC9), jadi aturan
     status hanya hidup di satu tempat. Sesi manual ikut aturan yang sama: hanya Selesai
-    (finalized) yang layak, Dinilai belum.
+    (finalized) yang layak, Dinilai belum. rubric_version_id harus berasal dari grading
+    run terakhir yang selesai (kontrak adapter); kosong berarti belum dinilai.
     """
     status = SessionStatus(facts.status)
     alasan: list[str] = []
@@ -173,7 +210,7 @@ def ensure_eligible(facts: SessionFacts) -> None:
 
 
 def session_markers(facts: SessionFacts) -> tuple[str, ...]:
-    """Penanda yang melekat pada satu sesi, bukan pada perbandingannya (AC4, AC5)."""
+    """Penanda yang melekat pada satu sesi (AC4, AC5): Uji Coba dan rentang tanggal manual."""
     penanda: list[str] = []
 
     if SessionPurpose(facts.purpose) is SessionPurpose.TRIAL:
@@ -189,17 +226,33 @@ def session_markers(facts: SessionFacts) -> tuple[str, ...]:
     return tuple(penanda)
 
 
-def _versi_kasus_bentrok(sessions: Sequence[SessionFacts]) -> list[str]:
-    """Kode kasus yang muncul pada lebih dari satu versi, diurutkan supaya pesannya stabil."""
+def _snapshot_conflicts(sessions: Sequence[SessionFacts]) -> list[str]:
+    """Kode kasus yang bikin snapshot suite tak identik antar sesi (B1).
+
+    Memakai snapshot_cases (seluruh isi snapshot, dinilai atau tidak), bukan hanya kasus
+    yang dinilai, supaya kasus berversi beda yang tak dinilai tetap ketahuan. Konflik =
+    satu kasus muncul pada versi berbeda, atau tidak ada di semua snapshot. Diurutkan
+    supaya pesannya stabil.
+    """
+    jumlah = len(sessions)
     versi: dict[uuid.UUID, set[uuid.UUID]] = {}
+    hadir: dict[uuid.UUID, int] = {}
     kode: dict[uuid.UUID, str] = {}
 
     for sesi in sessions:
-        for kasus in sesi.scored_cases:
+        terlihat: set[uuid.UUID] = set()
+        for kasus in sesi.snapshot_cases:
             versi.setdefault(kasus.case_id, set()).add(kasus.case_version_id)
             kode.setdefault(kasus.case_id, kasus.case_code)
+            terlihat.add(kasus.case_id)
+        for case_id in terlihat:
+            hadir[case_id] = hadir.get(case_id, 0) + 1
 
-    return sorted(kode[case_id] for case_id, dipakai in versi.items() if len(dipakai) > 1)
+    return sorted(
+        kode[case_id]
+        for case_id in versi
+        if len(versi[case_id]) > 1 or hadir.get(case_id, 0) != jumlah
+    )
 
 
 def comparison_rejections(sessions: Sequence[SessionFacts]) -> tuple[Rejection, ...]:
@@ -219,7 +272,11 @@ def comparison_rejections(sessions: Sequence[SessionFacts]) -> tuple[Rejection, 
             )
         )
 
-    if len({sesi.judge_provider_id for sesi in sessions}) > 1:
+    # Model penilai: id provider DAN versi model efektif saat grading harus sama. Id
+    # provider bisa tetap sama walau config modelnya diganti, jadi id saja tak cukup (B2).
+    beda_provider = len({sesi.judge_provider_id for sesi in sessions}) > 1
+    beda_model = len({sesi.judge_model_version for sesi in sessions}) > 1
+    if beda_provider or beda_model:
         tolakan.append(
             Rejection(
                 JUDGE_MODEL,
@@ -228,15 +285,14 @@ def comparison_rejections(sessions: Sequence[SessionFacts]) -> tuple[Rejection, 
             )
         )
 
-    bentrok = _versi_kasus_bentrok(sessions)
     if len({sesi.suite_ids for sesi in sessions}) > 1:
         tolakan.append(Rejection(SUITE_VERSION, "Sesi yang dipilih memakai suite yang berbeda."))
-    elif bentrok:
+    elif konflik := _snapshot_conflicts(sessions):
         tolakan.append(
             Rejection(
                 SUITE_VERSION,
-                "Suite yang dipakai ada pada versi berbeda antar sesi. "
-                f"Kasus yang berbeda versi: {', '.join(bentrok)}.",
+                "Snapshot suite tidak identik antar sesi. "
+                f"Kasus yang berbeda versi atau komposisi: {', '.join(konflik)}.",
             )
         )
 
@@ -244,9 +300,10 @@ def comparison_rejections(sessions: Sequence[SessionFacts]) -> tuple[Rejection, 
 
 
 def comparison_markers(sessions: Sequence[SessionFacts]) -> tuple[str, ...]:
-    """Penanda perbandingan: beda versi model dan beda jumlah percobaan (AC3, AC5).
+    """Penanda tingkat perbandingan: beda versi model dan beda jumlah percobaan (AC3, AC5).
 
-    Keduanya tidak menolak perbandingan, tetapi wajib tampil di laporan.
+    Keduanya tidak menolak perbandingan, tetapi wajib tampil di laporan. Penanda tingkat
+    sesi (Uji Coba, rentang manual) tidak di sini; itu melekat per sesi di ComparisonPlan.
     """
     penanda: list[str] = []
 
@@ -256,50 +313,63 @@ def comparison_markers(sessions: Sequence[SessionFacts]) -> tuple[str, ...]:
     if len({sesi.repetitions for sesi in sessions}) > 1:
         penanda.append(REPETITIONS_DIFFER)
 
-    for sesi in sessions:
-        penanda.extend(tanda for tanda in session_markers(sesi) if tanda not in penanda)
-
     return tuple(penanda)
+
+
+def per_session_markers(sessions: Sequence[SessionFacts]) -> dict[uuid.UUID, tuple[str, ...]]:
+    """Penanda tiap sesi, dipetakan ke session_id-nya (NB2, AC4, AC5).
+
+    Hanya sesi yang benar-benar punya penanda yang masuk, supaya laporan bisa menunjuk
+    sesi mana yang Uji Coba atau rentang manualnya lewat batas.
+    """
+    return {sesi.session_id: penanda for sesi in sessions if (penanda := session_markers(sesi))}
 
 
 def shared_cases(sessions: Sequence[SessionFacts]) -> tuple[CaseRef, ...]:
     """Kasus yang dijawab semua sesi (AC1), diurutkan menurut kode kasus.
 
-    Tanpa sesi, tidak ada irisan. Versi kasus tidak dipakai sebagai kunci di sini karena
-    beda versi sudah ditolak comparison_rejections; kalau dipakai, kasus yang berbeda
-    versi akan hilang diam-diam dari irisan.
+    Identitas kasus di sini adalah (case_id, case_version_id): kasus yang sama pada versi
+    berbeda bukan kasus yang sama, sesuai AC1. Beda versi juga sudah ditolak lebih dulu
+    oleh comparison_rejections (AC13), jadi dalam perbandingan yang sah kunci ini setara
+    dengan case_id, tetapi tetap eksplisit supaya identitasnya benar.
     """
     if not sessions:
         return ()
 
-    irisan = set.intersection(
-        *({kasus.case_id for kasus in sesi.scored_cases} for sesi in sessions)
-    )
+    kunci_per_sesi = [
+        {(kasus.case_id, kasus.case_version_id) for kasus in sesi.scored_cases} for sesi in sessions
+    ]
+    irisan = set.intersection(*kunci_per_sesi)
 
-    pertama = {kasus.case_id: kasus for kasus in sessions[0].scored_cases}
-    return tuple(sorted((pertama[case_id] for case_id in irisan), key=lambda k: k.case_code))
+    pertama = {(kasus.case_id, kasus.case_version_id): kasus for kasus in sessions[0].scored_cases}
+    return tuple(sorted((pertama[kunci] for kunci in irisan), key=lambda k: k.case_code))
 
 
 def plan_comparison(sessions: Sequence[SessionFacts]) -> ComparisonPlan:
     """Aturan lengkap untuk satu permintaan laporan (AC1–AC5, AC13).
 
-    Begitu ada sesi tidak layak atau syarat yang gagal, irisan kasus tidak dihitung dan
-    laporan tidak menampilkan angka: yang keluar hanya alasannya.
+    Begitu seleksi tidak sah, ada sesi tidak layak, atau syarat gagal, irisan kasus tidak
+    dihitung dan laporan tidak menampilkan angka: yang keluar hanya alasannya. Penanda
+    tetap dihitung supaya laporan bisa menuliskannya walau perbandingan ditolak.
     """
     sessions = tuple(sessions)
 
+    galat_seleksi = selection_errors(sessions)
     tidak_layak = {
         sesi.session_id: alasan for sesi in sessions if (alasan := eligibility_problems(sesi))
     }
     tolakan = comparison_rejections(sessions)
     penanda = comparison_markers(sessions)
+    penanda_sesi = per_session_markers(sessions)
 
-    if tidak_layak or tolakan:
+    if galat_seleksi or tidak_layak or tolakan:
         return ComparisonPlan(
             sessions=sessions,
+            selection_errors=galat_seleksi,
             ineligible=tidak_layak,
             rejections=tolakan,
             markers=penanda,
+            session_markers=penanda_sesi,
             shared_cases=(),
             warning=None,
         )
@@ -309,9 +379,11 @@ def plan_comparison(sessions: Sequence[SessionFacts]) -> ComparisonPlan:
 
     return ComparisonPlan(
         sessions=sessions,
+        selection_errors=(),
         ineligible={},
         rejections=(),
         markers=penanda,
+        session_markers=penanda_sesi,
         shared_cases=() if kosong else irisan,
         warning=NO_SHARED_CASES if kosong else None,
     )

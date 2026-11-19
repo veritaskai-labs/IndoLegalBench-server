@@ -9,9 +9,11 @@ from datetime import UTC, datetime, timedelta
 import pytest
 
 from app.modules.reports.comparison_rules import (
+    DUPLICATE_PRODUCT,
     JUDGE_MODEL,
     MANUAL_ANSWER_RANGE_OVER_LIMIT,
     MODEL_VERSION_DIFFERS,
+    NEED_AT_LEAST_TWO_PRODUCTS,
     NO_SHARED_CASES,
     REPETITIONS_DIFFER,
     RUBRIC_VERSION,
@@ -60,6 +62,7 @@ def _sesi(**ubah) -> SessionFacts:
         "accepted_as_is_at": None,
         "rubric_version_id": RUBRIK,
         "judge_provider_id": PENILAI,
+        "judge_model_version": "jm-v1",
         "suite_ids": frozenset({SUITE}),
         "model_version": "v1",
         "repetitions": 3,
@@ -67,7 +70,10 @@ def _sesi(**ubah) -> SessionFacts:
         "answer_date_to": None,
         "scored_cases": (_kasus(1), _kasus(2)),
     }
-    return SessionFacts(**{**bawaan, **ubah})
+    data = {**bawaan, **ubah}
+    # Secara default snapshot = kasus yang dinilai; tes B1 mengisinya sendiri bila perlu.
+    data.setdefault("snapshot_cases", data["scored_cases"])
+    return SessionFacts(**data)
 
 
 # AC2, AC4: kelayakan sesi.
@@ -172,6 +178,15 @@ def test_model_penilai_berbeda_ditolak():
     assert [tolak.requirement for tolak in comparison_rejections((_sesi(), lain))] == [JUDGE_MODEL]
 
 
+def test_judge_provider_sama_tapi_versi_model_beda_ditolak():
+    # B2: id provider sama, tetapi model efektif saat grading berbeda. Harus tetap ditolak.
+    lain = _sesi(judge_model_version="jm-v2")
+
+    tolakan = comparison_rejections((_sesi(), lain))
+
+    assert [tolak.requirement for tolak in tolakan] == [JUDGE_MODEL]
+
+
 def test_suite_berbeda_ditolak():
     lain = _sesi(suite_ids=frozenset({uuid.uuid4()}))
 
@@ -187,6 +202,18 @@ def test_kasus_yang_sama_pada_versi_berbeda_adalah_beda_versi_suite():
 
     assert [tolak.requirement for tolak in tolakan] == [SUITE_VERSION]
     assert "CASE-001" in tolakan[0].message
+
+
+def test_beda_versi_kasus_di_snapshot_tak_dinilai_tetap_ditolak():
+    # B1: suite dan kasus yang dinilai sama persis, tetapi satu kasus tak dinilai ada pada
+    # versi berbeda di snapshot. Harus ketahuan karena cek memakai snapshot utuh.
+    a = _sesi(scored_cases=(_kasus(1),), snapshot_cases=(_kasus(1), _kasus(2, versi=1)))
+    b = _sesi(scored_cases=(_kasus(1),), snapshot_cases=(_kasus(1), _kasus(2, versi=2)))
+
+    tolakan = comparison_rejections((a, b))
+
+    assert [tolak.requirement for tolak in tolakan] == [SUITE_VERSION]
+    assert "CASE-002" in tolakan[0].message
 
 
 def test_setiap_syarat_yang_gagal_punya_alasannya_sendiri():
@@ -221,6 +248,20 @@ def test_versi_model_dan_jumlah_percobaan_sama_tidak_diberi_tanda():
     assert REPETITIONS_DIFFER not in rencana.markers
 
 
+# NB2: penanda tingkat sesi melekat ke session_id, bukan digabung global.
+
+
+def test_penanda_uji_coba_melekat_ke_sesinya_bukan_ke_penanda_perbandingan():
+    uji_coba = _sesi(purpose=SessionPurpose.TRIAL)
+    biasa = _sesi()
+
+    rencana = plan_comparison((uji_coba, biasa))
+
+    assert rencana.session_markers[uji_coba.session_id] == (TRIAL_SESSION,)
+    assert biasa.session_id not in rencana.session_markers
+    assert TRIAL_SESSION not in rencana.markers
+
+
 # AC1: irisan kasus.
 
 
@@ -232,9 +273,18 @@ def test_irisan_hanya_kasus_yang_dijawab_semua_produk():
     assert [kasus.case_code for kasus in shared_cases((satu, dua, tiga))] == ["CASE-002"]
 
 
+def test_irisan_memakai_identitas_case_id_dan_versi():
+    # AC1: kasus yang sama pada versi berbeda bukan kasus yang sama, jadi bukan irisan.
+    satu = _sesi(scored_cases=(_kasus(1, versi=1),))
+    dua = _sesi(scored_cases=(_kasus(1, versi=2),))
+
+    assert shared_cases((satu, dua)) == ()
+
+
 def test_irisan_satu_kasus_tetap_dibandingkan_tanpa_batas_minimum():
-    satu = _sesi(scored_cases=(_kasus(1), _kasus(2)))
-    dua = _sesi(scored_cases=(_kasus(1),))
+    penuh = (_kasus(1), _kasus(2))
+    satu = _sesi(scored_cases=(_kasus(1), _kasus(2)), snapshot_cases=penuh)
+    dua = _sesi(scored_cases=(_kasus(1),), snapshot_cases=penuh)
 
     rencana = plan_comparison((satu, dua))
 
@@ -244,13 +294,33 @@ def test_irisan_satu_kasus_tetap_dibandingkan_tanpa_batas_minimum():
 
 
 def test_irisan_kosong_menghasilkan_peringatan_tanpa_angka():
-    satu = _sesi(scored_cases=(_kasus(1),))
-    dua = _sesi(scored_cases=(_kasus(2),))
+    # Suite sama (snapshot sama), tetapi tiap produk dinilai pada kasus yang berlainan.
+    penuh = (_kasus(1), _kasus(2))
+    satu = _sesi(scored_cases=(_kasus(1),), snapshot_cases=penuh)
+    dua = _sesi(scored_cases=(_kasus(2),), snapshot_cases=penuh)
 
     rencana = plan_comparison((satu, dua))
 
     assert rencana.shared_cases == ()
     assert rencana.warning == NO_SHARED_CASES
+    assert rencana.comparable is False
+
+
+# NB5: seleksi harus minimal dua produk dan tanpa produk ganda.
+
+
+def test_perbandingan_butuh_minimal_dua_produk():
+    rencana = plan_comparison((_sesi(),))
+
+    assert NEED_AT_LEAST_TWO_PRODUCTS in rencana.selection_errors
+    assert rencana.comparable is False
+
+
+def test_produk_yang_sama_dipilih_dua_kali_ditolak():
+    produk = uuid.uuid4()
+    rencana = plan_comparison((_sesi(product_id=produk), _sesi(product_id=produk)))
+
+    assert DUPLICATE_PRODUCT in rencana.selection_errors
     assert rencana.comparable is False
 
 
