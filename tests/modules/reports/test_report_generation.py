@@ -40,7 +40,7 @@ from app.modules.reports.report_generation import (
 )
 from app.modules.reports.report_scoring import CallCounts, GradedCase
 from app.modules.reports.session_record import SessionRecord
-from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType
+from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType, SplitFilter
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError
 from app.shared.security import Role
 
@@ -51,17 +51,18 @@ PEMBUAT = uuid.UUID("44444444-4444-4444-4444-444444444444")
 AWAL = datetime(2026, 11, 1, tzinfo=UTC)
 
 
-def _ref(nomor: int, *, versi: int = 1) -> CaseRef:
+def _ref(nomor: int, *, versi: int = 1, split: SplitTag = SplitTag.TEST) -> CaseRef:
     return CaseRef(
         case_id=uuid.UUID(f"{nomor:032x}"),
         case_version_id=uuid.UUID(f"{nomor:016x}{versi:016x}"),
         case_code=f"CASE-{nomor:03d}",
+        split_tag=split.value,
     )
 
 
 def _nilai(nomor: int, det: str | None, llm: str | None, split: SplitTag = SplitTag.TEST):
     return GradedCase(
-        ref=_ref(nomor),
+        ref=_ref(nomor, split=split),
         split=split,
         det=None if det is None else Decimal(det),
         llm=None if llm is None else Decimal(llm),
@@ -89,6 +90,7 @@ def _rekaman(nama: str, graded: list[GradedCase], **ubah) -> SessionRecord:
         answer_date_to=ubah.pop("sampai", None),
         scored_cases=tuple(g.ref for g in graded),
         snapshot_cases=kasus_snapshot,
+        split_filter=SplitFilter.BOTH,
     )
     return SessionRecord(
         facts=facts,
@@ -125,7 +127,12 @@ def _jumlah(db, model) -> int:
 @pytest.fixture
 def dua_produk():
     """A unggul di dua kasus yang sama-sama dijawab; B menjawab satu kasus tambahan."""
-    a = _rekaman("Produk A", [_nilai(1, "0.80", "0.60"), _nilai(2, "0.60", "0.40")])
+    # Kasus 3 ada di snapshot A tetapi tidak dinilai: split test keduanya identik (AC13).
+    a = _rekaman(
+        "Produk A",
+        [_nilai(1, "0.80", "0.60"), _nilai(2, "0.60", "0.40")],
+        snapshot_tambahan=(_ref(3),),
+    )
     b = _rekaman(
         "Produk B",
         [_nilai(1, "0.40", "0.40"), _nilai(2, "0.20", "0.20"), _nilai(3, "1.00", "1.00")],
@@ -486,7 +493,12 @@ class TestNotComparable:
     def test_a_failed_comparison_requirement_is_explained(self, db_session, dua_produk):
         # Arrange
         a, _ = dua_produk
-        lain_rubrik = _rekaman("Lain", [_nilai(1, "0.5", "0.5")], rubrik=uuid.UUID(int=99))
+        lain_rubrik = _rekaman(
+            "Lain",
+            [_nilai(1, "0.5", "0.5"), _nilai(2, "0.5", "0.5")],
+            snapshot_tambahan=(_ref(3),),
+            rubrik=uuid.UUID(int=99),
+        )
 
         # Act
         with pytest.raises(ConflictError) as galat:
@@ -533,8 +545,16 @@ class TestNotComparable:
 class TestNoSharedCases:
     def test_returns_a_warning_and_saves_nothing(self, db_session):
         # Arrange
-        a = _rekaman("A", [_nilai(1, "0.5", "0.5"), _nilai(2, "0.5", "0.5")])
-        b = _rekaman("B", [_nilai(3, "0.5", "0.5"), _nilai(4, "0.5", "0.5")])
+        a = _rekaman(
+            "A",
+            [_nilai(1, "0.5", "0.5"), _nilai(2, "0.5", "0.5")],
+            snapshot_tambahan=(_ref(3), _ref(4)),
+        )
+        b = _rekaman(
+            "B",
+            [_nilai(3, "0.5", "0.5"), _nilai(4, "0.5", "0.5")],
+            snapshot_tambahan=(_ref(1), _ref(2)),
+        )
 
         # Act
         hasil = _buat(db_session, a, b)

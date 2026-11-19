@@ -274,6 +274,38 @@ class TestSessionFacts:
         assert rekaman.facts.product_name == "Tanpa Salinan (master)"
         assert rekaman.facts.model_version is None
 
+    @pytest.mark.parametrize("filter_sesi", [SplitFilter.TEST, SplitFilter.DEV, SplitFilter.BOTH])
+    def test_reads_the_split_filter_the_snapshot_was_made_with(
+        self, db_session, admin, filter_sesi
+    ):
+        # Arrange
+        sesi = _sesi(db_session, admin, split_filter=filter_sesi)
+
+        # Act
+        (rekaman,) = _baca(db_session, sesi.id)
+
+        # Assert
+        assert rekaman.facts.split_filter is filter_sesi
+
+    def test_every_case_carries_the_split_tag_of_its_snapshot_item(self, db_session, admin, rubrik):
+        # Arrange
+        sesi = _sesi(db_session, admin)
+        dinilai = _kasus(db_session, sesi, "CASE-001", "test")
+        _kasus(db_session, sesi, "CASE-002", "dev")
+        _nilai(
+            db_session, sesi, rubrik, admin, [(_percobaan(db_session, sesi, dinilai), "0.5", "0.5")]
+        )
+
+        # Act
+        (rekaman,) = _baca(db_session, sesi.id)
+
+        # Assert
+        assert {k.case_code: k.split_tag for k in rekaman.facts.snapshot_cases} == {
+            "CASE-001": "test",
+            "CASE-002": "dev",
+        }
+        assert [k.split_tag for k in rekaman.facts.scored_cases] == ["test"]
+
     def test_snapshot_cases_list_every_case_even_those_without_a_score(
         self, db_session, admin, rubrik
     ):

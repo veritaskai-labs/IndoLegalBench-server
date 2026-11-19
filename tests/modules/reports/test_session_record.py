@@ -17,7 +17,7 @@ from app.modules.reports.session_record import (
     calls_for_split,
     facts_for_scope,
 )
-from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType
+from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType, SplitFilter
 
 
 def _kasus(nomor: int, split: SplitTag) -> GradedCase:
@@ -26,6 +26,7 @@ def _kasus(nomor: int, split: SplitTag) -> GradedCase:
             case_id=uuid.UUID(f"{nomor:032x}"),
             case_version_id=uuid.UUID(f"{nomor:016x}{1:016x}"),
             case_code=f"CASE-{nomor:03d}",
+            split_tag=split.value,
         ),
         split=split,
         det=Decimal("0.5"),
@@ -56,6 +57,7 @@ def _rekaman(**ubah) -> SessionRecord:
         answer_date_to=None,
         scored_cases=tuple(kasus.ref for kasus in graded),
         snapshot_cases=tuple(kasus.ref for kasus in graded),
+        split_filter=SplitFilter.BOTH,
     )
     return SessionRecord(
         facts=facts,

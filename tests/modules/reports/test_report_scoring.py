@@ -36,6 +36,7 @@ def _kasus(
             case_id=uuid.UUID(f"{nomor:032x}"),
             case_version_id=uuid.UUID(f"{nomor:016x}{1:016x}"),
             case_code=f"CASE-{nomor:03d}",
+            split_tag=split.value,
         ),
         split=split,
         det=None if det is None else Decimal(det),

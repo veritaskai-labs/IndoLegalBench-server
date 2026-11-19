@@ -10,7 +10,7 @@ from app.main import app
 from app.modules.cases.models import SplitTag
 from app.modules.reports.dependencies import get_session_record_reader
 from app.shared.security import Role
-from tests.modules.reports.test_report_generation import PembacaPalsu, _nilai, _rekaman
+from tests.modules.reports.test_report_generation import PembacaPalsu, _nilai, _ref, _rekaman
 
 URL = "/reports"
 
@@ -223,8 +223,8 @@ class TestRefused:
 
     def test_no_shared_cases_is_a_200_warning_without_a_report(self, as_role, pasang_pembaca):
         # Arrange
-        a = _rekaman("A", [_nilai(1, "0.5", "0.5")])
-        b = _rekaman("B", [_nilai(2, "0.5", "0.5")])
+        a = _rekaman("A", [_nilai(1, "0.5", "0.5")], snapshot_tambahan=(_ref(2),))
+        b = _rekaman("B", [_nilai(2, "0.5", "0.5")], snapshot_tambahan=(_ref(1),))
         pasang_pembaca(a, b)
         client = as_role(Role.ADMIN)
 
