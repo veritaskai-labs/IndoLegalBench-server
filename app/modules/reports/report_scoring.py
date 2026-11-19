@@ -16,8 +16,12 @@ from app.modules.runs.score_aggregation import raw_mean_score
 _CENT = Decimal("0.01")
 _HUNDRED = Decimal(100)
 
-# Jenis skor Test dan Dev menyaring menurut split kasus; gabungan memakai semua kasus.
-_SPLIT_TAG = {ScoreSplit.TEST: SplitTag.TEST, ScoreSplit.DEV: SplitTag.DEV}
+# Split kasus yang dihitung untuk tiap jenis skor; gabungan memakai semua kasus.
+_TAGS_BY_SPLIT: dict[ScoreSplit, frozenset[SplitTag]] = {
+    ScoreSplit.TEST: frozenset({SplitTag.TEST}),
+    ScoreSplit.DEV: frozenset({SplitTag.DEV}),
+    ScoreSplit.COMBINED: frozenset(SplitTag),
+}
 
 
 @dataclass(frozen=True)
@@ -60,12 +64,14 @@ class RankEntry:
     score: SplitScore
 
 
+def tags_for_split(split: ScoreSplit) -> frozenset[SplitTag]:
+    return _TAGS_BY_SPLIT[split]
+
+
 def cases_for_split(cases: Sequence[GradedCase], split: ScoreSplit) -> tuple[GradedCase, ...]:
     """Kasus yang dihitung untuk satu jenis skor: Test, Dev, atau semuanya (gabungan)."""
-    tag = _SPLIT_TAG.get(split)
-    if tag is None:
-        return tuple(cases)
-    return tuple(case for case in cases if case.split == tag)
+    tags = tags_for_split(split)
+    return tuple(case for case in cases if case.split in tags)
 
 
 def score_cases(cases: Sequence[GradedCase]) -> SplitScore:

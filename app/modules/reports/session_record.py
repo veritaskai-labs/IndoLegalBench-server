@@ -16,16 +16,9 @@ from typing import Protocol
 from app.modules.cases.models import SplitTag
 from app.modules.reports.comparison_rules import SessionFacts
 from app.modules.reports.models import MeasurementKind, ScoreScope, ScoreSplit
-from app.modules.reports.report_scoring import CallCounts, GradedCase
+from app.modules.reports.report_scoring import CallCounts, GradedCase, tags_for_split
 from app.modules.reports.service import allowed_case_tags
 from app.modules.runs.models import SessionType
-
-# Split kasus yang upayanya dihitung untuk tiap jenis skor; gabungan menghitung semuanya.
-_TAGS_BY_SPLIT = {
-    ScoreSplit.TEST: frozenset({SplitTag.TEST}),
-    ScoreSplit.DEV: frozenset({SplitTag.DEV}),
-    ScoreSplit.COMBINED: frozenset(SplitTag),
-}
 
 
 @dataclass(frozen=True)
@@ -66,7 +59,7 @@ def facts_for_scope(record: SessionRecord, scope: ScoreScope) -> SessionFacts:
 
 def calls_for_split(record: SessionRecord, split: ScoreSplit) -> CallCounts:
     """Jumlah upaya pemanggilan untuk kasus-kasus di satu jenis skor (AC2)."""
-    tags = _TAGS_BY_SPLIT[split]
+    tags = tags_for_split(split)
     hitungan = [jumlah for tag, jumlah in record.calls_by_split.items() if tag in tags]
     return CallCounts(
         total=sum(jumlah.total for jumlah in hitungan),
