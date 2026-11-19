@@ -263,6 +263,10 @@ _DIBUKA = {
     # PBI-14 (SCRUM-258): dropdown penilai di form pengukuran yang sama (klien No. 35).
     # Registri lengkap /admin/judge-providers tetap 403, diuji di test_judge_providers_api.py.
     ("GET", "/judge-providers"),
+    # PBI-15 AC14 (SCRUM-313): Developer AI membuat laporan perbandingan, termasuk yang memuat
+    # skor dev. Hanya angka agregat yang keluar, bukan isi kasus test; batas jenis nilai dan
+    # label diuji di test_creation_policy.py dan test_report_create_api.py.
+    ("POST", "/reports"),
     # PBI-11 AC8, AC10 (SCRUM-210): Developer AI memantau, membuka, dan mengarsipkan sesi.
     # Isi kasus test tetap disamarkan, diuji di test_session_detail_endpoint.py.
     ("GET", "/measurements"),
