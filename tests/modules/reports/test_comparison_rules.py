@@ -271,16 +271,15 @@ def test_versi_model_dan_jumlah_percobaan_sama_tidak_diberi_tanda():
 
 
 def test_sesi_manual_dan_otomatis_beda_repetisi_diberi_tanda_per_sesi():
-    # AC5: manual (tanpa judge LLM) dan otomatis boleh dibandingkan; beda repetisi jadi
-    # penanda perbandingan, dan rentang manual jadi penanda yang melekat ke sesi manualnya.
+    # AC5: manual dan otomatis boleh dibandingkan; keduanya tetap punya identitas judge yang
+    # sama (penilaian manual pun lewat judge LLM). Beda repetisi jadi penanda perbandingan,
+    # dan rentang manual jadi penanda yang melekat ke sesi manualnya.
     manual = _sesi(
         session_type=SessionType.MANUAL,
         status=SessionStatus.FINALIZED,
         repetitions=1,
         answer_date_from=AWAL,
         answer_date_to=AWAL + timedelta(days=9),
-        judge_provider_id=None,
-        judge_model_version=None,
     )
     otomatis = _sesi(repetitions=5)
 
@@ -289,6 +288,17 @@ def test_sesi_manual_dan_otomatis_beda_repetisi_diberi_tanda_per_sesi():
     assert REPETITIONS_DIFFER in rencana.markers
     assert rencana.session_markers[manual.session_id] == (MANUAL_ANSWER_RANGE_OVER_LIMIT,)
     assert rencana.comparable is True
+
+
+def test_sesi_tanpa_identitas_judge_ditolak():
+    # Blocker review ketiga: sesi dengan identitas judge kosong (mis. manual yang adapter-nya
+    # belum isi) dibandingkan dengan sesi berjudge jelas. Tak bisa diverifikasi, harus ditolak.
+    tanpa_judge = _sesi(judge_provider_id=None, judge_model_version=None)
+    berjudge = _sesi()
+
+    assert [tolak.requirement for tolak in comparison_rejections((tanpa_judge, berjudge))] == [
+        JUDGE_MODEL
+    ]
 
 
 # NB2: penanda tingkat sesi melekat ke session_id, bukan digabung global.

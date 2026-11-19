@@ -17,7 +17,8 @@ Kontrak yang wajib dipenuhi adapter saat mengisi SessionFacts (bukan diputuskan 
   (llm_judge_results.model_version). Nilai itu tercatat per pemanggilan judge, jadi adapter
   wajib memastikan satu versi yang konsisten untuk seluruh sesi; bila tidak konsisten atau
   tak diketahui, isi None, dan aturan ini akan menolak perbandingannya (bukan menganggap
-  dua None sama). Sesi manual tanpa judge LLM boleh berisi judge_provider_id None.
+  dua None sama). Penilaian memakai judge LLM untuk sesi otomatis MAUPUN manual (alur
+  grading sama), jadi setiap sesi yang layak punya identitas judge; None = tak terverifikasi.
 - snapshot_cases diisi SELURUH case_snapshot_items sesi (dinilai atau tidak), supaya kasus
   berversi beda yang tak dinilai tetap ketahuan. Beda keanggotaan snapshot karena split
   dev/test itu sah dan tidak menolak perbandingan; yang ditolak hanya kasus beririsan yang
@@ -274,23 +275,23 @@ def comparison_rejections(sessions: Sequence[SessionFacts]) -> tuple[Rejection, 
             )
         )
 
-    # Model penilai (B2): hanya berlaku untuk sesi yang dinilai LLM (judge_provider_id ada).
-    # Sesi manual tidak punya judge LLM, jadi tidak ikut syarat ini. Di antara sesi yang
-    # dinilai, id provider DAN versi model efektif saat grading harus sama; id provider bisa
-    # tetap sama walau config modelnya diganti, jadi id saja tak cukup. Versi model None =
-    # identitas tak diketahui: ditolak, bukan dianggap sama dengan None lain, supaya adapter
-    # wajib memberi identitas yang andal (satu versi konsisten lintas pemanggilan judge).
-    dinilai = [sesi for sesi in sessions if sesi.judge_provider_id is not None]
-    if dinilai:
-        model = {sesi.judge_model_version for sesi in dinilai}
-        if len({sesi.judge_provider_id for sesi in dinilai}) > 1 or None in model or len(model) > 1:
-            tolakan.append(
-                Rejection(
-                    JUDGE_MODEL,
-                    "Sesi yang dipilih dinilai oleh model penilai yang berbeda atau tidak "
-                    "pasti, jadi skornya tidak setara.",
-                )
+    # Model penilai (B2): berlaku untuk SETIAP sesi yang dibandingkan. Penilaian memakai
+    # judge LLM lewat alur yang sama untuk percobaan otomatis maupun manual (D-grade AC9,
+    # resolve_judge_id), jadi session_type MANUAL tidak berarti tanpa judge. Identitas judge
+    # tiap sesi = id provider + versi model efektif saat grading; id provider bisa tetap sama
+    # walau config modelnya diganti, jadi id saja tak cukup. Identitas tak diketahui (provider
+    # atau versi model None) tidak bisa diverifikasi, jadi ditolak, bukan dianggap sama dengan
+    # None lain. Adapter wajib memberi identitas andal untuk semua sesi.
+    providers = {sesi.judge_provider_id for sesi in sessions}
+    models = {sesi.judge_model_version for sesi in sessions}
+    if None in providers or None in models or len(providers) > 1 or len(models) > 1:
+        tolakan.append(
+            Rejection(
+                JUDGE_MODEL,
+                "Sesi yang dipilih dinilai oleh model penilai yang berbeda atau tidak "
+                "pasti, jadi skornya tidak setara.",
             )
+        )
 
     if len({sesi.suite_ids for sesi in sessions}) > 1:
         tolakan.append(Rejection(SUITE_VERSION, "Sesi yang dipilih memakai suite yang berbeda."))
