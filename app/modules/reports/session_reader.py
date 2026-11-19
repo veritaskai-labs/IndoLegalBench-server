@@ -99,7 +99,10 @@ class SqlSessionRecordReader:
         refs = {}
         for item_id, case_id, version_id, body in items:
             facts = case_facts_from_body(item_id, body)
-            refs[item_id] = (CaseRef(case_id, version_id, facts.case_code), facts)
+            refs[item_id] = (
+                CaseRef(case_id, version_id, facts.case_code, facts.split_tag.value),
+                facts,
+            )
         graded = _graded_cases(refs, attempts, grades.deterministic, grades.quality)
         judge_provider_id, judge_model_version = self._judge_identity(grades.run_id)
 
@@ -121,6 +124,7 @@ class SqlSessionRecordReader:
             answer_date_to=session.answer_date_to,
             scored_cases=tuple(kasus.ref for kasus in graded),
             snapshot_cases=tuple(ref for ref, _ in refs.values()),
+            split_filter=session.split_filter,
         )
         return SessionRecord(
             facts=session_facts,
