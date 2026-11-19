@@ -28,6 +28,7 @@ from app.modules.reports.models import (
     MeasurementKind,
     Report,
     ReportCaseBasis,
+    ReportMarkerCode,
     ReportResult,
     ReportSession,
     ScoreScope,
@@ -53,8 +54,12 @@ REPORT_MANUAL_FAILURE_RATE = "REPORT_MANUAL_FAILURE_RATE"
 REPORT_CASE_BASIS_MISMATCH = "REPORT_CASE_BASIS_MISMATCH"
 REPORT_RESULT_SESSION_UNKNOWN = "REPORT_RESULT_SESSION_UNKNOWN"
 REPORT_ROW_OTHER_REPORT = "REPORT_ROW_OTHER_REPORT"
+REPORT_RESULTS_INCOMPLETE = "REPORT_RESULTS_INCOMPLETE"
+REPORT_MARKER_INVALID = "REPORT_MARKER_INVALID"
 REPORT_NOT_FOUND = "REPORT_NOT_FOUND"
 
+_MARKER_KEYS = frozenset({"code", "detail"})
+_MARKER_CODES = frozenset(code.value for code in ReportMarkerCode)
 _PDF = ReportPdfRenderer()
 
 _ALLOWED_SPLITS: dict[ScoreScope, frozenset[ScoreSplit]] = {
@@ -104,7 +109,9 @@ def save_report(
     """
     _check_rows_belong_to(report, sessions, results, case_basis)
     _check_splits(report, results, case_basis)
+    _check_results_complete(report, sessions, results)
     _check_failure_rates(sessions, results)
+    _check_markers(sessions)
     if len(case_basis) != report.case_basis_count:
         raise ValidationError(
             f"Jumlah kasus dasar {report.case_basis_count} tidak sama dengan "
@@ -248,3 +255,38 @@ def _check_failure_rates(
             "Tingkat kegagalan tidak berlaku untuk produk manual.",
             code=REPORT_MANUAL_FAILURE_RATE,
         )
+
+
+def _check_results_complete(
+    report: Report, sessions: Sequence[ReportSession], results: Sequence[ReportResult]
+) -> None:
+    """Setiap sesi punya tepat himpunan baris skor jenis nilainya (D1): tidak kurang."""
+    expected = allowed_splits(report.score_scope)
+    for session in sessions:
+        splits = {r.score_split for r in results if r.session_id == session.session_id}
+        if splits != expected:
+            raise ValidationError(
+                f"Sesi {session.session_id} harus punya baris skor "
+                f"{sorted(s.value for s in expected)}.",
+                code=REPORT_RESULTS_INCOMPLETE,
+            )
+
+
+def _check_markers(sessions: Sequence[ReportSession]) -> None:
+    """markers = list objek {code, detail}; bentuk keputusan SA untuk SCRUM-301 dan 313."""
+    for session in sessions:
+        markers = session.markers
+        if not isinstance(markers, list) or not all(_is_marker(item) for item in markers):
+            raise ValidationError(
+                "Penanda sesi harus berupa daftar {code, detail} dengan kode yang dikenal.",
+                code=REPORT_MARKER_INVALID,
+            )
+
+
+def _is_marker(item: object) -> bool:
+    return (
+        isinstance(item, dict)
+        and set(item) == _MARKER_KEYS
+        and item["code"] in _MARKER_CODES
+        and (item["detail"] is None or isinstance(item["detail"], str))
+    )

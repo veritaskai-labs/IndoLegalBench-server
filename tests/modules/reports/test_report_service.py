@@ -26,6 +26,7 @@ from app.modules.reports.models import (
     MeasurementKind,
     Report,
     ReportCaseBasis,
+    ReportMarkerCode,
     ReportResult,
     ReportSession,
     ReportStatus,
@@ -304,3 +305,103 @@ def test_tidak_ada_fungsi_ubah_atau_hapus(modul):
     ]
 
     assert not [n for n in nama if n.startswith(("delete", "remove", "update", "edit"))]
+
+
+# --- Kelengkapan baris hasil (review Kak Aileen #4) -------------------------------------
+
+
+def test_dev_test_tanpa_baris_combined_ditolak(siap, mata_mata):
+    """Negatif: Dev + Test wajib tepat tiga baris per sesi (test, dev, combined), D1."""
+    db, admin, rubrik, sesi_a, _ = siap
+    report = laporan(
+        admin, rubrik, score_scope=ScoreScope.DEV_TEST, has_dev_scores=True, case_basis_count=1
+    )
+    hasil_ = [hasil(report, sesi_a, score_split=s) for s in (ScoreSplit.TEST, ScoreSplit.DEV)]
+
+    with pytest.raises(ValidationError) as info:
+        service.save_report(
+            db,
+            report,
+            [sesi_laporan(report, sesi_a)],
+            hasil_,
+            [dasar(report, split_tag=SplitTag.DEV)],
+        )
+
+    assert info.value.code == service.REPORT_RESULTS_INCOMPLETE
+    assert mata_mata == []
+
+
+def test_sesi_tanpa_hasil_ditolak(siap, mata_mata):
+    """Negatif: setiap sesi di laporan harus punya angka; sesi kosong tidak bisa dijelaskan."""
+    db, admin, rubrik, sesi_a, sesi_b = siap
+    report, sesi, hasil_, kasus = _isi(admin, rubrik, sesi_a, sesi_b)
+
+    with pytest.raises(ValidationError) as info:
+        service.save_report(db, report, sesi, hasil_[:1], kasus)
+
+    assert info.value.code == service.REPORT_RESULTS_INCOMPLETE
+    assert mata_mata == []
+
+
+# --- Bentuk markers (keputusan SA, review Kak Aileen #9) -------------------------------
+
+
+def test_kode_penanda_sesuai_keputusan_sa():
+    """Positif: empat kode D2; Uji Coba hanya di is_trial, bukan di markers."""
+    assert [m.value for m in ReportMarkerCode] == [
+        "model_version_differs",
+        "repetitions_differ",
+        "manual_date_span_over_7_days",
+        "refusals",
+    ]
+
+
+def test_penanda_yang_sah_tersimpan(siap):
+    """Positif: list objek {code, detail}; detail boleh null atau teks (refusals: jumlahnya)."""
+    db, admin, rubrik, sesi_a, sesi_b = siap
+    report, sesi, hasil_, kasus = _isi(admin, rubrik, sesi_a, sesi_b)
+    sesi[0].markers = [
+        {"code": "refusals", "detail": "3"},
+        {"code": "model_version_differs", "detail": None},
+    ]
+
+    service.save_report(db, report, sesi, hasil_, kasus)
+
+    assert db.get(ReportSession, (report.id, sesi_a.id)).markers[0] == {
+        "code": "refusals",
+        "detail": "3",
+    }
+
+
+@pytest.mark.parametrize(
+    "markers",
+    [
+        [{"code": "trial", "detail": None}],
+        [{"code": "kode_lain", "detail": None}],
+        [{"code": "refusals"}],
+        [{"code": "refusals", "detail": 3}],
+        [{"code": "refusals", "detail": "3", "lain": 1}],
+        ["refusals"],
+        {"code": "refusals", "detail": "3"},
+    ],
+    ids=[
+        "trial",
+        "unknown-code",
+        "no-detail",
+        "detail-not-text",
+        "extra-key",
+        "not-object",
+        "not-list",
+    ],
+)
+def test_penanda_dengan_bentuk_lain_ditolak(siap, mata_mata, markers):
+    """Negatif: SCRUM-301 dan SCRUM-313 harus mengisi bentuk yang sama, jadi bentuk lain ditolak."""
+    db, admin, rubrik, sesi_a, sesi_b = siap
+    report, sesi, hasil_, kasus = _isi(admin, rubrik, sesi_a, sesi_b)
+    sesi[0].markers = markers
+
+    with pytest.raises(ValidationError) as info:
+        service.save_report(db, report, sesi, hasil_, kasus)
+
+    assert info.value.code == service.REPORT_MARKER_INVALID
+    assert mata_mata == []

@@ -98,6 +98,18 @@ class ProductLabelMode(StrEnum):
     CODE = "code"
 
 
+class ReportMarkerCode(StrEnum):
+    """Kode penanda D2 per sesi di report_sessions.markers (keputusan SA, 19 Nov).
+
+    Uji Coba tidak punya kode di sini: disimpan hanya di is_trial supaya sumbernya satu.
+    """
+
+    MODEL_VERSION_DIFFERS = "model_version_differs"
+    REPETITIONS_DIFFER = "repetitions_differ"
+    MANUAL_DATE_SPAN_OVER_7_DAYS = "manual_date_span_over_7_days"
+    REFUSALS = "refusals"
+
+
 class ReportStatus(StrEnum):
     SAVED = "saved"
     PUBLISHED = "published"
@@ -191,7 +203,14 @@ class ReportSession(Base):
     measurement_kind: Mapped[MeasurementKind] = mapped_column(
         _enum(MeasurementKind, "report_measurement_kind_enum"), nullable=False
     )
+    # Satu-satunya tempat penanda Uji Coba (AC4); tidak diulang di markers.
     is_trial: Mapped[bool] = mapped_column(Boolean, nullable=False)
+    # Penanda D2 yang dibekukan (keputusan SA, 19 Nov), diisi SCRUM-301 dan SCRUM-313 dengan
+    # bentuk yang sama: list objek {"code": ReportMarkerCode, "detail": str | null}.
+    # Kode: model_version_differs, repetitions_differ, manual_date_span_over_7_days, refusals
+    # (detail = jumlah penolakan). Uji Coba TIDAK ditulis di sini, hanya di is_trial, supaya
+    # sumbernya satu. Bentuknya dijaga reports.service.save_report; PostgreSQL juga menolak
+    # nilai yang bukan array (ck_report_sessions_markers_array, migrasi b6f3a2d81c47).
     markers: Mapped[list] = mapped_column(_JSONB, nullable=False, default=list)
 
 
@@ -225,8 +244,16 @@ class ReportResult(Base):
         CheckConstraint(
             "(total_score IS NULL) = (rank IS NULL)", name="ck_report_results_rank_total"
         ),
-        CheckConstraint("repetitions BETWEEN 1 AND 5", name="ck_report_results_repetitions"),
-        # Seri sudah diputus SCRUM-313 (llm_score lalu det_score), jadi peringkat unik.
+        # D1 keputusan SA: kalau salah satu skor kosong, total_score (dan rank) ikut NULL.
+        CheckConstraint(
+            "(total_score IS NULL) = (det_score IS NULL OR llm_score IS NULL)",
+            name="ck_report_results_total_needs_both",
+        ),
+        # Batas atas percobaan aturan bisnis yang bisa berubah: dijaga service, bukan tabel beku.
+        CheckConstraint("repetitions >= 1", name="ck_report_results_repetitions"),
+        # Peringkat dihitung SCRUM-313 dari skor sebelum dibulatkan. Seri diputus berurutan:
+        # total_score, lalu llm_score, lalu det_score, lalu product_label urut abjad
+        # (keputusan SA, 19 Nov). Karena itu peringkat unik per (laporan, jenis skor).
         Index(
             "uq_report_results_rank",
             "report_id",
