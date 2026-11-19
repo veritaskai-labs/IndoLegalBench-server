@@ -11,7 +11,7 @@ Modul ini murni, tanpa database dan tanpa HTTP.
 import uuid
 from collections.abc import Mapping, Sequence
 from dataclasses import dataclass, replace
-from typing import Protocol
+from typing import Protocol, cast
 
 from app.modules.cases.models import SplitTag
 from app.modules.reports.comparison_rules import SessionFacts
@@ -51,9 +51,13 @@ class SessionRecordReader(Protocol):
 def facts_for_scope(record: SessionRecord, scope: ScoreScope) -> SessionFacts:
     """Fakta sesi dengan scored_cases disaring ke split yang diminta (AC14)."""
     tags = allowed_case_tags(scope)
-    return replace(
-        record.facts,
-        scored_cases=tuple(kasus.ref for kasus in record.graded_cases if kasus.split in tags),
+    # replace() mengembalikan tipe yang sama; cast hanya memberi tahu analisis statis (Sonar S5886).
+    return cast(
+        SessionFacts,
+        replace(
+            record.facts,
+            scored_cases=tuple(kasus.ref for kasus in record.graded_cases if kasus.split in tags),
+        ),
     )
 
 
