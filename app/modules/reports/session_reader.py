@@ -140,6 +140,8 @@ class SqlSessionRecordReader:
             facts=session_facts,
             graded_cases=graded,
             calls_by_split=_calls_by_split(refs, calls),
+            label=session.label,
+            created_at=session.created_at,
         )
 
     def _judge_identity(self, run_id: uuid.UUID | None) -> tuple[uuid.UUID | None, str | None]:

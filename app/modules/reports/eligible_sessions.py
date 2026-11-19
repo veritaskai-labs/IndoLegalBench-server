@@ -10,6 +10,7 @@ Modul ini murni: tanpa database dan tanpa HTTP, hanya mengenal port SessionRecor
 
 import uuid
 from dataclasses import dataclass
+from datetime import datetime
 
 from app.modules.reports.comparison_rules import eligibility_problems, ineligibility_message
 from app.modules.reports.models import MeasurementFilter
@@ -27,7 +28,9 @@ class IneligibilityReason:
 @dataclass(frozen=True)
 class EligibleSession:
     session_id: uuid.UUID
+    label: str
     product_name: str
+    created_at: datetime | None
     session_type: SessionType
     purpose: SessionPurpose
     status: SessionStatus
@@ -56,7 +59,9 @@ class EligibleSessionLister:
             items.append(
                 EligibleSession(
                     session_id=facts.session_id,
+                    label=record.label,
                     product_name=facts.product_name,
+                    created_at=record.created_at,
                     session_type=SessionType(facts.session_type),
                     purpose=SessionPurpose(facts.purpose),
                     status=SessionStatus(facts.status),

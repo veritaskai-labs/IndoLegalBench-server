@@ -225,7 +225,9 @@ class EligibleSessionRead(BaseModel):
     """
 
     session_id: uuid.UUID
+    label: str = Field(description="Nama sesi, untuk membedakan dua sesi dari produk yang sama")
     product_name: str
+    created_at: datetime | None = Field(description="Waktu sesi dibuat")
     session_type: SessionType
     purpose: SessionPurpose
     status: SessionStatus
@@ -238,7 +240,9 @@ class EligibleSessionRead(BaseModel):
     def from_item(cls, item: EligibleSession) -> "EligibleSessionRead":
         return cls(
             session_id=item.session_id,
+            label=item.label,
             product_name=item.product_name,
+            created_at=item.created_at,
             session_type=item.session_type,
             purpose=item.purpose,
             status=item.status,
