@@ -239,13 +239,35 @@ def session_markers(facts: SessionFacts) -> tuple[str, ...]:
     return tuple(penanda)
 
 
-def _snapshot_conflicts(sessions: Sequence[SessionFacts]) -> list[str]:
-    """Konflik versi / komposisi kasus pada split yang bisa dibandingkan (AC13).
+def _conflicts_for_split(sessions: Sequence[SessionFacts], split: str) -> set[uuid.UUID]:
+    konflik: set[uuid.UUID] = set()
+    acuan: dict[uuid.UUID, uuid.UUID] | None = None
 
-    Split test dan both boleh memiliki anggota snapshot berbeda karena filter dev/test.
-    Namun bila dua sesi SAMA-SAMA menyertakan split test, keanggotaan seluruh kasus test
-    (termasuk yang belum mendapat skor) harus identik. Begitu pula untuk split dev.
-    """
+    for sesi in sessions:
+        if split not in _SPLITS_FOR_FILTER[SplitFilter(sesi.split_filter)]:
+            continue
+
+        sekarang = {
+            kasus.case_id: kasus.case_version_id
+            for kasus in sesi.snapshot_cases
+            if kasus.split_tag == split
+        }
+
+        if acuan is not None and sekarang != acuan:
+            konflik.update(acuan.keys() ^ sekarang.keys())
+            konflik.update(
+                case_id
+                for case_id in acuan.keys() & sekarang.keys()
+                if acuan[case_id] != sekarang[case_id]
+            )
+
+        acuan = sekarang
+
+    return konflik
+
+
+def _snapshot_conflicts(sessions: Sequence[SessionFacts]) -> list[str]:
+    """Konflik versi atau komposisi kasus pada split yang dibandingkan."""
     versi: dict[uuid.UUID, set[uuid.UUID]] = {}
     kode: dict[uuid.UUID, str] = {}
 
@@ -253,31 +275,17 @@ def _snapshot_conflicts(sessions: Sequence[SessionFacts]) -> list[str]:
         for kasus in sesi.snapshot_cases:
             if kasus.split_tag not in {"dev", "test"}:
                 raise ValueError(f"Invalid case split tag: {kasus.split_tag!r}")
+
             if kasus.split_tag not in _SPLITS_FOR_FILTER[SplitFilter(sesi.split_filter)]:
                 raise ValueError(f"Case split {kasus.split_tag!r} is outside session split filter")
+
             versi.setdefault(kasus.case_id, set()).add(kasus.case_version_id)
             kode.setdefault(kasus.case_id, kasus.case_code)
 
     konflik = {case_id for case_id, versions in versi.items() if len(versions) > 1}
 
     for split in ("dev", "test"):
-        acuan: dict[uuid.UUID, uuid.UUID] | None = None
-        for sesi in sessions:
-            if split not in _SPLITS_FOR_FILTER[SplitFilter(sesi.split_filter)]:
-                continue
-            sekarang = {
-                kasus.case_id: kasus.case_version_id
-                for kasus in sesi.snapshot_cases
-                if kasus.split_tag == split
-            }
-            if acuan is not None and sekarang != acuan:
-                konflik.update(acuan.keys() ^ sekarang.keys())
-                konflik.update(
-                    case_id
-                    for case_id in acuan.keys() & sekarang.keys()
-                    if acuan[case_id] != sekarang[case_id]
-                )
-            acuan = sekarang
+        konflik.update(_conflicts_for_split(sessions, split))
 
     return sorted(kode[case_id] for case_id in konflik)
 
