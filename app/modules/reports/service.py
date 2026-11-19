@@ -26,6 +26,7 @@ from app.modules.reports import repository
 from app.modules.reports.access import visibility_for, visible_case_code
 from app.modules.reports.models import (
     MeasurementKind,
+    ProductLabelMode,
     Report,
     ReportCaseBasis,
     ReportMarkerCode,
@@ -171,16 +172,17 @@ def report_pdf(db: Session, report_id: uuid.UUID, user: CurrentUser) -> tuple[by
 
 
 def _detail(report: Report, contents: ReportContents, user: CurrentUser) -> ReportDetail:
+    # AC9: di mode kode, siapa pun pembacanya, laporan tidak boleh membuka produk di balik
+    # kode. PDF yang diunduh Admin pun dibagikan ke luar, jadi aturannya tidak per peran.
+    anonim = report.product_label_mode is ProductLabelMode.CODE
     sessions = [
         ReportSessionRead(
-            session_id=session.session_id,
-            product_id=session.product_id,
             product_label=session.product_label,
             measurement_kind=session.measurement_kind,
             is_trial=session.is_trial,
-            markers=[_marker(raw) for raw in session.markers],
+            markers=[ReportMarker.model_validate(raw) for raw in session.markers],
             results=[
-                ReportResultRead.model_validate(result)
+                _result(result, anonim=anonim)
                 for result in contents.results
                 if result.session_id == session.session_id
             ],
@@ -208,9 +210,11 @@ def _detail(report: Report, contents: ReportContents, user: CurrentUser) -> Repo
     )
 
 
-def _marker(raw: dict | str) -> ReportMarker:
-    # Bentuk resmi {"code", "detail"} (SCRUM-300); string polos tetap dibaca sebagai kode.
-    return ReportMarker(code=raw) if isinstance(raw, str) else ReportMarker.model_validate(raw)
+def _result(result: ReportResult, *, anonim: bool) -> ReportResultRead:
+    read = ReportResultRead.model_validate(result)
+    # Versi model produk biasanya menyebut nama produknya (mis. "Justisio-v3"), jadi ikut
+    # ditutup di mode kode (review #145). Versi model juri tetap tampil (AC3).
+    return read.model_copy(update={"product_model_version": None}) if anonim else read
 
 
 def _check_rows_belong_to(

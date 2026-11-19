@@ -22,10 +22,12 @@ from decimal import Decimal
 import pytest
 
 from app.modules.cases.models import SplitTag
-from app.modules.reports.models import ReportMarkerCode
+from app.modules.reports.models import ProductLabelMode, ReportMarkerCode
 from app.modules.reports.pdf import (
+    _LABELS,
     DEFAULT_LOGO_PATH,
     ReportPdfRenderer,
+    _grafik_batang,
     format_score,
     report_pdf_filename,
 )
@@ -57,7 +59,6 @@ def _hasil(split=ScoreSplit.TEST, **kolom) -> ReportResultRead:
         "cases_basis_count": 100,
         "det_score": Decimal("0.81"),
         "llm_score": Decimal("0.74"),
-        "total_score": Decimal("0.78"),
         "failure_rate": Decimal("2.50"),
         "rank": 1,
         "repetitions": 3,
@@ -72,8 +73,6 @@ def _sesi(
     label, kind=MeasurementKind.AUTOMATIC, markers=(), results=None, is_trial=False
 ) -> ReportSessionRead:
     return ReportSessionRead(
-        session_id=uuid.uuid4(),
-        product_id=uuid.uuid4(),
         product_label=label,
         measurement_kind=kind,
         is_trial=is_trial,
@@ -211,16 +210,33 @@ def test_setiap_kode_penanda_punya_label_di_kedua_bahasa(kode, bahasa):
     assert kode.value.encode() not in isi
 
 
-def test_pdf_penanda_tak_dikenal_tetap_dicetak_dengan_kodenya():
-    """Edge: penanda baru dari SCRUM-301 yang belum punya label tidak boleh hilang diam-diam."""
+def test_penanda_dengan_kode_tak_dikenal_ditolak_schema():
+    """Negatif: kode penanda adalah ReportMarkerCode, jadi kode liar tidak sampai ke PDF."""
+    # Act / Assert
+    with pytest.raises(ValueError, match="code"):
+        ReportMarker(code="new_marker")
+
+
+@pytest.mark.parametrize(
+    ("mode", "tercetak", "tersembunyi"),
+    [
+        # Positif: mode nama asli mencetak versi model produk (AC3).
+        (ProductLabelMode.REAL_NAME, b"gemini-2.5-pro", b"Disamarkan"),
+        # Negatif: mode kode (AC9) tidak mencetak versi model yang menyebut produknya.
+        (ProductLabelMode.CODE, b"Disamarkan", b"gemini-2.5-pro"),
+    ],
+)
+def test_pdf_versi_model_produk_mengikuti_mode_label(mode, tercetak, tersembunyi):
+    """Positif dan negatif: versi model produk hanya tercetak di laporan nama asli."""
     # Arrange
-    laporan = _laporan(sessions=[_sesi("AiYU", markers=[ReportMarker(code="new_marker")])])
+    laporan = _laporan(product_label_mode=mode)
 
     # Act
     isi = _pdf(laporan)
 
     # Assert
-    assert b"new_marker" in isi
+    assert tercetak in isi
+    assert tersembunyi not in isi
 
 
 def test_pdf_memuat_teks_permintaan_isi_kasus_lewat_email():
@@ -331,7 +347,7 @@ def test_pdf_produk_diurutkan_sesuai_peringkat_tanpa_peringkat_di_akhir():
     # Arrange
     laporan = _laporan(
         sessions=[
-            _sesi("Zeta", results=[_hasil(rank=None, total_score=None, llm_score=None)]),
+            _sesi("Zeta", results=[_hasil(rank=None, llm_score=None)]),
             _sesi("Alpha", results=[_hasil(rank=2)]),
             _sesi("Beta", results=[_hasil(rank=1)]),
         ]
@@ -354,6 +370,79 @@ def test_pdf_banyak_produk_berlanjut_ke_halaman_berikut():
 
     # Assert
     assert len(re.findall(rb"/Type /Page\b", isi)) > 1
+
+
+# --- Grafik batang -----------------------------------------------------------
+# Grafik diperiksa dari objek Drawing-nya, karena isi grafik di PDF hanya garis dan kotak.
+
+
+def _grafik(sesi: list[ReportSessionRead]):
+    gambar = _grafik_batang(
+        sesi, [s.results[0] for s in sesi], _LABELS[ReportLanguage.ID], ReportLanguage.ID
+    )
+    return gambar.contents[0]
+
+
+def test_grafik_skor_kosong_tidak_digambar_sebagai_nol():
+    """Negatif: skor NULL bukan skor 0, jadi tidak ada batangnya dan diberi tanda '–' (review #145)."""
+    # Arrange
+    sesi = [
+        _sesi("Gemini", results=[_hasil(det_score=Decimal("0.81"), llm_score=None)]),
+        _sesi("Justisio", results=[_hasil(det_score=None, llm_score=Decimal("0.40"))]),
+    ]
+
+    # Act
+    grafik = _grafik(sesi)
+
+    # Assert
+    assert grafik.data == [[0.81, None], [None, 0.40]]
+    assert grafik.naLabel.text == "–"
+    assert grafik.valueAxis.valueMax == 1.0
+
+
+def test_grafik_semua_skor_kosong_tetap_bisa_dicetak():
+    """Edge: semua skor NULL tidak membuat max() gagal, PDF tetap jadi dengan tabel '–'."""
+    # Arrange
+    laporan = _laporan(
+        sessions=[_sesi("Gemini", results=[_hasil(rank=None, det_score=None, llm_score=None)])]
+    )
+
+    # Act
+    isi = _pdf(laporan)
+
+    # Assert
+    assert isi.startswith(b"%PDF")
+    assert _grafik(laporan.sessions).data == [[None], [None]]
+
+
+def test_grafik_sedikit_produk_label_tegak_dan_utuh():
+    """Positif: sampai enam produk, nama produk ditulis utuh dan mendatar."""
+    # Arrange
+    sesi = [_sesi(f"Produk {n}") for n in range(6)]
+
+    # Act
+    grafik = _grafik(sesi)
+
+    # Assert
+    assert grafik.categoryAxis.labels.angle == 0
+    assert grafik.categoryAxis.categoryNames == [f"Produk {n}" for n in range(6)]
+
+
+def test_grafik_banyak_produk_label_dimiringkan_dan_dipotong():
+    """Edge: banyak produk atau nama panjang tidak saling tumpang tindih di sumbu grafik.
+
+    Nama lengkap tetap ada di tabel peringkat, jadi di grafik cukup dipotong.
+    """
+    # Arrange
+    sesi = [_sesi(f"Produk Hukum Nasional {n}") for n in range(12)]
+
+    # Act
+    grafik = _grafik(sesi)
+
+    # Assert
+    assert grafik.categoryAxis.labels.angle == 30
+    assert grafik.categoryAxis.categoryNames[0] == "Produk Hukum Nasi…"
+    assert all(len(nama) <= 18 for nama in grafik.categoryAxis.categoryNames)
 
 
 # --- Format angka dan nama berkas --------------------------------------------

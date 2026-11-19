@@ -24,6 +24,7 @@ from xml.sax.saxutils import escape
 
 from reportlab.graphics.charts.barcharts import VerticalBarChart
 from reportlab.graphics.charts.legends import Legend
+from reportlab.graphics.charts.textlabels import NA_Label
 from reportlab.graphics.shapes import Drawing
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
@@ -33,6 +34,7 @@ from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Tabl
 
 from app.modules.reports.models import (
     MeasurementKind,
+    ProductLabelMode,
     ReportLanguage,
     ReportMarkerCode,
     ScoreSplit,
@@ -48,6 +50,10 @@ _CENT = Decimal("0.01")
 _KOSONG = "–"
 _DET_COLOR = colors.HexColor("#3B44C4")
 _LLM_COLOR = colors.HexColor("#147D7A")
+# Nama produk di bawah grafik dipotong dan dimiringkan supaya tidak saling tumpang tindih
+# kalau produknya banyak (review #145). Nama lengkap tetap ada di tabel peringkat.
+_GRAFIK_LABEL_MAKS = 18
+_GRAFIK_MIRING_MULAI = 6
 
 
 @dataclass(frozen=True)
@@ -55,6 +61,7 @@ class _Labels:
     automatic: str
     manual: str
     not_applicable: str
+    hidden: str
     rubric: str
     judge_model: str
     case_basis: str
@@ -78,6 +85,7 @@ _LABELS: dict[ReportLanguage, _Labels] = {
         automatic="Otomatis",
         manual="Manual",
         not_applicable="Tidak berlaku",
+        hidden="Disamarkan",
         rubric="Rubrik",
         judge_model="Model penilai",
         case_basis="Jumlah kasus dasar perbandingan",
@@ -132,6 +140,7 @@ _LABELS: dict[ReportLanguage, _Labels] = {
         automatic="Automatic",
         manual="Manual",
         not_applicable="Not applicable",
+        hidden="Hidden",
         rubric="Rubric",
         judge_model="Judge model",
         case_basis="Cases used for comparison",
@@ -286,7 +295,7 @@ class ReportPdfRenderer:
                 str(hasil.cases_basis_count),
                 gagal,
                 str(hasil.repetitions),
-                escape(hasil.product_model_version or _KOSONG),
+                _versi_model(report, hasil, label),
                 "; ".join(_penanda_sesi(sesi, label)),
             ]
             data.append([Paragraph(nilai, sel) for nilai in kolom])
@@ -327,24 +336,54 @@ def _penanda_sesi(sesi: ReportSessionRead, label: _Labels) -> list[str]:
 
 
 def _penanda(marker: ReportMarker, label: _Labels) -> str:
-    # Kode yang belum punya label tetap dicetak supaya penanda baru dari D2 tidak hilang.
-    teks = escape(label.markers.get(marker.code, marker.code))
+    # code bertipe ReportMarkerCode dan test memastikan semua kode punya label.
+    teks = escape(label.markers[marker.code])
     return f"{teks} ({escape(marker.detail)})" if marker.detail else teks
+
+
+def _versi_model(report: ReportDetail, hasil, label: _Labels) -> str:
+    # Mode kode (AC9): service sudah mengosongkan versinya; "Disamarkan" membedakannya dari
+    # versi yang memang tidak tercatat.
+    if report.product_label_mode is ProductLabelMode.CODE:
+        return label.hidden
+    return escape(hasil.product_model_version or _KOSONG)
+
+
+def _nilai_grafik(nilai: Decimal | None) -> float | None:
+    # Skor kosong tetap None: tidak digambar sebagai batang 0 (review #145), tetapi diberi
+    # tanda "–" di posisinya, sama dengan tabel.
+    return None if nilai is None else float(nilai)
+
+
+def _nama_grafik(nama: str) -> str:
+    return nama if len(nama) <= _GRAFIK_LABEL_MAKS else f"{nama[: _GRAFIK_LABEL_MAKS - 1]}…"
 
 
 def _grafik_batang(
     sesi: list[ReportSessionRead], hasil: list, label: _Labels, language: ReportLanguage
 ) -> Drawing:
     """Dua batang per produk: deterministik dan LLM, tidak digabung (AC skor)."""
-    det = [float(h.det_score or 0) for h in hasil]
-    llm = [float(h.llm_score or 0) for h in hasil]
-    gambar = Drawing(277 * mm, 60 * mm)
+    det = [_nilai_grafik(h.det_score) for h in hasil]
+    llm = [_nilai_grafik(h.llm_score) for h in hasil]
+    miring = len(sesi) > _GRAFIK_MIRING_MULAI
+    gambar = Drawing(277 * mm, 66 * mm if miring else 60 * mm)
     grafik = VerticalBarChart()
-    grafik.x, grafik.y, grafik.width, grafik.height = 15 * mm, 12 * mm, 210 * mm, 44 * mm
+    grafik.x, grafik.y, grafik.width, grafik.height = (
+        15 * mm,
+        18 * mm if miring else 12 * mm,
+        210 * mm,
+        44 * mm,
+    )
     grafik.data = [det or [0], llm or [0]]
     grafik.valueAxis.valueMin = 0
-    grafik.valueAxis.valueMax = max([1.0, *det, *llm])
-    grafik.categoryAxis.categoryNames = [s.product_label for s in sesi] or [""]
+    grafik.valueAxis.valueMax = max([1.0, *(n for n in det + llm if n is not None)])
+    grafik.naLabel = NA_Label()
+    grafik.naLabel.text = _KOSONG
+    grafik.naLabel.fontName = "Helvetica"
+    grafik.categoryAxis.categoryNames = [_nama_grafik(s.product_label) for s in sesi] or [""]
+    if miring:
+        grafik.categoryAxis.labels.angle = 30
+        grafik.categoryAxis.labels.boxAnchor = "ne"
     # Angka sumbu ikut pemisah desimal bahasa laporan, sama dengan tabel.
     grafik.valueAxis.labelTextFormat = lambda nilai: format_score(Decimal(str(nilai)), language)
     grafik.valueAxis.labels.fontName = grafik.categoryAxis.labels.fontName = "Helvetica"
@@ -353,7 +392,7 @@ def _grafik_batang(
     grafik.bars[1].fillColor = _LLM_COLOR
     legenda = Legend()
     legenda.fontName = "Helvetica"
-    legenda.x, legenda.y = 232 * mm, 50 * mm
+    legenda.x, legenda.y = 232 * mm, grafik.y + 38 * mm
     legenda.colorNamePairs = [(_DET_COLOR, label.deterministic), (_LLM_COLOR, label.llm)]
     gambar.add(grafik)
     gambar.add(legenda)

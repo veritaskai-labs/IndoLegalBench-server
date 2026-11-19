@@ -22,6 +22,7 @@ from app.modules.reports.models import (
     MeasurementKind,
     ProductLabelMode,
     ReportLanguage,
+    ReportMarkerCode,
     ReportStatus,
     ScoreScope,
     ScoreSplit,
@@ -33,7 +34,9 @@ class ReportMarker(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    code: str = Field(examples=["repetitions_differ"])
+    # Enum, bukan str, supaya klien mendapat daftar kodenya dari OpenAPI (review #145).
+    # Jalur simpan (_check_markers) sudah menolak kode yang tidak dikenal.
+    code: ReportMarkerCode
     detail: str | None = Field(default=None, description="Keterangan tambahan, misalnya jumlah")
 
 
@@ -47,21 +50,25 @@ class ReportResultRead(BaseModel):
     cases_basis_count: int
     det_score: Decimal | None
     llm_score: Decimal | None
-    total_score: Decimal | None = Field(description="Hanya untuk peringkat, tidak ditampilkan")
     failure_rate: Decimal | None = Field(description="Persen dari total upaya; NULL untuk manual")
+    # total_score tidak dikirim: D1 memakainya hanya untuk menghitung rank (review #145).
     rank: int | None
     repetitions: int
-    product_model_version: str | None
+    product_model_version: str | None = Field(
+        description="NULL di laporan mode kode, karena versi model biasanya menyebut produknya"
+    )
     judge_model_version: str | None
 
 
 class ReportSessionRead(BaseModel):
-    """Satu sesi (satu produk) di laporan beserta hasil bekunya."""
+    """Satu sesi (satu produk) di laporan beserta hasil bekunya.
+
+    Tanpa session_id dan product_id: di laporan mode kode (AC9) keduanya membuka produk mana
+    yang ada di balik kode (review #145). Klien memakai product_label atau urutan daftar.
+    """
 
     model_config = ConfigDict(from_attributes=True)
 
-    session_id: uuid.UUID
-    product_id: uuid.UUID
     product_label: str = Field(description="Nama asli atau kode, dipilih Admin saat membuat")
     measurement_kind: MeasurementKind
     # Uji Coba hanya disimpan di kolom ini, tidak diulang di markers (keputusan SCRUM-300).

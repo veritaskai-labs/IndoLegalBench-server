@@ -12222,11 +12222,7 @@
       "ReportMarker": {
         "properties": {
           "code": {
-            "type": "string",
-            "title": "Code",
-            "examples": [
-              "repetitions_differ"
-            ]
+            "$ref": "#/components/schemas/ReportMarkerCode"
           },
           "detail": {
             "anyOf": [
@@ -12247,6 +12243,17 @@
         ],
         "title": "ReportMarker",
         "description": "Satu penanda D2 dari report_sessions.markers, misalnya 'repetitions_differ'."
+      },
+      "ReportMarkerCode": {
+        "type": "string",
+        "enum": [
+          "model_version_differs",
+          "repetitions_differ",
+          "manual_date_span_over_7_days",
+          "refusals"
+        ],
+        "title": "ReportMarkerCode",
+        "description": "Kode penanda D2 per sesi di report_sessions.markers (keputusan SA, 19 Nov).\n\nUji Coba tidak punya kode di sini: disimpan hanya di is_trial supaya sumbernya satu."
       },
       "ReportResultRead": {
         "properties": {
@@ -12285,19 +12292,6 @@
             ],
             "title": "Llm Score"
           },
-          "total_score": {
-            "anyOf": [
-              {
-                "type": "string",
-                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
-              },
-              {
-                "type": "null"
-              }
-            ],
-            "title": "Total Score",
-            "description": "Hanya untuk peringkat, tidak ditampilkan"
-          },
           "failure_rate": {
             "anyOf": [
               {
@@ -12335,7 +12329,8 @@
                 "type": "null"
               }
             ],
-            "title": "Product Model Version"
+            "title": "Product Model Version",
+            "description": "NULL di laporan mode kode, karena versi model biasanya menyebut produknya"
           },
           "judge_model_version": {
             "anyOf": [
@@ -12356,7 +12351,6 @@
           "cases_basis_count",
           "det_score",
           "llm_score",
-          "total_score",
           "failure_rate",
           "rank",
           "repetitions",
@@ -12368,16 +12362,6 @@
       },
       "ReportSessionRead": {
         "properties": {
-          "session_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Session Id"
-          },
-          "product_id": {
-            "type": "string",
-            "format": "uuid",
-            "title": "Product Id"
-          },
           "product_label": {
             "type": "string",
             "title": "Product Label",
@@ -12408,14 +12392,12 @@
         },
         "type": "object",
         "required": [
-          "session_id",
-          "product_id",
           "product_label",
           "measurement_kind",
           "results"
         ],
         "title": "ReportSessionRead",
-        "description": "Satu sesi (satu produk) di laporan beserta hasil bekunya."
+        "description": "Satu sesi (satu produk) di laporan beserta hasil bekunya.\n\nTanpa session_id dan product_id: di laporan mode kode (AC9) keduanya membuka produk mana\nyang ada di balik kode (review #145). Klien memakai product_label atau urutan daftar."
       },
       "ReportStatus": {
         "type": "string",

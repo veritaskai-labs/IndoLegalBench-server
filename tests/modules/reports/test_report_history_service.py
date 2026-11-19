@@ -23,6 +23,7 @@ from app.modules.reports.models import (
     MeasurementKind,
     ProductLabelMode,
     Report,
+    ReportMarkerCode,
     ReportResult,
     ReportSession,
     ReportStatus,
@@ -95,7 +96,7 @@ def _hasil(report: Report, session_id: uuid.UUID, rank: int, **ubah) -> ReportRe
         "cases_basis_count": 2,
         "det_score": Decimal("0.75"),
         "llm_score": Decimal("0.50"),
-        "total_score": Decimal("0.63"),
+        "total_score": Decimal("0.63"),  # Ada di tabel, tetapi tidak boleh ikut dikirim.
         "failure_rate": Decimal("1.50"),
         "rank": rank,
         "repetitions": 3,
@@ -207,7 +208,7 @@ def test_get_report_membaca_penanda_dan_uji_coba(repo):
         "Justisio",
         measurement_kind=MeasurementKind.MANUAL,
         is_trial=True,
-        markers=[{"code": "refusals", "detail": "2"}, "repetitions_differ"],
+        markers=[{"code": "refusals", "detail": "2"}, {"code": "repetitions_differ"}],
     )
     repo.get_report.return_value = laporan
     repo.contents.return_value = _isi(laporan, sessions=[sesi], results=[])
@@ -218,11 +219,56 @@ def test_get_report_membaca_penanda_dan_uji_coba(repo):
     # Assert
     hasil = detail.sessions[0]
     assert (hasil.measurement_kind, hasil.is_trial) == (MeasurementKind.MANUAL, True)
-    # Edge: penanda berbentuk string polos tetap terbaca sebagai kode.
+    # Edge: detail boleh tidak ada.
     assert [(m.code, m.detail) for m in hasil.markers] == [
-        ("refusals", "2"),
-        ("repetitions_differ", None),
+        (ReportMarkerCode.REFUSALS, "2"),
+        (ReportMarkerCode.REPETITIONS_DIFFER, None),
     ]
+
+
+@pytest.mark.parametrize("role", [Role.ADMIN, Role.VIEWER])
+def test_get_report_mode_kode_tidak_membuka_identitas_produk(repo, role):
+    """Negatif: laporan mode kode (AC9) tidak mengirim apa pun yang menunjuk produk aslinya.
+
+    product_id dan session_id tidak ada di respons, dan versi model produk (yang biasanya
+    menyebut nama produk) dikosongkan. Berlaku juga untuk Admin, karena PDF yang ia unduh
+    dibagikan ke luar. Versi model juri tetap terkirim (AC3).
+    """
+    # Arrange
+    laporan = _laporan(product_label_mode=ProductLabelMode.CODE)
+    repo.get_report.return_value = laporan
+    repo.contents.return_value = _isi(
+        laporan,
+        sessions=[_sesi(laporan, SESI_A, "Produk A")],
+        results=[_hasil(laporan, SESI_A, 1, product_model_version="Justisio-v3")],
+    )
+
+    # Act
+    detail = service.get_report(DB, laporan.id, _pengguna(role))
+
+    # Assert
+    sesi = detail.sessions[0].model_dump()
+    assert sesi["product_label"] == "Produk A"
+    assert "product_id" not in sesi and "session_id" not in sesi
+    assert sesi["results"][0]["product_model_version"] is None
+    assert sesi["results"][0]["judge_model_version"] == "judge-2026-12"
+
+
+def test_get_report_nama_asli_tetap_mengirim_versi_model_tanpa_total_score(repo):
+    """Positif dan negatif: mode nama asli memuat versi model (AC3); total_score tidak pernah
+    dikirim karena D1 memakainya hanya untuk menghitung rank."""
+    # Arrange
+    laporan = _laporan(product_label_mode=ProductLabelMode.REAL_NAME)
+    repo.get_report.return_value = laporan
+    repo.contents.return_value = _isi(laporan)
+
+    # Act
+    detail = service.get_report(DB, laporan.id, _pengguna())
+
+    # Assert
+    hasil = detail.sessions[0].results[0].model_dump()
+    assert hasil["product_model_version"] == "model-2026-12"
+    assert "total_score" not in hasil
 
 
 def test_get_report_kode_kasus_test_disamarkan_untuk_developer_ai(repo):
