@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.cases.models import SplitTag
 from app.modules.reports import repository
+from app.modules.reports.access import visibility_for
 from app.modules.reports.models import (
     MeasurementKind,
     Report,
@@ -32,7 +33,18 @@ from app.modules.reports.models import (
     ScoreScope,
     ScoreSplit,
 )
-from app.shared.exceptions import ConflictError, ValidationError
+from app.modules.reports.repository import ReportContents
+from app.modules.reports.schemas import (
+    ReportCaseBasisRead,
+    ReportDetail,
+    ReportMarker,
+    ReportResultRead,
+    ReportSessionRead,
+    ReportSummary,
+)
+from app.shared.exceptions import ConflictError, NotFoundError, ValidationError
+from app.shared.pagination import Page, PageParams
+from app.shared.security import CurrentUser
 
 REPORT_HAS_DEV_SCORES = "REPORT_HAS_DEV_SCORES"
 REPORT_SPLIT_NOT_ALLOWED = "REPORT_SPLIT_NOT_ALLOWED"
@@ -40,6 +52,7 @@ REPORT_MANUAL_FAILURE_RATE = "REPORT_MANUAL_FAILURE_RATE"
 REPORT_CASE_BASIS_MISMATCH = "REPORT_CASE_BASIS_MISMATCH"
 REPORT_RESULT_SESSION_UNKNOWN = "REPORT_RESULT_SESSION_UNKNOWN"
 REPORT_ROW_OTHER_REPORT = "REPORT_ROW_OTHER_REPORT"
+REPORT_NOT_FOUND = "REPORT_NOT_FOUND"
 
 _ALLOWED_SPLITS: dict[ScoreScope, frozenset[ScoreSplit]] = {
     ScoreScope.TEST: frozenset({ScoreSplit.TEST}),
@@ -104,6 +117,71 @@ def report_titles(db: Session, report_ids: set[uuid.UUID]) -> dict[uuid.UUID, st
     if not report_ids:
         return {}
     return repository.titles(db, report_ids)
+
+
+def list_reports(db: Session, user: CurrentUser, params: PageParams) -> Page[ReportSummary]:
+    """Daftar laporan tersimpan yang boleh dilihat pengguna (AC riwayat, D3 langkah 10)."""
+    rows, total = repository.list_reports(
+        db, visibility_for(user), offset=params.offset, limit=params.size
+    )
+    return Page(
+        items=[ReportSummary.model_validate(row) for row in rows],
+        total=total,
+        page=params.page,
+        size=params.size,
+    )
+
+
+def get_report(db: Session, report_id: uuid.UUID, user: CurrentUser) -> ReportDetail:
+    """Buka ulang satu laporan dari hasil beku, tanpa menghitung ulang (D3 langkah 11).
+
+    Laporan yang tidak boleh dibaca dijawab sama dengan laporan yang tidak ada (404),
+    supaya keberadaan laporan tersimpan orang lain tidak bocor, dan isinya tidak pernah
+    dibaca dari database.
+    """
+    report = repository.get_report(db, report_id)
+    if report is None or not visibility_for(user).allows(report):
+        raise NotFoundError("Laporan tidak ditemukan.", code=REPORT_NOT_FOUND)
+    return _detail(report, repository.contents(db, report))
+
+
+def _detail(report: Report, contents: ReportContents) -> ReportDetail:
+    sessions = [
+        ReportSessionRead(
+            session_id=session.session_id,
+            product_id=session.product_id,
+            product_label=session.product_label,
+            measurement_kind=session.measurement_kind,
+            is_trial=session.is_trial,
+            markers=[_marker(raw) for raw in session.markers],
+            results=[
+                ReportResultRead.model_validate(result)
+                for result in contents.results
+                if result.session_id == session.session_id
+            ],
+        )
+        for session in contents.sessions
+    ]
+    return ReportDetail.model_validate(
+        {
+            **ReportSummary.model_validate(report).model_dump(),
+            "measurement_filter": report.measurement_filter,
+            "product_label_mode": report.product_label_mode,
+            "rubric_version_no": contents.rubric_version_no,
+            "judge_model_name": report.judge_model_name,
+            "case_basis_count": report.case_basis_count,
+            "sessions": sessions,
+            "case_basis": [
+                ReportCaseBasisRead.model_validate(row, from_attributes=True)
+                for row in contents.case_basis
+            ],
+        }
+    )
+
+
+def _marker(raw: dict | str) -> ReportMarker:
+    # Bentuk resmi {"code", "detail"} (SCRUM-300); string polos tetap dibaca sebagai kode.
+    return ReportMarker(code=raw) if isinstance(raw, str) else ReportMarker.model_validate(raw)
 
 
 def _check_rows_belong_to(
