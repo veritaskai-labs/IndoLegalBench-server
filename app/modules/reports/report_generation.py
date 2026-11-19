@@ -17,10 +17,12 @@ from app.modules.reports.comparison_rules import (
     MANUAL_ANSWER_RANGE_OVER_LIMIT,
     MODEL_VERSION_DIFFERS,
     REPETITIONS_DIFFER,
+    SUITE_VERSION,
     ComparisonPlan,
+    Rejection,
     plan_comparison,
 )
-from app.modules.reports.creation_policy import ensure_can_create
+from app.modules.reports.creation_policy import can_see_case_codes, ensure_can_create
 from app.modules.reports.models import (
     MeasurementFilter,
     MeasurementKind,
@@ -111,7 +113,7 @@ class ReportGenerator:
         ensure_can_create(role, request.score_scope, request.product_label_mode)
         records = self._load(request)
         plan = plan_comparison([facts_for_scope(record, request.score_scope) for record in records])
-        _ensure_comparable(plan)
+        _ensure_comparable(plan, role)
         if plan.warning is not None:
             return GeneratedReport(report=None, sessions=(), results=(), warning=plan.warning)
 
@@ -136,7 +138,19 @@ class ReportGenerator:
         return [record for record in records if record.measurement_kind in kinds]
 
 
-def _ensure_comparable(plan: ComparisonPlan) -> None:
+_SUITE_VERSION_WITHOUT_CODES = (
+    "Kasus pada snapshot suite berbeda versi atau komposisi dalam split yang sama."
+)
+
+
+def _rejection_for_role(rejection: Rejection, role: Role) -> Rejection:
+    """Pesan syarat suite memuat kode kasus; peran yang tidak boleh melihatnya dapat pesan umum."""
+    if rejection.requirement == SUITE_VERSION and not can_see_case_codes(role):
+        return Rejection(rejection.requirement, _SUITE_VERSION_WITHOUT_CODES)
+    return rejection
+
+
+def _ensure_comparable(plan: ComparisonPlan, role: Role) -> None:
     """409 bila pilihan tidak sah, ada sesi tidak layak, atau syarat perbandingan gagal."""
     if not (plan.selection_errors or plan.ineligible or plan.rejections):
         return
@@ -148,7 +162,7 @@ def _ensure_comparable(plan: ComparisonPlan) -> None:
             "ineligible": {str(sid): list(codes) for sid, codes in plan.ineligible.items()},
             "rejections": [
                 {"requirement": tolakan.requirement, "message": tolakan.message}
-                for tolakan in plan.rejections
+                for tolakan in (_rejection_for_role(r, role) for r in plan.rejections)
             ],
         },
     )

@@ -28,6 +28,16 @@ _LABEL_MODES_BY_ROLE: dict[Role, frozenset[ProductLabelMode]] = {
 }
 
 
+# Kode kasus hanya untuk peran yang boleh membaca kasus (sama dengan modul cases): Viewer
+# tidak bisa membaca kasus dan Developer AI hanya melihat kasus test yang di-mask.
+_ROLES_THAT_SEE_CASE_CODES = frozenset({Role.ADMIN, Role.CONTRIBUTOR})
+
+
+def can_see_case_codes(role: Role) -> bool:
+    """Boleh tidaknya peran melihat kode kasus, misalnya di alasan penolakan 409."""
+    return role in _ROLES_THAT_SEE_CASE_CODES
+
+
 def ensure_can_create(role: Role, scope: ScoreScope, label_mode: ProductLabelMode) -> None:
     """Tolak (403) permintaan yang melampaui hak peran. Jenis nilai diperiksa lebih dulu."""
     if scope not in _SCOPES_BY_ROLE.get(role, frozenset()):
