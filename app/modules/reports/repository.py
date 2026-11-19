@@ -98,7 +98,11 @@ def contents(db: Session, report: Report) -> ReportContents:
     )
     results = db.scalars(sa.select(ReportResult).where(ReportResult.report_id == report.id))
     case_basis = db.execute(
-        sa.select(CaseVersion.case_code, CaseVersion.version_no, ReportCaseBasis.split_tag)
+        # Tag dari case_versions, bukan salinan di report_case_basis: penyamaran kasus test untuk
+        # Developer AI (access.visible_case_code) tidak boleh percaya salinan yang bisa salah
+        # (review #146). Versi kasus approved tidak pernah diubah, jadi hasilnya tetap beku.
+        sa.select(CaseVersion.case_code, CaseVersion.version_no, CaseVersion.split_tag)
+        .select_from(ReportCaseBasis)
         .join(CaseVersion, CaseVersion.id == ReportCaseBasis.case_version_id)
         .where(ReportCaseBasis.report_id == report.id)
         .order_by(CaseVersion.case_code)

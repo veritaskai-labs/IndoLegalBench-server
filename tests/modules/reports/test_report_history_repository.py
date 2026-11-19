@@ -185,3 +185,44 @@ def test_contents_membaca_versi_rubrik_sesi_hasil_dan_kode_kasus(db_session, das
         repository.CaseBasisRow("UAT-PHK-001", 3, SplitTag.TEST),
         repository.CaseBasisRow("UAT-PHK-002", 1, SplitTag.TEST),
     ]
+
+
+def test_contents_tag_kasus_diambil_dari_versi_kasus_bukan_salinan(db_session, dasar_data):
+    """Negatif: salinan split_tag yang salah tidak boleh membuka kode kasus test untuk Developer AI.
+
+    Kasus test yang tersimpan di report_case_basis sebagai dev (salinan keliru, review #146)
+    tetap terbaca sebagai test, jadi tetap disamarkan.
+    """
+    # Arrange
+    admin, rubrik, sesi_a, _ = dasar_data
+    report = pabrik.laporan(
+        admin, rubrik, score_scope=ScoreScope.DEV_TEST, has_dev_scores=True, case_basis_count=1
+    )
+    versi = CaseVersion(
+        case_id=uuid.uuid4(),
+        version_no=1,
+        status=CaseStatus.APPROVED,
+        case_code="RAHASIA-001",
+        split_tag=SplitTag.TEST,
+        content={},
+        created_by=admin.id,
+    )
+    db_session.add(versi)
+    db_session.flush()
+    repository.add_report(
+        db_session,
+        report,
+        [pabrik.sesi_laporan(report, sesi_a)],
+        [pabrik.hasil(report, sesi_a, score_split=split) for split in ScoreSplit],
+        [
+            pabrik.dasar(
+                report, case_id=versi.case_id, case_version_id=versi.id, split_tag=SplitTag.DEV
+            )
+        ],
+    )
+
+    # Act
+    isi = repository.contents(db_session, report)
+
+    # Assert
+    assert isi.case_basis == [repository.CaseBasisRow("RAHASIA-001", 1, SplitTag.TEST)]
