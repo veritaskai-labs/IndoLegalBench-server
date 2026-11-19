@@ -319,6 +319,8 @@ def test_kasus_dasar_satu_kali_per_laporan(siap):
     report = laporan(admin, rubrik)
     kasus = dasar(report)
     _simpan(db, report, kasus)
+    # Lepas dari identity map supaya penolakannya datang dari database, bukan dari ORM.
+    db.expunge(kasus)
 
     _ditolak(
         db,

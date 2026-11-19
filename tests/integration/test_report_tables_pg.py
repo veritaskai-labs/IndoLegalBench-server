@@ -267,7 +267,7 @@ def test_terbit_lalu_diganti_versi_baru(conn, dunia):
         text("SELECT id, status::text FROM reports WHERE id IN (:a, :b)"),
         {"a": lama, "b": baru},
     ).all()
-    status = {laporan_id: nilai for laporan_id, nilai in baris}
+    status = dict(map(tuple, baris))
     assert status == {lama: "superseded", baru: "published"}
 
 
@@ -341,3 +341,15 @@ def test_terbit_dua_kali_ditolak(conn, dunia):
 def test_id_laporan_tidak_dikenal_ditolak(conn, dunia):
     """Negatif: FK published_reports → reports."""
     assert _sqlstate(conn, lambda: terbitkan(conn, uuid.uuid4(), dunia)) == FOREIGN_KEY_VIOLATION
+
+
+def test_nomor_versi_pengganti_harus_berikutnya(conn, dunia):
+    """Negatif: v1 diganti v3 (melompat) ditolak; nomor versi tanpa celah."""
+    lama, baru = laporan_utuh(conn, dunia), laporan_utuh(conn, dunia)
+    v1 = terbitkan(conn, lama, dunia)
+    ubah_status(conn, lama, "published")
+
+    assert (
+        _sqlstate(conn, lambda: terbitkan(conn, baru, dunia, version_no=3, supersedes=v1))
+        == CHECK_VIOLATION
+    )

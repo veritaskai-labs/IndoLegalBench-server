@@ -91,8 +91,11 @@ def test_terbit_dan_digantikan_tercatat(lama, baru, aksi):
 
 
 def test_perubahan_kolom_lain_tidak_dipantau():
-    """Negatif: kolom selain status beku (trigger menolaknya), jadi tracker tidak mencatatnya."""
-    assert tracker_for("reports").updated(_baris(), {"title": Change(old="a", new="b")}) == []
+    """Negatif: kolom selain status beku (trigger menolaknya); listener hanya membaca fields."""
+    tracker = tracker_for("reports")
+
+    assert tracker.fields == ("status",)
+    assert tracker.updated(_baris(), {}) == []
 
 
 # --- Lewat listener dan halaman audit -------------------------------------------------
