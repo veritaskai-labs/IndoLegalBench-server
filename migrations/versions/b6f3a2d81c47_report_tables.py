@@ -13,6 +13,8 @@ Trigger PostgreSQL menjaganya untuk semua peran, sama seperti snapshot sesi (160
 - Laporan Test tidak memuat skor atau kasus dev; laporan dengan skor dev tidak bisa terbit
   (lapis kedua di belakang reports.service.ensure_publishable).
 - Produk manual tidak punya tingkat kegagalan (AC2).
+- Terbit dan ganti versi dicek saat COMMIT (constraint trigger tertunda): laporan yang punya
+  baris terbit wajib published, dan versi yang diganti wajib superseded.
 
 Kode galat: perubahan isi beku = insufficient_privilege (42501), pelanggaran aturan =
 check_violation (23514).
@@ -70,6 +72,7 @@ _FUNCTIONS = (
     "report_rows_forbid_change",
     "report_rows_check_insert",
     "published_reports_check_insert",
+    "published_reports_check_commit",
 )
 _RANKED = sa.text("rank IS NOT NULL")
 _SCORES = " AND ".join(
@@ -167,7 +170,11 @@ def upgrade() -> None:
         sa.CheckConstraint(
             "(total_score IS NULL) = (rank IS NULL)", name="ck_report_results_rank_total"
         ),
-        sa.CheckConstraint("repetitions BETWEEN 1 AND 5", name="ck_report_results_repetitions"),
+        sa.CheckConstraint(
+            "(total_score IS NULL) = (det_score IS NULL OR llm_score IS NULL)",
+            name="ck_report_results_total_needs_both",
+        ),
+        sa.CheckConstraint("repetitions >= 1", name="ck_report_results_repetitions"),
     )
     op.create_index(
         "uq_report_results_rank",
@@ -219,6 +226,12 @@ def upgrade() -> None:
 
 
 def _create_triggers() -> None:
+    # jsonb_typeof hanya ada di PostgreSQL; bentuk isi tiap penanda dijaga service.
+    op.create_check_constraint(
+        "ck_report_sessions_markers_array",
+        "report_sessions",
+        "jsonb_typeof(markers) = 'array'",
+    )
     op.execute(
         """
         CREATE FUNCTION report_rows_forbid_change() RETURNS trigger AS $$
@@ -398,6 +411,42 @@ def _create_triggers() -> None:
         CREATE TRIGGER published_reports_check_insert
         BEFORE INSERT ON published_reports
         FOR EACH ROW EXECUTE FUNCTION published_reports_check_insert()
+        """
+    )
+
+    # Terbit atau ganti versi = INSERT published_reports + UPDATE status laporan baru
+    # (+ UPDATE versi lama ke superseded). Diperiksa saat COMMIT, jadi transaksi yang lupa
+    # salah satu UPDATE ditolak dan tidak pernah ada dua versi terbit sekaligus.
+    op.execute(
+        """
+        CREATE FUNCTION published_reports_check_commit() RETURNS trigger AS $$
+        BEGIN
+            IF NOT EXISTS (
+                SELECT 1 FROM reports
+                WHERE id = NEW.report_id AND status IN ('published', 'superseded')
+            ) THEN
+                RAISE EXCEPTION 'report % has a publication but its status is not published',
+                    NEW.report_id
+                    USING ERRCODE = 'check_violation';
+            END IF;
+            IF NEW.supersedes_id IS NOT NULL AND NOT EXISTS (
+                SELECT 1 FROM published_reports lama JOIN reports r ON r.id = lama.report_id
+                WHERE lama.id = NEW.supersedes_id AND r.status = 'superseded'
+            ) THEN
+                RAISE EXCEPTION 'the version replaced by % is not marked superseded', NEW.id
+                    USING ERRCODE = 'check_violation';
+            END IF;
+            RETURN NULL;
+        END;
+        $$ LANGUAGE plpgsql
+        """
+    )
+    op.execute(
+        """
+        CREATE CONSTRAINT TRIGGER published_reports_check_commit
+        AFTER INSERT ON published_reports
+        DEFERRABLE INITIALLY DEFERRED
+        FOR EACH ROW EXECUTE FUNCTION published_reports_check_commit()
         """
     )
 
