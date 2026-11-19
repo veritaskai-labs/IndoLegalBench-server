@@ -32,6 +32,8 @@ def test_a_finished_and_graded_session_is_eligible_without_reasons():
     assert item.session_id == layak.facts.session_id
     assert item.product_name == "Produk A"
     assert item.label == "Sesi Produk A"
+    assert item.product_id == layak.facts.product_id
+    assert item.judge_model_version == "judge-1"
     assert item.created_at == AWAL
     assert item.session_type is SessionType.AUTOMATIC
     assert item.purpose is SessionPurpose.OFFICIAL
@@ -129,3 +131,15 @@ def test_the_measurement_filter_keeps_only_that_kind(saring, diharapkan):
 
     # Assert
     assert [item.product_name for item in hasil] == diharapkan
+
+
+def test_a_session_without_a_known_judge_model_has_none():
+    # Arrange
+    belum = _rekaman("Belum", [_nilai(1, "0.5", "0.5")], rubrik=None, judge_versi=None)
+
+    # Act
+    (item,) = _daftar(belum)
+
+    # Assert
+    assert item.judge_model_version is None
+    assert item.product_id == belum.facts.product_id

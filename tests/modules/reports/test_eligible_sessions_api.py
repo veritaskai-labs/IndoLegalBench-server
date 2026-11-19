@@ -54,7 +54,9 @@ class TestList:
         assert isi[0] == {
             "session_id": str(layak.facts.session_id),
             "label": "Sesi Produk A",
+            "product_id": str(layak.facts.product_id),
             "product_name": "Produk A",
+            "judge_model_version": "judge-1",
             "created_at": "2026-11-01T00:00:00Z",
             "session_type": "automatic",
             "purpose": "official",
