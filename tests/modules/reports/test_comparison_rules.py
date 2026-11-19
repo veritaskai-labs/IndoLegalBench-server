@@ -216,6 +216,28 @@ def test_beda_versi_kasus_di_snapshot_tak_dinilai_tetap_ditolak():
     assert "CASE-002" in tolakan[0].message
 
 
+def test_sesi_test_dan_both_suite_sama_berbagi_kasus_test_tidak_ditolak():
+    # Blocker re-review: beda keanggotaan snapshot karena split (test vs both) itu sah.
+    # Kasus test (CASE-002) sama versi di keduanya; CASE-001 (dev) hanya ada di sesi "both".
+    # Tidak boleh ditolak sebagai beda versi suite.
+    sesi_test = _sesi(scored_cases=(_kasus(2),), snapshot_cases=(_kasus(2),))
+    sesi_both = _sesi(scored_cases=(_kasus(2),), snapshot_cases=(_kasus(1), _kasus(2)))
+
+    assert comparison_rejections((sesi_test, sesi_both)) == ()
+
+    rencana = plan_comparison((sesi_test, sesi_both))
+    assert rencana.comparable is True
+    assert [kasus.case_code for kasus in rencana.shared_cases] == ["CASE-002"]
+
+
+def test_versi_model_penilai_tidak_diketahui_ditolak():
+    # Non-blocker: dua versi model None tak boleh lolos sebagai "sama". Identitas tak pasti.
+    a = _sesi(judge_model_version=None)
+    b = _sesi(judge_model_version=None)
+
+    assert [tolak.requirement for tolak in comparison_rejections((a, b))] == [JUDGE_MODEL]
+
+
 def test_setiap_syarat_yang_gagal_punya_alasannya_sendiri():
     lain = _sesi(
         rubric_version_id=uuid.uuid4(),
@@ -246,6 +268,27 @@ def test_versi_model_dan_jumlah_percobaan_sama_tidak_diberi_tanda():
 
     assert MODEL_VERSION_DIFFERS not in rencana.markers
     assert REPETITIONS_DIFFER not in rencana.markers
+
+
+def test_sesi_manual_dan_otomatis_beda_repetisi_diberi_tanda_per_sesi():
+    # AC5: manual (tanpa judge LLM) dan otomatis boleh dibandingkan; beda repetisi jadi
+    # penanda perbandingan, dan rentang manual jadi penanda yang melekat ke sesi manualnya.
+    manual = _sesi(
+        session_type=SessionType.MANUAL,
+        status=SessionStatus.FINALIZED,
+        repetitions=1,
+        answer_date_from=AWAL,
+        answer_date_to=AWAL + timedelta(days=9),
+        judge_provider_id=None,
+        judge_model_version=None,
+    )
+    otomatis = _sesi(repetitions=5)
+
+    rencana = plan_comparison((manual, otomatis))
+
+    assert REPETITIONS_DIFFER in rencana.markers
+    assert rencana.session_markers[manual.session_id] == (MANUAL_ANSWER_RANGE_OVER_LIMIT,)
+    assert rencana.comparable is True
 
 
 # NB2: penanda tingkat sesi melekat ke session_id, bukan digabung global.

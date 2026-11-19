@@ -14,9 +14,15 @@ Kontrak yang wajib dipenuhi adapter saat mengisi SessionFacts (bukan diputuskan 
 - rubric_version_id dan judge_* diambil dari grading run TERAKHIR yang selesai
   (grading_runs.is_latest dan status selesai). rubric_version_id kosong = belum dinilai.
 - judge_model_version diisi identitas model penilai yang terekam saat grading
-  (llm_judge_results.model_version), bukan sekadar id provider yang bisa berubah config.
-- snapshot_cases diisi SELURUH case_snapshot_items sesi (dinilai atau tidak), supaya
-  kesamaan versi suite dicek dari snapshot utuh, bukan hanya kasus yang kebetulan dinilai.
+  (llm_judge_results.model_version). Nilai itu tercatat per pemanggilan judge, jadi adapter
+  wajib memastikan satu versi yang konsisten untuk seluruh sesi; bila tidak konsisten atau
+  tak diketahui, isi None, dan aturan ini akan menolak perbandingannya (bukan menganggap
+  dua None sama). Sesi manual tanpa judge LLM boleh berisi judge_provider_id None.
+- snapshot_cases diisi SELURUH case_snapshot_items sesi (dinilai atau tidak), supaya kasus
+  berversi beda yang tak dinilai tetap ketahuan. Beda keanggotaan snapshot karena split
+  dev/test itu sah dan tidak menolak perbandingan; yang ditolak hanya kasus beririsan yang
+  versinya beda. Perubahan komposisi suite murni (tanpa beda versi) tidak terdeteksi di sini
+  karena tak ada penanda revisi suite imutabel; deteksinya dikoordinasikan dengan adapter.
 - scored_cases sudah difilter ke split yang diminta (test, dev, atau keduanya) sebelum
   masuk; irisan kasus dihitung apa adanya dari scored_cases.
 """
@@ -227,32 +233,28 @@ def session_markers(facts: SessionFacts) -> tuple[str, ...]:
 
 
 def _snapshot_conflicts(sessions: Sequence[SessionFacts]) -> list[str]:
-    """Kode kasus yang bikin snapshot suite tak identik antar sesi (B1).
+    """Kode kasus yang ada di lebih dari satu snapshot pada versi berbeda (B1).
 
-    Memakai snapshot_cases (seluruh isi snapshot, dinilai atau tidak), bukan hanya kasus
-    yang dinilai, supaya kasus berversi beda yang tak dinilai tetap ketahuan. Konflik =
-    satu kasus muncul pada versi berbeda, atau tidak ada di semua snapshot. Diurutkan
-    supaya pesannya stabil.
+    Memakai snapshot_cases (seluruh isi snapshot, dinilai atau tidak) supaya kasus berversi
+    beda yang tak dinilai tetap ketahuan. Konflik hanya dihitung pada kasus yang beririsan
+    antar snapshot: satu case_id yang muncul pada lebih dari satu versi.
+
+    Beda keanggotaan snapshot TIDAK dianggap konflik. Satu sesi bisa sah punya kasus yang
+    tak dimiliki sesi lain karena split_filter (dev/test/both) memang menyaring isi snapshot
+    saat sesi dibuat; menolaknya berarti menolak perbandingan dev/test yang sah. Perubahan
+    komposisi suite yang sesungguhnya (kasus ditambah/dihapus tanpa beda versi) tidak ada
+    penanda imutabelnya di skema (suite_snapshots sudah dipensiunkan), jadi deteksinya
+    dikoordinasikan dengan adapter (SCRUM-313), di luar lingkup aturan murni ini.
     """
-    jumlah = len(sessions)
     versi: dict[uuid.UUID, set[uuid.UUID]] = {}
-    hadir: dict[uuid.UUID, int] = {}
     kode: dict[uuid.UUID, str] = {}
 
     for sesi in sessions:
-        terlihat: set[uuid.UUID] = set()
         for kasus in sesi.snapshot_cases:
             versi.setdefault(kasus.case_id, set()).add(kasus.case_version_id)
             kode.setdefault(kasus.case_id, kasus.case_code)
-            terlihat.add(kasus.case_id)
-        for case_id in terlihat:
-            hadir[case_id] = hadir.get(case_id, 0) + 1
 
-    return sorted(
-        kode[case_id]
-        for case_id in versi
-        if len(versi[case_id]) > 1 or hadir.get(case_id, 0) != jumlah
-    )
+    return sorted(kode[case_id] for case_id in versi if len(versi[case_id]) > 1)
 
 
 def comparison_rejections(sessions: Sequence[SessionFacts]) -> tuple[Rejection, ...]:
@@ -272,18 +274,23 @@ def comparison_rejections(sessions: Sequence[SessionFacts]) -> tuple[Rejection, 
             )
         )
 
-    # Model penilai: id provider DAN versi model efektif saat grading harus sama. Id
-    # provider bisa tetap sama walau config modelnya diganti, jadi id saja tak cukup (B2).
-    beda_provider = len({sesi.judge_provider_id for sesi in sessions}) > 1
-    beda_model = len({sesi.judge_model_version for sesi in sessions}) > 1
-    if beda_provider or beda_model:
-        tolakan.append(
-            Rejection(
-                JUDGE_MODEL,
-                "Sesi yang dipilih dinilai oleh model penilai yang berbeda, "
-                "jadi skornya tidak setara.",
+    # Model penilai (B2): hanya berlaku untuk sesi yang dinilai LLM (judge_provider_id ada).
+    # Sesi manual tidak punya judge LLM, jadi tidak ikut syarat ini. Di antara sesi yang
+    # dinilai, id provider DAN versi model efektif saat grading harus sama; id provider bisa
+    # tetap sama walau config modelnya diganti, jadi id saja tak cukup. Versi model None =
+    # identitas tak diketahui: ditolak, bukan dianggap sama dengan None lain, supaya adapter
+    # wajib memberi identitas yang andal (satu versi konsisten lintas pemanggilan judge).
+    dinilai = [sesi for sesi in sessions if sesi.judge_provider_id is not None]
+    if dinilai:
+        model = {sesi.judge_model_version for sesi in dinilai}
+        if len({sesi.judge_provider_id for sesi in dinilai}) > 1 or None in model or len(model) > 1:
+            tolakan.append(
+                Rejection(
+                    JUDGE_MODEL,
+                    "Sesi yang dipilih dinilai oleh model penilai yang berbeda atau tidak "
+                    "pasti, jadi skornya tidak setara.",
+                )
             )
-        )
 
     if len({sesi.suite_ids for sesi in sessions}) > 1:
         tolakan.append(Rejection(SUITE_VERSION, "Sesi yang dipilih memakai suite yang berbeda."))
