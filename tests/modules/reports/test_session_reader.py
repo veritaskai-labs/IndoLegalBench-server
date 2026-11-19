@@ -447,6 +447,42 @@ class TestGradedCases:
         assert kasus.det == Decimal("0.75")
         assert kasus.llm == Decimal("0.375")
 
+    def test_two_products_whose_llm_scores_differ_past_the_second_decimal_stay_apart(
+        self, db_session, admin, rubrik
+    ):
+        # Arrange: tiap percobaan punya tiga panggilan penilai, rata-ratanya
+        # 0.75666... (A) dan 0.75333... (B). Dibulatkan ke 0.01 keduanya menjadi 0.76 / 0.75.
+        sesi_a = _sesi(db_session, admin, nama="Produk A")
+        sesi_b = _sesi(db_session, admin, nama="Produk B")
+        for sesi, tambahan in ((sesi_a, ("0.76", "0.76")), (sesi_b, ("0.75", "0.75"))):
+            item = _kasus(db_session, sesi, "CASE-001")
+            percobaan = _percobaan(db_session, sesi, item)
+            _nilai(db_session, sesi, rubrik, admin, [(percobaan, "0.50", "0.75")])
+            hasil = db_session.query(GradingResult).filter_by(attempt_id=percobaan.id).one()
+            for nomor, skor in enumerate(tambahan, start=2):
+                db_session.add(
+                    LlmJudgeResult(
+                        grading_result_id=hasil.id,
+                        judge_run_no=nomor,
+                        kind=JudgeKind.QUALITY,
+                        status=JudgeStatus.SUCCEEDED,
+                        prompt="Prompt sintetis",
+                        criteria_met=1,
+                        criteria_total=4,
+                        criteria_score=Decimal(skor),
+                        model_version="judge-1",
+                    )
+                )
+            db_session.flush()
+
+        # Act
+        rekaman_a, rekaman_b = _baca(db_session, sesi_a.id, sesi_b.id)
+
+        # Assert
+        assert rekaman_a.graded_cases[0].llm == Decimal("2.27") / Decimal(3)
+        assert rekaman_b.graded_cases[0].llm == Decimal("2.25") / Decimal(3)
+        assert rekaman_a.graded_cases[0].llm > rekaman_b.graded_cases[0].llm
+
     def test_a_technical_disruption_is_skipped_not_counted_as_zero(self, db_session, admin, rubrik):
         # Arrange
         sesi = _sesi(db_session, admin)
