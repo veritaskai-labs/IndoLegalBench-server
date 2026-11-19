@@ -398,7 +398,12 @@ def plan_comparison(sessions: Sequence[SessionFacts]) -> ComparisonPlan:
     tidak_layak = {
         sesi.session_id: alasan for sesi in sessions if (alasan := eligibility_problems(sesi))
     }
-    tolakan = comparison_rejections(sessions)
+    # Syarat perbandingan hanya diperiksa pada sesi yang layak. Sesi tak layak punya
+    # rubric/judge None dan snapshot bisa sebagian (sesi dibatalkan/gagal), yang akan
+    # memicu penolakan palsu RUBRIC_VERSION/JUDGE_MODEL/SUITE_VERSION padahal sebab
+    # sebenarnya adalah ketidaklayakan, bukan beda rubrik/penilai/suite.
+    layak = tuple(sesi for sesi in sessions if sesi.session_id not in tidak_layak)
+    tolakan = comparison_rejections(layak)
     penanda = comparison_markers(sessions)
     penanda_sesi = per_session_markers(sessions)
 

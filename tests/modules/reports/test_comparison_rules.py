@@ -444,3 +444,39 @@ def test_sesi_tidak_layak_dilaporkan_per_sesi_dan_menghentikan_perbandingan():
 
     assert rencana.comparable is False
     assert rencana.ineligible[batal.session_id] == (SESSION_CANCELLED,)
+
+
+def test_sesi_belum_dinilai_tidak_memicu_penolakan_syarat_palsu():
+    # Sesi belum dinilai punya rubric/judge None. Itu tidak boleh muncul sebagai beda
+    # rubrik/penilai; satu-satunya alasan adalah ketidaklayakannya (SESSION_NOT_GRADED).
+    belum_dinilai = _sesi(rubric_version_id=None, judge_provider_id=None, judge_model_version=None)
+    graded = _sesi()
+
+    rencana = plan_comparison((belum_dinilai, graded))
+
+    assert rencana.ineligible[belum_dinilai.session_id] == (SESSION_NOT_GRADED,)
+    assert rencana.rejections == ()
+    assert rencana.comparable is False
+
+
+def test_input_kosong_tidak_error():
+    # Batas: tanpa sesi sama sekali, tidak ada irisan dan seleksinya kurang dari dua produk.
+    assert shared_cases(()) == ()
+
+    rencana = plan_comparison(())
+
+    assert rencana.comparable is False
+    assert NEED_AT_LEAST_TWO_PRODUCTS in rencana.selection_errors
+    assert rencana.shared_cases == ()
+
+
+def test_sesi_manual_tanpa_tanggal_jawaban_tidak_diberi_tanda_rentang():
+    # Sesi manual yang belum punya rentang tanggal (None) tidak boleh memicu penanda rentang.
+    manual = _sesi(
+        session_type=SessionType.MANUAL,
+        status=SessionStatus.FINALIZED,
+        answer_date_from=None,
+        answer_date_to=None,
+    )
+
+    assert session_markers(manual) == ()
