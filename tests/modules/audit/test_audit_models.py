@@ -171,4 +171,5 @@ def test_jenis_objek_sesuai_katalog():
         "measurement_session",
         "rubric_version",  # SCRUM-222 PR B: versi rubrik
         "judge_provider",  # SCRUM-258: provider penilai
+        "report",  # SCRUM-300: laporan perbandingan dan penerbitannya
     }

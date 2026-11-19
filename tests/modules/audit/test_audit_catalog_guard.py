@@ -66,6 +66,13 @@ PENGECUALIAN = {
         "SCRUM-284: penghitung progres worker penilaian, bukan aksi pengguna; pemicuan "
         "penilaiannya sendiri dicatat sebagai measurement_session.graded/regraded"
     ),
+    "report_sessions": "SCRUM-300: isi laporan beku, hanya INSERT; diwakili report.created",
+    "report_results": "SCRUM-300: angka laporan beku, hanya INSERT; diwakili report.created",
+    "report_case_basis": "SCRUM-300: dasar kasus laporan beku, hanya INSERT; diwakili report.created",
+    "published_reports": (
+        "SCRUM-300: versi terbit hanya INSERT; diwakili report.published dan report.superseded "
+        "dari perubahan status laporan"
+    ),
 }
 
 
