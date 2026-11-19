@@ -10,13 +10,22 @@ Modul ini murni, tanpa database dan tanpa HTTP.
 
 import uuid
 from collections.abc import Mapping, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from typing import Protocol
 
 from app.modules.cases.models import SplitTag
 from app.modules.reports.comparison_rules import SessionFacts
 from app.modules.reports.models import MeasurementKind, ScoreScope, ScoreSplit
 from app.modules.reports.report_scoring import CallCounts, GradedCase
+from app.modules.reports.service import allowed_case_tags
+from app.modules.runs.models import SessionType
+
+# Split kasus yang upayanya dihitung untuk tiap jenis skor; gabungan menghitung semuanya.
+_TAGS_BY_SPLIT = {
+    ScoreSplit.TEST: frozenset({SplitTag.TEST}),
+    ScoreSplit.DEV: frozenset({SplitTag.DEV}),
+    ScoreSplit.COMBINED: frozenset(SplitTag),
+}
 
 
 @dataclass(frozen=True)
@@ -35,7 +44,9 @@ class SessionRecord:
 
     @property
     def measurement_kind(self) -> MeasurementKind:
-        raise NotImplementedError
+        if SessionType(self.facts.session_type) is SessionType.MANUAL:
+            return MeasurementKind.MANUAL
+        return MeasurementKind.AUTOMATIC
 
 
 class SessionRecordReader(Protocol):
@@ -45,8 +56,19 @@ class SessionRecordReader(Protocol):
 
 
 def facts_for_scope(record: SessionRecord, scope: ScoreScope) -> SessionFacts:
-    raise NotImplementedError
+    """Fakta sesi dengan scored_cases disaring ke split yang diminta (AC14)."""
+    tags = allowed_case_tags(scope)
+    return replace(
+        record.facts,
+        scored_cases=tuple(kasus.ref for kasus in record.graded_cases if kasus.split in tags),
+    )
 
 
 def calls_for_split(record: SessionRecord, split: ScoreSplit) -> CallCounts:
-    raise NotImplementedError
+    """Jumlah upaya pemanggilan untuk kasus-kasus di satu jenis skor (AC2)."""
+    tags = _TAGS_BY_SPLIT[split]
+    hitungan = [jumlah for tag, jumlah in record.calls_by_split.items() if tag in tags]
+    return CallCounts(
+        total=sum(jumlah.total for jumlah in hitungan),
+        failed=sum(jumlah.failed for jumlah in hitungan),
+    )
