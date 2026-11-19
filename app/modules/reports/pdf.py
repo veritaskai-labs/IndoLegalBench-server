@@ -31,7 +31,12 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from app.modules.reports.models import MeasurementKind, ReportLanguage, ScoreSplit
+from app.modules.reports.models import (
+    MeasurementKind,
+    ReportLanguage,
+    ReportMarkerCode,
+    ScoreSplit,
+)
 from app.modules.reports.schemas import ReportDetail, ReportMarker, ReportSessionRead
 
 # Wordmark resmi Veritask (PNG transparan, rasio 4:1) untuk bagian atas laporan (AC tampilan).
@@ -63,7 +68,8 @@ class _Labels:
     llm: str
     splits: dict[ScoreSplit, str]
     trial: str
-    markers: dict[str, str]
+    # Kunci dari ReportMarkerCode (SCRUM-300); test memastikan tiap kode punya label.
+    markers: dict[ReportMarkerCode, str]
     months: tuple[str, ...]
 
 
@@ -102,10 +108,10 @@ _LABELS: dict[ReportLanguage, _Labels] = {
         },
         trial="Uji Coba",
         markers={
-            "model_version_differs": "Versi model berbeda",
-            "repetitions_differ": "Jumlah percobaan berbeda",
-            "manual_date_span_over_7_days": "Rentang jawaban manual lebih dari 7 hari",
-            "refusals": "Menolak menjawab",
+            ReportMarkerCode.MODEL_VERSION_DIFFERS: "Versi model berbeda",
+            ReportMarkerCode.REPETITIONS_DIFFER: "Jumlah percobaan berbeda",
+            ReportMarkerCode.MANUAL_DATE_SPAN_OVER_7_DAYS: "Rentang jawaban manual lebih dari 7 hari",
+            ReportMarkerCode.REFUSALS: "Menolak menjawab",
         },
         months=(
             "Januari",
@@ -156,10 +162,10 @@ _LABELS: dict[ReportLanguage, _Labels] = {
         },
         trial="Trial",
         markers={
-            "model_version_differs": "Different model version",
-            "repetitions_differ": "Different number of attempts",
-            "manual_date_span_over_7_days": "Manual answers span more than 7 days",
-            "refusals": "Refused to answer",
+            ReportMarkerCode.MODEL_VERSION_DIFFERS: "Different model version",
+            ReportMarkerCode.REPETITIONS_DIFFER: "Different number of attempts",
+            ReportMarkerCode.MANUAL_DATE_SPAN_OVER_7_DAYS: "Manual answers span more than 7 days",
+            ReportMarkerCode.REFUSALS: "Refused to answer",
         },
         months=(
             "January",

@@ -22,6 +22,7 @@ from decimal import Decimal
 import pytest
 
 from app.modules.cases.models import SplitTag
+from app.modules.reports.models import ReportMarkerCode
 from app.modules.reports.pdf import (
     DEFAULT_LOGO_PATH,
     ReportPdfRenderer,
@@ -194,6 +195,20 @@ def test_pdf_tanda_uji_coba_mengikuti_kolom_is_trial(is_trial, tercetak):
 
     # Assert
     assert (b"Uji Coba" in isi) is tercetak
+
+
+@pytest.mark.parametrize("bahasa", list(ReportLanguage))
+@pytest.mark.parametrize("kode", list(ReportMarkerCode))
+def test_setiap_kode_penanda_punya_label_di_kedua_bahasa(kode, bahasa):
+    """Edge: kode baru di ReportMarkerCode (SCRUM-300) tidak boleh tercetak mentah di PDF."""
+    # Arrange
+    laporan = _laporan(language=bahasa, sessions=[_sesi("AiYU", markers=[ReportMarker(code=kode)])])
+
+    # Act
+    isi = _pdf(laporan)
+
+    # Assert
+    assert kode.value.encode() not in isi
 
 
 def test_pdf_penanda_tak_dikenal_tetap_dicetak_dengan_kodenya():
