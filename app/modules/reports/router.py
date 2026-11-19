@@ -5,16 +5,21 @@ PBI-15, PBI-16, PBI-17 Laporan perbandingan antar produk.
 Router hanya menerjemahkan HTTP ke pemanggilan service. Tidak ada
 logika bisnis dan tidak ada query database di file ini.
 
-SCRUM-313: POST /reports membuat laporan. Riwayat, PDF, dan penerbitan menyusul di
+SCRUM-313: POST /reports membuat laporan dan GET /reports/eligible-sessions mendaftar sesi
+beserta kelayakannya. Rute statis eligible-sessions harus didaftarkan SEBELUM rute
+/{report_id} (SCRUM-320), kalau tidak FastAPI menganggapnya sebuah report_id. Riwayat, PDF, dan penerbitan menyusul di
 SCRUM-320 dan SCRUM-332.
 """
 
-from fastapi import APIRouter, Depends, Response, status
+from fastapi import APIRouter, Depends, Query, Response, status
 
 from app.modules.auth.schemas import ErrorBody
-from app.modules.reports.dependencies import get_report_generator
+from app.modules.reports.dependencies import get_eligible_session_lister, get_report_generator
+from app.modules.reports.eligible_sessions import EligibleSessionLister
+from app.modules.reports.models import MeasurementFilter
 from app.modules.reports.report_generation import ReportGenerator
 from app.modules.reports.schemas import (
+    EligibleSessionRead,
     ReportCreate,
     ReportCreateResponse,
     ReportNotComparableBody,
@@ -71,3 +76,25 @@ def create_report(
     if generated.report is None:
         response.status_code = status.HTTP_200_OK
     return ReportCreateResponse.from_generated(generated)
+
+
+@router.get(
+    "/eligible-sessions",
+    response_model=list[EligibleSessionRead],
+    summary="Daftar sesi beserta kelayakannya untuk laporan",
+)
+def list_eligible_sessions(
+    measurement_filter: MeasurementFilter = Query(
+        default=MeasurementFilter.ALL,
+        description="Saring sesi otomatis atau manual saja; bawaannya semuanya.",
+    ),
+    _user: CurrentUser = Depends(_create_roles),
+    lister: EligibleSessionLister = Depends(get_eligible_session_lister),
+) -> list[EligibleSessionRead]:
+    """Semua sesi aktif dengan eligible dan alasannya, supaya halaman tidak menunggu 409.
+
+    eligible hanya menilai satu sesi; syarat antar sesi (rubrik, penilai, suite) tetap dicek
+    saat POST /reports (PBI-15 AC2, AC4).
+    """
+    items = lister.list(measurement_filter=measurement_filter)
+    return [EligibleSessionRead.from_item(item) for item in items]

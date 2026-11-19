@@ -3,7 +3,7 @@
 Schema di sini yang menjadi sumber kontrak OpenAPI. Kalau file ini
 berubah, kontrak API ikut berubah, jadi wajib diumumkan ke tim.
 
-PBI-15 SCRUM-79 SCRUM-313: POST /reports. Aturan isian ditulis di sini sekali; frontend tidak
+PBI-15 SCRUM-79 SCRUM-313: POST /reports dan GET /reports/eligible-sessions. Aturan isian ditulis di sini sekali; frontend tidak
 menyalinnya.
 """
 
@@ -14,6 +14,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.modules.auth.schemas import ErrorBody
+from app.modules.reports.eligible_sessions import EligibleSession
 from app.modules.reports.models import (
     MeasurementFilter,
     MeasurementKind,
@@ -25,6 +26,7 @@ from app.modules.reports.models import (
     ScoreSplit,
 )
 from app.modules.reports.report_generation import GeneratedReport, ReportRequest
+from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType
 from app.shared.text import strip_blank
 
 _TITLE_MAX = 200
@@ -208,3 +210,40 @@ class ReportNotComparableBody(ErrorBody):
         description="Sesi yang belum layak dan kode alasannya, misalnya SESSION_CANCELLED"
     )
     rejections: list[ReportRejectionRead]
+
+
+class EligibleSessionReasonRead(BaseModel):
+    code: str = Field(description="Kode alasan, misalnya SESSION_NOT_GRADED atau SESSION_CANCELLED")
+    message: str = Field(description="Pesan siap tampil untuk pengguna")
+
+
+class EligibleSessionRead(BaseModel):
+    """Satu sesi dan apakah ia layak jadi dasar laporan.
+
+    eligible hanya soal sesi itu sendiri. Dua sesi layak masih bisa mendapat 409
+    REPORT_NOT_COMPARABLE bila rubrik, penilai, atau suite-nya berbeda.
+    """
+
+    session_id: uuid.UUID
+    product_name: str
+    session_type: SessionType
+    purpose: SessionPurpose
+    status: SessionStatus
+    eligible: bool
+    reasons: list[EligibleSessionReasonRead] = Field(
+        description="Semua alasan sesi belum layak; kosong bila eligible"
+    )
+
+    @classmethod
+    def from_item(cls, item: EligibleSession) -> "EligibleSessionRead":
+        return cls(
+            session_id=item.session_id,
+            product_name=item.product_name,
+            session_type=item.session_type,
+            purpose=item.purpose,
+            status=item.status,
+            eligible=item.eligible,
+            reasons=[
+                EligibleSessionReasonRead(code=r.code, message=r.message) for r in item.reasons
+            ],
+        )

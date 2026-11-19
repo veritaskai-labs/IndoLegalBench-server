@@ -60,7 +60,7 @@ from app.shared.security import Role
 REPORT_SESSION_NOT_FOUND = "REPORT_SESSION_NOT_FOUND"
 REPORT_NOT_COMPARABLE = "REPORT_NOT_COMPARABLE"
 
-_KINDS_BY_FILTER = {
+KINDS_BY_FILTER = {
     MeasurementFilter.AUTOMATIC: frozenset({MeasurementKind.AUTOMATIC}),
     MeasurementFilter.MANUAL: frozenset({MeasurementKind.MANUAL}),
     MeasurementFilter.ALL: frozenset(MeasurementKind),
@@ -134,7 +134,7 @@ class ReportGenerator:
                 code=REPORT_SESSION_NOT_FOUND,
                 details={"missing": [str(sid) for sid in missing]},
             )
-        kinds = _KINDS_BY_FILTER[request.measurement_filter]
+        kinds = KINDS_BY_FILTER[request.measurement_filter]
         return [record for record in records if record.measurement_kind in kinds]
 
 

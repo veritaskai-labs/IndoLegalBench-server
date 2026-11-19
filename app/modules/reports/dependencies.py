@@ -7,6 +7,7 @@ get_session_record_reader dengan pembaca palsu lewat dependency_overrides.
 from fastapi import Depends
 from sqlalchemy.orm import Session
 
+from app.modules.reports.eligible_sessions import EligibleSessionLister
 from app.modules.reports.report_generation import ReportGenerator
 from app.modules.reports.session_reader import SqlSessionRecordReader
 from app.modules.reports.session_record import SessionRecordReader
@@ -22,3 +23,9 @@ def get_report_generator(
     reader: SessionRecordReader = Depends(get_session_record_reader),
 ) -> ReportGenerator:
     return ReportGenerator(db, reader)
+
+
+def get_eligible_session_lister(
+    reader: SessionRecordReader = Depends(get_session_record_reader),
+) -> EligibleSessionLister:
+    return EligibleSessionLister(reader)
