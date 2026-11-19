@@ -405,3 +405,22 @@ def test_penanda_dengan_bentuk_lain_ditolak(siap, mata_mata, markers):
 
     assert info.value.code == service.REPORT_MARKER_INVALID
     assert mata_mata == []
+
+
+# --- Review round 2 (Kak Aileen, non-blocking 1) --------------------------------------
+
+
+def test_laporan_tanpa_id_diberi_id_sebelum_dicek(siap, mata_mata):
+    """Edge: Report() tanpa id dapat UUID di awal save_report, jadi baris anak yang
+    menunjuk None ditolak jelas (REPORT_ROW_OTHER_REPORT), bukan IntegrityError saat flush."""
+    db, admin, rubrik, sesi_a, _ = siap
+    report = laporan(admin, rubrik, case_basis_count=1)
+    report.id = None
+    sesi = [sesi_laporan(report, sesi_a)]
+
+    with pytest.raises(ValidationError) as info:
+        service.save_report(db, report, sesi, [hasil(report, sesi_a)], [dasar(report)])
+
+    assert info.value.code == service.REPORT_ROW_OTHER_REPORT
+    assert report.id is not None
+    assert mata_mata == []
