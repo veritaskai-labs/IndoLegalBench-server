@@ -5,7 +5,7 @@ acak: yang diuji adalah cara data dibaca dan dirakit, bukan skemanya.
 """
 
 import uuid
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
 
 import pytest
@@ -613,3 +613,35 @@ class TestSelection:
         assert rekaman_a.graded_cases[0].det == Decimal("0.10")
         assert [k.ref.case_code for k in rekaman_b.graded_cases] == ["CASE-B"]
         assert rekaman_b.graded_cases[0].det == Decimal("0.90")
+
+
+class TestListIds:
+    def test_lists_active_sessions_newest_first(self, db_session, admin):
+        # Arrange
+        lama = _sesi(db_session, admin, nama="Lama", created_at=SEKARANG - timedelta(days=2))
+        baru = _sesi(db_session, admin, nama="Baru", created_at=SEKARANG)
+        tengah = _sesi(db_session, admin, nama="Tengah", created_at=SEKARANG - timedelta(days=1))
+
+        # Act
+        hasil = SqlSessionRecordReader(db_session).list_ids()
+
+        # Assert
+        assert hasil == [baru.id, tengah.id, lama.id]
+
+    def test_leaves_archived_sessions_out(self, db_session, admin):
+        # Arrange
+        aktif = _sesi(db_session, admin, nama="Aktif")
+        _sesi(db_session, admin, nama="Arsip", archived_at=SEKARANG, archived_by=admin.id)
+
+        # Act
+        hasil = SqlSessionRecordReader(db_session).list_ids()
+
+        # Assert
+        assert hasil == [aktif.id]
+
+    def test_no_sessions_gives_an_empty_list(self, db_session):
+        # Act
+        hasil = SqlSessionRecordReader(db_session).list_ids()
+
+        # Assert
+        assert hasil == []
