@@ -9150,9 +9150,27 @@
             "format": "uuid",
             "title": "Session Id"
           },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Nama sesi, untuk membedakan dua sesi dari produk yang sama"
+          },
           "product_name": {
             "type": "string",
             "title": "Product Name"
+          },
+          "created_at": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "date-time"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Created At",
+            "description": "Waktu sesi dibuat"
           },
           "session_type": {
             "$ref": "#/components/schemas/SessionType"
@@ -9179,7 +9197,9 @@
         "type": "object",
         "required": [
           "session_id",
+          "label",
           "product_name",
+          "created_at",
           "session_type",
           "purpose",
           "status",
