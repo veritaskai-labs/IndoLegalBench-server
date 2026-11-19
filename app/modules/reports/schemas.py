@@ -6,64 +6,30 @@ berubah, kontrak API ikut berubah, jadi wajib diumumkan ke tim.
 PBI-15 SCRUM-320: bentuk baca laporan tersimpan. Isinya hasil beku dari
 tabel D1 (reports, report_sessions, report_results, report_case_basis),
 jadi membuka ulang laporan dan membuat PDF tidak pernah menghitung ulang.
-Enum di bawah mengikuti nilai enum D1 apa adanya; tabelnya dibuat di
-SCRUM-300 dan sebaiknya memakai enum yang sama dari file ini.
+Enum diambil dari reports/models.py (SCRUM-300) supaya nilai kolom dan
+kontrak API tidak pernah berbeda.
 """
 
 import uuid
 from datetime import datetime
 from decimal import Decimal
-from enum import StrEnum
 
 from pydantic import BaseModel, ConfigDict, Field
 
 from app.modules.cases.models import SplitTag
-
-
-class ScoreScope(StrEnum):
-    """Jenis nilai yang dipilih saat membuat laporan (reports.score_scope)."""
-
-    TEST = "test"
-    DEV = "dev"
-    DEV_TEST = "dev_test"
-
-
-class ScoreSplit(StrEnum):
-    """Satu baris report_results. Dev + Test menyimpan tiga baris per sesi (D1)."""
-
-    TEST = "test"
-    DEV = "dev"
-    COMBINED = "combined"
-
-
-class MeasurementFilter(StrEnum):
-    AUTOMATIC = "automatic"
-    MANUAL = "manual"
-    ALL = "all"
-
-
-class MeasurementKind(StrEnum):
-    """Label otomatis/manual per produk, disalin dari measurement_sessions.session_type."""
-
-    AUTOMATIC = "automatic"
-    MANUAL = "manual"
-
-
-class ReportStatus(StrEnum):
-    SAVED = "saved"
-    PUBLISHED = "published"
-    SUPERSEDED = "superseded"
-
-
-class ReportLanguage(StrEnum):
-    """Bahasa laporan dan PDF-nya. Bawaan Inggris (PBI-26 AC1)."""
-
-    EN = "en"
-    ID = "id"
+from app.modules.reports.models import (
+    MeasurementFilter,
+    MeasurementKind,
+    ProductLabelMode,
+    ReportLanguage,
+    ReportStatus,
+    ScoreScope,
+    ScoreSplit,
+)
 
 
 class ReportMarker(BaseModel):
-    """Satu penanda D2 dari report_sessions.markers, misalnya 'trial' atau 'repetitions_differ'."""
+    """Satu penanda D2 dari report_sessions.markers, misalnya 'repetitions_differ'."""
 
     model_config = ConfigDict(from_attributes=True)
 
@@ -98,6 +64,8 @@ class ReportSessionRead(BaseModel):
     product_id: uuid.UUID
     product_label: str = Field(description="Nama asli atau kode, dipilih Admin saat membuat")
     measurement_kind: MeasurementKind
+    # Uji Coba hanya disimpan di kolom ini, tidak diulang di markers (keputusan SCRUM-300).
+    is_trial: bool = False
     markers: list[ReportMarker] = Field(default_factory=list)
     results: list[ReportResultRead]
 
@@ -131,6 +99,7 @@ class ReportDetail(ReportSummary):
     """Laporan lengkap untuk dibuka ulang dan dicetak ke PDF (GET /reports/{id})."""
 
     measurement_filter: MeasurementFilter
+    product_label_mode: ProductLabelMode = ProductLabelMode.REAL_NAME
     rubric_version_no: int | None
     judge_model_name: str | None
     case_basis_count: int

@@ -31,14 +31,8 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
-from app.modules.reports.schemas import (
-    MeasurementKind,
-    ReportDetail,
-    ReportLanguage,
-    ReportMarker,
-    ReportSessionRead,
-    ScoreSplit,
-)
+from app.modules.reports.models import MeasurementKind, ReportLanguage, ScoreSplit
+from app.modules.reports.schemas import ReportDetail, ReportMarker, ReportSessionRead
 
 # Berkas logo resmi belum ada di repo. Selama belum ada, bagian atas memakai
 # tulisan VERITASK supaya PDF tetap bisa diunduh.
@@ -68,6 +62,7 @@ class _Labels:
     deterministic: str
     llm: str
     splits: dict[ScoreSplit, str]
+    trial: str
     markers: dict[str, str]
     months: tuple[str, ...]
 
@@ -105,8 +100,8 @@ _LABELS: dict[ReportLanguage, _Labels] = {
             ScoreSplit.DEV: "Kasus dev",
             ScoreSplit.COMBINED: "Gabungan dev + test",
         },
+        trial="Uji Coba",
         markers={
-            "trial": "Uji Coba",
             "model_version_differs": "Versi model berbeda",
             "repetitions_differ": "Jumlah percobaan berbeda",
             "manual_date_span_over_7_days": "Rentang jawaban manual lebih dari 7 hari",
@@ -159,8 +154,8 @@ _LABELS: dict[ReportLanguage, _Labels] = {
             ScoreSplit.DEV: "Dev cases",
             ScoreSplit.COMBINED: "Dev + test combined",
         },
+        trial="Trial",
         markers={
-            "trial": "Trial",
             "model_version_differs": "Different model version",
             "repetitions_differ": "Different number of attempts",
             "manual_date_span_over_7_days": "Manual answers span more than 7 days",
@@ -281,7 +276,7 @@ class ReportPdfRenderer:
                 gagal,
                 str(hasil.repetitions),
                 escape(hasil.product_model_version or _KOSONG),
-                "; ".join(_penanda(marker, label) for marker in sesi.markers),
+                "; ".join(_penanda_sesi(sesi, label)),
             ]
             data.append([Paragraph(nilai, sel) for nilai in kolom])
         tabel = Table(data, colWidths=[lebar * mm for lebar in self._LEBAR], repeatRows=1)
@@ -303,6 +298,12 @@ class ReportPdfRenderer:
 
 def _hasil(sesi: ReportSessionRead, split: ScoreSplit):
     return next((hasil for hasil in sesi.results if hasil.score_split is split), None)
+
+
+def _penanda_sesi(sesi: ReportSessionRead, label: _Labels) -> list[str]:
+    # Uji Coba dari kolom is_trial (SCRUM-300), lalu penanda D2 dari markers.
+    uji_coba = [label.trial] if sesi.is_trial else []
+    return uji_coba + [_penanda(marker, label) for marker in sesi.markers]
 
 
 def _penanda(marker: ReportMarker, label: _Labels) -> str:

@@ -62,12 +62,15 @@ def _hasil(split=ScoreSplit.TEST, **kolom) -> ReportResultRead:
     return ReportResultRead(**nilai)
 
 
-def _sesi(label, kind=MeasurementKind.AUTOMATIC, markers=(), results=None) -> ReportSessionRead:
+def _sesi(
+    label, kind=MeasurementKind.AUTOMATIC, markers=(), results=None, is_trial=False
+) -> ReportSessionRead:
     return ReportSessionRead(
         session_id=uuid.uuid4(),
         product_id=uuid.uuid4(),
         product_label=label,
         measurement_kind=kind,
+        is_trial=is_trial,
         markers=list(markers),
         results=results if results is not None else [_hasil()],
     )
@@ -169,6 +172,23 @@ def test_pdf_mencetak_penanda_d2_per_produk():
 
     # Assert
     assert b"Jumlah percobaan berbeda" in isi
+
+
+@pytest.mark.parametrize(("is_trial", "tercetak"), [(True, True), (False, False)])
+def test_pdf_tanda_uji_coba_mengikuti_kolom_is_trial(is_trial, tercetak):
+    """Positif dan negatif: sesi Uji Coba wajib diberi tanda (AC sesi layak), sesi resmi tidak.
+
+    Sumbernya kolom is_trial, bukan markers (keputusan SCRUM-300), jadi tanda ini tidak
+    bisa hilang walau markers kosong.
+    """
+    # Arrange
+    laporan = _laporan(sessions=[_sesi("AiYU", is_trial=is_trial)])
+
+    # Act
+    isi = _pdf(laporan)
+
+    # Assert
+    assert (b"Uji Coba" in isi) is tercetak
 
 
 def test_pdf_penanda_tak_dikenal_tetap_dicetak_dengan_kodenya():
