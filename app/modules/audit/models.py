@@ -52,6 +52,7 @@ class AuditEntityType(StrEnum):
     MEASUREMENT_SESSION = "measurement_session"
     RUBRIC_VERSION = "rubric_version"
     JUDGE_PROVIDER = "judge_provider"
+    REPORT = "report"
 
 
 class AuditLog(Base):
