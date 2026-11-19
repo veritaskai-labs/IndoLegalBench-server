@@ -66,6 +66,11 @@ def allowed_splits(scope: ScoreScope) -> frozenset[ScoreSplit]:
     return _ALLOWED_SPLITS[scope]
 
 
+def allowed_case_tags(scope: ScoreScope) -> frozenset[SplitTag]:
+    """Split kasus yang boleh menjadi dasar laporan untuk satu jenis nilai (D1, AC14)."""
+    return _ALLOWED_CASE_TAGS[scope]
+
+
 def ensure_publishable(report: Report) -> None:
     """Tolak penerbitan laporan yang memuat skor dev (AC7, AC14, PBI-17 AC9).
 

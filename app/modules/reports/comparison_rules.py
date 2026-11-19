@@ -215,11 +215,16 @@ def is_eligible(facts: SessionFacts) -> bool:
     return not eligibility_problems(facts)
 
 
+def ineligibility_message(code: str) -> str:
+    """Pesan untuk satu kode ketidaklayakan sesi, siap ditampilkan ke pengguna."""
+    return _PESAN_TIDAK_LAYAK[code]
+
+
 def ensure_eligible(facts: SessionFacts) -> None:
     """Tolak sesi yang tidak layak dengan alasan pertamanya sebagai kode galat."""
     alasan = eligibility_problems(facts)
     if alasan:
-        raise ConflictError(_PESAN_TIDAK_LAYAK[alasan[0]], code=alasan[0])
+        raise ConflictError(ineligibility_message(alasan[0]), code=alasan[0])
 
 
 def session_markers(facts: SessionFacts) -> tuple[str, ...]:

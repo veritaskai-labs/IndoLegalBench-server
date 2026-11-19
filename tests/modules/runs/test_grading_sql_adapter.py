@@ -175,6 +175,61 @@ def grading_data(db_session):
     return session, attempt, user, rubric, run
 
 
+def add_quality_judge_runs(db, attempt_id, *scores):
+    """Tambah panggilan penilai kualitas ke-2, ke-3, dst. pada hasil nilai satu percobaan."""
+    result = db.query(GradingResult).filter_by(attempt_id=attempt_id).one()
+    for run_no, score in enumerate(scores, start=2):
+        db.add(
+            LlmJudgeResult(
+                grading_result_id=result.id,
+                judge_run_no=run_no,
+                kind=JudgeKind.QUALITY,
+                status=JudgeStatus.SUCCEEDED,
+                prompt="Synthetic judge prompt",
+                criteria_met=3,
+                criteria_total=4,
+                criteria_score=Decimal(score),
+            )
+        )
+    db.flush()
+
+
+def test_judge_scores_are_rounded_to_cents_by_default(db_session, grading_data):
+    # Arrange: 0.75, 0.76, 0.76 -> mean 0.75666...
+    session, attempt, *_ = grading_data
+    add_quality_judge_runs(db_session, attempt.id, "0.76", "0.76")
+
+    # Act
+    stored = read_latest_grades(db_session, session.id)
+
+    # Assert
+    assert stored.quality[attempt.id] == Decimal("0.76")
+
+
+def test_judge_scores_keep_full_precision_when_rounding_is_turned_off(db_session, grading_data):
+    # Arrange
+    session, attempt, *_ = grading_data
+    add_quality_judge_runs(db_session, attempt.id, "0.76", "0.76")
+
+    # Act
+    stored = read_latest_grades(db_session, session.id, round_judge_scores=False)
+
+    # Assert
+    assert stored.quality[attempt.id] == Decimal("2.27") / Decimal(3)
+
+
+def test_the_report_port_passes_the_rounding_choice_through(db_session, grading_data):
+    # Arrange
+    session, attempt, *_ = grading_data
+    add_quality_judge_runs(db_session, attempt.id, "0.76", "0.76")
+
+    # Act
+    snapshot = SqlGradingReader(db_session).latest(session.id, round_judge_scores=False)
+
+    # Assert
+    assert snapshot.quality[attempt.id] == Decimal("2.27") / Decimal(3)
+
+
 def test_read_sql_scores_remain_separate(db_session, grading_data):
     session, attempt, _, rubric, run = grading_data
 
