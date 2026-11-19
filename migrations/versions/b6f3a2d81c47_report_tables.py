@@ -10,6 +10,7 @@ Trigger PostgreSQL menjaganya untuk semua peran, sama seperti snapshot sesi (160
   jadi status dan rantai versi terbit tidak bisa saling bertentangan (desain A).
 - Isi laporan hanya bisa ditambah di transaksi yang membuat laporannya
   (reports.created_at = now(), waktu awal transaksi). created_at wajib diisi database.
+- Dasar kasus: versi milik kasusnya dan split_tag sama dengan split_tag versi itu.
 - Laporan Test tidak memuat skor atau kasus dev; laporan dengan skor dev tidak bisa terbit
   (lapis kedua di belakang reports.service.ensure_publishable).
 - Produk manual tidak punya tingkat kegagalan (AC2).
@@ -352,12 +353,16 @@ def _create_triggers() -> None:
                         induk.score_scope, NEW.split_tag
                         USING ERRCODE = 'check_violation';
                 END IF;
+                -- split_tag disalin dari versinya; harus sama, kalau tidak kasus dev bisa
+                -- masuk laporan Test dengan menulis 'test' (AC7).
                 IF NOT EXISTS (
                     SELECT 1 FROM case_versions
                     WHERE id = NEW.case_version_id AND case_id = NEW.case_id
+                        AND split_tag::text = NEW.split_tag::text
                 ) THEN
-                    RAISE EXCEPTION 'case_version % does not belong to case %',
-                        NEW.case_version_id, NEW.case_id
+                    RAISE EXCEPTION
+                        'case_version % does not belong to case % with split_tag %',
+                        NEW.case_version_id, NEW.case_id, NEW.split_tag
                         USING ERRCODE = 'check_violation';
                 END IF;
             END IF;
