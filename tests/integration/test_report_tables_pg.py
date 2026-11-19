@@ -430,3 +430,25 @@ def test_ganti_versi_lengkap_lolos_saat_commit(conn, dunia):
     ubah_status(conn, lama, "superseded")
 
     _cek_saat_commit(conn)
+
+
+# --- Review round 2 (Kak Aileen, blocking 1) ------------------------------------------
+
+
+def test_split_tag_dasar_harus_sama_dengan_versi_kasusnya(conn, dunia):
+    """Negatif: kasus dev yang ditulis split_tag='test' tidak boleh masuk laporan Test (AC7)."""
+    laporan = buat_laporan(conn, dunia)
+    kasus, versi = buat_kasus(conn, dunia.admin, split_tag="dev")
+
+    assert (
+        _sqlstate(conn, lambda: tambah_dasar(conn, laporan, kasus, versi, split="test"))
+        == CHECK_VIOLATION
+    )
+
+
+def test_split_tag_dasar_yang_sama_diterima(conn, dunia):
+    """Positif: kasus test dengan split_tag='test' tetap masuk laporan Test."""
+    laporan = buat_laporan(conn, dunia)
+    kasus, versi = buat_kasus(conn, dunia.admin, split_tag="test")
+
+    tambah_dasar(conn, laporan, kasus, versi, split="test")

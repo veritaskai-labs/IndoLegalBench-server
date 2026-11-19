@@ -105,8 +105,13 @@ def save_report(
     """Simpan satu laporan beku beserta seluruh isinya dalam satu flush.
 
     Pemanggil (SCRUM-313) yang commit. Semua aturan diperiksa sebelum ada baris yang
-    ditulis, jadi tidak pernah ada setengah laporan.
+    ditulis, jadi tidak pernah ada setengah laporan. Laporan tanpa id langsung diberi id
+    di sini; baris anak harus menunjuk report.id, jadi buat laporannya dengan id atau
+    ambil report.id sebelum membuat baris anak. split_tag dasar kasus dicocokkan dengan
+    versi kasusnya oleh trigger PostgreSQL (report_rows_check_insert).
     """
+    if report.id is None:
+        report.id = uuid.uuid4()
     _check_rows_belong_to(report, sessions, results, case_basis)
     _check_splits(report, results, case_basis)
     _check_results_complete(report, sessions, results)
