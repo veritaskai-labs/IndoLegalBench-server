@@ -296,6 +296,24 @@ def test_pdf_tanpa_berkas_logo_memakai_wordmark(tmp_path):
     assert b"VERITASK" in isi
 
 
+def test_pdf_produk_diurutkan_sesuai_peringkat_tanpa_peringkat_di_akhir():
+    """Positif dan edge: urutan tabel mengikuti rank; produk dengan skor kosong (rank NULL, D1) di akhir."""
+    # Arrange
+    laporan = _laporan(
+        sessions=[
+            _sesi("Zeta", results=[_hasil(rank=None, total_score=None, llm_score=None)]),
+            _sesi("Alpha", results=[_hasil(rank=2)]),
+            _sesi("Beta", results=[_hasil(rank=1)]),
+        ]
+    )
+
+    # Act
+    isi = _pdf(laporan)
+
+    # Assert
+    assert isi.index(b"Beta") < isi.index(b"Alpha") < isi.index(b"Zeta")
+
+
 def test_pdf_banyak_produk_berlanjut_ke_halaman_berikut():
     """Edge: tidak ada batas jumlah produk (AC1), tabel panjang pindah halaman tanpa terpotong."""
     # Arrange

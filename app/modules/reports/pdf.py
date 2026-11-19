@@ -252,10 +252,7 @@ class ReportPdfRenderer:
 
     def _bagian(self, report: ReportDetail, split: ScoreSplit, label: _Labels, styles) -> list:
         sel = styles["BodyText"].clone("sel", fontSize=7, leading=8.5)
-        baris = sorted(
-            ((sesi, hasil) for sesi in report.sessions if (hasil := _hasil(sesi, split))),
-            key=lambda pasangan: (pasangan[1].rank is None, pasangan[1].rank or 0),
-        )
+        baris = _baris_peringkat(report, split)
         data = [[Paragraph(f"<b>{judul}</b>", sel) for judul in label.columns]]
         for sesi, hasil in baris:
             manual = sesi.measurement_kind is MeasurementKind.MANUAL
@@ -298,6 +295,15 @@ class ReportPdfRenderer:
 
 def _hasil(sesi: ReportSessionRead, split: ScoreSplit):
     return next((hasil for hasil in sesi.results if hasil.score_split is split), None)
+
+
+def _baris_peringkat(report: ReportDetail, split: ScoreSplit) -> list:
+    """Pasangan (sesi, hasil) untuk satu jenis nilai, urut peringkat; tanpa peringkat di akhir."""
+    pasangan = [(sesi, _hasil(sesi, split)) for sesi in report.sessions]
+    return sorted(
+        ((sesi, hasil) for sesi, hasil in pasangan if hasil is not None),
+        key=lambda baris: (baris[1].rank is None, baris[1].rank or 0),
+    )
 
 
 def _penanda_sesi(sesi: ReportSessionRead, label: _Labels) -> list[str]:
