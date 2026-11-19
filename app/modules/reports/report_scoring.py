@@ -6,11 +6,18 @@ Murni, tanpa database dan tanpa HTTP. AC2, AC6.
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 
 from app.modules.cases.models import SplitTag
 from app.modules.reports.comparison_rules import CaseRef
 from app.modules.reports.models import MeasurementKind, ScoreSplit
+from app.modules.runs.score_aggregation import raw_mean_score
+
+_CENT = Decimal("0.01")
+_HUNDRED = Decimal(100)
+
+# Jenis skor Test dan Dev menyaring menurut split kasus; gabungan memakai semua kasus.
+_SPLIT_TAG = {ScoreSplit.TEST: SplitTag.TEST, ScoreSplit.DEV: SplitTag.DEV}
 
 
 @dataclass(frozen=True)
@@ -40,7 +47,10 @@ class SplitScore:
 
     @property
     def total(self) -> Decimal | None:
-        raise NotImplementedError
+        """Rata-rata biasa skor deterministik dan LLM; kosong bila salah satunya kosong (D1)."""
+        if self.det is None or self.llm is None:
+            return None
+        return (self.det + self.llm) / 2
 
 
 @dataclass(frozen=True)
@@ -51,16 +61,50 @@ class RankEntry:
 
 
 def cases_for_split(cases: Sequence[GradedCase], split: ScoreSplit) -> tuple[GradedCase, ...]:
-    raise NotImplementedError
+    """Kasus yang dihitung untuk satu jenis skor: Test, Dev, atau semuanya (gabungan)."""
+    tag = _SPLIT_TAG.get(split)
+    if tag is None:
+        return tuple(cases)
+    return tuple(case for case in cases if case.split == tag)
 
 
 def score_cases(cases: Sequence[GradedCase]) -> SplitScore:
-    raise NotImplementedError
+    """Dua jalur dirata-rata terpisah dan tidak dibulatkan; skor kosong dilewati, bukan nol."""
+    return SplitScore(
+        det=raw_mean_score(case.det for case in cases),
+        llm=raw_mean_score(case.llm for case in cases),
+    )
 
 
 def failure_rate(kind: MeasurementKind, calls: CallCounts) -> Decimal | None:
-    raise NotImplementedError
+    """Persen upaya yang gagal teknis dari total upaya termasuk coba ulang (AC2).
+
+    Tidak berlaku untuk produk manual. Tanpa satu pun upaya, hasilnya 0, bukan galat.
+    """
+    if calls.total < 0 or calls.failed < 0 or calls.failed > calls.total:
+        raise ValueError(f"jumlah upaya tidak mungkin: {calls.failed} gagal dari {calls.total}")
+    if kind is MeasurementKind.MANUAL:
+        return None
+    if calls.total == 0:
+        return Decimal("0.00")
+    return (Decimal(calls.failed) * _HUNDRED / Decimal(calls.total)).quantize(
+        _CENT, rounding=ROUND_HALF_UP
+    )
 
 
 def rank_products(entries: Sequence[RankEntry]) -> dict[uuid.UUID, int | None]:
-    raise NotImplementedError
+    """Peringkat dari skor mentah, bukan yang sudah dibulatkan (AC6).
+
+    Urutannya total menurun, lalu skor LLM menurun, lalu label abjad (keputusan SA, D1).
+    Tie-break skor deterministik tidak ada karena tidak pernah tercapai: bila total dan skor
+    LLM sama, skor deterministiknya pasti sama. Peringkat urut tanpa lompat dan unik; produk
+    tanpa total tidak diberi peringkat dan tidak memakai satu tempat.
+    """
+    ranked = sorted(
+        (entry for entry in entries if entry.score.total is not None),
+        key=lambda entry: (-entry.score.total, -entry.score.llm, entry.label),
+    )
+    peringkat: dict[uuid.UUID, int | None] = {entry.session_id: None for entry in entries}
+    for urutan, entry in enumerate(ranked, start=1):
+        peringkat[entry.session_id] = urutan
+    return peringkat
