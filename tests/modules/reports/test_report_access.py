@@ -19,7 +19,9 @@ from types import SimpleNamespace
 
 import pytest
 
-from app.modules.reports.access import ReportVisibility, visibility_for
+from app.modules.cases.models import SplitTag
+from app.modules.cases.service import MASKED_CASE_CODE
+from app.modules.reports.access import ReportVisibility, visibility_for, visible_case_code
 from app.modules.reports.models import ReportStatus
 from app.shared.security import CurrentUser, Role
 
@@ -116,3 +118,25 @@ def test_developer_ai_membuka_laporan_skor_dev_miliknya():
 
     # Assert
     assert boleh is True
+
+
+@pytest.mark.parametrize(
+    ("role", "split_tag", "kode"),
+    [
+        # Negatif: Developer AI tidak melihat kode kasus test (D9 aturan umum 2, SCRUM-183).
+        (Role.DEVELOPER_AI, SplitTag.TEST, MASKED_CASE_CODE),
+        # Positif: kasus dev terbuka untuk Developer AI.
+        (Role.DEVELOPER_AI, SplitTag.DEV, "UAT-PHK-001"),
+        # Positif: Viewer dan Kontributor melihat kode tanpa isi (D9 penelusuran tanpa isi).
+        (Role.VIEWER, SplitTag.TEST, "UAT-PHK-001"),
+        (Role.CONTRIBUTOR, SplitTag.TEST, "UAT-PHK-001"),
+        (Role.ADMIN, SplitTag.TEST, "UAT-PHK-001"),
+    ],
+)
+def test_kode_kasus_dasar_disamarkan_hanya_untuk_developer_ai(role, split_tag, kode):
+    """Positif dan negatif: penyamaran kasus test berlaku juga di daftar kasus dasar laporan."""
+    # Act
+    hasil = visible_case_code(role, "UAT-PHK-001", split_tag)
+
+    # Assert
+    assert hasil == kode

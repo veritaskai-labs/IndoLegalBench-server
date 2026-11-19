@@ -15,6 +15,7 @@ from unittest.mock import create_autospec
 import pytest
 
 from app.modules.cases.models import SplitTag
+from app.modules.cases.service import MASKED_CASE_CODE
 from app.modules.reports import repository, service
 from app.modules.reports.access import ReportVisibility
 from app.modules.reports.models import (
@@ -224,6 +225,26 @@ def test_get_report_membaca_penanda_dan_uji_coba(repo):
     ]
 
 
+def test_get_report_kode_kasus_test_disamarkan_untuk_developer_ai(repo):
+    """Negatif: Developer AI membuka laporan Dev + Test tanpa melihat kode kasus test (D9 aturan 2)."""
+    # Arrange
+    laporan = _laporan(score_scope=ScoreScope.DEV_TEST, has_dev_scores=True)
+    repo.get_report.return_value = laporan
+    repo.contents.return_value = _isi(
+        laporan,
+        case_basis=[
+            CaseBasisRow("UAT-PHK-001", 2, SplitTag.TEST),
+            CaseBasisRow("DEV-PHK-009", 1, SplitTag.DEV),
+        ],
+    )
+
+    # Act
+    detail = service.get_report(DB, laporan.id, _pengguna(Role.DEVELOPER_AI, user_id=PEMBUAT))
+
+    # Assert
+    assert [k.case_code for k in detail.case_basis] == [MASKED_CASE_CODE, "DEV-PHK-009"]
+
+
 def test_get_report_tidak_ada_ditolak_404(repo):
     """Negatif: id laporan yang tidak ada."""
     # Arrange
@@ -259,3 +280,39 @@ def test_get_report_yang_tidak_boleh_dibaca_disamarkan_sebagai_404(repo, role, u
     with pytest.raises(NotFoundError):
         service.get_report(DB, laporan.id, _pengguna(role))
     repo.contents.assert_not_called()
+
+
+# --- Unduh PDF (GET /reports/{id}/pdf) ----------------------------------------
+
+
+def test_report_pdf_mencetak_hasil_beku_yang_sama_dengan_detail(repo, monkeypatch):
+    """Positif: PDF dibuat dari ReportDetail yang sama dengan halaman web (D3 langkah 14 dan 15)."""
+    # Arrange
+    laporan = _laporan()
+    repo.get_report.return_value = laporan
+    repo.contents.return_value = _isi(laporan)
+    renderer = create_autospec(service.ReportPdfRenderer, instance=True)
+    renderer.render.return_value = b"%PDF-palsu"
+    monkeypatch.setattr(service, "_PDF", renderer)
+
+    # Act
+    isi, nama = service.report_pdf(DB, laporan.id, _pengguna())
+
+    # Assert
+    detail = renderer.render.call_args.args[0]
+    assert (detail.id, detail.rubric_version_no) == (laporan.id, 4)
+    assert isi == b"%PDF-palsu"
+    assert nama == f"laporan-{laporan.id}.pdf"
+
+
+def test_report_pdf_memakai_aturan_baca_yang_sama(repo, monkeypatch):
+    """Negatif: laporan yang tidak boleh dibuka juga tidak boleh diunduh, dan PDF tidak dibuat."""
+    # Arrange
+    repo.get_report.return_value = _laporan(created_by=ORANG_LAIN)
+    renderer = create_autospec(service.ReportPdfRenderer, instance=True)
+    monkeypatch.setattr(service, "_PDF", renderer)
+
+    # Act / Assert
+    with pytest.raises(NotFoundError):
+        service.report_pdf(DB, uuid.uuid4(), _pengguna(Role.VIEWER))
+    renderer.render.assert_not_called()

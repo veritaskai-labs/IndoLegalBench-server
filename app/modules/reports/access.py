@@ -8,12 +8,16 @@ Aturan D9:
 - Laporan tersimpan (saved) hanya untuk pembuatnya dan Admin (keputusan SA).
 - Laporan terbit dan versi lamanya (superseded) untuk semua pengguna login.
 - Laporan berisi skor dev hanya untuk Admin dan Developer AI, walau milik sendiri.
+- Kode kasus test disamarkan untuk Developer AI (D9 aturan umum 2), sama dengan
+  daftar kasus di modul cases. Viewer dan Kontributor tetap melihat kode, tanpa isi.
 """
 
 import uuid
 from dataclasses import dataclass
 from typing import Protocol
 
+from app.modules.cases.models import SplitTag
+from app.modules.cases.service import MASKED_CASE_CODE
 from app.modules.reports.models import ReportStatus
 from app.shared.security import CurrentUser, Role
 
@@ -47,3 +51,10 @@ def visibility_for(user: CurrentUser) -> ReportVisibility:
         all_saved=user.role is Role.ADMIN,
         include_dev=user.role in DEV_SCORE_ROLES,
     )
+
+
+def visible_case_code(role: Role, case_code: str, split_tag: SplitTag) -> str:
+    """Kode kasus dasar yang boleh dilihat peran ini. Tertutup bawaan: selain dev disamarkan."""
+    if role is Role.DEVELOPER_AI and split_tag != SplitTag.DEV:
+        return MASKED_CASE_CODE
+    return case_code

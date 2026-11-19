@@ -23,7 +23,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.cases.models import SplitTag
 from app.modules.reports import repository
-from app.modules.reports.access import visibility_for
+from app.modules.reports.access import visibility_for, visible_case_code
 from app.modules.reports.models import (
     MeasurementKind,
     Report,
@@ -33,6 +33,7 @@ from app.modules.reports.models import (
     ScoreScope,
     ScoreSplit,
 )
+from app.modules.reports.pdf import ReportPdfRenderer, report_pdf_filename
 from app.modules.reports.repository import ReportContents
 from app.modules.reports.schemas import (
     ReportCaseBasisRead,
@@ -53,6 +54,8 @@ REPORT_CASE_BASIS_MISMATCH = "REPORT_CASE_BASIS_MISMATCH"
 REPORT_RESULT_SESSION_UNKNOWN = "REPORT_RESULT_SESSION_UNKNOWN"
 REPORT_ROW_OTHER_REPORT = "REPORT_ROW_OTHER_REPORT"
 REPORT_NOT_FOUND = "REPORT_NOT_FOUND"
+
+_PDF = ReportPdfRenderer()
 
 _ALLOWED_SPLITS: dict[ScoreScope, frozenset[ScoreSplit]] = {
     ScoreScope.TEST: frozenset({ScoreSplit.TEST}),
@@ -142,10 +145,20 @@ def get_report(db: Session, report_id: uuid.UUID, user: CurrentUser) -> ReportDe
     report = repository.get_report(db, report_id)
     if report is None or not visibility_for(user).allows(report):
         raise NotFoundError("Laporan tidak ditemukan.", code=REPORT_NOT_FOUND)
-    return _detail(report, repository.contents(db, report))
+    return _detail(report, repository.contents(db, report), user)
 
 
-def _detail(report: Report, contents: ReportContents) -> ReportDetail:
+def report_pdf(db: Session, report_id: uuid.UUID, user: CurrentUser) -> tuple[bytes, str]:
+    """PDF dan nama berkasnya, dari ReportDetail yang sama dengan halaman web (D3 langkah 13-15).
+
+    Aturan baca ikut get_report, jadi laporan yang tidak boleh dibuka juga tidak bisa
+    diunduh. Bahasa PDF mengikuti reports.language (disiapkan untuk PBI-26).
+    """
+    detail = get_report(db, report_id, user)
+    return _PDF.render(detail), report_pdf_filename(detail)
+
+
+def _detail(report: Report, contents: ReportContents, user: CurrentUser) -> ReportDetail:
     sessions = [
         ReportSessionRead(
             session_id=session.session_id,
@@ -172,7 +185,11 @@ def _detail(report: Report, contents: ReportContents) -> ReportDetail:
             "case_basis_count": report.case_basis_count,
             "sessions": sessions,
             "case_basis": [
-                ReportCaseBasisRead.model_validate(row, from_attributes=True)
+                ReportCaseBasisRead(
+                    case_code=visible_case_code(user.role, row.case_code, row.split_tag),
+                    case_version_no=row.case_version_no,
+                    split_tag=row.split_tag,
+                )
                 for row in contents.case_basis
             ],
         }

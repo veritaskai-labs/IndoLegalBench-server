@@ -5301,6 +5301,164 @@
         }
       }
     },
+    "/reports": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Daftar laporan tersimpan dan terbit yang boleh dilihat",
+        "operationId": "list_reports_reports_get",
+        "parameters": [
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/Page_ReportSummary_"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/{report_id}": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Buka ulang satu laporan dari hasil beku",
+        "operationId": "get_report_reports__report_id__get",
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportDetail"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Laporan tidak ada, atau tidak boleh dibuka peran ini (`REPORT_NOT_FOUND`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/{report_id}/pdf": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Unduh laporan sebagai PDF",
+        "operationId": "download_report_pdf_reports__report_id__pdf_get",
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Berkas PDF laporan",
+            "content": {
+              "application/pdf": {}
+            }
+          },
+          "404": {
+            "description": "Laporan tidak ada, atau tidak boleh dibuka peran ini (`REPORT_NOT_FOUND`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit-logs": {
       "get": {
         "tags": [
@@ -11243,6 +11401,24 @@
         ],
         "title": "MeResponse"
       },
+      "MeasurementFilter": {
+        "type": "string",
+        "enum": [
+          "automatic",
+          "manual",
+          "all"
+        ],
+        "title": "MeasurementFilter"
+      },
+      "MeasurementKind": {
+        "type": "string",
+        "enum": [
+          "automatic",
+          "manual"
+        ],
+        "title": "MeasurementKind",
+        "description": "Label otomatis/manual per produk, salinan measurement_sessions.session_type (AC5)."
+      },
       "MeasurementPurpose": {
         "type": "string",
         "enum": [
@@ -11463,6 +11639,37 @@
         ],
         "title": "Page[NotificationRead]"
       },
+      "Page_ReportSummary_": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSummary"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "title": "Total"
+          },
+          "page": {
+            "type": "integer",
+            "title": "Page"
+          },
+          "size": {
+            "type": "integer",
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "Page[ReportSummary]"
+      },
       "Page_SuiteRead_": {
         "properties": {
           "items": {
@@ -11541,6 +11748,15 @@
         ],
         "title": "PendingReview",
         "description": "Satu baris antrean dashboard reviewer (PBI-19 AC6, SCRUM-154).\n\nwaiting_since adalah saat round dibuka; antrean diurutkan dari yang\nterlama. assigned_at bisa lebih baru bila reviewer ini pengganti."
+      },
+      "ProductLabelMode": {
+        "type": "string",
+        "enum": [
+          "real_name",
+          "code"
+        ],
+        "title": "ProductLabelMode",
+        "description": "Nama asli atau kode produk, dipilih Admin saat membuat laporan (AC9)."
       },
       "ProductPurpose": {
         "type": "string",
@@ -11868,6 +12084,396 @@
         ],
         "title": "ReplaceReviewerResponse",
         "description": "Response sukses POST /reviews/{assignment_id}/replace."
+      },
+      "ReportCaseBasisRead": {
+        "properties": {
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          },
+          "case_version_no": {
+            "type": "integer",
+            "title": "Case Version No"
+          },
+          "split_tag": {
+            "$ref": "#/components/schemas/SplitTag"
+          }
+        },
+        "type": "object",
+        "required": [
+          "case_code",
+          "case_version_no",
+          "split_tag"
+        ],
+        "title": "ReportCaseBasisRead",
+        "description": "Satu kasus dasar perhitungan. Hanya kode dan versi, tanpa isi kasus (D9)."
+      },
+      "ReportDetail": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "score_scope": {
+            "$ref": "#/components/schemas/ScoreScope"
+          },
+          "has_dev_scores": {
+            "type": "boolean",
+            "title": "Has Dev Scores"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReportStatus"
+          },
+          "language": {
+            "$ref": "#/components/schemas/ReportLanguage"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Created By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "measurement_filter": {
+            "$ref": "#/components/schemas/MeasurementFilter"
+          },
+          "product_label_mode": {
+            "$ref": "#/components/schemas/ProductLabelMode",
+            "default": "real_name"
+          },
+          "rubric_version_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rubric Version No"
+          },
+          "judge_model_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Model Name"
+          },
+          "case_basis_count": {
+            "type": "integer",
+            "title": "Case Basis Count"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSessionRead"
+            },
+            "type": "array",
+            "title": "Sessions"
+          },
+          "case_basis": {
+            "items": {
+              "$ref": "#/components/schemas/ReportCaseBasisRead"
+            },
+            "type": "array",
+            "title": "Case Basis"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "score_scope",
+          "has_dev_scores",
+          "status",
+          "language",
+          "created_by",
+          "created_at",
+          "measurement_filter",
+          "rubric_version_no",
+          "judge_model_name",
+          "case_basis_count",
+          "sessions",
+          "case_basis"
+        ],
+        "title": "ReportDetail",
+        "description": "Laporan lengkap untuk dibuka ulang dan dicetak ke PDF (GET /reports/{id})."
+      },
+      "ReportLanguage": {
+        "type": "string",
+        "enum": [
+          "en",
+          "id"
+        ],
+        "title": "ReportLanguage",
+        "description": "Bahasa laporan dan PDF-nya. Bawaan Inggris (PBI-26 AC1)."
+      },
+      "ReportMarker": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "examples": [
+              "repetitions_differ"
+            ]
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail",
+            "description": "Keterangan tambahan, misalnya jumlah"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "ReportMarker",
+        "description": "Satu penanda D2 dari report_sessions.markers, misalnya 'repetitions_differ'."
+      },
+      "ReportResultRead": {
+        "properties": {
+          "score_split": {
+            "$ref": "#/components/schemas/ScoreSplit"
+          },
+          "cases_graded_count": {
+            "type": "integer",
+            "title": "Cases Graded Count"
+          },
+          "cases_basis_count": {
+            "type": "integer",
+            "title": "Cases Basis Count"
+          },
+          "det_score": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Det Score"
+          },
+          "llm_score": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Score"
+          },
+          "total_score": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Score",
+            "description": "Hanya untuk peringkat, tidak ditampilkan"
+          },
+          "failure_rate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Rate",
+            "description": "Persen dari total upaya; NULL untuk manual"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank"
+          },
+          "repetitions": {
+            "type": "integer",
+            "title": "Repetitions"
+          },
+          "product_model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Model Version"
+          },
+          "judge_model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Model Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "score_split",
+          "cases_graded_count",
+          "cases_basis_count",
+          "det_score",
+          "llm_score",
+          "total_score",
+          "failure_rate",
+          "rank",
+          "repetitions",
+          "product_model_version",
+          "judge_model_version"
+        ],
+        "title": "ReportResultRead",
+        "description": "Satu baris report_results. Skor dua desimal, tanpa persen (AC skor)."
+      },
+      "ReportSessionRead": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "product_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Product Id"
+          },
+          "product_label": {
+            "type": "string",
+            "title": "Product Label",
+            "description": "Nama asli atau kode, dipilih Admin saat membuat"
+          },
+          "measurement_kind": {
+            "$ref": "#/components/schemas/MeasurementKind"
+          },
+          "is_trial": {
+            "type": "boolean",
+            "title": "Is Trial",
+            "default": false
+          },
+          "markers": {
+            "items": {
+              "$ref": "#/components/schemas/ReportMarker"
+            },
+            "type": "array",
+            "title": "Markers"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ReportResultRead"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "product_id",
+          "product_label",
+          "measurement_kind",
+          "results"
+        ],
+        "title": "ReportSessionRead",
+        "description": "Satu sesi (satu produk) di laporan beserta hasil bekunya."
+      },
+      "ReportStatus": {
+        "type": "string",
+        "enum": [
+          "saved",
+          "published",
+          "superseded"
+        ],
+        "title": "ReportStatus"
+      },
+      "ReportSummary": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "score_scope": {
+            "$ref": "#/components/schemas/ScoreScope"
+          },
+          "has_dev_scores": {
+            "type": "boolean",
+            "title": "Has Dev Scores"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReportStatus"
+          },
+          "language": {
+            "$ref": "#/components/schemas/ReportLanguage"
+          },
+          "created_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Created By"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "score_scope",
+          "has_dev_scores",
+          "status",
+          "language",
+          "created_by",
+          "created_at"
+        ],
+        "title": "ReportSummary",
+        "description": "Satu baris di daftar laporan tersimpan (GET /reports)."
       },
       "ReviewCopy": {
         "properties": {
@@ -12590,6 +13196,26 @@
         "type": "object",
         "title": "ScorePair",
         "description": "Skor deterministik, kualitas rubrik, dan format penilai LLM (PBI-14, SCRUM-225)."
+      },
+      "ScoreScope": {
+        "type": "string",
+        "enum": [
+          "test",
+          "dev",
+          "dev_test"
+        ],
+        "title": "ScoreScope",
+        "description": "Jenis nilai yang dipilih saat membuat laporan (AC14)."
+      },
+      "ScoreSplit": {
+        "type": "string",
+        "enum": [
+          "test",
+          "dev",
+          "combined"
+        ],
+        "title": "ScoreSplit",
+        "description": "Satu baris report_results. Dev + Test menyimpan tiga baris per sesi (D1)."
       },
       "SessionAcceptRequest": {
         "properties": {
