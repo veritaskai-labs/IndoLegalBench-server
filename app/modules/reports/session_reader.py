@@ -48,6 +48,16 @@ class SqlSessionRecordReader:
         self._db = db
         self._grades = SqlGradingReader(db)
 
+    def list_ids(self) -> list[uuid.UUID]:
+        """Id semua sesi aktif (tidak diarsipkan), yang terbaru lebih dulu."""
+        return list(
+            self._db.scalars(
+                sa.select(MeasurementSession.id)
+                .where(MeasurementSession.archived_at.is_(None))
+                .order_by(MeasurementSession.created_at.desc(), MeasurementSession.id)
+            )
+        )
+
     def read(self, session_ids: Sequence[uuid.UUID]) -> list[SessionRecord]:
         """Satu rekaman per id yang diminta, urut sama dan id berulang dipertahankan.
 

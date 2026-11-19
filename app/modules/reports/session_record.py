@@ -45,6 +45,8 @@ class SessionRecord:
 class SessionRecordReader(Protocol):
     """Membaca sesi menurut id. Sesi yang tidak ada tidak ikut dikembalikan."""
 
+    def list_ids(self) -> list[uuid.UUID]: ...
+
     def read(self, session_ids: Sequence[uuid.UUID]) -> list[SessionRecord]: ...
 
 
