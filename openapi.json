@@ -5383,6 +5383,55 @@
         }
       }
     },
+    "/reports/eligible-sessions": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Daftar sesi beserta kelayakannya untuk laporan",
+        "description": "Semua sesi aktif dengan eligible dan alasannya, supaya halaman tidak menunggu 409.\n\neligible hanya menilai satu sesi; syarat antar sesi (rubrik, penilai, suite) tetap dicek\nsaat POST /reports (PBI-15 AC2, AC4).",
+        "operationId": "list_eligible_sessions_reports_eligible_sessions_get",
+        "parameters": [
+          {
+            "name": "measurement_filter",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/MeasurementFilter",
+              "description": "Saring sesi otomatis atau manual saja; bawaannya semuanya.",
+              "default": "all"
+            },
+            "description": "Saring sesi otomatis atau manual saja; bawaannya semuanya."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EligibleSessionRead"
+                  },
+                  "title": "Response List Eligible Sessions Reports Eligible Sessions Get"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit-logs": {
       "get": {
         "tags": [
@@ -9093,6 +9142,72 @@
         ],
         "title": "DashboardSummary",
         "description": "GET /dashboard: ringkasan kerja pengguna yang login, sesuai perannya."
+      },
+      "EligibleSessionRead": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "product_name": {
+            "type": "string",
+            "title": "Product Name"
+          },
+          "session_type": {
+            "$ref": "#/components/schemas/SessionType"
+          },
+          "purpose": {
+            "$ref": "#/components/schemas/SessionPurpose"
+          },
+          "status": {
+            "$ref": "#/components/schemas/SessionStatus"
+          },
+          "eligible": {
+            "type": "boolean",
+            "title": "Eligible"
+          },
+          "reasons": {
+            "items": {
+              "$ref": "#/components/schemas/EligibleSessionReasonRead"
+            },
+            "type": "array",
+            "title": "Reasons",
+            "description": "Semua alasan sesi belum layak; kosong bila eligible"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "product_name",
+          "session_type",
+          "purpose",
+          "status",
+          "eligible",
+          "reasons"
+        ],
+        "title": "EligibleSessionRead",
+        "description": "Satu sesi dan apakah ia layak jadi dasar laporan.\n\neligible hanya soal sesi itu sendiri. Dua sesi layak masih bisa mendapat 409\nREPORT_NOT_COMPARABLE bila rubrik, penilai, atau suite-nya berbeda."
+      },
+      "EligibleSessionReasonRead": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Kode alasan, misalnya SESSION_NOT_GRADED atau SESSION_CANCELLED"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Pesan siap tampil untuk pengguna"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "EligibleSessionReasonRead"
       },
       "ErrorBody": {
         "properties": {
@@ -13978,6 +14093,15 @@
         ],
         "title": "SessionProgressRead",
         "description": "Progres \"X dari N\" di daftar sesi (PBI-11 AC10)."
+      },
+      "SessionPurpose": {
+        "type": "string",
+        "enum": [
+          "official",
+          "trial"
+        ],
+        "title": "SessionPurpose",
+        "description": "Pengukuran Resmi atau Uji Coba (AC1)."
       },
       "SessionResumeRequest": {
         "properties": {
