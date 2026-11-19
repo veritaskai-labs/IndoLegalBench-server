@@ -17,6 +17,7 @@ from app.modules.reports.comparison_rules import (
     NO_SHARED_CASES,
     RUBRIC_VERSION,
     SESSION_CANCELLED,
+    SUITE_VERSION,
     CaseRef,
     SessionFacts,
 )
@@ -539,6 +540,47 @@ class TestNotComparable:
 
         # Assert
         assert DUPLICATE_PRODUCT in galat.value.details["selection_errors"]
+        assert _jumlah(db_session, Report) == 0
+
+
+def _beda_versi_kasus_1():
+    """Dua sesi yang menilai CASE-001 pada versi berbeda, jadi syarat suite gagal."""
+    a = _rekaman("A", [_nilai(1, "0.5", "0.5")])
+    versi_dua = GradedCase(
+        ref=_ref(1, versi=2), split=SplitTag.TEST, det=Decimal("0.5"), llm=Decimal("0.5")
+    )
+    return a, _rekaman("B", [versi_dua])
+
+
+class TestRejectionCaseCodes:
+    @pytest.mark.parametrize("role", [Role.ADMIN, Role.CONTRIBUTOR])
+    def test_roles_that_may_read_cases_see_the_conflicting_case_codes(self, db_session, role):
+        # Arrange
+        a, b = _beda_versi_kasus_1()
+
+        # Act
+        with pytest.raises(ConflictError) as galat:
+            _buat(db_session, a, b, role=role)
+
+        # Assert
+        (tolakan,) = galat.value.details["rejections"]
+        assert tolakan["requirement"] == SUITE_VERSION
+        assert "CASE-001" in tolakan["message"]
+
+    @pytest.mark.parametrize("role", [Role.DEVELOPER_AI, Role.VIEWER])
+    def test_roles_that_may_not_read_cases_get_a_message_without_case_codes(self, db_session, role):
+        # Arrange
+        a, b = _beda_versi_kasus_1()
+
+        # Act
+        with pytest.raises(ConflictError) as galat:
+            _buat(db_session, a, b, role=role)
+
+        # Assert
+        (tolakan,) = galat.value.details["rejections"]
+        assert tolakan["requirement"] == SUITE_VERSION
+        assert tolakan["message"]
+        assert "CASE-" not in tolakan["message"]
         assert _jumlah(db_session, Report) == 0
 
 

@@ -4,11 +4,14 @@ AC1, AC2, AC6, AC7, AC9, AC14. Pembaca sesi diganti pembaca palsu; peran dipalsu
 as_role. Yang diuji: bentuk request dan response, kode status, dan pesan galat.
 """
 
+from decimal import Decimal
+
 import pytest
 
 from app.main import app
 from app.modules.cases.models import SplitTag
 from app.modules.reports.dependencies import get_session_record_reader
+from app.modules.reports.report_scoring import GradedCase
 from app.shared.security import Role
 from tests.modules.reports.test_report_generation import PembacaPalsu, _nilai, _ref, _rekaman
 
@@ -220,6 +223,25 @@ class TestRefused:
         assert isi["ineligible"] == {str(batal.facts.session_id): ["SESSION_CANCELLED"]}
         assert isi["selection_errors"] == []
         assert isi["rejections"] == []
+
+    def test_a_409_never_shows_test_case_codes_to_developer_ai(self, as_role, pasang_pembaca):
+        # Arrange
+        a = _rekaman("A", [_nilai(1, "0.5", "0.5")])
+        versi_dua = GradedCase(
+            ref=_ref(1, versi=2), split=SplitTag.TEST, det=Decimal("0.5"), llm=Decimal("0.5")
+        )
+        b = _rekaman("B", [versi_dua])
+        pasang_pembaca(a, b)
+        client = as_role(Role.DEVELOPER_AI)
+
+        # Act
+        respons = client.post(URL, json=_isi((a, b)))
+
+        # Assert
+        assert respons.status_code == 409
+        (tolakan,) = respons.json()["rejections"]
+        assert tolakan["requirement"] == "SUITE_VERSION"
+        assert "CASE-" not in respons.text
 
     def test_no_shared_cases_is_a_200_warning_without_a_report(self, as_role, pasang_pembaca):
         # Arrange
