@@ -5301,6 +5301,88 @@
         }
       }
     },
+    "/reports": {
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Buat laporan perbandingan dari sesi pengukuran",
+        "description": "Hitung dan simpan satu laporan beku (PBI-15 AC1, AC2, AC6, AC7, AC9, AC14).",
+        "operationId": "create_report_reports_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportCreate"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportCreateResponse"
+                }
+              }
+            }
+          },
+          "200": {
+            "description": "Tidak ada kasus yang dijawab semua produk: hanya peringatan `NO_SHARED_CASES`, tidak ada angka dan tidak ada laporan yang tersimpan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportCreateResponse"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Jenis nilai atau label di luar hak peran (`REPORT_SCOPE_FORBIDDEN`, `REPORT_LABEL_MODE_FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ada sesi yang dipilih tidak ditemukan (`REPORT_SESSION_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportSessionNotFoundBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Pilihan belum bisa dibandingkan (`REPORT_NOT_COMPARABLE`): pilihan tidak sah, sesi tidak layak, atau syarat rubrik, penilai, dan suite tidak terpenuhi.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportNotComparableBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit-logs": {
       "get": {
         "tags": [
@@ -11243,6 +11325,24 @@
         ],
         "title": "MeResponse"
       },
+      "MeasurementFilter": {
+        "type": "string",
+        "enum": [
+          "automatic",
+          "manual",
+          "all"
+        ],
+        "title": "MeasurementFilter"
+      },
+      "MeasurementKind": {
+        "type": "string",
+        "enum": [
+          "automatic",
+          "manual"
+        ],
+        "title": "MeasurementKind",
+        "description": "Label otomatis/manual per produk, salinan measurement_sessions.session_type (AC5)."
+      },
       "MeasurementPurpose": {
         "type": "string",
         "enum": [
@@ -11541,6 +11641,15 @@
         ],
         "title": "PendingReview",
         "description": "Satu baris antrean dashboard reviewer (PBI-19 AC6, SCRUM-154).\n\nwaiting_since adalah saat round dibuka; antrean diurutkan dari yang\nterlama. assigned_at bisa lebih baru bila reviewer ini pengganti."
+      },
+      "ProductLabelMode": {
+        "type": "string",
+        "enum": [
+          "real_name",
+          "code"
+        ],
+        "title": "ProductLabelMode",
+        "description": "Nama asli atau kode produk, dipilih Admin saat membuat laporan (AC9)."
       },
       "ProductPurpose": {
         "type": "string",
@@ -11868,6 +11977,512 @@
         ],
         "title": "ReplaceReviewerResponse",
         "description": "Response sukses POST /reviews/{assignment_id}/replace."
+      },
+      "ReportCreate": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 200,
+            "minLength": 1,
+            "title": "Title",
+            "description": "Judul laporan. Karakter kosong di tepi, termasuk yang tak terlihat, dibuang."
+          },
+          "session_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "minItems": 1,
+            "title": "Session Ids",
+            "description": "Sesi yang dibandingkan, satu sesi per produk, urut seperti dikirim. Tidak ada batas jumlah. Minimal dua produk dicek server (409 NEED_AT_LEAST_TWO_PRODUCTS)."
+          },
+          "score_scope": {
+            "$ref": "#/components/schemas/ScoreScope",
+            "description": "Jenis nilai: test, dev, atau dev_test. dev dan dev_test hanya untuk Admin dan Developer AI; peran lain mendapat 403 REPORT_SCOPE_FORBIDDEN."
+          },
+          "measurement_filter": {
+            "$ref": "#/components/schemas/MeasurementFilter",
+            "description": "Saring sesi otomatis atau manual saja; bawaannya semuanya.",
+            "default": "all"
+          },
+          "product_label_mode": {
+            "$ref": "#/components/schemas/ProductLabelMode",
+            "description": "Nama asli (bawaan) atau kode Product A, B, ... Hanya Admin yang boleh memakai kode (403 REPORT_LABEL_MODE_FORBIDDEN).",
+            "default": "real_name"
+          },
+          "language": {
+            "$ref": "#/components/schemas/ReportLanguage",
+            "description": "Bahasa laporan dan PDF-nya.",
+            "default": "en"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "title",
+          "session_ids",
+          "score_scope"
+        ],
+        "title": "ReportCreate",
+        "description": "Permintaan membuat laporan perbandingan dari beberapa sesi pengukuran."
+      },
+      "ReportCreateResponse": {
+        "properties": {
+          "report": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/ReportRead"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Laporan yang tersimpan; kosong bila hanya ada peringatan"
+          },
+          "warning": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Warning",
+            "description": "NO_SHARED_CASES: tidak ada kasus yang sama, tidak ada angka perbandingan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "report"
+        ],
+        "title": "ReportCreateResponse",
+        "description": "201 bila laporan tersimpan. 200 dengan report kosong bila tidak ada kasus yang sama."
+      },
+      "ReportLanguage": {
+        "type": "string",
+        "enum": [
+          "en",
+          "id"
+        ],
+        "title": "ReportLanguage",
+        "description": "Bahasa laporan dan PDF-nya. Bawaan Inggris (PBI-26 AC1)."
+      },
+      "ReportMarkerCode": {
+        "type": "string",
+        "enum": [
+          "model_version_differs",
+          "repetitions_differ",
+          "manual_date_span_over_7_days",
+          "refusals"
+        ],
+        "title": "ReportMarkerCode",
+        "description": "Kode penanda D2 per sesi di report_sessions.markers (keputusan SA, 19 Nov).\n\nUji Coba tidak punya kode di sini: disimpan hanya di is_trial supaya sumbernya satu."
+      },
+      "ReportMarkerRead": {
+        "properties": {
+          "code": {
+            "$ref": "#/components/schemas/ReportMarkerCode"
+          },
+          "detail": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Detail"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code"
+        ],
+        "title": "ReportMarkerRead"
+      },
+      "ReportNotComparableBody": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "examples": [
+              "No platform account is mapped to this identity."
+            ]
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field",
+            "description": "Lokasi field yang gagal, misalnya legal_refs[0].links[0].pasal"
+          },
+          "selection_errors": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Selection Errors",
+            "description": "NEED_AT_LEAST_TWO_PRODUCTS atau DUPLICATE_PRODUCT"
+          },
+          "ineligible": {
+            "additionalProperties": {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            "propertyNames": {
+              "format": "uuid"
+            },
+            "type": "object",
+            "title": "Ineligible",
+            "description": "Sesi yang belum layak dan kode alasannya, misalnya SESSION_CANCELLED"
+          },
+          "rejections": {
+            "items": {
+              "$ref": "#/components/schemas/ReportRejectionRead"
+            },
+            "type": "array",
+            "title": "Rejections"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "selection_errors",
+          "ineligible",
+          "rejections"
+        ],
+        "title": "ReportNotComparableBody",
+        "description": "409 REPORT_NOT_COMPARABLE: semua alasan sekaligus, bukan hanya yang pertama."
+      },
+      "ReportRead": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "score_scope": {
+            "$ref": "#/components/schemas/ScoreScope"
+          },
+          "has_dev_scores": {
+            "type": "boolean",
+            "title": "Has Dev Scores"
+          },
+          "measurement_filter": {
+            "$ref": "#/components/schemas/MeasurementFilter"
+          },
+          "product_label_mode": {
+            "$ref": "#/components/schemas/ProductLabelMode"
+          },
+          "language": {
+            "$ref": "#/components/schemas/ReportLanguage"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ReportStatus"
+          },
+          "rubric_version_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Rubric Version Id"
+          },
+          "judge_model_name": {
+            "type": "string",
+            "title": "Judge Model Name"
+          },
+          "case_basis_count": {
+            "type": "integer",
+            "title": "Case Basis Count",
+            "description": "Jumlah kasus yang dijawab semua produk"
+          },
+          "created_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Created At"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/ReportSessionRead"
+            },
+            "type": "array",
+            "title": "Sessions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "title",
+          "score_scope",
+          "has_dev_scores",
+          "measurement_filter",
+          "product_label_mode",
+          "language",
+          "status",
+          "rubric_version_id",
+          "judge_model_name",
+          "case_basis_count",
+          "created_at",
+          "sessions"
+        ],
+        "title": "ReportRead"
+      },
+      "ReportRejectionRead": {
+        "properties": {
+          "requirement": {
+            "type": "string",
+            "title": "Requirement",
+            "description": "RUBRIC_VERSION, JUDGE_MODEL, atau SUITE_VERSION"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message"
+          }
+        },
+        "type": "object",
+        "required": [
+          "requirement",
+          "message"
+        ],
+        "title": "ReportRejectionRead"
+      },
+      "ReportResultRead": {
+        "properties": {
+          "score_split": {
+            "$ref": "#/components/schemas/ScoreSplit"
+          },
+          "cases_graded_count": {
+            "type": "integer",
+            "title": "Cases Graded Count",
+            "description": "Kasus yang dinilai untuk produk ini"
+          },
+          "cases_basis_count": {
+            "type": "integer",
+            "title": "Cases Basis Count",
+            "description": "Kasus yang menjadi dasar perbandingan"
+          },
+          "det_score": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Det Score",
+            "description": "Skor jalur deterministik"
+          },
+          "llm_score": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Score",
+            "description": "Skor penilai LLM, terpisah dari deterministik"
+          },
+          "total_score": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Total Score",
+            "description": "Rata-rata kedua skor; dasar peringkat"
+          },
+          "failure_rate": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Failure Rate",
+            "description": "Persen upaya gagal teknis (percobaan ulang ikut dihitung); kosong untuk manual"
+          },
+          "rank": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rank",
+            "description": "Peringkat; kosong bila total skor kosong"
+          },
+          "repetitions": {
+            "type": "integer",
+            "title": "Repetitions"
+          },
+          "product_model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Model Version"
+          },
+          "judge_model_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Judge Model Version"
+          }
+        },
+        "type": "object",
+        "required": [
+          "score_split",
+          "cases_graded_count",
+          "cases_basis_count",
+          "det_score",
+          "llm_score",
+          "total_score",
+          "failure_rate",
+          "rank",
+          "repetitions",
+          "product_model_version",
+          "judge_model_version"
+        ],
+        "title": "ReportResultRead",
+        "description": "Angka beku satu produk untuk satu jenis skor. Skor 0 sampai 1, dua digit desimal."
+      },
+      "ReportSessionNotFoundBody": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "examples": [
+              "No platform account is mapped to this identity."
+            ]
+          },
+          "field": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Field",
+            "description": "Lokasi field yang gagal, misalnya legal_refs[0].links[0].pasal"
+          },
+          "missing": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Missing",
+            "description": "Id sesi yang tidak ditemukan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message",
+          "missing"
+        ],
+        "title": "ReportSessionNotFoundBody",
+        "description": "404 REPORT_SESSION_NOT_FOUND."
+      },
+      "ReportSessionRead": {
+        "properties": {
+          "session_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Session Id"
+          },
+          "product_label": {
+            "type": "string",
+            "title": "Product Label"
+          },
+          "measurement_kind": {
+            "$ref": "#/components/schemas/MeasurementKind"
+          },
+          "is_trial": {
+            "type": "boolean",
+            "title": "Is Trial",
+            "description": "Sesi Uji Coba wajib diberi tanda yang jelas"
+          },
+          "markers": {
+            "items": {
+              "$ref": "#/components/schemas/ReportMarkerRead"
+            },
+            "type": "array",
+            "title": "Markers"
+          },
+          "results": {
+            "items": {
+              "$ref": "#/components/schemas/ReportResultRead"
+            },
+            "type": "array",
+            "title": "Results"
+          }
+        },
+        "type": "object",
+        "required": [
+          "session_id",
+          "product_label",
+          "measurement_kind",
+          "is_trial",
+          "markers",
+          "results"
+        ],
+        "title": "ReportSessionRead"
+      },
+      "ReportStatus": {
+        "type": "string",
+        "enum": [
+          "saved",
+          "published",
+          "superseded"
+        ],
+        "title": "ReportStatus"
       },
       "ReviewCopy": {
         "properties": {
@@ -12590,6 +13205,26 @@
         "type": "object",
         "title": "ScorePair",
         "description": "Skor deterministik, kualitas rubrik, dan format penilai LLM (PBI-14, SCRUM-225)."
+      },
+      "ScoreScope": {
+        "type": "string",
+        "enum": [
+          "test",
+          "dev",
+          "dev_test"
+        ],
+        "title": "ScoreScope",
+        "description": "Jenis nilai yang dipilih saat membuat laporan (AC14)."
+      },
+      "ScoreSplit": {
+        "type": "string",
+        "enum": [
+          "test",
+          "dev",
+          "combined"
+        ],
+        "title": "ScoreSplit",
+        "description": "Satu baris report_results. Dev + Test menyimpan tiga baris per sesi (D1)."
       },
       "SessionAcceptRequest": {
         "properties": {
