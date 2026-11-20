@@ -16,6 +16,7 @@ status published, lalu status lama jadi superseded.
 """
 
 import uuid
+from dataclasses import dataclass
 from datetime import UTC, datetime
 
 from sqlalchemy.exc import IntegrityError
@@ -42,6 +43,14 @@ _TAKEN = (
 )
 
 
+@dataclass(frozen=True)
+class _ReplacedVersion:
+    """Versi yang diganti dan laporannya. Keduanya ada, atau tidak ada penggantian."""
+
+    publication: PublishedReport
+    report: Report
+
+
 def publish(
     db: Session,
     *,
@@ -51,13 +60,13 @@ def publish(
 ) -> PublicationRead:
     """Terbitkan satu laporan tersimpan, atau ganti satu versi yang masih berlaku."""
     report = _saved_report(db, report_id)
-    predecessor, replaced = _current_predecessor(db, supersedes_id)
+    replaced = _replaced_version(db, supersedes_id)
     row = PublishedReport(
         report_id=report.id,
-        version_no=1 if predecessor is None else predecessor.version_no + 1,
+        version_no=1 if replaced is None else replaced.publication.version_no + 1,
         published_by=actor_id,
         published_at=datetime.now(UTC),
-        supersedes_id=None if predecessor is None else predecessor.id,
+        supersedes_id=None if replaced is None else replaced.publication.id,
     )
     try:
         # Baris terbit harus ada sebelum status berubah: trigger BEFORE UPDATE
@@ -65,7 +74,7 @@ def publish(
         repository.add_publication(db, row)
         report.status = ReportStatus.PUBLISHED
         if replaced is not None:
-            replaced.status = ReportStatus.SUPERSEDED
+            replaced.report.status = ReportStatus.SUPERSEDED
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -112,11 +121,9 @@ def _saved_report(db: Session, report_id: uuid.UUID) -> Report:
     return report
 
 
-def _current_predecessor(
-    db: Session, supersedes_id: uuid.UUID | None
-) -> tuple[PublishedReport | None, Report | None]:
+def _replaced_version(db: Session, supersedes_id: uuid.UUID | None) -> _ReplacedVersion | None:
     if supersedes_id is None:
-        return None, None
+        return None
     predecessor = repository.lock_publication(db, supersedes_id)
     if predecessor is None:
         raise NotFoundError(
@@ -129,7 +136,7 @@ def _current_predecessor(
             "Hanya versi yang sedang terbit yang bisa diganti.",
             code=REPORT_NOT_PUBLISHABLE,
         )
-    return predecessor, replaced
+    return _ReplacedVersion(publication=predecessor, report=replaced)
 
 
 def _publication_taken(exc: IntegrityError) -> bool:
