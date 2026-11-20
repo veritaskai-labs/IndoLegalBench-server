@@ -36,14 +36,12 @@ from app.modules.reports.dependencies import (
 )
 from app.modules.reports.eligible_sessions import EligibleSessionLister
 from app.modules.reports.models import MeasurementFilter, ScoreScope
-from app.modules.reports.publication import (
-    PublicationRead,
-    PublishedReportListItem,
-    PublishReport,
-)
 from app.modules.reports.report_generation import ReportGenerator
 from app.modules.reports.schemas import (
     EligibleSessionRead,
+    PublicationRead,
+    PublishedReportListItem,
+    PublishReport,
     ReportCreate,
     ReportCreateResponse,
     ReportDetail,

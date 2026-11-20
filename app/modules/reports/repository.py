@@ -1,7 +1,8 @@
 """Akses database modul reports.
 
-ATURAN: hanya reports/service.py yang boleh memanggil file ini. Modul lain
-tidak boleh mengimpor repository milik modul lain.
+ATURAN: hanya lapisan service modul reports yang boleh memanggil file ini:
+service.py, history.py, dan publication.py. Modul lain tidak boleh
+mengimpor repository milik modul ini.
 
 Isi file ini murni query, tanpa logika bisnis. Sengaja hanya ada fungsi tambah dan baca:
 laporan beku tidak punya jalur ubah atau hapus (SCRUM-300, AC10).
@@ -20,6 +21,7 @@ from app.modules.cases.models import CaseVersion, SplitTag
 from app.modules.grading.models import RubricVersion
 from app.modules.reports.access import ReportVisibility
 from app.modules.reports.models import (
+    PublishedReport,
     Report,
     ReportCaseBasis,
     ReportResult,
@@ -113,3 +115,56 @@ def contents(db: Session, report: Report) -> ReportContents:
         results=list(results),
         case_basis=[CaseBasisRow(*row) for row in case_basis],
     )
+
+
+@dataclass(frozen=True)
+class CurrentPublication:
+    """Satu versi yang laporannya masih published, beserta laporannya."""
+
+    publication: PublishedReport
+    report: Report
+
+
+def get_publication(db: Session, publication_id: uuid.UUID) -> PublishedReport | None:
+    return db.get(PublishedReport, publication_id)
+
+
+def add_publication(db: Session, row: PublishedReport) -> None:
+    """Tambah satu versi terbit dan flush, sebelum status laporannya diubah."""
+    db.add(row)
+    db.flush()
+
+
+def list_current_publications(
+    db: Session, *, offset: int, limit: int
+) -> tuple[list[CurrentPublication], int]:
+    """Versi yang laporannya masih published, terbaru dulu, beserta totalnya."""
+    query = (
+        sa.select(PublishedReport, Report)
+        .join(Report, Report.id == PublishedReport.report_id)
+        .where(Report.status == ReportStatus.PUBLISHED)
+    )
+    total = db.scalar(sa.select(sa.func.count()).select_from(query.subquery())) or 0
+    rows = db.execute(
+        query.order_by(PublishedReport.published_at.desc(), PublishedReport.id.desc())
+        .offset(offset)
+        .limit(limit)
+    ).all()
+    return [CurrentPublication(publication, report) for publication, report in rows], total
+
+
+def frozen_product_labels(
+    db: Session, report_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, list[str]]:
+    """Label yang tersimpan di report_sessions, urut abjad. Bukan nama produk yang hidup."""
+    if not report_ids:
+        return {}
+    found: dict[uuid.UUID, list[str]] = {}
+    rows = db.execute(
+        sa.select(ReportSession.report_id, ReportSession.product_label)
+        .where(ReportSession.report_id.in_(report_ids))
+        .order_by(ReportSession.product_label)
+    ).all()
+    for report_id, label in rows:
+        found.setdefault(report_id, []).append(label)
+    return found
