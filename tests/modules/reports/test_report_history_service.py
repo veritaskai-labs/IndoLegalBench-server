@@ -1,4 +1,4 @@
-"""Unit test service riwayat laporan (PBI-15 SCRUM-320, diagram D3 langkah 10 dan 11).
+"""Unit test reports/history.py, riwayat laporan (PBI-15 SCRUM-320, diagram D3 langkah 10 dan 11).
 
 Repository di-mock (create_autospec), jadi yang diuji hanya logika service: filter
 D9 yang dikirim ke repository, penolakan laporan yang tidak boleh dibaca, dan cara hasil
@@ -16,7 +16,7 @@ import pytest
 
 from app.modules.cases.models import SplitTag
 from app.modules.cases.service import MASKED_CASE_CODE
-from app.modules.reports import repository, service
+from app.modules.reports import history, repository
 from app.modules.reports.access import ReportVisibility
 from app.modules.reports.models import (
     MeasurementFilter,
@@ -46,7 +46,7 @@ DB = object()  # Sesi database palsu: service hanya meneruskannya ke repository.
 def repo(monkeypatch):
     """Repository tiruan dengan tanda tangan fungsi asli, jadi salah argumen langsung gagal."""
     tiruan = create_autospec(repository, instance=True)
-    monkeypatch.setattr(service, "repository", tiruan)
+    monkeypatch.setattr(history, "repository", tiruan)
     return tiruan
 
 
@@ -126,7 +126,7 @@ def test_list_reports_mengirim_filter_d9_dan_halaman_ke_repository(repo):
     repo.list_reports.return_value = ([laporan], 41)
 
     # Act
-    halaman = service.list_reports(DB, _pengguna(), PageParams(page=3, size=20))
+    halaman = history.list_reports(DB, _pengguna(), PageParams(page=3, size=20))
 
     # Assert
     repo.list_reports.assert_called_once_with(
@@ -146,7 +146,7 @@ def test_list_reports_kosong_tetap_halaman_valid(repo):
     repo.list_reports.return_value = ([], 0)
 
     # Act
-    halaman = service.list_reports(DB, _pengguna(Role.ADMIN), PageParams())
+    halaman = history.list_reports(DB, _pengguna(Role.ADMIN), PageParams())
 
     # Assert
     assert (halaman.items, halaman.total) == ([], 0)
@@ -163,7 +163,7 @@ def test_get_report_merakit_hasil_beku_tanpa_menghitung_ulang(repo):
     repo.contents.return_value = _isi(laporan)
 
     # Act
-    detail = service.get_report(DB, laporan.id, _pengguna())
+    detail = history.get_report(DB, laporan.id, _pengguna())
 
     # Assert
     repo.contents.assert_called_once_with(DB, laporan)
@@ -191,7 +191,7 @@ def test_get_report_hasil_hanya_masuk_ke_sesinya_sendiri(repo):
     repo.contents.return_value = _isi(laporan, results=[*hasil, _hasil(laporan, SESI_B, 2)])
 
     # Act
-    detail = service.get_report(DB, laporan.id, _pengguna(Role.ADMIN))
+    detail = history.get_report(DB, laporan.id, _pengguna(Role.ADMIN))
 
     # Assert
     assert [r.score_split for r in detail.sessions[0].results] == list(ScoreSplit)
@@ -214,7 +214,7 @@ def test_get_report_membaca_penanda_dan_uji_coba(repo):
     repo.contents.return_value = _isi(laporan, sessions=[sesi], results=[])
 
     # Act
-    detail = service.get_report(DB, laporan.id, _pengguna())
+    detail = history.get_report(DB, laporan.id, _pengguna())
 
     # Assert
     hasil = detail.sessions[0]
@@ -244,7 +244,7 @@ def test_get_report_mode_kode_tidak_membuka_identitas_produk(repo, role):
     )
 
     # Act
-    detail = service.get_report(DB, laporan.id, _pengguna(role))
+    detail = history.get_report(DB, laporan.id, _pengguna(role))
 
     # Assert
     sesi = detail.sessions[0].model_dump()
@@ -263,7 +263,7 @@ def test_get_report_nama_asli_tetap_mengirim_versi_model_tanpa_total_score(repo)
     repo.contents.return_value = _isi(laporan)
 
     # Act
-    detail = service.get_report(DB, laporan.id, _pengguna())
+    detail = history.get_report(DB, laporan.id, _pengguna())
 
     # Assert
     hasil = detail.sessions[0].results[0].model_dump()
@@ -285,7 +285,7 @@ def test_get_report_kode_kasus_test_disamarkan_untuk_developer_ai(repo):
     )
 
     # Act
-    detail = service.get_report(DB, laporan.id, _pengguna(Role.DEVELOPER_AI, user_id=PEMBUAT))
+    detail = history.get_report(DB, laporan.id, _pengguna(Role.DEVELOPER_AI, user_id=PEMBUAT))
 
     # Assert
     assert [k.case_code for k in detail.case_basis] == [MASKED_CASE_CODE, "DEV-PHK-009"]
@@ -298,8 +298,8 @@ def test_get_report_tidak_ada_ditolak_404(repo):
 
     # Act / Assert
     with pytest.raises(NotFoundError) as galat:
-        service.get_report(DB, uuid.uuid4(), _pengguna())
-    assert galat.value.code == service.REPORT_NOT_FOUND
+        history.get_report(DB, uuid.uuid4(), _pengguna())
+    assert galat.value.code == history.REPORT_NOT_FOUND
     repo.contents.assert_not_called()
 
 
@@ -324,7 +324,7 @@ def test_get_report_yang_tidak_boleh_dibaca_disamarkan_sebagai_404(repo, role, u
 
     # Act / Assert
     with pytest.raises(NotFoundError):
-        service.get_report(DB, laporan.id, _pengguna(role))
+        history.get_report(DB, laporan.id, _pengguna(role))
     repo.contents.assert_not_called()
 
 
@@ -337,12 +337,12 @@ def test_report_pdf_mencetak_hasil_beku_yang_sama_dengan_detail(repo, monkeypatc
     laporan = _laporan()
     repo.get_report.return_value = laporan
     repo.contents.return_value = _isi(laporan)
-    renderer = create_autospec(service.ReportPdfRenderer, instance=True)
+    renderer = create_autospec(history.ReportPdfRenderer, instance=True)
     renderer.render.return_value = b"%PDF-palsu"
-    monkeypatch.setattr(service, "_PDF", renderer)
+    monkeypatch.setattr(history, "_PDF", renderer)
 
     # Act
-    isi, nama = service.report_pdf(DB, laporan.id, _pengguna())
+    isi, nama = history.report_pdf(DB, laporan.id, _pengguna())
 
     # Assert
     detail = renderer.render.call_args.args[0]
@@ -355,10 +355,10 @@ def test_report_pdf_memakai_aturan_baca_yang_sama(repo, monkeypatch):
     """Negatif: laporan yang tidak boleh dibuka juga tidak boleh diunduh, dan PDF tidak dibuat."""
     # Arrange
     repo.get_report.return_value = _laporan(created_by=ORANG_LAIN)
-    renderer = create_autospec(service.ReportPdfRenderer, instance=True)
-    monkeypatch.setattr(service, "_PDF", renderer)
+    renderer = create_autospec(history.ReportPdfRenderer, instance=True)
+    monkeypatch.setattr(history, "_PDF", renderer)
 
     # Act / Assert
     with pytest.raises(NotFoundError):
-        service.report_pdf(DB, uuid.uuid4(), _pengguna(Role.VIEWER))
+        history.report_pdf(DB, uuid.uuid4(), _pengguna(Role.VIEWER))
     renderer.render.assert_not_called()

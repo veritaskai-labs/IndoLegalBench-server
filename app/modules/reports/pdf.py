@@ -39,7 +39,7 @@ from app.modules.reports.models import (
     ReportMarkerCode,
     ScoreSplit,
 )
-from app.modules.reports.schemas import ReportDetail, ReportMarker, ReportSessionRead
+from app.modules.reports.schemas import ReportDetail, ReportDetailSessionRead, ReportMarkerRead
 
 # Wordmark resmi Veritask (PNG transparan, rasio 4:1) untuk bagian atas laporan (AC tampilan).
 # Bila berkas hilang, bagian atas memakai tulisan VERITASK supaya PDF tetap bisa diunduh.
@@ -316,7 +316,7 @@ class ReportPdfRenderer:
         return [judul, tabel, Spacer(1, 3 * mm), grafik, Spacer(1, 4 * mm)]
 
 
-def _hasil(sesi: ReportSessionRead, split: ScoreSplit):
+def _hasil(sesi: ReportDetailSessionRead, split: ScoreSplit):
     return next((hasil for hasil in sesi.results if hasil.score_split is split), None)
 
 
@@ -329,13 +329,13 @@ def _baris_peringkat(report: ReportDetail, split: ScoreSplit) -> list:
     )
 
 
-def _penanda_sesi(sesi: ReportSessionRead, label: _Labels) -> list[str]:
+def _penanda_sesi(sesi: ReportDetailSessionRead, label: _Labels) -> list[str]:
     # Uji Coba dari kolom is_trial (SCRUM-300), lalu penanda D2 dari markers.
     uji_coba = [label.trial] if sesi.is_trial else []
     return uji_coba + [_penanda(marker, label) for marker in sesi.markers]
 
 
-def _penanda(marker: ReportMarker, label: _Labels) -> str:
+def _penanda(marker: ReportMarkerRead, label: _Labels) -> str:
     # code bertipe ReportMarkerCode dan test memastikan semua kode punya label.
     teks = escape(label.markers[marker.code])
     return f"{teks} ({escape(marker.detail)})" if marker.detail else teks
@@ -360,7 +360,7 @@ def _nama_grafik(nama: str) -> str:
 
 
 def _grafik_batang(
-    sesi: list[ReportSessionRead], hasil: list, label: _Labels, language: ReportLanguage
+    sesi: list[ReportDetailSessionRead], hasil: list, label: _Labels, language: ReportLanguage
 ) -> Drawing:
     """Dua batang per produk: deterministik dan LLM, tidak digabung (AC skor)."""
     det = [_nilai_grafik(h.det_score) for h in hasil]

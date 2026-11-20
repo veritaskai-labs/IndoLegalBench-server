@@ -36,10 +36,10 @@ from app.modules.reports.schemas import (
     MeasurementKind,
     ReportCaseBasisRead,
     ReportDetail,
+    ReportDetailResultRead,
+    ReportDetailSessionRead,
     ReportLanguage,
-    ReportMarker,
-    ReportResultRead,
-    ReportSessionRead,
+    ReportMarkerRead,
     ReportStatus,
     ScoreScope,
     ScoreSplit,
@@ -52,7 +52,7 @@ PNG_1X1 = base64.b64decode(
 )
 
 
-def _hasil(split=ScoreSplit.TEST, **kolom) -> ReportResultRead:
+def _hasil(split=ScoreSplit.TEST, **kolom) -> ReportDetailResultRead:
     nilai = {
         "score_split": split,
         "cases_graded_count": 120,
@@ -66,13 +66,13 @@ def _hasil(split=ScoreSplit.TEST, **kolom) -> ReportResultRead:
         "judge_model_version": "claude-opus-5-5",
     }
     nilai.update(kolom)
-    return ReportResultRead(**nilai)
+    return ReportDetailResultRead(**nilai)
 
 
 def _sesi(
     label, kind=MeasurementKind.AUTOMATIC, markers=(), results=None, is_trial=False
-) -> ReportSessionRead:
-    return ReportSessionRead(
+) -> ReportDetailSessionRead:
+    return ReportDetailSessionRead(
         product_label=label,
         measurement_kind=kind,
         is_trial=is_trial,
@@ -102,7 +102,7 @@ def _laporan(**kolom) -> ReportDetail:
             _sesi(
                 "Justisio",
                 kind=MeasurementKind.MANUAL,
-                markers=[ReportMarker(code="repetitions_differ")],
+                markers=[ReportMarkerRead(code="repetitions_differ")],
                 results=[_hasil(rank=3, failure_rate=None, repetitions=1)],
             ),
         ],
@@ -201,7 +201,9 @@ def test_pdf_tanda_uji_coba_mengikuti_kolom_is_trial(is_trial, tercetak):
 def test_setiap_kode_penanda_punya_label_di_kedua_bahasa(kode, bahasa):
     """Edge: kode baru di ReportMarkerCode (SCRUM-300) tidak boleh tercetak mentah di PDF."""
     # Arrange
-    laporan = _laporan(language=bahasa, sessions=[_sesi("AiYU", markers=[ReportMarker(code=kode)])])
+    laporan = _laporan(
+        language=bahasa, sessions=[_sesi("AiYU", markers=[ReportMarkerRead(code=kode)])]
+    )
 
     # Act
     isi = _pdf(laporan)
@@ -214,7 +216,7 @@ def test_penanda_dengan_kode_tak_dikenal_ditolak_schema():
     """Negatif: kode penanda adalah ReportMarkerCode, jadi kode liar tidak sampai ke PDF."""
     # Act / Assert
     with pytest.raises(ValueError, match="code"):
-        ReportMarker(code="new_marker")
+        ReportMarkerRead(code="new_marker")
 
 
 @pytest.mark.parametrize(
@@ -376,7 +378,7 @@ def test_pdf_banyak_produk_berlanjut_ke_halaman_berikut():
 # Grafik diperiksa dari objek Drawing-nya, karena isi grafik di PDF hanya garis dan kotak.
 
 
-def _grafik(sesi: list[ReportSessionRead]):
+def _grafik(sesi: list[ReportDetailSessionRead]):
     gambar = _grafik_batang(
         sesi, [s.results[0] for s in sesi], _LABELS[ReportLanguage.ID], ReportLanguage.ID
     )

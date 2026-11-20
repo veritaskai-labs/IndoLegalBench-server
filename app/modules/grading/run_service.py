@@ -44,8 +44,14 @@ class RunHistoryItem:
 def read_latest_grades(
     db: Session,
     session_id: uuid.UUID,
+    *,
+    round_judge_scores: bool = True,
 ) -> LatestGradeScores:
-    """Read the latest finished grading run."""
+    """Read the latest finished grading run.
+
+    Judge scores are averaged per attempt and rounded to cents for display. Pass
+    round_judge_scores=False to keep full precision, e.g. for ranking in reports.
+    """
 
     run = db.scalar(
         select(GradingRun).where(
@@ -95,10 +101,10 @@ def read_latest_grades(
             grouped[key].append(row.criteria_score)
 
     def average(scores: list[Decimal]) -> Decimal:
-        return (sum(scores, Decimal(0)) / Decimal(len(scores))).quantize(
-            Decimal("0.01"),
-            rounding=ROUND_HALF_UP,
-        )
+        mean = sum(scores, Decimal(0)) / Decimal(len(scores))
+        if not round_judge_scores:
+            return mean
+        return mean.quantize(Decimal("0.01"), rounding=ROUND_HALF_UP)
 
     quality = {
         attempt_id: average(scores)
