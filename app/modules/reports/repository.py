@@ -100,7 +100,17 @@ def contents(db: Session, report: Report) -> ReportContents:
         .order_by(ReportSession.product_label)
     )
     results = db.scalars(sa.select(ReportResult).where(ReportResult.report_id == report.id))
-    case_basis = db.execute(
+    return ReportContents(
+        rubric_version_no=rubric_version_no,
+        sessions=list(sessions),
+        results=list(results),
+        case_basis=case_basis(db, report.id),
+    )
+
+
+def case_basis(db: Session, report_id: uuid.UUID) -> list[CaseBasisRow]:
+    """Kasus dasar laporan beserta kode dan versinya, urut kode kasus."""
+    rows = db.execute(
         # Tag dari case_versions, bukan salinan di report_case_basis: penyamaran kasus test untuk
         # Developer AI (access.visible_case_code) tidak boleh percaya salinan yang bisa salah
         # (review #146). Versi kasus approved tidak pernah diubah, jadi hasilnya tetap beku.
@@ -112,15 +122,10 @@ def contents(db: Session, report: Report) -> ReportContents:
         )
         .select_from(ReportCaseBasis)
         .join(CaseVersion, CaseVersion.id == ReportCaseBasis.case_version_id)
-        .where(ReportCaseBasis.report_id == report.id)
+        .where(ReportCaseBasis.report_id == report_id)
         .order_by(CaseVersion.case_code)
     )
-    return ReportContents(
-        rubric_version_no=rubric_version_no,
-        sessions=list(sessions),
-        results=list(results),
-        case_basis=[CaseBasisRow(*row) for row in case_basis],
-    )
+    return [CaseBasisRow(*row) for row in rows]
 
 
 # --- Penelusuran angka laporan (PBI-16 SCRUM-326, D6 langkah 2-7) --------------

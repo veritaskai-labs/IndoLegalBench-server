@@ -55,10 +55,20 @@ def get_report(db: Session, report_id: uuid.UUID, user: CurrentUser) -> ReportDe
     supaya keberadaan laporan tersimpan orang lain tidak bocor, dan isinya tidak pernah
     dibaca dari database.
     """
+    report = readable_report(db, report_id, user)
+    return _detail(report, repository.contents(db, report), user)
+
+
+def readable_report(db: Session, report_id: uuid.UUID, user: CurrentUser) -> Report:
+    """Laporan yang boleh dibaca pengguna ini, atau 404 (D9).
+
+    Satu pintu untuk riwayat, PDF, dan penelusuran angka (PBI-16), supaya aturan siapa
+    membuka laporan mana tidak pernah berbeda di antara ketiganya.
+    """
     report = repository.get_report(db, report_id)
     if report is None or not visibility_for(user).allows(report):
         raise NotFoundError("Laporan tidak ditemukan.", code=REPORT_NOT_FOUND)
-    return _detail(report, repository.contents(db, report), user)
+    return report
 
 
 def report_pdf(db: Session, report_id: uuid.UUID, user: CurrentUser) -> tuple[bytes, str]:

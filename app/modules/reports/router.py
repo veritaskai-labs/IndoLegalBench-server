@@ -16,6 +16,9 @@ SCRUM-320 (riwayat laporan dan PDF, diagram D3 langkah 10-15):
 - GET /reports/{id}/pdf: unduh laporan yang sama sebagai PDF
 Semua peran yang login boleh memanggil; siapa melihat laporan mana diputuskan service
 (reports/access.py).
+
+SCRUM-326 (penelusuran angka sampai bukti, PBI-16, diagram D6 langkah 1-7):
+- GET /reports/{id}/results/{result_id}/cases: kasus dasar di balik satu angka
 """
 
 import uuid
@@ -24,7 +27,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
-from app.modules.reports import history
+from app.modules.reports import drilldown, history
 from app.modules.reports.dependencies import get_eligible_session_lister, get_report_generator
 from app.modules.reports.eligible_sessions import EligibleSessionLister
 from app.modules.reports.models import MeasurementFilter
@@ -35,6 +38,7 @@ from app.modules.reports.schemas import (
     ReportCreateResponse,
     ReportDetail,
     ReportNotComparableBody,
+    ReportResultCasesRead,
     ReportSessionNotFoundBody,
     ReportSummary,
 )
@@ -172,3 +176,26 @@ def download_report_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{nama_berkas}"'},
     )
+
+
+@router.get(
+    "/{report_id}/results/{result_id}/cases",
+    response_model=ReportResultCasesRead,
+    summary="Kasus dasar di balik satu angka laporan, tanpa isi kasus",
+    responses={
+        404: {
+            "model": ErrorBody,
+            "description": "Laporan tidak boleh dibuka atau tidak ada (`REPORT_NOT_FOUND`), "
+            "angka bukan milik laporan ini (`REPORT_RESULT_NOT_FOUND`), atau hasil penilaiannya "
+            "tidak ditemukan (`REPORT_GRADES_NOT_FOUND`)",
+        }
+    },
+)
+def list_result_cases(
+    report_id: uuid.UUID,
+    result_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> ReportResultCasesRead:
+    """PBI-16 AC1: kode kasus, versi kasus, dan skor per kasus untuk semua peran (D9)."""
+    return drilldown.list_cases(db, report_id, result_id, user)

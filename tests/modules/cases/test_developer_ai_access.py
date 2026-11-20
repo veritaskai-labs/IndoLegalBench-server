@@ -290,6 +290,9 @@ _DIBUKA = {
     ("GET", "/reports"),
     ("GET", "/reports/{report_id}"),
     ("GET", "/reports/{report_id}/pdf"),
+    # PBI-16 AC1 (SCRUM-326): daftar kasus di balik angka laporan. Kode kasus test disamarkan
+    # dan isinya tidak dikirim, diuji di test_drilldown_service.py.
+    ("GET", "/reports/{report_id}/results/{result_id}/cases"),
 }
 # Jalur tanpa penjaga peran: login, profil sendiri, dan lonceng notifikasi.
 _TANPA_PERAN = ("/health", "/auth/", "/notifications")

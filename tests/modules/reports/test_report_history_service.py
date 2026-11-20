@@ -89,6 +89,7 @@ def _sesi(report: Report, session_id: uuid.UUID, label: str, **ubah) -> ReportSe
 
 def _hasil(report: Report, session_id: uuid.UUID, rank: int, **ubah) -> ReportResult:
     isi = {
+        "id": uuid.uuid4(),
         "report_id": report.id,
         "session_id": session_id,
         "score_split": ScoreSplit.TEST,

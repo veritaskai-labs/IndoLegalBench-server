@@ -280,6 +280,8 @@ class ReportDetailResultRead(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
+    # Kunci penelusuran angka (PBI-16): menunjuk satu angka tanpa membuka sesi dan produknya.
+    id: uuid.UUID = Field(description="Id angka ini untuk GET /reports/{id}/results/{result_id}")
     score_split: ScoreSplit
     cases_graded_count: int
     cases_basis_count: int
@@ -347,3 +349,36 @@ class ReportDetail(ReportSummary):
     case_basis_count: int
     sessions: list[ReportDetailSessionRead]
     case_basis: list[ReportCaseBasisRead]
+
+
+# --- Penelusuran angka laporan (PBI-16 SCRUM-326, D6) ----------------------------
+
+
+class ReportCaseScoreRead(BaseModel):
+    """Satu kasus dasar di balik satu angka: kode, versi, dan skornya, tanpa isi (AC1).
+
+    Bentuknya sama untuk semua peran (D9: daftar kasus dan skor terbuka untuk semua).
+    Yang berbeda hanya kode kasus test untuk Developer AI dan content_visible.
+    """
+
+    case_id: uuid.UUID
+    case_code: str = Field(description="TERSEMBUNYI untuk kasus test bila dibaca Developer AI")
+    case_version_no: int
+    split_tag: SplitTag
+    det_score: Decimal | None = Field(description="Rata-rata skor deterministik percobaan")
+    llm_score: Decimal | None = Field(description="Rata-rata skor penilai LLM percobaan")
+    content_visible: bool = Field(
+        description="True bila peran ini boleh membuka isi kasus, jawaban, dan alasan (AC3)"
+    )
+
+
+class ReportResultCasesRead(BaseModel):
+    """Daftar kasus di balik satu angka laporan (GET /reports/{id}/results/{result_id}/cases)."""
+
+    report_id: uuid.UUID
+    result_id: uuid.UUID
+    product_label: str = Field(description="Label beku di laporan: nama asli atau kode")
+    measurement_kind: MeasurementKind
+    score_split: ScoreSplit
+    rubric_version: str = Field(description="Versi rubrik run penilaian di balik angka ini")
+    cases: list[ReportCaseScoreRead]
