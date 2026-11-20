@@ -104,6 +104,20 @@ def test_admin_publishes_someone_elses_saved_report(client, db_session, dunia):
     assert db_session.get(report.__class__, report.id).status == ReportStatus.PUBLISHED
 
 
+def test_the_client_cannot_choose_the_version_number(client, db_session, dunia):
+    """Negatif: version_no diisi server. Field lain pada badan juga ditolak."""
+    # Arrange
+    complete_login(client, db_session, sub=ADMIN_SUB)
+    report = dunia["tersimpan"]
+
+    # Act
+    respons = client.post(f"/reports/{report.id}/publish", json={"version_no": 5})
+
+    # Assert
+    assert respons.status_code == 422
+    assert db_session.get(report.__class__, report.id).status == ReportStatus.SAVED
+
+
 def test_dev_scores_are_rejected_with_409(client, db_session, dunia):
     """Negatif: laporan skor dev tidak terbit (AC12, D1 aturan 1)."""
     # Arrange

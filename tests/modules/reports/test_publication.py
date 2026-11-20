@@ -137,6 +137,51 @@ class TestPublish:
         assert galat.value.code != REPORT_HAS_DEV_SCORES
         assert _jumlah_terbit(db_session) == 0
 
+    def test_a_report_that_already_has_a_publication_row_is_not_published_again(self, db_session):
+        """Dua permintaan bersamaan: status sempat kembali saved, indeks unik menolak baris kedua."""
+        # Arrange
+        admin, rubrik, sesi = _siap(db_session)
+        report = _simpan(db_session, admin, rubrik, sesi)
+        publication.publish(db_session, report_id=report.id, actor_id=admin.id)
+        tersimpan = db_session.get(Report, report.id)
+        tersimpan.status = ReportStatus.SAVED
+        db_session.commit()
+
+        # Act
+        with pytest.raises(ConflictError) as galat:
+            publication.publish(db_session, report_id=report.id, actor_id=admin.id)
+
+        # Assert
+        assert galat.value.code == publication.REPORT_NOT_PUBLISHABLE
+        assert db_session.get(Report, report.id).status == ReportStatus.SAVED
+        assert _jumlah_terbit(db_session) == 1
+
+    def test_a_version_that_was_already_replaced_cannot_be_replaced_again(self, db_session):
+        """Dua pengganti untuk satu versi: indeks unik menolak cabang kedua."""
+        # Arrange
+        admin, rubrik, sesi = _siap(db_session)
+        pertama = _simpan(db_session, admin, rubrik, sesi, title="v1")
+        kedua = _simpan(db_session, admin, rubrik, sesi, title="v2")
+        ketiga = _simpan(db_session, admin, rubrik, sesi, title="v3")
+        v1 = publication.publish(db_session, report_id=pertama.id, actor_id=admin.id)
+        publication.publish(db_session, report_id=kedua.id, actor_id=admin.id, supersedes_id=v1.id)
+        db_session.get(Report, pertama.id).status = ReportStatus.PUBLISHED
+        db_session.commit()
+
+        # Act
+        with pytest.raises(ConflictError) as galat:
+            publication.publish(
+                db_session,
+                report_id=ketiga.id,
+                actor_id=admin.id,
+                supersedes_id=v1.id,
+            )
+
+        # Assert
+        assert galat.value.code == publication.REPORT_NOT_PUBLISHABLE
+        assert db_session.get(Report, ketiga.id).status == ReportStatus.SAVED
+        assert _jumlah_terbit(db_session) == 2
+
 
 class TestReplace:
     def test_a_new_version_keeps_the_old_row_and_marks_it_superseded(self, db_session):
