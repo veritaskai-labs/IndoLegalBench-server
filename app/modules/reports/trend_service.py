@@ -11,7 +11,9 @@ from typing import Protocol
 
 from app.modules.reports.models import ScoreScope
 from app.modules.reports.session_record import SessionRecordReader
-from app.modules.reports.trend import Trend, TrendMetric, TrendRange
+from app.modules.reports.trend import Trend, TrendMetric, TrendRange, build_trend
+from app.modules.reports.trend_policy import ensure_can_view_trend
+from app.shared.exceptions import NotFoundError
 from app.shared.security import Role
 
 TREND_PRODUCT_NOT_FOUND = "TREND_PRODUCT_NOT_FOUND"
@@ -57,11 +59,24 @@ class TrendService:
         metric: TrendMetric = TrendMetric.TOTAL,
         window: TrendRange = TrendRange.ALL,
     ) -> ProductTrend:
+        # Peran diperiksa lebih dulu: permintaan skor dev yang ditolak tidak boleh membaca sesi.
+        ensure_can_view_trend(role, scope)
+        name = self._catalog.name_of(product_id)
+        if name is None:
+            raise NotFoundError("Produk AI tidak ditemukan.", code=TREND_PRODUCT_NOT_FOUND)
+
+        # Hanya membaca hasil yang sudah tersimpan; tidak ada pengukuran yang dijalankan ulang.
+        records = [
+            record
+            for record in self._reader.read(self._reader.list_ids())
+            if record.facts.product_id == product_id
+        ]
+        trend = build_trend(records, scope=scope, metric=metric, window=window, today=self._today())
         return ProductTrend(
             product_id=product_id,
-            product_name="",
+            product_name=name,
             scope=scope,
             metric=metric,
             window=window,
-            trend=Trend(points=(), warnings=()),
+            trend=trend,
         )
