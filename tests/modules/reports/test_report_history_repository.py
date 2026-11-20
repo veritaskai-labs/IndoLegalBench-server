@@ -182,8 +182,8 @@ def test_contents_membaca_versi_rubrik_sesi_hasil_dan_kode_kasus(db_session, das
     assert [s.product_label for s in isi.sessions] == ["Gemini", "Justisio"]
     assert {(r.session_id, r.rank) for r in isi.results} == {(sesi_a.id, 1), (sesi_b.id, 2)}
     assert isi.case_basis == [
-        repository.CaseBasisRow("UAT-PHK-001", 3, SplitTag.TEST),
-        repository.CaseBasisRow("UAT-PHK-002", 1, SplitTag.TEST),
+        repository.CaseBasisRow("UAT-PHK-001", 3, SplitTag.TEST, versi[1].case_id),
+        repository.CaseBasisRow("UAT-PHK-002", 1, SplitTag.TEST, versi[0].case_id),
     ]
 
 
@@ -225,4 +225,6 @@ def test_contents_tag_kasus_diambil_dari_versi_kasus_bukan_salinan(db_session, d
     isi = repository.contents(db_session, report)
 
     # Assert
-    assert isi.case_basis == [repository.CaseBasisRow("RAHASIA-001", 1, SplitTag.TEST)]
+    assert isi.case_basis == [
+        repository.CaseBasisRow("RAHASIA-001", 1, SplitTag.TEST, versi.case_id)
+    ]
