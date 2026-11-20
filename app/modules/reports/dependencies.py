@@ -1,4 +1,4 @@
-"""Perakitan dependency FastAPI untuk modul reports (PBI-15, SCRUM-313).
+"""Perakitan dependency FastAPI untuk modul reports (PBI-15, SCRUM-313; PBI-17, SCRUM-331).
 
 Satu-satunya tempat yang tahu pembaca sesi mana yang dipakai pembuat laporan. Test mengganti
 get_session_record_reader dengan pembaca palsu lewat dependency_overrides.
@@ -11,6 +11,8 @@ from app.modules.reports.eligible_sessions import EligibleSessionLister
 from app.modules.reports.report_generation import ReportGenerator
 from app.modules.reports.session_reader import SqlSessionRecordReader
 from app.modules.reports.session_record import SessionRecordReader
+from app.modules.reports.trend_catalog import SqlProductCatalog
+from app.modules.reports.trend_service import ProductCatalog, TrendService
 from app.shared.database import get_db
 
 
@@ -29,3 +31,14 @@ def get_eligible_session_lister(
     reader: SessionRecordReader = Depends(get_session_record_reader),
 ) -> EligibleSessionLister:
     return EligibleSessionLister(reader)
+
+
+def get_product_catalog(db: Session = Depends(get_db)) -> ProductCatalog:
+    return SqlProductCatalog(db)
+
+
+def get_trend_service(
+    reader: SessionRecordReader = Depends(get_session_record_reader),
+    catalog: ProductCatalog = Depends(get_product_catalog),
+) -> TrendService:
+    return TrendService(reader, catalog)
