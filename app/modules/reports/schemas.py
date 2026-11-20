@@ -28,6 +28,8 @@ from app.modules.reports.models import (
     MeasurementFilter,
     MeasurementKind,
     ProductLabelMode,
+    PublishedReport,
+    Report,
     ReportLanguage,
     ReportMarkerCode,
     ReportStatus,
@@ -439,3 +441,17 @@ class PublishedReportListItem(BaseModel):
     published_at: datetime
     published_by: uuid.UUID
     product_labels: list[str]
+
+    @classmethod
+    def from_current(
+        cls, publication: PublishedReport, report: Report, product_labels: list[str]
+    ) -> "PublishedReportListItem":
+        return cls(
+            id=publication.id,
+            report_id=publication.report_id,
+            version_no=publication.version_no,
+            title=report.title,
+            published_at=publication.published_at,
+            published_by=publication.published_by,
+            product_labels=product_labels,
+        )
