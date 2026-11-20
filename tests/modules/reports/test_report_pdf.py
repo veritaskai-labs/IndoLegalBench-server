@@ -54,6 +54,7 @@ PNG_1X1 = base64.b64decode(
 
 def _hasil(split=ScoreSplit.TEST, **kolom) -> ReportDetailResultRead:
     nilai = {
+        "id": uuid.uuid4(),
         "score_split": split,
         "cases_graded_count": 120,
         "cases_basis_count": 100,

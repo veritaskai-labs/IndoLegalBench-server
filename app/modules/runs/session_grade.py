@@ -610,6 +610,25 @@ class CaseGradeInput:
     attempts: list[AttemptGradeInput] = field(default_factory=list)
 
 
+@dataclass(frozen=True)
+class RunCaseScores:
+    """Skor per kasus satu run, dikunci case_id, tanpa soal, jawaban, dan baris penilai.
+
+    Dipakai daftar kasus di balik angka laporan (PBI-16 SCRUM-326), yang hanya butuh skor.
+    """
+
+    rubric_version: str
+    scores: dict[uuid.UUID, ScorePair | None]
+
+
+@dataclass(frozen=True)
+class RunCase:
+    """Satu kasus dari satu run beserta versi rubrik run itu (detail kasus PBI-16)."""
+
+    rubric_version: str
+    case: CaseGradeResult
+
+
 class GradingStore(Protocol):
     """Port penyimpanan hasil grading run."""
 
@@ -657,6 +676,21 @@ class MemoryGradingStore:
         self, session_id: uuid.UUID, grading_run_id: uuid.UUID
     ) -> SessionGradingResponse | None:
         return _find_run(self.get_grading_runs(session_id), grading_run_id)
+
+    def get_case_scores(
+        self, session_id: uuid.UUID, grading_run_id: uuid.UUID
+    ) -> RunCaseScores | None:
+        run = self.get_grading_run(session_id, grading_run_id)
+        if run is None:
+            return None
+        return RunCaseScores(run.rubric_version, {case.case_id: case.scores for case in run.cases})
+
+    def get_grading_case(
+        self, session_id: uuid.UUID, grading_run_id: uuid.UUID, case_id: uuid.UUID
+    ) -> RunCase | None:
+        run = self.get_grading_run(session_id, grading_run_id)
+        case = next((c for c in run.cases if c.case_id == case_id), None) if run else None
+        return RunCase(run.rubric_version, case) if run and case else None
 
 
 def _ended_run_statuses() -> tuple[object, ...]:
@@ -807,18 +841,9 @@ class DbGradingStore:
         run_db: Any,
         session: MeasurementSession | None,
     ) -> SessionGradingResponse:
-        from app.modules.grading.models import (
-            GradingResult,
-            GradingRunStatus,
-            JudgeKind,
-            JudgeStatus,
-            LlmCriterionResult,
-            LlmJudgeResult,
-            RubricVersion,
-        )
+        from app.modules.grading.models import GradingRunStatus
 
-        rubric_ver = self.db.get(RubricVersion, run_db.rubric_version_id)
-        rubric_version_str = f"v{rubric_ver.version_no}" if rubric_ver else DEFAULT_RUBRIC_VERSION
+        rubric_version_str = self._rubric_label(run_db)
         session_id = run_db.session_id
         session_label = session.label if session else None
         p_name = ""
@@ -826,9 +851,53 @@ class DbGradingStore:
             p_names = providers_service.product_names(self.db, {session.product_id})
             p_name = p_names.get(session.product_id, "")
 
-        g_results = self.db.scalars(
-            select(GradingResult).where(GradingResult.grading_run_id == run_db.id)
-        ).all()
+        g_by_att, j_by_res, crits_by_judge_id = self._load_run_grades(run_db.id)
+        cases_input = load_case_grade_inputs(self.db, session_id)
+        cases_result = [
+            self._build_case_grade_from_d6(c, g_by_att, j_by_res, crits_by_judge_id)
+            for c in cases_input
+        ]
+
+        kind_str = run_db.kind.value if hasattr(run_db.kind, "value") else str(run_db.kind)
+        return SessionGradingResponse(
+            grading_run_id=run_db.id,
+            session_id=session_id,
+            session_label=session_label,
+            product_name=p_name,
+            rubric_version=rubric_version_str,
+            kind=kind_str,
+            status=RUN_FAILED if run_db.status == GradingRunStatus.FAILED else RUN_COMPLETED,
+            triggered_by=run_db.triggered_by,
+            triggered_at=run_db.triggered_at,
+            is_latest=run_db.is_latest,
+            judge=run_judge_info(self.db, run_db.id, run_db.judge_provider_id),
+            scores=compute_three_scores(cases_result),
+            category_scores=compute_category_scores(cases_result),
+            cases=cases_result,
+        )
+
+    def _rubric_label(self, run_db: Any) -> str:
+        from app.modules.grading.models import RubricVersion
+
+        rubric_ver = self.db.get(RubricVersion, run_db.rubric_version_id)
+        return f"v{rubric_ver.version_no}" if rubric_ver else DEFAULT_RUBRIC_VERSION
+
+    def _load_run_grades(
+        self, run_id: uuid.UUID, attempt_ids: Sequence[uuid.UUID] | None = None
+    ) -> tuple[dict[uuid.UUID, Any], dict[tuple[uuid.UUID, Any], Any], dict[uuid.UUID, list[Any]]]:
+        """Hasil, penilai, dan kriteria satu run; attempt_ids membatasi ke percobaan itu saja."""
+        from app.modules.grading.models import (
+            GradingResult,
+            JudgeKind,
+            JudgeStatus,
+            LlmCriterionResult,
+            LlmJudgeResult,
+        )
+
+        query = select(GradingResult).where(GradingResult.grading_run_id == run_id)
+        if attempt_ids is not None:
+            query = query.where(GradingResult.attempt_id.in_(attempt_ids))
+        g_results = self.db.scalars(query).all()
         g_by_att = {g.attempt_id: g for g in g_results}
         g_ids = [g.id for g in g_results]
 
@@ -860,30 +929,7 @@ class DbGradingStore:
         crits_by_judge_id: dict[uuid.UUID, list[Any]] = defaultdict(list)
         for cr in crit_rows:
             crits_by_judge_id[cr.llm_judge_result_id].append(cr)
-
-        cases_input = load_case_grade_inputs(self.db, session_id)
-        cases_result = [
-            self._build_case_grade_from_d6(c, g_by_att, j_by_res, crits_by_judge_id)
-            for c in cases_input
-        ]
-
-        kind_str = run_db.kind.value if hasattr(run_db.kind, "value") else str(run_db.kind)
-        return SessionGradingResponse(
-            grading_run_id=run_db.id,
-            session_id=session_id,
-            session_label=session_label,
-            product_name=p_name,
-            rubric_version=rubric_version_str,
-            kind=kind_str,
-            status=RUN_FAILED if run_db.status == GradingRunStatus.FAILED else RUN_COMPLETED,
-            triggered_by=run_db.triggered_by,
-            triggered_at=run_db.triggered_at,
-            is_latest=run_db.is_latest,
-            judge=run_judge_info(self.db, run_db.id, run_db.judge_provider_id),
-            scores=compute_three_scores(cases_result),
-            category_scores=compute_category_scores(cases_result),
-            cases=cases_result,
-        )
+        return g_by_att, j_by_res, crits_by_judge_id
 
     def _get_grading_runs_from_audit(self, session_id: uuid.UUID) -> list[SessionGradingResponse]:
         from app.modules.audit.models import AuditEntityType, AuditLog
@@ -1166,18 +1212,85 @@ class DbGradingStore:
 
         Bila tidak ada di D6, cari di riwayat lama dari audit (sesi sebelum tabel D6).
         """
+        run_db = self._ended_run(session_id, grading_run_id)
+        if run_db is not None:
+            return self._build_run_from_d6(run_db, self.db.get(MeasurementSession, session_id))
+        return _find_run(self._get_grading_runs_from_audit(session_id), grading_run_id)
+
+    def get_case_scores(
+        self, session_id: uuid.UUID, grading_run_id: uuid.UUID
+    ) -> RunCaseScores | None:
+        """Skor per kasus satu run D6 tanpa membangun ulang run (PBI-16, review #149).
+
+        Hanya kolom skor yang dibaca: tanpa isi snapshot, jawaban, call log, prompt penilai,
+        dan kriteria. Aturannya sama dengan run lengkap (_resolve_d6_attempt_score lalu
+        aggregate_case_scores), jadi angkanya sama dengan detail kasus. Run lama dari jejak
+        audit tidak dibaca: penelusuran laporan hanya memakai run di grading_runs.
+        """
+        from app.modules.grading.models import GradingResult, JudgeKind, LlmJudgeResult
+
+        run_db = self._ended_run(session_id, grading_run_id)
+        if run_db is None:
+            return None
+        results = self.db.execute(
+            select(
+                GradingResult.id,
+                GradingResult.det_score,
+                GradingResult.is_technical_disruption,
+                CaseSnapshotItem.case_id,
+            )
+            .join(Attempt, Attempt.id == GradingResult.attempt_id)
+            .join(CaseSnapshotItem, CaseSnapshotItem.id == Attempt.snapshot_item_id)
+            .where(GradingResult.grading_run_id == run_db.id, Attempt.session_id == session_id)
+        ).all()
+        judge_rows = (
+            self.db.execute(
+                select(
+                    LlmJudgeResult.grading_result_id,
+                    LlmJudgeResult.kind,
+                    LlmJudgeResult.status,
+                    LlmJudgeResult.criteria_score,
+                ).where(LlmJudgeResult.grading_result_id.in_([r.id for r in results]))
+            ).all()
+            if results
+            else []
+        )
+        judges = {(row.grading_result_id, row.kind): row for row in judge_rows}
+        by_case: dict[uuid.UUID, list[ScorePair | None]] = defaultdict(list)
+        for row in results:
+            _, score = _resolve_d6_attempt_score(
+                row, judges.get((row.id, JudgeKind.QUALITY)), judges.get((row.id, JudgeKind.FORMAT))
+            )
+            by_case[row.case_id].append(score)
+        return RunCaseScores(
+            self._rubric_label(run_db),
+            {case_id: aggregate_case_scores(scores) for case_id, scores in by_case.items()},
+        )
+
+    def get_grading_case(
+        self, session_id: uuid.UUID, grading_run_id: uuid.UUID, case_id: uuid.UUID
+    ) -> RunCase | None:
+        """Satu kasus run D6 dibangun seperti di run lengkap, tanpa memuat kasus lain."""
+        run_db = self._ended_run(session_id, grading_run_id)
+        if run_db is None:
+            return None
+        inputs = load_case_grade_inputs(self.db, session_id, case_id=case_id)
+        if not inputs:
+            return None
+        case_in = inputs[0]
+        rows = self._load_run_grades(run_db.id, [a.attempt_id for a in case_in.attempts])
+        return RunCase(self._rubric_label(run_db), self._build_case_grade_from_d6(case_in, *rows))
+
+    def _ended_run(self, session_id: uuid.UUID, grading_run_id: uuid.UUID) -> Any | None:
         from app.modules.grading.models import GradingRun
 
-        run_db = self.db.scalars(
+        return self.db.scalars(
             select(GradingRun).where(
                 GradingRun.id == grading_run_id,
                 GradingRun.session_id == session_id,
                 GradingRun.status.in_(_ended_run_statuses()),
             )
         ).first()
-        if run_db is not None:
-            return self._build_run_from_d6(run_db, self.db.get(MeasurementSession, session_id))
-        return _find_run(self._get_grading_runs_from_audit(session_id), grading_run_id)
 
     def _save_criterion_records(
         self,
@@ -1876,18 +1989,28 @@ def _build_case_grade_input(
     )
 
 
-def load_case_grade_inputs(db: Session, session_id: uuid.UUID) -> list[CaseGradeInput]:
-    """Membaca snapshot item dan attempts dari database untuk grading."""
-    items = db.scalars(
+def load_case_grade_inputs(
+    db: Session, session_id: uuid.UUID, *, case_id: uuid.UUID | None = None
+) -> list[CaseGradeInput]:
+    """Membaca snapshot item dan attempts dari database untuk grading.
+
+    case_id membatasi ke satu kasus saja (detail kasus penelusuran laporan, PBI-16).
+    """
+    item_query = (
         select(CaseSnapshotItem)
         .join(CaseSnapshot, CaseSnapshot.id == CaseSnapshotItem.snapshot_id)
         .where(CaseSnapshot.session_id == session_id)
-    ).all()
+    )
+    attempt_query = select(Attempt).where(Attempt.session_id == session_id)
+    if case_id is not None:
+        item_query = item_query.where(CaseSnapshotItem.case_id == case_id)
+        attempt_query = attempt_query.join(
+            CaseSnapshotItem, CaseSnapshotItem.id == Attempt.snapshot_item_id
+        ).where(CaseSnapshotItem.case_id == case_id)
+    items = db.scalars(item_query).all()
 
     attempts_db = db.scalars(
-        select(Attempt)
-        .where(Attempt.session_id == session_id)
-        .order_by(Attempt.snapshot_item_id, Attempt.repetition_no)
+        attempt_query.order_by(Attempt.snapshot_item_id, Attempt.repetition_no)
     ).all()
 
     attempt_ids = [a.id for a in attempts_db]
