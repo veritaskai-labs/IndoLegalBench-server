@@ -36,6 +36,7 @@ from app.modules.providers.judge_router import options_router as judge_options_r
 from app.modules.providers.judge_router import router as judge_providers_router
 from app.modules.providers.router import options_router as product_options_router
 from app.modules.providers.router import router as providers_router
+from app.modules.reports.router import published_router
 from app.modules.reports.router import router as reports_router
 from app.modules.reviews.router import router as reviews_router
 from app.modules.reviews.validation import verdict_error_from_pydantic
@@ -200,6 +201,7 @@ app.include_router(runs_router)  # Sprint 3
 app.include_router(results_router)  # PBI-14 SCRUM-226
 app.include_router(manual_runs_router)  # PBI-22
 app.include_router(reports_router)  # Sprint 4
+app.include_router(published_router)  # PBI-17 SCRUM-332
 app.include_router(audit_router)  # PBI-18
 app.include_router(legal_refs_router)  # PBI-21
 app.include_router(dashboard_router)  # PBI-19

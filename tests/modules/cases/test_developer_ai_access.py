@@ -304,6 +304,9 @@ _DIBUKA = {
     # agregat per bulan yang keluar; hak atas jenis kasus diuji di test_trend_policy.py dan
     # test_trend_api.py.
     ("GET", "/reports/trend"),
+    # PBI-17 AC9 (SCRUM-332, diagram D9): daftar terbit terbuka untuk setiap
+    # peran yang login. POST /reports/{report_id}/publish tetap tertutup.
+    ("GET", "/published-reports"),
 }
 # Jalur tanpa penjaga peran: login, profil sendiri, dan lonceng notifikasi.
 _TANPA_PERAN = ("/health", "/auth/", "/notifications")
