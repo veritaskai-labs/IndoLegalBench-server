@@ -6,7 +6,10 @@ Alur satu unduhan:
    (eligibility_problems, SCRUM-301), ditambah kotak pertama D2: sesi arsip tidak layak
    untuk laporan, tren, maupun unduhan baru. Sesi tak layak ditolak 409 dengan SEMUA
    alasannya, supaya pengguna tahu apa yang harus dilakukan.
-2. Isi berkas mengikuti peran (lihat visible_rows), lalu disusun score_csv (AC5).
+2. Isi berkas mengikuti peran (lihat visible_rows), lalu disusun score_csv (AC5). Semua
+   kasus snapshot sesi ikut, termasuk yang tidak punya skor (status "tidak dinilai").
+   Bila peran ini tidak boleh melihat satu kasus pun, unduhan ditolak 409
+   NO_VISIBLE_CASES, bukan berkas kosong tanpa catatan versi (review PR #152 B1).
 3. Berkas yang diserahkan disimpan selamanya lewat port ScoreFileStore (AC7). Isi yang sama
    untuk sesi yang sama hanya disimpan sekali; isi yang berubah (misalnya setelah dinilai
    ulang) menjadi berkas baru, berkas lama tetap ada.
@@ -29,8 +32,10 @@ from app.modules.reports.comparison_rules import (
     SESSION_NOT_FINISHED,
     SESSION_NOT_GRADED,
     SESSION_RUN_FAILED,
+    CaseRef,
     eligibility_problems,
 )
+from app.modules.reports.report_scoring import GradedCase
 from app.modules.reports.score_csv import ScoreCsvRow, ScoreCsvSession, render_score_csv
 from app.modules.reports.session_record import SessionRecord
 from app.modules.runs.models import SessionPurpose
@@ -39,6 +44,8 @@ from app.shared.security import Role
 
 # D2 kotak A: sesi arsip tidak bisa dipakai untuk laporan, tren, maupun unduhan baru.
 SESSION_ARCHIVED = "SESSION_ARCHIVED"
+# Sesi layak, tetapi peran ini tidak boleh melihat satu kasus pun (misalnya sesi kasus dev).
+NO_VISIBLE_CASES = "SCORE_FILE_NO_VISIBLE_CASES"
 
 # Kode ketidaklayakannya sama dengan laporan; kalimatnya untuk tombol Unduh skor (AC6).
 _PESAN_UNDUH = {
@@ -59,6 +66,10 @@ _PESAN_UNDUH = {
         "jadi berkas skornya belum bisa diunduh."
     ),
     SESSION_NOT_GRADED: "Sesi ini belum dinilai, jadi berkas skornya belum bisa diunduh.",
+    NO_VISIBLE_CASES: (
+        "Sesi ini tidak berisi kasus yang boleh Anda lihat, jadi tidak ada berkas skor "
+        "yang bisa diunduh."
+    ),
 }
 
 _SEMUA_SPLIT = frozenset({SplitTag.DEV, SplitTag.TEST})
@@ -108,7 +119,11 @@ def score_file_name(session_id: uuid.UUID) -> str:
 
 
 def download_problems(data: SessionScoreData) -> tuple[str, ...]:
-    """Semua alasan sesi ini belum boleh diunduh (AC6). Kosong = boleh."""
+    """Semua alasan sesi ini belum boleh diunduh (AC6). Kosong = boleh.
+
+    Sesi yang diterima apa adanya tetap harus sudah dinilai (D2 "selesai dan dinilai"):
+    tanpa grading run yang selesai alasannya SESSION_NOT_GRADED (review PR #152 B2).
+    """
     alasan = list(eligibility_problems(data.record.facts))
     if data.archived:
         alasan.insert(0, SESSION_ARCHIVED)
@@ -120,6 +135,9 @@ def visible_rows(
 ) -> list[ScoreCsvRow]:
     """Baris yang boleh dilihat peran ini, urut menurut kode kasus.
 
+    Sumbernya seluruh kasus snapshot sesi; kasus tanpa skor ditulis graded=False dengan
+    skor kosong, jadi berkas tidak diam-diam kehilangan kasus yang gagal teknis.
+
     Isi per peran masih menunggu keputusan SA. Sampai saat itu yang berlaku adalah aturan
     D9 yang sudah dipakai laporan, tertutup bawaan:
     - skor kasus dev hanya untuk Admin dan Developer AI (DEV_SCORE_ROLES), peran lain hanya
@@ -128,20 +146,31 @@ def visible_rows(
     Keputusan SA nanti cukup mengubah fungsi ini.
     """
     boleh = _SEMUA_SPLIT if role in DEV_SCORE_ROLES else _HANYA_TEST
-    kasus = sorted(
-        (g for g in record.graded_cases if g.split in boleh),
-        key=lambda g: (g.ref.case_code, str(g.ref.case_version_id)),
+    skor = {_kunci(g.ref): g for g in record.graded_cases}
+    kasus: dict[tuple[uuid.UUID, uuid.UUID], CaseRef] = {}
+    for ref in (*record.facts.snapshot_cases, *(g.ref for g in record.graded_cases)):
+        kasus.setdefault(_kunci(ref), ref)
+    terlihat = sorted(
+        (ref for ref in kasus.values() if SplitTag(ref.split_tag) in boleh),
+        key=lambda ref: (ref.case_code, str(ref.case_version_id)),
     )
-    return [
-        ScoreCsvRow(
-            case_code=visible_case_code(role, g.ref.case_code, g.split),
-            case_version=_teks(case_version_nos.get(g.ref.case_version_id)),
-            det_score=g.det,
-            llm_score=g.llm,
-            graded=True,
-        )
-        for g in kasus
-    ]
+    return [_baris(ref, skor.get(_kunci(ref)), role, case_version_nos) for ref in terlihat]
+
+
+def _kunci(ref: CaseRef) -> tuple[uuid.UUID, uuid.UUID]:
+    return (ref.case_id, ref.case_version_id)
+
+
+def _baris(
+    ref: CaseRef, nilai: GradedCase | None, role: Role, case_version_nos: Mapping[uuid.UUID, int]
+) -> ScoreCsvRow:
+    return ScoreCsvRow(
+        case_code=visible_case_code(role, ref.case_code, SplitTag(ref.split_tag)),
+        case_version=_teks(case_version_nos.get(ref.case_version_id)),
+        det_score=None if nilai is None else nilai.det,
+        llm_score=None if nilai is None else nilai.llm,
+        graded=nilai is not None,
+    )
 
 
 def _teks(nilai: object | None) -> str:
@@ -183,9 +212,11 @@ class SessionScoreFileService:
         if alasan:
             raise _tolak(alasan)
 
-        isi = render_score_csv(
-            _catatan_sesi(data), visible_rows(data.record, role, data.case_version_nos)
-        )
+        baris = visible_rows(data.record, role, data.case_version_nos)
+        if not baris:
+            raise _tolak((NO_VISIBLE_CASES,))
+
+        isi = render_score_csv(_catatan_sesi(data), baris)
         berkas = ScoreFile(
             session_id=session_id,
             file_name=score_file_name(session_id),
