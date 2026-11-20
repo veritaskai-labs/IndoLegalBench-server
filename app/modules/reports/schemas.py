@@ -6,6 +6,8 @@ berubah, kontrak API ikut berubah, jadi wajib diumumkan ke tim.
 PBI-15 SCRUM-79 SCRUM-313: POST /reports dan GET /reports/eligible-sessions. Aturan isian ditulis di sini sekali; frontend tidak
 menyalinnya.
 
+PBI-17 SCRUM-84 SCRUM-331: bentuk response GET /reports/trend (TrendRead).
+
 PBI-15 SCRUM-79 SCRUM-320: bentuk baca laporan tersimpan (GET /reports, /reports/{id}, PDF).
 Isinya hasil beku dari tabel D1, jadi membuka ulang laporan dan membuat PDF tidak pernah
 menghitung ulang. Bentuknya sengaja terpisah dari ReportRead milik POST: riwayat dibaca
@@ -14,7 +16,7 @@ semua peran dan dibagikan sebagai PDF, jadi tidak membawa id sesi/produk dan tot
 """
 
 import uuid
-from datetime import datetime
+from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 
@@ -34,6 +36,8 @@ from app.modules.reports.models import (
     ScoreSplit,
 )
 from app.modules.reports.report_generation import GeneratedReport, ReportRequest
+from app.modules.reports.trend import TrendMetric, TrendRange
+from app.modules.reports.trend_service import ProductTrend
 from app.modules.runs.models import (
     AttemptSource,
     AttemptStatus,
@@ -436,3 +440,58 @@ class ReportCaseDetailRead(BaseModel):
     det_score: Decimal | None
     llm_score: Decimal | None
     attempts: list[ReportAttemptRead]
+
+
+class TrendPointRead(BaseModel):
+    """Satu titik tren: sesi layak terbaru pada satu bulan. Tanpa id sesi."""
+
+    month: date = Field(description="Hari pertama bulan titik ini (YYYY-MM-01)")
+    label: str = Field(description="Nama sesi yang menjadi titik bulan ini")
+    value: Decimal | None = Field(
+        description="Skor 0 sampai 1, dua digit desimal; kosong bila tidak ada kasus yang sama "
+        "atau skor jalur yang dipilih kosong"
+    )
+    breaks: list[str] = Field(
+        description="Alasan garis diputus antara titik sebelumnya dan titik ini: RUBRIC_VERSION, "
+        "JUDGE_MODEL, SUITE_VERSION (juga untuk versi kasus), atau MODEL_VERSION_DIFFERS. "
+        "Kosong bila titik ini tersambung ke titik sebelumnya."
+    )
+    markers: list[str] = Field(
+        description="Penanda titik: TRIAL_SESSION, MANUAL_ANSWER_RANGE_OVER_LIMIT, "
+        "REPETITIONS_DIFFER (jumlah percobaan berbeda, hanya sesi manual)"
+    )
+
+
+class TrendRead(BaseModel):
+    """Tren satu metrik untuk satu produk. Skor dev hanya ada bila peran berhak memintanya."""
+
+    product_id: uuid.UUID
+    product_name: str
+    score_scope: ScoreScope = Field(description="test, dev, atau dev_test (All)")
+    metric: TrendMetric
+    range: TrendRange
+    points: list[TrendPointRead] = Field(description="Urut dari bulan paling awal")
+    warnings: list[str] = Field(
+        description="NO_SHARED_CASES: ada garis tanpa kasus yang sama, nilainya tidak digambar"
+    )
+
+    @classmethod
+    def from_trend(cls, result: ProductTrend) -> "TrendRead":
+        return cls(
+            product_id=result.product_id,
+            product_name=result.product_name,
+            score_scope=result.scope,
+            metric=result.metric,
+            range=result.window,
+            points=[
+                TrendPointRead(
+                    month=point.month,
+                    label=point.label,
+                    value=point.value,
+                    breaks=list(point.breaks),
+                    markers=list(point.markers),
+                )
+                for point in result.trend.points
+            ],
+            warnings=list(result.trend.warnings),
+        )

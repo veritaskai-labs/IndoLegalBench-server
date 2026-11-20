@@ -5486,6 +5486,105 @@
         }
       }
     },
+    "/reports/trend": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Tren skor satu produk antar bulan",
+        "description": "Satu titik per bulan dari sesi layak terbaru, hanya pada kasus yang sama (PBI-17).",
+        "operationId": "get_trend_reports_trend_get",
+        "parameters": [
+          {
+            "name": "product_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Produk AI yang trennya dilihat.",
+              "title": "Product Id"
+            },
+            "description": "Produk AI yang trennya dilihat."
+          },
+          {
+            "name": "score_scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ScoreScope",
+              "description": "Jenis kasus: `test` (bawaan, skor resmi), `dev`, atau `dev_test` (All). `dev` dan `dev_test` hanya untuk Admin dan Developer AI.",
+              "default": "test"
+            },
+            "description": "Jenis kasus: `test` (bawaan, skor resmi), `dev`, atau `dev_test` (All). `dev` dan `dev_test` hanya untuk Admin dan Developer AI."
+          },
+          {
+            "name": "metric",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TrendMetric",
+              "description": "Satu metrik per grafik; skor tidak digabung.",
+              "default": "total"
+            },
+            "description": "Satu metrik per grafik; skor tidak digabung."
+          },
+          {
+            "name": "range",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TrendRange",
+              "description": "Bulan kalender terakhir: `3m`, `6m`, `12m`, atau `all` (bawaan).",
+              "default": "all"
+            },
+            "description": "Bulan kalender terakhir: `3m`, `6m`, `12m`, atau `all` (bawaan)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/TrendRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Peran tidak boleh melihat tren yang memuat skor dev (`TREND_SCOPE_FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Produk AI tidak ditemukan (`TREND_PRODUCT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/reports/{report_id}": {
       "get": {
         "tags": [
@@ -15903,6 +16002,132 @@
         ],
         "title": "ThreeScores",
         "description": "Tiga skor terpisah yang diminta PBI-11 AC9: dev, test, dan gabungan."
+      },
+      "TrendMetric": {
+        "type": "string",
+        "enum": [
+          "total",
+          "deterministic",
+          "llm"
+        ],
+        "title": "TrendMetric",
+        "description": "Satu garis untuk satu metrik; skor tidak digabung (AC3)."
+      },
+      "TrendPointRead": {
+        "properties": {
+          "month": {
+            "type": "string",
+            "format": "date",
+            "title": "Month",
+            "description": "Hari pertama bulan titik ini (YYYY-MM-01)"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Nama sesi yang menjadi titik bulan ini"
+          },
+          "value": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Value",
+            "description": "Skor 0 sampai 1, dua digit desimal; kosong bila tidak ada kasus yang sama atau skor jalur yang dipilih kosong"
+          },
+          "breaks": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Breaks",
+            "description": "Alasan garis diputus antara titik sebelumnya dan titik ini: RUBRIC_VERSION, JUDGE_MODEL, SUITE_VERSION (juga untuk versi kasus), atau MODEL_VERSION_DIFFERS. Kosong bila titik ini tersambung ke titik sebelumnya."
+          },
+          "markers": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Markers",
+            "description": "Penanda titik: TRIAL_SESSION, MANUAL_ANSWER_RANGE_OVER_LIMIT, REPETITIONS_DIFFER (jumlah percobaan berbeda, hanya sesi manual)"
+          }
+        },
+        "type": "object",
+        "required": [
+          "month",
+          "label",
+          "value",
+          "breaks",
+          "markers"
+        ],
+        "title": "TrendPointRead",
+        "description": "Satu titik tren: sesi layak terbaru pada satu bulan. Tanpa id sesi."
+      },
+      "TrendRange": {
+        "type": "string",
+        "enum": [
+          "3m",
+          "6m",
+          "12m",
+          "all"
+        ],
+        "title": "TrendRange",
+        "description": "Rentang bulan kalender terakhir; bawaannya semua sesi (AC2)."
+      },
+      "TrendRead": {
+        "properties": {
+          "product_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Product Id"
+          },
+          "product_name": {
+            "type": "string",
+            "title": "Product Name"
+          },
+          "score_scope": {
+            "$ref": "#/components/schemas/ScoreScope",
+            "description": "test, dev, atau dev_test (All)"
+          },
+          "metric": {
+            "$ref": "#/components/schemas/TrendMetric"
+          },
+          "range": {
+            "$ref": "#/components/schemas/TrendRange"
+          },
+          "points": {
+            "items": {
+              "$ref": "#/components/schemas/TrendPointRead"
+            },
+            "type": "array",
+            "title": "Points",
+            "description": "Urut dari bulan paling awal"
+          },
+          "warnings": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "NO_SHARED_CASES: ada garis tanpa kasus yang sama, nilainya tidak digambar"
+          }
+        },
+        "type": "object",
+        "required": [
+          "product_id",
+          "product_name",
+          "score_scope",
+          "metric",
+          "range",
+          "points",
+          "warnings"
+        ],
+        "title": "TrendRead",
+        "description": "Tren satu metrik untuk satu produk. Skor dev hanya ada bila peran berhak memintanya."
       },
       "UnreadCount": {
         "properties": {

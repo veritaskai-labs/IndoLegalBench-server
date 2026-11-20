@@ -7,8 +7,8 @@ logika bisnis dan tidak ada query database di file ini.
 
 SCRUM-313: POST /reports membuat laporan dan GET /reports/eligible-sessions mendaftar sesi
 beserta kelayakannya. Rute statis eligible-sessions harus didaftarkan SEBELUM rute
-/{report_id} (SCRUM-320), kalau tidak FastAPI menganggapnya sebuah report_id. Penerbitan
-menyusul di SCRUM-332.
+/{report_id} (SCRUM-320), kalau tidak FastAPI menganggapnya sebuah report_id. Hal yang sama
+berlaku untuk GET /reports/trend (PBI-17 SCRUM-331). Penerbitan menyusul di SCRUM-332.
 
 SCRUM-320 (riwayat laporan dan PDF, diagram D3 langkah 10-15):
 - GET /reports: daftar laporan tersimpan dan terbit yang boleh dilihat (D9)
@@ -33,9 +33,13 @@ from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
 from app.modules.reports import drilldown, history
-from app.modules.reports.dependencies import get_eligible_session_lister, get_report_generator
+from app.modules.reports.dependencies import (
+    get_eligible_session_lister,
+    get_report_generator,
+    get_trend_service,
+)
 from app.modules.reports.eligible_sessions import EligibleSessionLister
-from app.modules.reports.models import MeasurementFilter
+from app.modules.reports.models import MeasurementFilter, ScoreScope
 from app.modules.reports.report_generation import ReportGenerator
 from app.modules.reports.schemas import (
     EligibleSessionRead,
@@ -47,7 +51,10 @@ from app.modules.reports.schemas import (
     ReportResultCasesRead,
     ReportSessionNotFoundBody,
     ReportSummary,
+    TrendRead,
 )
+from app.modules.reports.trend import TrendMetric, TrendRange
+from app.modules.reports.trend_service import TrendService
 from app.modules.runs.dependencies import get_manual_evidence_service
 from app.modules.runs.manual_evidence import ManualEvidenceService
 from app.modules.runs.schemas import EvidenceRead
@@ -60,6 +67,8 @@ router = APIRouter(prefix="/reports", tags=["reports"])
 # Semua peran boleh membuat laporan; jenis nilai dan label yang boleh dipilih dibatasi
 # creation_policy di service (403 dari server, bukan dari tombol yang disembunyikan).
 _create_roles = require_roles(*Role)
+# Tren dibuka semua peran; skor dev dijaga ensure_can_view_trend di service.
+_trend_roles = require_roles(*Role)
 
 _CREATE_RESPONSES = {
     200: {
@@ -140,6 +149,54 @@ def list_reports(
     user: CurrentUser = Depends(get_current_user),
 ) -> Page[ReportSummary]:
     return history.list_reports(db, user, PageParams(page=page, size=size))
+
+
+_TREND_RESPONSES = {
+    403: {
+        "model": ErrorBody,
+        "description": "Peran tidak boleh melihat tren yang memuat skor dev "
+        "(`TREND_SCOPE_FORBIDDEN`).",
+    },
+    404: {
+        "model": ErrorBody,
+        "description": "Produk AI tidak ditemukan (`TREND_PRODUCT_NOT_FOUND`).",
+    },
+}
+
+
+@router.get(
+    "/trend",
+    response_model=TrendRead,
+    summary="Tren skor satu produk antar bulan",
+    responses=_TREND_RESPONSES,
+)
+def get_trend(
+    product_id: uuid.UUID = Query(description="Produk AI yang trennya dilihat."),
+    score_scope: ScoreScope = Query(
+        default=ScoreScope.TEST,
+        description="Jenis kasus: `test` (bawaan, skor resmi), `dev`, atau `dev_test` (All). "
+        "`dev` dan `dev_test` hanya untuk Admin dan Developer AI.",
+    ),
+    metric: TrendMetric = Query(
+        default=TrendMetric.TOTAL, description="Satu metrik per grafik; skor tidak digabung."
+    ),
+    range_: TrendRange = Query(
+        default=TrendRange.ALL,
+        alias="range",
+        description="Bulan kalender terakhir: `3m`, `6m`, `12m`, atau `all` (bawaan).",
+    ),
+    user: CurrentUser = Depends(_trend_roles),
+    service: TrendService = Depends(get_trend_service),
+) -> TrendRead:
+    """Satu titik per bulan dari sesi layak terbaru, hanya pada kasus yang sama (PBI-17)."""
+    result = service.get_trend(
+        role=user.role,
+        product_id=product_id,
+        scope=score_scope,
+        metric=metric,
+        window=range_,
+    )
+    return TrendRead.from_trend(result)
 
 
 # Rute /{report_id} di bawah ini sengaja didaftarkan setelah /eligible-sessions (lihat docstring).
