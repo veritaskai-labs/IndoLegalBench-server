@@ -8,7 +8,11 @@ logika bisnis dan tidak ada query database di file ini.
 SCRUM-313: POST /reports membuat laporan dan GET /reports/eligible-sessions mendaftar sesi
 beserta kelayakannya. Rute statis eligible-sessions harus didaftarkan SEBELUM rute
 /{report_id} (SCRUM-320), kalau tidak FastAPI menganggapnya sebuah report_id. Hal yang sama
-berlaku untuk GET /reports/trend (PBI-17 SCRUM-331). Penerbitan menyusul di SCRUM-332.
+berlaku untuk GET /reports/trend (PBI-17 SCRUM-331).
+
+SCRUM-332 (penerbitan, diagram D1 dan D9):
+- POST /reports/{id}/publish: Admin menerbitkan laporan tersimpan, atau mengganti satu versi
+- GET /published-reports: daftar versi yang masih berlaku, untuk setiap peran yang login
 
 SCRUM-320 (riwayat laporan dan PDF, diagram D3 langkah 10-15):
 - GET /reports: daftar laporan tersimpan dan terbit yang boleh dilihat (D9)
@@ -32,7 +36,7 @@ from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
-from app.modules.reports import drilldown, history
+from app.modules.reports import drilldown, history, publication
 from app.modules.reports.dependencies import (
     get_eligible_session_lister,
     get_report_generator,
@@ -43,6 +47,9 @@ from app.modules.reports.models import MeasurementFilter, ScoreScope
 from app.modules.reports.report_generation import ReportGenerator
 from app.modules.reports.schemas import (
     EligibleSessionRead,
+    PublicationRead,
+    PublishedReportListItem,
+    PublishReport,
     ReportCaseDetailRead,
     ReportCreate,
     ReportCreateResponse,
@@ -242,6 +249,51 @@ def download_report_pdf(
         media_type="application/pdf",
         headers={"Content-Disposition": f'attachment; filename="{nama_berkas}"'},
     )
+
+
+@router.post(
+    "/{report_id}/publish",
+    response_model=PublicationRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Terbitkan laporan tersimpan, atau ganti satu versi yang masih berlaku",
+    responses={
+        403: {"model": ErrorBody, "description": "Bukan Admin"},
+        404: {"model": ErrorBody, "description": "Laporan atau versi yang diganti tidak ada"},
+        409: {"model": ErrorBody, "description": "Tidak bisa diterbitkan"},
+    },
+)
+def publish_saved_report(
+    report_id: uuid.UUID,
+    payload: PublishReport | None = None,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(require_roles(Role.ADMIN)),
+) -> PublicationRead:
+    """Admin boleh menerbitkan laporan orang lain. version_no diisi server."""
+    return publication.publish(
+        db,
+        report_id=report_id,
+        actor_id=user.user_id,
+        supersedes_id=None if payload is None else payload.supersedes_id,
+    )
+
+
+published_router = APIRouter(prefix="/published-reports", tags=["reports"])
+
+
+@published_router.get(
+    "",
+    response_model=Page[PublishedReportListItem],
+    summary="Daftar laporan yang sedang terbit",
+    responses={401: {"model": ErrorBody, "description": "Belum login"}},
+)
+def list_published_reports(
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(get_current_user),
+) -> Page[PublishedReportListItem]:
+    """Versi yang sudah diganti tetap tersimpan, tetapi tidak muncul di daftar ini."""
+    return publication.list_published(db, PageParams(page=page, size=size))
 
 
 @router.get(

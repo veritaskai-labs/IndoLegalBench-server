@@ -7,7 +7,7 @@ PBI-15 SCRUM-79 SCRUM-313: POST /reports dan GET /reports/eligible-sessions. Atu
 menyalinnya.
 
 PBI-17 SCRUM-84 SCRUM-331: bentuk response GET /reports/trend (TrendRead).
-
+PBI-17 SCRUM-84 SCRUM-332: POST /reports/{id}/publish dan GET /published-reports.
 PBI-15 SCRUM-79 SCRUM-320: bentuk baca laporan tersimpan (GET /reports, /reports/{id}, PDF).
 Isinya hasil beku dari tabel D1, jadi membuka ulang laporan dan membuat PDF tidak pernah
 menghitung ulang. Bentuknya sengaja terpisah dari ReportRead milik POST: riwayat dibaca
@@ -29,6 +29,8 @@ from app.modules.reports.models import (
     MeasurementFilter,
     MeasurementKind,
     ProductLabelMode,
+    PublishedReport,
+    Report,
     ReportLanguage,
     ReportMarkerCode,
     ReportStatus,
@@ -494,4 +496,51 @@ class TrendRead(BaseModel):
                 for point in result.trend.points
             ],
             warnings=list(result.trend.warnings),
+        )
+
+
+class PublishReport(BaseModel):
+    """Badan POST /reports/{id}/publish. version_no diisi server, bukan klien."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    supersedes_id: uuid.UUID | None = None
+
+
+class PublicationRead(BaseModel):
+    """Versi terbit yang baru dibuat."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    report_id: uuid.UUID
+    version_no: int
+    supersedes_id: uuid.UUID | None
+
+
+class PublishedReportListItem(BaseModel):
+    """Satu baris GET /published-reports. Nama produk adalah label beku."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    report_id: uuid.UUID
+    version_no: int
+    title: str
+    published_at: datetime
+    published_by: uuid.UUID
+    product_labels: list[str]
+
+    @classmethod
+    def from_current(
+        cls, publication: PublishedReport, report: Report, product_labels: list[str]
+    ) -> "PublishedReportListItem":
+        return cls(
+            id=publication.id,
+            report_id=publication.report_id,
+            version_no=publication.version_no,
+            title=report.title,
+            published_at=publication.published_at,
+            published_by=publication.published_by,
+            product_labels=product_labels,
         )
