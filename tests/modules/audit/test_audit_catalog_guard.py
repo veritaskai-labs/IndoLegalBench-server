@@ -73,6 +73,10 @@ PENGECUALIAN = {
         "SCRUM-300: versi terbit hanya INSERT; diwakili report.published dan report.superseded "
         "dari perubahan status laporan"
     ),
+    "session_score_files": (
+        "SCRUM-327: hanya INSERT (trigger); setiap baris sudah mencatat siapa mengunduh "
+        "(created_by), kapan (created_at), dan isi persis berkas yang diserahkan"
+    ),
 }
 
 

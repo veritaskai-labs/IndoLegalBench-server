@@ -8,6 +8,8 @@ terdeteksi Alembic.
 PBI-15 SCRUM-79 (SCRUM-300), D1 "ERD Laporan dan Penerbitan". Tabelnya dibuat migrasi
 b6f3a2d81c47. Laporan disimpan beku: angka dihitung sekali saat laporan dibuat (SCRUM-313)
 lalu hanya dibaca (SCRUM-320, PBI-16). Enum di sini menjadi sumber nilai untuk schemas.
+session_score_files (PBI-16 SCRUM-327, migrasi d3e8a1f5c927) menyimpan berkas CSV skor
+per sesi yang pernah diserahkan, selamanya.
 """
 
 import uuid
@@ -25,6 +27,7 @@ from sqlalchemy import (
     ForeignKeyConstraint,
     Index,
     Integer,
+    LargeBinary,
     Numeric,
     SmallInteger,
     String,
@@ -333,4 +336,43 @@ class PublishedReport(Base):
     )
     supersedes_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True), ForeignKey("published_reports.id"), nullable=True
+    )
+
+
+class SessionScoreFile(Base):
+    """Berkas CSV skor satu sesi yang pernah diserahkan (PBI-16 AC5, AC7). Hanya INSERT.
+
+    Disimpan sebagai BYTEA di PostgreSQL, pola yang sama dengan evidence_files: kontainer API
+    tidak punya volume dan cadangan hanya mencakup PostgreSQL. Isi yang sama untuk sesi yang
+    sama disimpan sekali (sha256); isi yang berubah, misalnya setelah dinilai ulang, menjadi
+    baris baru dan baris lama tetap ada. Trigger PostgreSQL menolak UPDATE, DELETE, dan
+    TRUNCATE untuk semua peran (migrasi d3e8a1f5c927).
+    """
+
+    __tablename__ = "session_score_files"
+    __table_args__ = (
+        UniqueConstraint("session_id", "sha256", name="uq_session_score_files_session_sha256"),
+        CheckConstraint("size_bytes > 0", name="ck_session_score_files_size_bytes"),
+        CheckConstraint(
+            sql_not_blank("file_name"), name="ck_session_score_files_file_name_not_blank"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
+    session_id: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("measurement_sessions.id"), nullable=False
+    )
+    # Grading run terakhir yang selesai saat berkas dibuat, untuk menelusuri asal skornya.
+    grading_run_id: Mapped[uuid.UUID | None] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey("grading_runs.id"), nullable=True
+    )
+    file_name: Mapped[str] = mapped_column(String(255), nullable=False)
+    content: Mapped[bytes] = mapped_column(LargeBinary, nullable=False)
+    sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    size_bytes: Mapped[int] = mapped_column(Integer, nullable=False)
+    created_by: Mapped[uuid.UUID] = mapped_column(
+        Uuid(as_uuid=True), ForeignKey(_USER_FK), nullable=False
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(timezone=True), nullable=False, server_default=func.now()
     )

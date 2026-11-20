@@ -27,6 +27,11 @@ SCRUM-326 (penelusuran angka sampai bukti, PBI-16, diagram D6 langkah 1-7):
 - GET .../cases/{case_id}/attempts/{attempt_no}/evidence dan .../evidence/{id}/file: bukti
   jawaban manual, hanya Admin dan Kontributor (AC4). Memakai service bukti SCRUM-233; route
   sendiri karena endpoint bukti lama butuh session_id, yang ditutup di laporan mode kode.
+
+SCRUM-327 (PBI-16 AC5 sampai AC7): GET /reports/sessions/{id}/csv mengunduh berkas skor
+satu sesi. Hanya sesi layak D2; selain itu 409 dengan alasannya. GET ini sengaja menulis:
+setiap berkas yang diserahkan disimpan (AC7), isi yang sama untuk sesi yang sama sekali saja.
+Pathnya tiga segmen, jadi tidak bertabrakan dengan /{report_id} maupun /{report_id}/pdf.
 """
 
 import uuid
@@ -40,6 +45,7 @@ from app.modules.reports import drilldown, history, publication
 from app.modules.reports.dependencies import (
     get_eligible_session_lister,
     get_report_generator,
+    get_score_file_service,
     get_trend_service,
 )
 from app.modules.reports.eligible_sessions import EligibleSessionLister
@@ -60,6 +66,7 @@ from app.modules.reports.schemas import (
     ReportSummary,
     TrendRead,
 )
+from app.modules.reports.score_files import SessionScoreFileService
 from app.modules.reports.trend import TrendMetric, TrendRange
 from app.modules.reports.trend_service import TrendService
 from app.modules.runs.dependencies import get_manual_evidence_service
@@ -416,4 +423,38 @@ def download_result_case_evidence(
             "Content-Disposition": f"attachment; filename*=UTF-8''{quote(berkas.file_name)}",
             "X-Content-Type-Options": "nosniff",
         },
+    )
+
+
+_SCORE_FILE_RESPONSES = {
+    200: {"content": {"text/csv": {}}, "description": "Berkas CSV skor satu sesi"},
+    404: {"model": ErrorBody, "description": "Sesi pengukuran tidak ada"},
+    409: {
+        "model": ErrorBody,
+        "description": "Sesi belum layak diunduh (D2), atau tidak ada kasus yang boleh "
+        "dilihat peran ini (`SCORE_FILE_NO_VISIBLE_CASES`). `code` alasan pertama; "
+        "`reasons` berisi semua alasan dengan kode dan kalimatnya.",
+    },
+}
+
+
+@router.get(
+    "/sessions/{session_id}/csv",
+    response_class=Response,
+    summary="Unduh skor per kasus satu sesi sebagai CSV",
+    description="Semua kasus sesi ditulis; kasus tanpa skor berstatus `tidak dinilai`. "
+    "Setiap berkas yang diserahkan disimpan selamanya (AC7), jadi permintaan ini menulis "
+    "ke basis data; isi yang sama untuk sesi yang sama hanya disimpan sekali.",
+    responses=_SCORE_FILE_RESPONSES,
+)
+def download_session_score_file(
+    session_id: uuid.UUID,
+    user: CurrentUser = Depends(get_current_user),
+    service: SessionScoreFileService = Depends(get_score_file_service),
+) -> Response:
+    berkas = service.download(session_id, user_id=user.user_id, role=user.role)
+    return Response(
+        content=berkas.content,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{berkas.file_name}"'},
     )

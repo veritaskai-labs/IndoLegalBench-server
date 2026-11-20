@@ -296,6 +296,10 @@ _DIBUKA = {
     # PBI-16 AC2 (SCRUM-326): Developer AI membuka isi kasus dev; kasus test dijawab 403
     # CASE_CONTENT_FORBIDDEN, diuji di test_drilldown_service.py.
     ("GET", "/reports/{report_id}/results/{result_id}/cases/{case_id}"),
+    # PBI-16 AC5 (SCRUM-327): berkas CSV dari hasil penilaian sesi yang sama dengan
+    # /measurements/{session_id}/results. Kode kasus test disamarkan, diuji di
+    # test_score_files.py.
+    ("GET", "/reports/sessions/{session_id}/csv"),
     # PBI-17 AC12 (SCRUM-331): Developer AI melihat tren skor, termasuk skor dev. Hanya angka
     # agregat per bulan yang keluar; hak atas jenis kasus diuji di test_trend_policy.py dan
     # test_trend_api.py.
