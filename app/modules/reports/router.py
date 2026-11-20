@@ -7,13 +7,24 @@ logika bisnis dan tidak ada query database di file ini.
 
 SCRUM-313: POST /reports membuat laporan dan GET /reports/eligible-sessions mendaftar sesi
 beserta kelayakannya. Rute statis eligible-sessions harus didaftarkan SEBELUM rute
-/{report_id} (SCRUM-320), kalau tidak FastAPI menganggapnya sebuah report_id. Riwayat, PDF, dan penerbitan menyusul di
-SCRUM-320 dan SCRUM-332.
+/{report_id} (SCRUM-320), kalau tidak FastAPI menganggapnya sebuah report_id. Penerbitan
+menyusul di SCRUM-332.
+
+SCRUM-320 (riwayat laporan dan PDF, diagram D3 langkah 10-15):
+- GET /reports: daftar laporan tersimpan dan terbit yang boleh dilihat (D9)
+- GET /reports/{id}: buka ulang satu laporan dari hasil beku
+- GET /reports/{id}/pdf: unduh laporan yang sama sebagai PDF
+Semua peran yang login boleh memanggil; siapa melihat laporan mana diputuskan service
+(reports/access.py).
 """
 
+import uuid
+
 from fastapi import APIRouter, Depends, Query, Response, status
+from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
+from app.modules.reports import history
 from app.modules.reports.dependencies import get_eligible_session_lister, get_report_generator
 from app.modules.reports.eligible_sessions import EligibleSessionLister
 from app.modules.reports.models import MeasurementFilter
@@ -22,10 +33,14 @@ from app.modules.reports.schemas import (
     EligibleSessionRead,
     ReportCreate,
     ReportCreateResponse,
+    ReportDetail,
     ReportNotComparableBody,
     ReportSessionNotFoundBody,
+    ReportSummary,
 )
-from app.shared.security import CurrentUser, Role, require_roles
+from app.shared.database import get_db
+from app.shared.pagination import Page, PageParams
+from app.shared.security import CurrentUser, Role, get_current_user, require_roles
 
 router = APIRouter(prefix="/reports", tags=["reports"])
 
@@ -98,3 +113,62 @@ def list_eligible_sessions(
     """
     items = lister.list(measurement_filter=measurement_filter)
     return [EligibleSessionRead.from_item(item) for item in items]
+
+
+@router.get(
+    "",
+    response_model=Page[ReportSummary],
+    summary="Daftar laporan tersimpan dan terbit yang boleh dilihat",
+)
+def list_reports(
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> Page[ReportSummary]:
+    return history.list_reports(db, user, PageParams(page=page, size=size))
+
+
+# Rute /{report_id} di bawah ini sengaja didaftarkan setelah /eligible-sessions (lihat docstring).
+_TIDAK_ADA = {
+    404: {
+        "model": ErrorBody,
+        "description": "Laporan tidak ada, atau tidak boleh dibuka peran ini (`REPORT_NOT_FOUND`)",
+    }
+}
+
+
+@router.get(
+    "/{report_id}",
+    response_model=ReportDetail,
+    summary="Buka ulang satu laporan dari hasil beku",
+    responses=_TIDAK_ADA,
+)
+def get_report(
+    report_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> ReportDetail:
+    return history.get_report(db, report_id, user)
+
+
+@router.get(
+    "/{report_id}/pdf",
+    response_class=Response,
+    summary="Unduh laporan sebagai PDF",
+    responses={
+        200: {"content": {"application/pdf": {}}, "description": "Berkas PDF laporan"},
+        **_TIDAK_ADA,
+    },
+)
+def download_report_pdf(
+    report_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> Response:
+    isi, nama_berkas = history.report_pdf(db, report_id, user)
+    return Response(
+        content=isi,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nama_berkas}"'},
+    )

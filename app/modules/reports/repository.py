@@ -9,11 +9,40 @@ laporan beku tidak punya jalur ubah atau hapus (SCRUM-300, AC10).
 
 import uuid
 from collections.abc import Sequence
+from dataclasses import dataclass
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
 
-from app.modules.reports.models import Report, ReportCaseBasis, ReportResult, ReportSession
+# Kode dan nomor versi kasus serta nomor rubrik dibaca lewat join, bukan disalin ke tabel
+# laporan (keputusan review SCRUM-300). Pola impor model lintas modul ini sudah dipakai runs.
+from app.modules.cases.models import CaseVersion, SplitTag
+from app.modules.grading.models import RubricVersion
+from app.modules.reports.access import ReportVisibility
+from app.modules.reports.models import (
+    Report,
+    ReportCaseBasis,
+    ReportResult,
+    ReportSession,
+    ReportStatus,
+)
+
+
+@dataclass(frozen=True)
+class CaseBasisRow:
+    case_code: str
+    case_version_no: int
+    split_tag: SplitTag
+
+
+@dataclass(frozen=True)
+class ReportContents:
+    """Isi beku satu laporan, dibaca apa adanya untuk dibuka ulang dan PDF (SCRUM-320)."""
+
+    rubric_version_no: int | None
+    sessions: list[ReportSession]
+    results: list[ReportResult]
+    case_basis: list[CaseBasisRow]
 
 
 def add_report(
@@ -36,3 +65,51 @@ def add_report(
 def titles(db: Session, report_ids: set[uuid.UUID]) -> dict[uuid.UUID, str]:
     query = sa.select(Report.id, Report.title).where(Report.id.in_(report_ids))
     return dict(db.execute(query).tuples().all())
+
+
+def get_report(db: Session, report_id: uuid.UUID) -> Report | None:
+    return db.get(Report, report_id)
+
+
+def list_reports(
+    db: Session, visibility: ReportVisibility, *, offset: int, limit: int
+) -> tuple[list[Report], int]:
+    """Laporan yang boleh dilihat satu pengguna, terbaru dulu, beserta total semua halaman."""
+    query = sa.select(Report)
+    if not visibility.all_saved:
+        query = query.where(
+            sa.or_(Report.created_by == visibility.viewer_id, Report.status != ReportStatus.SAVED)
+        )
+    if not visibility.include_dev:
+        query = query.where(Report.has_dev_scores.is_(False))
+    total = db.scalar(sa.select(sa.func.count()).select_from(query.subquery())) or 0
+    ordered = query.order_by(Report.created_at.desc(), Report.id).offset(offset).limit(limit)
+    return list(db.scalars(ordered)), total
+
+
+def contents(db: Session, report: Report) -> ReportContents:
+    rubric_version_no = db.scalar(
+        sa.select(RubricVersion.version_no).where(RubricVersion.id == report.rubric_version_id)
+    )
+    sessions = db.scalars(
+        sa.select(ReportSession)
+        .where(ReportSession.report_id == report.id)
+        .order_by(ReportSession.product_label)
+    )
+    results = db.scalars(sa.select(ReportResult).where(ReportResult.report_id == report.id))
+    case_basis = db.execute(
+        # Tag dari case_versions, bukan salinan di report_case_basis: penyamaran kasus test untuk
+        # Developer AI (access.visible_case_code) tidak boleh percaya salinan yang bisa salah
+        # (review #146). Versi kasus approved tidak pernah diubah, jadi hasilnya tetap beku.
+        sa.select(CaseVersion.case_code, CaseVersion.version_no, CaseVersion.split_tag)
+        .select_from(ReportCaseBasis)
+        .join(CaseVersion, CaseVersion.id == ReportCaseBasis.case_version_id)
+        .where(ReportCaseBasis.report_id == report.id)
+        .order_by(CaseVersion.case_code)
+    )
+    return ReportContents(
+        rubric_version_no=rubric_version_no,
+        sessions=list(sessions),
+        results=list(results),
+        case_basis=[CaseBasisRow(*row) for row in case_basis],
+    )

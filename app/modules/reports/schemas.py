@@ -5,6 +5,12 @@ berubah, kontrak API ikut berubah, jadi wajib diumumkan ke tim.
 
 PBI-15 SCRUM-79 SCRUM-313: POST /reports dan GET /reports/eligible-sessions. Aturan isian ditulis di sini sekali; frontend tidak
 menyalinnya.
+
+PBI-15 SCRUM-79 SCRUM-320: bentuk baca laporan tersimpan (GET /reports, /reports/{id}, PDF).
+Isinya hasil beku dari tabel D1, jadi membuka ulang laporan dan membuat PDF tidak pernah
+menghitung ulang. Bentuknya sengaja terpisah dari ReportRead milik POST: riwayat dibaca
+semua peran dan dibagikan sebagai PDF, jadi tidak membawa id sesi/produk dan total_score
+(review #145).
 """
 
 import uuid
@@ -14,6 +20,7 @@ from decimal import Decimal
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 from app.modules.auth.schemas import ErrorBody
+from app.modules.cases.models import SplitTag
 from app.modules.reports.eligible_sessions import EligibleSession
 from app.modules.reports.models import (
     MeasurementFilter,
@@ -89,8 +96,12 @@ class ReportCreate(BaseModel):
 
 
 class ReportMarkerRead(BaseModel):
+    """Satu penanda D2 dari report_sessions.markers. Dipakai POST dan riwayat (SCRUM-320)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
     code: ReportMarkerCode
-    detail: str | None = None
+    detail: str | None = Field(default=None, description="Keterangan tambahan, misalnya jumlah")
 
 
 class ReportResultRead(BaseModel):
@@ -259,3 +270,80 @@ class EligibleSessionRead(BaseModel):
                 EligibleSessionReasonRead(code=r.code, message=r.message) for r in item.reasons
             ],
         )
+
+
+# --- Riwayat laporan dan PDF (SCRUM-320) --------------------------------------
+
+
+class ReportDetailResultRead(BaseModel):
+    """Satu baris report_results di laporan tersimpan. Skor dua desimal, tanpa persen (AC6)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    score_split: ScoreSplit
+    cases_graded_count: int
+    cases_basis_count: int
+    det_score: Decimal | None
+    llm_score: Decimal | None
+    failure_rate: Decimal | None = Field(description="Persen dari total upaya; NULL untuk manual")
+    # total_score tidak dikirim: D1 memakainya hanya untuk menghitung rank (review #145).
+    rank: int | None
+    repetitions: int
+    product_model_version: str | None = Field(
+        description="NULL di laporan mode kode, karena versi model biasanya menyebut produknya"
+    )
+    judge_model_version: str | None
+
+
+class ReportDetailSessionRead(BaseModel):
+    """Satu sesi (satu produk) di laporan tersimpan beserta hasil bekunya.
+
+    Tanpa session_id dan product_id: di laporan mode kode (AC9) keduanya membuka produk mana
+    yang ada di balik kode (review #145). Klien memakai product_label atau urutan daftar.
+    """
+
+    model_config = ConfigDict(from_attributes=True)
+
+    product_label: str = Field(description="Nama asli atau kode, dipilih Admin saat membuat")
+    measurement_kind: MeasurementKind
+    # Uji Coba hanya disimpan di kolom ini, tidak diulang di markers (keputusan SCRUM-300).
+    is_trial: bool = False
+    markers: list[ReportMarkerRead] = Field(default_factory=list)
+    results: list[ReportDetailResultRead]
+
+
+class ReportCaseBasisRead(BaseModel):
+    """Satu kasus dasar perhitungan. Hanya kode dan versi, tanpa isi kasus (D9)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    case_code: str
+    case_version_no: int
+    split_tag: SplitTag
+
+
+class ReportSummary(BaseModel):
+    """Satu baris di daftar laporan tersimpan (GET /reports)."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: uuid.UUID
+    title: str
+    score_scope: ScoreScope
+    has_dev_scores: bool
+    status: ReportStatus
+    language: ReportLanguage
+    created_by: uuid.UUID
+    created_at: datetime
+
+
+class ReportDetail(ReportSummary):
+    """Laporan lengkap untuk dibuka ulang dan dicetak ke PDF (GET /reports/{id})."""
+
+    measurement_filter: MeasurementFilter
+    product_label_mode: ProductLabelMode = ProductLabelMode.REAL_NAME
+    rubric_version_no: int | None
+    judge_model_name: str | None
+    case_basis_count: int
+    sessions: list[ReportDetailSessionRead]
+    case_basis: list[ReportCaseBasisRead]

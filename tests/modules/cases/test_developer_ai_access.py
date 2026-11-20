@@ -285,6 +285,11 @@ _DIBUKA = {
     # PBI-14 AC8, D10 (SCRUM-226): Developer AI melihat hasil penilaian sesi selesai.
     # Isi kasus test disamarkan, diuji di test_session_grade.py.
     ("GET", "/measurements/{session_id}/results"),
+    # PBI-15 (SCRUM-320), D9: Developer AI membaca laporan miliknya, laporan terbit, dan
+    # laporan skor dev. Kode kasus test disamarkan, diuji di test_report_history_service.py.
+    ("GET", "/reports"),
+    ("GET", "/reports/{report_id}"),
+    ("GET", "/reports/{report_id}/pdf"),
 }
 # Jalur tanpa penjaga peran: login, profil sendiri, dan lonceng notifikasi.
 _TANPA_PERAN = ("/health", "/auth/", "/notifications")
