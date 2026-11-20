@@ -14,6 +14,7 @@ from app.modules.reports.comparison_rules import (
     JUDGE_MODEL,
     MANUAL_ANSWER_RANGE_OVER_LIMIT,
     MODEL_VERSION_DIFFERS,
+    NO_SHARED_CASES,
     REPETITIONS_DIFFER,
     RUBRIC_VERSION,
     SUITE_VERSION,
@@ -438,3 +439,142 @@ class TestMarkers:
 
         # Assert
         assert tren.points[0].markers == (MANUAL_ANSWER_RANGE_OVER_LIMIT,)
+
+
+class TestSameCases:
+    """Tiap sesi hanya menjawab sebagian kasus, tetapi snapshot suite-nya sama (tanpa putus)."""
+
+    def test_only_cases_answered_in_every_session_of_the_line_are_scored(self):
+        # Arrange: kasus 2 satu-satunya yang dijawab kedua sesi.
+        oktober = _sesi(
+            10,
+            kasus=[_nilai(1, "1.00", "1.00"), _nilai(2, "0.50", "0.50")],
+            snapshot_tambahan=(_ref(3),),
+        )
+        november = _sesi(
+            11,
+            kasus=[_nilai(2, "0.70", "0.70"), _nilai(3, "0.00", "0.00")],
+            snapshot_tambahan=(_ref(1),),
+        )
+
+        # Act
+        tren = _tren(oktober, november)
+
+        # Assert
+        assert [p.value for p in tren.points] == [Decimal("0.50"), Decimal("0.70")]
+        assert tren.warnings == ()
+
+    def test_the_same_case_rule_applies_to_every_metric(self):
+        # Arrange
+        oktober = _sesi(
+            10,
+            kasus=[_nilai(1, "1.00", "0.00"), _nilai(2, "0.50", "0.20")],
+            snapshot_tambahan=(_ref(3),),
+        )
+        november = _sesi(
+            11,
+            kasus=[_nilai(2, "0.70", "0.40"), _nilai(3, "0.00", "0.00")],
+            snapshot_tambahan=(_ref(1),),
+        )
+
+        # Act
+        deterministik = _tren(oktober, november, metric=TrendMetric.DETERMINISTIC)
+        llm = _tren(oktober, november, metric=TrendMetric.LLM)
+
+        # Assert
+        assert [p.value for p in deterministik.points] == [Decimal("0.50"), Decimal("0.70")]
+        assert [p.value for p in llm.points] == [Decimal("0.20"), Decimal("0.40")]
+
+    def test_no_shared_case_draws_no_value_and_warns(self):
+        # Arrange
+        oktober = _sesi(10, kasus=[_nilai(1, "0.80", "0.60")], snapshot_tambahan=(_ref(2),))
+        november = _sesi(11, kasus=[_nilai(2, "0.70", "0.50")], snapshot_tambahan=(_ref(1),))
+
+        # Act
+        tren = _tren(oktober, november)
+
+        # Assert
+        assert [p.value for p in tren.points] == [None, None]
+        assert tren.warnings == (NO_SHARED_CASES,)
+
+    def test_a_single_session_is_scored_on_all_its_own_cases_without_warning(self):
+        # Arrange
+        sesi = _sesi(10, kasus=[_nilai(1, "0.80", "0.60"), _nilai(2, "0.40", "0.20")])
+
+        # Act
+        tren = _tren(sesi)
+
+        # Assert
+        assert tren.points[0].value == Decimal("0.50")
+        assert tren.warnings == ()
+
+    def test_a_single_session_without_scores_is_empty_without_warning(self):
+        # Act
+        tren = _tren(_sesi(10, kasus=[_nilai(1, None, None)]))
+
+        # Assert
+        assert tren.points[0].value is None
+        assert tren.warnings == ()
+
+    def test_each_line_segment_keeps_its_own_shared_cases(self):
+        # Arrange: rubrik baru memutus garis, jadi November tidak dibatasi kasus Oktober.
+        september = _sesi(
+            9,
+            kasus=[_nilai(1, "1.00", "1.00"), _nilai(2, "0.50", "0.50")],
+            snapshot_tambahan=(_ref(3),),
+        )
+        oktober = _sesi(
+            10,
+            kasus=[_nilai(2, "0.50", "0.50"), _nilai(3, "0.00", "0.00")],
+            snapshot_tambahan=(_ref(1),),
+        )
+        november = _sesi(
+            11,
+            kasus=[_nilai(1, "1.00", "1.00"), _nilai(2, "0.00", "0.00"), _nilai(3, "0.00", "0.00")],
+            rubrik=RUBRIK_BARU,
+        )
+
+        # Act
+        tren = _tren(september, oktober, november)
+
+        # Assert: September dan Oktober dibatasi kasus 2; November memakai ketiga kasusnya.
+        assert [p.value for p in tren.points] == [
+            Decimal("0.50"),
+            Decimal("0.50"),
+            Decimal("0.33"),
+        ]
+        assert tren.points[2].breaks == (RUBRIC_VERSION,)
+
+    def test_a_segment_without_shared_cases_does_not_empty_another_segment(self):
+        # Arrange: Agustus dan September tidak punya kasus sama; Oktober dan November punya.
+        agustus = _sesi(8, kasus=[_nilai(1, "0.80", "0.80")], snapshot_tambahan=(_ref(2),))
+        september = _sesi(9, kasus=[_nilai(2, "0.60", "0.60")], snapshot_tambahan=(_ref(1),))
+        oktober = _sesi(10, kasus=[_nilai(5, "0.40", "0.40")], rubrik=RUBRIK_BARU)
+        november = _sesi(11, kasus=[_nilai(5, "0.90", "0.90")], rubrik=RUBRIK_BARU)
+
+        # Act
+        tren = _tren(agustus, september, oktober, november)
+
+        # Assert
+        assert [p.value for p in tren.points] == [None, None, Decimal("0.40"), Decimal("0.90")]
+        assert tren.warnings == (NO_SHARED_CASES,)
+
+    def test_the_same_case_rule_follows_the_case_type_filter(self):
+        # Arrange: kasus test sama, kasus dev berbeda; yang digambar hanya dev.
+        oktober = _sesi(
+            10,
+            kasus=[_nilai(1, "0.80", "0.80"), _nilai(2, "0.10", "0.10", SplitTag.DEV)],
+            snapshot_tambahan=(_ref(3, split=SplitTag.DEV),),
+        )
+        november = _sesi(
+            11,
+            kasus=[_nilai(1, "0.80", "0.80"), _nilai(3, "0.30", "0.30", SplitTag.DEV)],
+            snapshot_tambahan=(_ref(2, split=SplitTag.DEV),),
+        )
+
+        # Act
+        tren = _tren(oktober, november, scope=ScoreScope.DEV)
+
+        # Assert
+        assert [p.value for p in tren.points] == [None, None]
+        assert tren.warnings == (NO_SHARED_CASES,)
