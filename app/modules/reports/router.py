@@ -25,7 +25,8 @@ SCRUM-326 (penelusuran angka sampai bukti, PBI-16, diagram D6 langkah 1-7):
   sendiri karena endpoint bukti lama butuh session_id, yang ditutup di laporan mode kode.
 
 SCRUM-327 (PBI-16 AC5 sampai AC7): GET /reports/sessions/{id}/csv mengunduh berkas skor
-satu sesi. Hanya sesi layak D2; selain itu 409 dengan alasannya. Berkasnya disimpan.
+satu sesi. Hanya sesi layak D2; selain itu 409 dengan alasannya. GET ini sengaja menulis:
+setiap berkas yang diserahkan disimpan (AC7), isi yang sama untuk sesi yang sama sekali saja.
 Pathnya tiga segmen, jadi tidak bertabrakan dengan /{report_id} maupun /{report_id}/pdf.
 """
 
@@ -378,7 +379,8 @@ _SCORE_FILE_RESPONSES = {
     404: {"model": ErrorBody, "description": "Sesi pengukuran tidak ada"},
     409: {
         "model": ErrorBody,
-        "description": "Sesi belum layak diunduh (D2). `code` alasan pertama; "
+        "description": "Sesi belum layak diunduh (D2), atau tidak ada kasus yang boleh "
+        "dilihat peran ini (`SCORE_FILE_NO_VISIBLE_CASES`). `code` alasan pertama; "
         "`reasons` berisi semua alasan dengan kode dan kalimatnya.",
     },
 }
@@ -388,6 +390,9 @@ _SCORE_FILE_RESPONSES = {
     "/sessions/{session_id}/csv",
     response_class=Response,
     summary="Unduh skor per kasus satu sesi sebagai CSV",
+    description="Semua kasus sesi ditulis; kasus tanpa skor berstatus `tidak dinilai`. "
+    "Setiap berkas yang diserahkan disimpan selamanya (AC7), jadi permintaan ini menulis "
+    "ke basis data; isi yang sama untuk sesi yang sama hanya disimpan sekali.",
     responses=_SCORE_FILE_RESPONSES,
 )
 def download_session_score_file(

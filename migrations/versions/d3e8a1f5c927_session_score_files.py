@@ -10,6 +10,10 @@ hanya disimpan sekali (unik session_id + sha256). Jawaban asli sudah dijaga trig
 attempts_protect_answer, jadi tidak diubah di sini.
 
 Kode galat: perubahan berkas = insufficient_privilege (42501).
+
+downgrade() menolak jalan selama tabel sudah berisi berkas (review PR #152 B3), pola yang
+sama dengan e216a5b7c901 dan b3c91d7a5e24: rollback migrasi tidak boleh menghapus berkas
+yang wajib disimpan selamanya. Basis data baru (siklus CI) tetap bisa di-downgrade.
 """
 
 import sqlalchemy as sa
@@ -82,6 +86,9 @@ def upgrade() -> None:
 
 
 def downgrade() -> None:
+    ada_berkas = op.get_bind().scalar(sa.text(f"SELECT EXISTS (SELECT 1 FROM {_TABEL})"))
+    if ada_berkas:
+        raise RuntimeError("Cannot downgrade while score files exist")
     # Trigger ikut terhapus bersama tabelnya; fungsinya dihapus sesudahnya.
     op.drop_table(_TABEL)
     bind = op.get_bind()
