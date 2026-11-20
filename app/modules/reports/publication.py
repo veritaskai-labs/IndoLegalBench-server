@@ -75,6 +75,9 @@ def publish(
         report.status = ReportStatus.PUBLISHED
         if replaced is not None:
             replaced.report.status = ReportStatus.SUPERSEDED
+        # Nilai response sudah ada di memori. Dibaca sebelum commit, karena commit
+        # mengakhiri objeknya dan refresh hanya akan mengulang SELECT yang sama.
+        hasil = PublicationRead.model_validate(row)
         db.commit()
     except IntegrityError as exc:
         db.rollback()
@@ -84,8 +87,7 @@ def publish(
             "Versi ini sudah terbit atau sudah diganti.",
             code=REPORT_NOT_PUBLISHABLE,
         ) from None
-    db.refresh(row)
-    return PublicationRead.model_validate(row)
+    return hasil
 
 
 def list_published(db: Session, params: PageParams) -> Page[PublishedReportListItem]:
