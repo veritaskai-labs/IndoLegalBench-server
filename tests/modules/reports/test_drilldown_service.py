@@ -13,6 +13,8 @@ Sumber aturan:
   "tidak dinilai"; jawaban manual dengan label, pengisi, dan tanggal.
 - AC3 dan D9 Sprint 4: isi kasus test hanya Admin dan Kontributor, isi kasus dev hanya
   Admin dan Developer AI. Peran lain 403 dengan email untuk meminta isi kasus.
+- AC4: bukti jawaban manual dibuka lewat service bukti yang sudah ada, hanya untuk kasus
+  di balik angka yang ditelusuri.
 
 Label: Positif = jalur normal, Negatif = harus ditolak atau disembunyikan,
 Edge = data batas atau tidak lengkap.
@@ -41,6 +43,7 @@ from app.modules.reports.models import (
     ScoreSplit,
 )
 from app.modules.reports.repository import CaseBasisRow, ManualAnswerFacts
+from app.modules.runs.manual_evidence import EvidenceDownload, ManualEvidenceService
 from app.modules.runs.models import AttemptSource, AttemptStatus
 from app.modules.runs.schemas import (
     AttemptGradeResult,
@@ -548,3 +551,105 @@ def test_pengisi_yang_sudah_tidak_ada_namanya_kosong(repo, nama):
 
     # Assert
     assert (kasus.attempts[0].filled_by_name, kasus.attempts[0].answered_at) == (None, DIJAWAB)
+
+
+# --- Bukti jawaban manual (AC4) ---------------------------------------------------
+
+ITEM = uuid.UUID("00000000-0000-0000-0000-0000000000a9")
+BUKTI = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
+
+
+@pytest.fixture
+def bukti():
+    """Service bukti SCRUM-233 tiruan dengan tanda tangan asli."""
+    tiruan = create_autospec(ManualEvidenceService, instance=True)
+    tiruan.list.return_value = []
+    tiruan.download.return_value = EvidenceDownload(b"%PDF-", "application/pdf", "bukti.pdf")
+    return tiruan
+
+
+def _laporan_test_untuk_kontributor(repo) -> tuple[Report, ReportResult]:
+    report = _laporan(score_scope=ScoreScope.TEST, has_dev_scores=False, status="published")
+    angka = _angka(report, ScoreSplit.TEST)
+    _siapkan(repo, report, angka)
+    return report, angka
+
+
+def test_daftar_bukti_lewat_sesi_dan_item_kasus_yang_ditelusuri(repo, bukti):
+    """Positif: Kontributor membuka bukti jawaban manual kasus test di laporan terbit (AC4)."""
+    # Arrange
+    report, angka = _laporan_test_untuk_kontributor(repo)
+    repo.snapshot_item_id.return_value = ITEM
+
+    # Act
+    drilldown.list_evidence(
+        DB, report.id, angka.id, KASUS_TEST, 2, _pengguna(Role.CONTRIBUTOR), bukti
+    )
+
+    # Assert
+    repo.snapshot_item_id.assert_called_once_with(DB, SESI, KASUS_TEST)
+    bukti.list.assert_called_once_with(SESI, ITEM, 2, role=Role.CONTRIBUTOR)
+
+
+def test_daftar_bukti_kasus_tanpa_item_snapshot_dijawab_404(repo, bukti):
+    """Edge: kasus dasar yang tidak ada di snapshot sesi (data rusak) tidak memanggil service."""
+    # Arrange
+    report, angka = _laporan_test_untuk_kontributor(repo)
+    repo.snapshot_item_id.return_value = None
+
+    # Act / Assert
+    with pytest.raises(NotFoundError) as galat:
+        drilldown.list_evidence(DB, report.id, angka.id, KASUS_TEST, 1, _pengguna(), bukti)
+    assert galat.value.code == drilldown.REPORT_CASE_NOT_FOUND
+    bukti.list.assert_not_called()
+
+
+def test_bukti_untuk_peran_tanpa_hak_isi_ditolak_403(repo, bukti):
+    """Negatif: Viewer yang lolos route pun tetap ditolak di service, sebelum bukti dibaca."""
+    # Arrange
+    report, angka = _laporan_test_untuk_kontributor(repo)
+
+    # Act / Assert
+    with pytest.raises(ForbiddenError):
+        drilldown.list_evidence(
+            DB, report.id, angka.id, KASUS_TEST, 1, _pengguna(Role.VIEWER), bukti
+        )
+    bukti.list.assert_not_called()
+
+
+def test_unduh_bukti_milik_kasus_yang_ditelusuri(repo, bukti):
+    """Positif: berkas bukti diunduh lewat service bukti dengan sesi di balik angka (AC4)."""
+    # Arrange
+    report, angka = _laporan_test_untuk_kontributor(repo)
+    repo.evidence_case_id.return_value = KASUS_TEST
+
+    # Act
+    berkas = drilldown.evidence_file(
+        DB, report.id, angka.id, KASUS_TEST, BUKTI, _pengguna(Role.CONTRIBUTOR), bukti
+    )
+
+    # Assert
+    assert berkas.file_name == "bukti.pdf"
+    bukti.download.assert_called_once_with(SESI, BUKTI, role=Role.CONTRIBUTOR)
+
+
+@pytest.mark.parametrize(
+    "pemilik",
+    [
+        # Negatif: bukti kasus lain di sesi yang sama.
+        KASUS_DEV,
+        # Negatif: bukti bukan milik sesi di balik angka ini.
+        None,
+    ],
+)
+def test_unduh_bukti_kasus_lain_dijawab_404(repo, bukti, pemilik):
+    """Negatif: laporan ini tidak bisa dipakai membuka bukti di luar kasus yang ditelusuri."""
+    # Arrange
+    report, angka = _laporan_test_untuk_kontributor(repo)
+    repo.evidence_case_id.return_value = pemilik
+
+    # Act / Assert
+    with pytest.raises(NotFoundError) as galat:
+        drilldown.evidence_file(DB, report.id, angka.id, KASUS_TEST, BUKTI, _pengguna(), bukti)
+    assert galat.value.code == drilldown.REPORT_EVIDENCE_NOT_FOUND
+    bukti.download.assert_not_called()

@@ -5736,6 +5736,193 @@
         }
       }
     },
+    "/reports/{report_id}/results/{result_id}/cases/{case_id}/attempts/{attempt_no}/evidence": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Bukti satu jawaban manual dari penelusuran laporan (Admin, Kontributor)",
+        "operationId": "list_result_case_evidence_reports__report_id__results__result_id__cases__case_id__attempts__attempt_no__evidence_get",
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Result Id"
+            }
+          },
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "attempt_no",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "integer",
+              "title": "Attempt No"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "type": "array",
+                  "items": {
+                    "$ref": "#/components/schemas/EvidenceRead"
+                  },
+                  "title": "Response List Result Case Evidence Reports  Report Id  Results  Result Id  Cases  Case Id  Attempts  Attempt No  Evidence Get"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Peran ini tidak boleh membuka bukti (`FORBIDDEN`) atau isi kasus (`CASE_CONTENT_FORBIDDEN`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Laporan, angka, kasus, percobaan, atau bukti tidak ditemukan di balik angka ini (`REPORT_NOT_FOUND`, `REPORT_RESULT_NOT_FOUND`, `REPORT_CASE_NOT_FOUND`, `REPORT_EVIDENCE_NOT_FOUND`, `EVIDENCE_NOT_FOUND`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/{report_id}/results/{result_id}/cases/{case_id}/evidence/{evidence_id}/file": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Unduh berkas bukti jawaban manual dari penelusuran laporan (Admin, Kontributor)",
+        "operationId": "download_result_case_evidence_reports__report_id__results__result_id__cases__case_id__evidence__evidence_id__file_get",
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          },
+          {
+            "name": "result_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Result Id"
+            }
+          },
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          },
+          {
+            "name": "evidence_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Evidence Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Isi berkas, selalu sebagai lampiran",
+            "content": {
+              "image/png": {},
+              "image/jpeg": {},
+              "application/pdf": {}
+            }
+          },
+          "403": {
+            "description": "Peran ini tidak boleh membuka bukti (`FORBIDDEN`) atau isi kasus (`CASE_CONTENT_FORBIDDEN`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Laporan, angka, kasus, percobaan, atau bukti tidak ditemukan di balik angka ini (`REPORT_NOT_FOUND`, `REPORT_RESULT_NOT_FOUND`, `REPORT_CASE_NOT_FOUND`, `REPORT_EVIDENCE_NOT_FOUND`, `EVIDENCE_NOT_FOUND`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/audit-logs": {
       "get": {
         "tags": [

@@ -27,7 +27,7 @@ from app.modules.reports.models import (
     ReportSession,
     ReportStatus,
 )
-from app.modules.runs.models import Attempt
+from app.modules.runs.models import Attempt, AttemptEvidence, CaseSnapshot, CaseSnapshotItem
 
 
 @dataclass(frozen=True)
@@ -190,3 +190,25 @@ def manual_answer_facts(
         )
     )
     return {row.id: ManualAnswerFacts(row.filled_by, row.answered_at_platform) for row in rows}
+
+
+def snapshot_item_id(db: Session, session_id: uuid.UUID, case_id: uuid.UUID) -> uuid.UUID | None:
+    """Item snapshot satu kasus di sesi ini, kunci endpoint bukti jawaban manual."""
+    return db.scalar(
+        sa.select(CaseSnapshotItem.id)
+        .join(CaseSnapshot, CaseSnapshot.id == CaseSnapshotItem.snapshot_id)
+        .where(CaseSnapshot.session_id == session_id, CaseSnapshotItem.case_id == case_id)
+    )
+
+
+def evidence_case_id(
+    db: Session, session_id: uuid.UUID, evidence_id: uuid.UUID
+) -> uuid.UUID | None:
+    """Kasus pemilik satu bukti di sesi ini; None bila bukti bukan milik sesi ini."""
+    return db.scalar(
+        sa.select(CaseSnapshotItem.case_id)
+        .select_from(AttemptEvidence)
+        .join(Attempt, Attempt.id == AttemptEvidence.attempt_id)
+        .join(CaseSnapshotItem, CaseSnapshotItem.id == Attempt.snapshot_item_id)
+        .where(AttemptEvidence.id == evidence_id, Attempt.session_id == session_id)
+    )

@@ -18,7 +18,14 @@ import pytest
 
 from app.modules.grading.models import GradingRun, GradingRunKind, GradingRunStatus
 from app.modules.reports import repository
-from app.modules.runs.models import Attempt, AttemptSource
+from app.modules.runs.models import (
+    Attempt,
+    AttemptEvidence,
+    AttemptSource,
+    CaseSnapshot,
+    CaseSnapshotItem,
+    EvidenceKind,
+)
 from tests import reports_factory as pabrik
 
 LAPORAN_DIBUAT = datetime(2026, 12, 1, 10, tzinfo=UTC)
@@ -231,3 +238,67 @@ def test_data_jawaban_manual_tanpa_percobaan_tidak_query(db_session):
 
     # Assert
     assert fakta == {}
+
+
+# --- snapshot_item_id dan evidence_case_id (AC4) ------------------------------------
+
+
+@pytest.fixture
+def bukti_sesi(db_session, laporan_satu_sesi):
+    """Dua kasus di snapshot sesi, satu bukti tautan pada percobaan manual kasus pertama."""
+    admin, _, sesi, *_ = laporan_satu_sesi
+    snapshot = CaseSnapshot(session_id=sesi.id)
+    db_session.add(snapshot)
+    db_session.flush()
+    items = [
+        CaseSnapshotItem(
+            snapshot_id=snapshot.id, case_id=uuid.uuid4(), case_version_id=uuid.uuid4(), body={}
+        )
+        for _ in range(2)
+    ]
+    db_session.add_all(items)
+    db_session.flush()
+    percobaan = Attempt(
+        session_id=sesi.id,
+        snapshot_item_id=items[0].id,
+        repetition_no=1,
+        source=AttemptSource.MANUAL,
+    )
+    db_session.add(percobaan)
+    db_session.flush()
+    tautan = AttemptEvidence(
+        attempt_id=percobaan.id,
+        kind=EvidenceKind.LINK,
+        url="https://contoh.test/bukti",
+        uploaded_by=admin.id,
+    )
+    db_session.add(tautan)
+    db_session.flush()
+    return sesi, items, tautan
+
+
+def test_item_snapshot_kasus_di_sesi(db_session, bukti_sesi):
+    """Positif dan negatif: item kasus di sesi ini terbaca; kasus atau sesi lain tidak."""
+    # Arrange
+    sesi, items, _ = bukti_sesi
+
+    # Act
+    ada = repository.snapshot_item_id(db_session, sesi.id, items[1].case_id)
+    kasus_lain = repository.snapshot_item_id(db_session, sesi.id, uuid.uuid4())
+    sesi_lain = repository.snapshot_item_id(db_session, uuid.uuid4(), items[1].case_id)
+
+    # Assert
+    assert (ada, kasus_lain, sesi_lain) == (items[1].id, None, None)
+
+
+def test_kasus_pemilik_bukti_di_sesi(db_session, bukti_sesi):
+    """Positif dan negatif: pemilik bukti terbaca hanya lewat sesinya sendiri."""
+    # Arrange
+    sesi, items, tautan = bukti_sesi
+
+    # Act
+    pemilik = repository.evidence_case_id(db_session, sesi.id, tautan.id)
+    sesi_lain = repository.evidence_case_id(db_session, uuid.uuid4(), tautan.id)
+
+    # Assert
+    assert (pemilik, sesi_lain) == (items[0].case_id, None)

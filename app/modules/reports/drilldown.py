@@ -32,16 +32,23 @@ from app.modules.reports.schemas import (
     ReportResultCasesRead,
 )
 from app.modules.runs.case_visibility import can_view_drilldown_content
+from app.modules.runs.manual_evidence import EvidenceDownload
 from app.modules.runs.models import AttemptSource
-from app.modules.runs.schemas import AttemptGradeResult, CaseGradeResult, SessionGradingResponse
+from app.modules.runs.schemas import (
+    AttemptGradeResult,
+    CaseGradeResult,
+    EvidenceRead,
+    SessionGradingResponse,
+)
 from app.modules.runs.session_grade import DbGradingStore
 from app.shared.exceptions import ForbiddenError, NotFoundError
-from app.shared.security import CurrentUser
+from app.shared.security import CurrentUser, Role
 
 REPORT_RESULT_NOT_FOUND = "REPORT_RESULT_NOT_FOUND"
 REPORT_GRADES_NOT_FOUND = "REPORT_GRADES_NOT_FOUND"
 REPORT_CASE_NOT_FOUND = "REPORT_CASE_NOT_FOUND"
 CASE_CONTENT_FORBIDDEN = "CASE_CONTENT_FORBIDDEN"
+REPORT_EVIDENCE_NOT_FOUND = "REPORT_EVIDENCE_NOT_FOUND"
 
 # Angka dev hanya dibentuk kasus dev, angka test dari kasus test, gabungan dari keduanya
 # (D1, sama dengan service._ALLOWED_CASE_TAGS untuk jenis nilai laporan).
@@ -50,6 +57,18 @@ _CASE_TAGS: Mapping[ScoreSplit, frozenset[SplitTag]] = {
     ScoreSplit.DEV: frozenset({SplitTag.DEV}),
     ScoreSplit.COMBINED: frozenset(SplitTag),
 }
+
+
+class EvidenceReader(Protocol):
+    """Bukti jawaban manual yang sudah ada (runs.manual_evidence, SCRUM-233), D6 langkah 8."""
+
+    def list(
+        self, session_id: uuid.UUID, snapshot_item_id: uuid.UUID, attempt_no: int, *, role: Role
+    ) -> list[EvidenceRead]: ...
+
+    def download(
+        self, session_id: uuid.UUID, evidence_id: uuid.UUID, *, role: Role
+    ) -> EvidenceDownload: ...
 
 
 class GradingRunReader(Protocol):
@@ -108,15 +127,7 @@ def case_detail(
     tidak berhak tidak pernah memicu pembacaan jawaban asli: Viewer, Kontributor untuk
     kasus dev, dan Developer AI untuk kasus test (AC3, D9).
     """
-    report = history.readable_report(db, report_id, user)
-    result = _result(db, report, result_id)
-    basis = _basis_case(db, report, result, case_id)
-    if not can_view_drilldown_content(user.role, basis.split_tag.value):
-        raise ForbiddenError(
-            "Isi kasus dan jawaban asli tidak dapat dibuka dengan peran Anda. Untuk "
-            f"mendapatkan isi kasus, kirim email ke {CONTACT_EMAIL}.",
-            code=CASE_CONTENT_FORBIDDEN,
-        )
+    report, result, basis = _openable_case(db, report_id, result_id, case_id, user)
     run = _frozen_run(db, report, result, runs or DbGradingStore(db))
     graded = next((case for case in run.cases if case.case_id == case_id), None)
     if graded is None:
@@ -143,6 +154,66 @@ def case_detail(
         llm_score=scores.quality if scores else None,
         attempts=[_attempt(attempt, manual) for attempt in graded.attempts],
     )
+
+
+def list_evidence(
+    db: Session,
+    report_id: uuid.UUID,
+    result_id: uuid.UUID,
+    case_id: uuid.UUID,
+    attempt_no: int,
+    user: CurrentUser,
+    evidence: EvidenceReader,
+) -> list[EvidenceRead]:
+    """Bukti satu jawaban manual dari penelusuran (AC4, D6 langkah 8).
+
+    Pemeriksaannya sama dengan membuka isi kasus, lalu service bukti yang sudah ada
+    menegakkan flag MANUAL_EVIDENCE_VISIBILITY. Route membatasi ke Admin dan Kontributor.
+    """
+    _, result, _ = _openable_case(db, report_id, result_id, case_id, user)
+    item_id = repository.snapshot_item_id(db, result.session_id, case_id)
+    if item_id is None:
+        raise NotFoundError("Kasus tidak ada di balik angka ini.", code=REPORT_CASE_NOT_FOUND)
+    return evidence.list(result.session_id, item_id, attempt_no, role=user.role)
+
+
+def evidence_file(
+    db: Session,
+    report_id: uuid.UUID,
+    result_id: uuid.UUID,
+    case_id: uuid.UUID,
+    evidence_id: uuid.UUID,
+    user: CurrentUser,
+    evidence: EvidenceReader,
+) -> EvidenceDownload:
+    """Berkas satu bukti, hanya bila bukti itu milik kasus yang sedang ditelusuri (AC4).
+
+    Tanpa cek kasus, laporan ini bisa dipakai membuka bukti kasus lain di sesi yang sama.
+    """
+    _, result, _ = _openable_case(db, report_id, result_id, case_id, user)
+    if repository.evidence_case_id(db, result.session_id, evidence_id) != case_id:
+        raise NotFoundError("Bukti tidak ada pada kasus ini.", code=REPORT_EVIDENCE_NOT_FOUND)
+    return evidence.download(result.session_id, evidence_id, role=user.role)
+
+
+def _openable_case(
+    db: Session,
+    report_id: uuid.UUID,
+    result_id: uuid.UUID,
+    case_id: uuid.UUID,
+    user: CurrentUser,
+) -> tuple[Report, ReportResult, CaseBasisRow]:
+    """Laporan boleh dibaca, angka milik laporan, kasus di balik angka, dan hak isinya (D6 6)."""
+    report = history.readable_report(db, report_id, user)
+    result = _result(db, report, result_id)
+    basis = _basis_case(db, report, result, case_id)
+    if not can_view_drilldown_content(user.role, basis.split_tag.value):
+        raise ForbiddenError(
+            "Isi kasus dan jawaban asli tidak dapat dibuka dengan peran Anda. Untuk "
+            f"mendapatkan isi kasus, kirim email ke {CONTACT_EMAIL}.",
+            code=CASE_CONTENT_FORBIDDEN,
+        )
+    return report, result, basis
 
 
 def _basis_case(

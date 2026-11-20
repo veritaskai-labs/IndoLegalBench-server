@@ -20,6 +20,16 @@ from app.modules.auth.seeds import ADMIN_SUB, AUTHOR_SUB, VIEWER_SUB, seed_users
 from app.modules.cases.models import CaseStatus, CaseVersion, SplitTag
 from app.modules.grading.models import GradingRun, GradingRunKind, GradingRunStatus
 from app.modules.reports import drilldown, repository
+from app.modules.reports.models import ReportCaseBasis
+from app.modules.runs.models import (
+    Attempt,
+    AttemptEvidence,
+    AttemptSource,
+    CaseSnapshot,
+    CaseSnapshotItem,
+    EvidenceFile,
+    EvidenceKind,
+)
 from app.modules.runs.schemas import CaseGradeResult, ScorePair, SessionGradingResponse, ThreeScores
 from app.modules.runs.session_grade import MemoryGradingStore
 from tests import reports_factory as pabrik
@@ -223,3 +233,79 @@ def test_viewer_ditolak_403_dengan_email_kontak(client, db_session, angka):
     assert respons.status_code == 403
     assert respons.json()["code"] == drilldown.CASE_CONTENT_FORBIDDEN
     assert "indolegalbench@veritask.ai" in respons.json()["message"]
+
+
+# --- Bukti jawaban manual (AC4) ---------------------------------------------------
+
+
+@pytest.fixture
+def berkas_bukti(db_session, angka):
+    """Satu berkas PDF bukti pada percobaan manual kasus dasar laporan."""
+    report, hasil = angka
+    basis = db_session.scalar(select(ReportCaseBasis).where(ReportCaseBasis.report_id == report.id))
+    snapshot = CaseSnapshot(session_id=hasil.session_id)
+    db_session.add(snapshot)
+    db_session.flush()
+    item = CaseSnapshotItem(
+        snapshot_id=snapshot.id,
+        case_id=basis.case_id,
+        case_version_id=basis.case_version_id,
+        body={},
+    )
+    db_session.add(item)
+    db_session.flush()
+    percobaan = Attempt(
+        session_id=hasil.session_id,
+        snapshot_item_id=item.id,
+        repetition_no=1,
+        source=AttemptSource.MANUAL,
+    )
+    db_session.add(percobaan)
+    db_session.flush()
+    db_session.add(EvidenceFile(key="bukti-326", content=b"%PDF-1.4 bukti"))
+    bukti = AttemptEvidence(
+        attempt_id=percobaan.id,
+        kind=EvidenceKind.FILE,
+        file_key="bukti-326",
+        file_name="tangkapan layar.pdf",
+        mime_type="application/pdf",
+        size_bytes=14,
+        uploaded_by=report.created_by,
+    )
+    db_session.add(bukti)
+    db_session.commit()
+    return report, hasil, basis.case_id, bukti.id
+
+
+def test_admin_mengunduh_bukti_dari_penelusuran(client, db_session, berkas_bukti):
+    """Positif: Admin membuka daftar bukti lalu mengunduh berkasnya sebagai lampiran (AC4)."""
+    # Arrange
+    report, hasil, case_id, bukti_id = berkas_bukti
+    complete_login(client, db_session, ADMIN_SUB)
+    kasus = _url_kasus(report.id, hasil.id, case_id)
+
+    # Act
+    daftar = client.get(f"{kasus}/attempts/1/evidence")
+    unduh = client.get(f"{kasus}/evidence/{bukti_id}/file")
+
+    # Assert
+    assert [b["id"] for b in daftar.json()] == [str(bukti_id)]
+    assert unduh.status_code == 200
+    assert unduh.content == b"%PDF-1.4 bukti"
+    assert unduh.headers["content-disposition"].startswith("attachment;")
+    assert unduh.headers["x-content-type-options"] == "nosniff"
+
+
+def test_viewer_tidak_bisa_membuka_bukti(client, db_session, berkas_bukti):
+    """Negatif: bukti jawaban manual hanya Admin dan Kontributor (AC4), Viewer 403 di route."""
+    # Arrange
+    report, hasil, case_id, bukti_id = berkas_bukti
+    complete_login(client, db_session, VIEWER_SUB)
+    kasus = _url_kasus(report.id, hasil.id, case_id)
+
+    # Act
+    daftar = client.get(f"{kasus}/attempts/1/evidence")
+    unduh = client.get(f"{kasus}/evidence/{bukti_id}/file")
+
+    # Assert
+    assert (daftar.status_code, unduh.status_code) == (403, 403)
