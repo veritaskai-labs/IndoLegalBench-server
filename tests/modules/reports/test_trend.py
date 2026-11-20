@@ -3,16 +3,27 @@
 AC1 sampai AC6, AC11, AC12, AC13. Murni: rekaman sesi dibuat langsung, tanpa database.
 """
 
+import uuid
 from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
 
 from app.modules.cases.models import SplitTag
+from app.modules.reports.comparison_rules import (
+    JUDGE_MODEL,
+    MANUAL_ANSWER_RANGE_OVER_LIMIT,
+    MODEL_VERSION_DIFFERS,
+    REPETITIONS_DIFFER,
+    RUBRIC_VERSION,
+    SUITE_VERSION,
+    TRIAL_SESSION,
+)
 from app.modules.reports.models import ScoreScope
+from app.modules.reports.report_scoring import GradedCase
 from app.modules.reports.trend import TrendMetric, TrendRange, build_trend
-from app.modules.runs.models import SessionStatus
-from tests.modules.reports.test_report_generation import _nilai, _rekaman
+from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType
+from tests.modules.reports.test_report_generation import _nilai, _ref, _rekaman
 
 HARI_INI = date(2026, 11, 20)
 
@@ -258,3 +269,172 @@ class TestCaseTypeFilter:
 
         # Assert
         assert tren.points[0].value is None
+
+
+RUBRIK_BARU = uuid.UUID("aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa")
+
+
+def _kasus_versi(nomor: int, versi: int, split: SplitTag = SplitTag.TEST) -> GradedCase:
+    return GradedCase(
+        ref=_ref(nomor, versi=versi, split=split),
+        split=split,
+        det=Decimal("0.80"),
+        llm=Decimal("0.60"),
+    )
+
+
+class TestVersionBreaks:
+    def test_the_first_point_never_has_a_break(self):
+        # Act
+        tren = _tren(_sesi(10), _sesi(11))
+
+        # Assert
+        assert tren.points[0].breaks == ()
+
+    def test_comparable_months_are_joined_without_a_break(self):
+        # Act
+        tren = _tren(_sesi(10), _sesi(11))
+
+        # Assert
+        assert tren.points[1].breaks == ()
+
+    def test_a_new_rubric_version_breaks_the_line_at_that_month(self):
+        # Arrange
+        lama, baru = _sesi(10), _sesi(11, rubrik=RUBRIK_BARU)
+
+        # Act
+        tren = _tren(lama, baru)
+
+        # Assert
+        assert tren.points[1].breaks == (RUBRIC_VERSION,)
+
+    def test_a_new_product_model_version_breaks_the_line(self):
+        # Arrange
+        lama, baru = _sesi(10, model="model-1"), _sesi(11, model="model-2")
+
+        # Act
+        tren = _tren(lama, baru)
+
+        # Assert
+        assert tren.points[1].breaks == (MODEL_VERSION_DIFFERS,)
+
+    def test_a_new_case_version_breaks_the_line(self):
+        # Arrange
+        lama = _sesi(10, kasus=[_kasus_versi(1, versi=1)])
+        baru = _sesi(11, kasus=[_kasus_versi(1, versi=2)])
+
+        # Act
+        tren = _tren(lama, baru)
+
+        # Assert
+        assert tren.points[1].breaks == (SUITE_VERSION,)
+
+    def test_a_different_judge_model_breaks_the_line(self):
+        # Arrange
+        lama, baru = _sesi(10, judge_versi="judge-1"), _sesi(11, judge_versi="judge-2")
+
+        # Act
+        tren = _tren(lama, baru)
+
+        # Assert
+        assert tren.points[1].breaks == (JUDGE_MODEL,)
+
+    def test_every_reason_for_the_break_is_listed(self):
+        # Arrange
+        lama = _sesi(10)
+        baru = _sesi(11, rubrik=RUBRIK_BARU, model="model-2", judge_versi="judge-2")
+
+        # Act
+        tren = _tren(lama, baru)
+
+        # Assert
+        assert tren.points[1].breaks == (RUBRIC_VERSION, JUDGE_MODEL, MODEL_VERSION_DIFFERS)
+
+    def test_a_break_compares_a_point_with_the_one_right_before_it(self):
+        # Arrange: model berubah di Oktober saja; November sama dengan Oktober.
+        tren = _tren(_sesi(9, model="m1"), _sesi(10, model="m2"), _sesi(11, model="m2"))
+
+        # Assert
+        assert [p.breaks for p in tren.points] == [(), (MODEL_VERSION_DIFFERS,), ()]
+
+    def test_a_dev_case_change_does_not_break_a_test_only_trend(self):
+        # Arrange
+        lama = _sesi(10, kasus=[_kasus_versi(1, 1), _kasus_versi(2, 1, SplitTag.DEV)])
+        baru = _sesi(11, kasus=[_kasus_versi(1, 1), _kasus_versi(2, 2, SplitTag.DEV)])
+
+        # Act
+        test_saja = _tren(lama, baru, scope=ScoreScope.TEST)
+        dev_saja = _tren(lama, baru, scope=ScoreScope.DEV)
+
+        # Assert
+        assert test_saja.points[1].breaks == ()
+        assert dev_saja.points[1].breaks == (SUITE_VERSION,)
+
+    def test_breaks_apply_to_every_metric(self):
+        # Arrange
+        lama, baru = _sesi(10), _sesi(11, rubrik=RUBRIK_BARU)
+
+        # Act
+        hasil = {
+            metrik: _tren(lama, baru, metric=metrik).points[1].breaks for metrik in TrendMetric
+        }
+
+        # Assert
+        assert set(hasil.values()) == {(RUBRIC_VERSION,)}
+
+
+class TestMarkers:
+    def test_a_trial_session_is_marked(self):
+        # Act
+        tren = _tren(_sesi(10, purpose=SessionPurpose.TRIAL))
+
+        # Assert
+        assert tren.points[0].markers == (TRIAL_SESSION,)
+
+    def test_a_manual_session_with_other_attempt_counts_is_marked(self):
+        # Arrange
+        a = _sesi(10, session_type=SessionType.MANUAL, status="finalized", repetisi=1)
+        b = _sesi(11, session_type=SessionType.MANUAL, status="finalized", repetisi=3)
+
+        # Act
+        tren = _tren(a, b)
+
+        # Assert
+        assert [p.markers for p in tren.points] == [(REPETITIONS_DIFFER,), (REPETITIONS_DIFFER,)]
+
+    def test_equal_attempt_counts_are_not_marked(self):
+        # Arrange
+        a = _sesi(10, session_type=SessionType.MANUAL, status="finalized", repetisi=2)
+        b = _sesi(11, session_type=SessionType.MANUAL, status="finalized", repetisi=2)
+
+        # Act
+        tren = _tren(a, b)
+
+        # Assert
+        assert [p.markers for p in tren.points] == [(), ()]
+
+    def test_an_automatic_session_with_other_attempt_counts_is_not_marked(self):
+        # Arrange: penanda ini hanya untuk sesi manual (AC5).
+        a, b = _sesi(10, repetisi=1), _sesi(11, repetisi=3)
+
+        # Act
+        tren = _tren(a, b)
+
+        # Assert
+        assert [p.markers for p in tren.points] == [(), ()]
+
+    def test_a_manual_answer_range_over_the_limit_is_marked(self):
+        # Arrange
+        sesi = _sesi(
+            10,
+            session_type=SessionType.MANUAL,
+            status="finalized",
+            dari=datetime(2026, 10, 1, tzinfo=UTC),
+            sampai=datetime(2026, 10, 20, tzinfo=UTC),
+        )
+
+        # Act
+        tren = _tren(sesi)
+
+        # Assert
+        assert tren.points[0].markers == (MANUAL_ANSWER_RANGE_OVER_LIMIT,)
