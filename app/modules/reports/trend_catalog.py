@@ -4,10 +4,15 @@ import uuid
 
 from sqlalchemy.orm import Session
 
+from app.modules.providers import repository as providers
+
 
 class SqlProductCatalog:
+    """Memenuhi ProductCatalog. Produk yang sudah dihapus dianggap tidak ada."""
+
     def __init__(self, db: Session) -> None:
         self._db = db
 
     def name_of(self, product_id: uuid.UUID) -> str | None:
-        return None
+        product = providers.get_by_id(self._db, product_id)
+        return product.name if product else None
