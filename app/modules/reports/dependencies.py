@@ -9,6 +9,12 @@ from sqlalchemy.orm import Session
 
 from app.modules.reports.eligible_sessions import EligibleSessionLister
 from app.modules.reports.report_generation import ReportGenerator
+from app.modules.reports.score_file_repository import SqlScoreFileStore, SqlScoreSource
+from app.modules.reports.score_files import (
+    ScoreFileStore,
+    ScoreSource,
+    SessionScoreFileService,
+)
 from app.modules.reports.session_reader import SqlSessionRecordReader
 from app.modules.reports.session_record import SessionRecordReader
 from app.modules.reports.trend_catalog import SqlProductCatalog
@@ -42,3 +48,19 @@ def get_trend_service(
     catalog: ProductCatalog = Depends(get_product_catalog),
 ) -> TrendService:
     return TrendService(reader, catalog)
+
+
+def get_score_source(db: Session = Depends(get_db)) -> ScoreSource:
+    """PBI-16 SCRUM-327. Test mengganti sumber ini; penyimpanannya tetap adapter SQL."""
+    return SqlScoreSource(db)
+
+
+def get_score_file_store(db: Session = Depends(get_db)) -> ScoreFileStore:
+    return SqlScoreFileStore(db)
+
+
+def get_score_file_service(
+    source: ScoreSource = Depends(get_score_source),
+    store: ScoreFileStore = Depends(get_score_file_store),
+) -> SessionScoreFileService:
+    return SessionScoreFileService(source, store)
