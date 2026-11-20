@@ -79,6 +79,14 @@ _METRIC_VALUE: dict[TrendMetric, Callable[[SplitScore], Decimal | None]] = {
 }
 
 
+# Jumlah bulan kalender terakhir (termasuk bulan ini) untuk tiap rentang; ALL tidak terbatas.
+_MONTHS_IN_RANGE = {
+    TrendRange.THREE_MONTHS: 3,
+    TrendRange.SIX_MONTHS: 6,
+    TrendRange.TWELVE_MONTHS: 12,
+}
+
+
 def build_trend(
     records: Sequence[SessionRecord],
     *,
@@ -87,12 +95,19 @@ def build_trend(
     window: TrendRange,
     today: date,
 ) -> Trend:
-    """Satu titik per bulan dari sesi layak terbaru bulan itu (AC1, AC3, AC4, AC6).
+    """Satu titik per bulan dari sesi layak terbaru bulan itu (AC1 sampai AC6, AC11).
 
     Bulan tanpa sesi layak tidak punya titik, jadi produk baru otomatis mulai dari bulan
-    pertama diukur. Skor dibulatkan hanya di sini, saat dipaparkan ke pemanggil.
+    pertama diukur. Rentang dipotong lebih dulu, sehingga bulan di luar rentang tidak ikut
+    membatasi kasus yang sama dan tidak memutus titik pertama. Skor dibulatkan hanya di
+    sini, saat dipaparkan ke pemanggil.
     """
-    latest = _latest_eligible_per_month(records)
+    first_month = _first_month(window, today)
+    latest = {
+        month: record
+        for month, record in _latest_eligible_per_month(records).items()
+        if first_month is None or month >= first_month
+    }
     ordered = [latest[month] for month in sorted(latest)]
     facts = [_scoped_facts(record, scope) for record in ordered]
     breaks = [() if i == 0 else _breaks_between(facts[i - 1], fact) for i, fact in enumerate(facts)]
@@ -113,6 +128,15 @@ def build_trend(
         )
     )
     return Trend(points=points, warnings=(NO_SHARED_CASES,) if nothing_shared else ())
+
+
+def _first_month(window: TrendRange, today: date) -> date | None:
+    """Bulan pertama yang masih masuk rentang (AC2); None berarti semua sesi."""
+    months = _MONTHS_IN_RANGE.get(window)
+    if months is None:
+        return None
+    index = today.year * 12 + today.month - 1 - (months - 1)
+    return date(index // 12, index % 12 + 1, 1)
 
 
 def _shared_case_keys(
