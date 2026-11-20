@@ -175,3 +175,51 @@ def test_id_bukan_uuid_ditolak_422(client, db_session, angka):
 
     # Assert
     assert respons.status_code == 422
+
+
+# --- Satu kasus sampai jawaban asli (AC2, AC3) -----------------------------------
+
+
+def _url_kasus(report_id, result_id, case_id) -> str:
+    return f"{_url(report_id, result_id)}/{case_id}"
+
+
+def _case_id(client, report, hasil) -> str:
+    return client.get(_url(report.id, hasil.id)).json()["cases"][0]["case_id"]
+
+
+def test_admin_membuka_isi_kasus_dan_versi_rubrik(client, db_session, angka):
+    """Positif: Admin membuka kasus di balik angka sampai isi dan versi rubrik (AC2)."""
+    # Arrange
+    report, hasil = angka
+    complete_login(client, db_session, ADMIN_SUB)
+    case_id = _case_id(client, report, hasil)
+
+    # Act
+    respons = client.get(_url_kasus(report.id, hasil.id, case_id))
+
+    # Assert
+    assert respons.status_code == 200
+    body = respons.json()
+    assert (body["case_code"], body["title"], body["rubric_version"], body["det_score"]) == (
+        "UAT-PHK-001",
+        "PHK sepihak",
+        "v1",
+        "0.80",
+    )
+
+
+def test_viewer_ditolak_403_dengan_email_kontak(client, db_session, angka):
+    """Negatif: Viewer murni tidak melihat isi kasus; pesannya menunjuk email (AC3)."""
+    # Arrange
+    report, hasil = angka
+    complete_login(client, db_session, VIEWER_SUB)
+    case_id = _case_id(client, report, hasil)
+
+    # Act
+    respons = client.get(_url_kasus(report.id, hasil.id, case_id))
+
+    # Assert
+    assert respons.status_code == 403
+    assert respons.json()["code"] == drilldown.CASE_CONTENT_FORBIDDEN
+    assert "indolegalbench@veritask.ai" in respons.json()["message"]

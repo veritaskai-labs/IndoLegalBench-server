@@ -293,6 +293,9 @@ _DIBUKA = {
     # PBI-16 AC1 (SCRUM-326): daftar kasus di balik angka laporan. Kode kasus test disamarkan
     # dan isinya tidak dikirim, diuji di test_drilldown_service.py.
     ("GET", "/reports/{report_id}/results/{result_id}/cases"),
+    # PBI-16 AC2 (SCRUM-326): Developer AI membuka isi kasus dev; kasus test dijawab 403
+    # CASE_CONTENT_FORBIDDEN, diuji di test_drilldown_service.py.
+    ("GET", "/reports/{report_id}/results/{result_id}/cases/{case_id}"),
 }
 # Jalur tanpa penjaga peran: login, profil sendiri, dan lonceng notifikasi.
 _TANPA_PERAN = ("/health", "/auth/", "/notifications")
