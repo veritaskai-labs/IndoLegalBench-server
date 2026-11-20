@@ -1,6 +1,8 @@
 """Isi berkas CSV skor satu sesi. PBI-16 SCRUM-83 SCRUM-327.
 
 AC5 (isi dan catatan versi) dan usulan teknis netralisasi sel formula. Murni, tanpa DB.
+Review PR #152: kasus yang tidak dinilai tetap tertulis dengan status, versi yang tidak
+diketahui tertulis "tidak tercatat", dan formula di balik spasi atau baris baru dinetralkan.
 """
 
 import csv
@@ -12,6 +14,7 @@ import pytest
 from app.modules.reports.models import MeasurementKind
 from app.modules.reports.score_csv import (
     HEADER,
+    TIDAK_TERCATAT,
     ScoreCsvRow,
     ScoreCsvSession,
     neutralize_cell,
@@ -37,6 +40,7 @@ def _baris(**ubah) -> ScoreCsvRow:
         "case_version": "2",
         "det_score": Decimal("0.8"),
         "llm_score": Decimal("0.75"),
+        "graded": True,
     }
     return ScoreCsvRow(**{**bawaan, **ubah})
 
@@ -54,6 +58,7 @@ def test_kolom_berisi_kasus_produk_skor_jenis_dan_catatan_versi():
         "Versi Kasus",
         "Produk",
         "Jenis Pengukuran",
+        "Status Penilaian",
         "Skor Deterministik",
         "Skor LLM",
         "Versi Rubrik",
@@ -133,17 +138,37 @@ def test_sesi_resmi_bukan_uji_coba():
     assert _baca(isi)[0]["Uji Coba"] == "tidak"
 
 
-def test_versi_yang_tidak_diketahui_ditulis_kosong():
+def test_versi_yang_tidak_diketahui_ditulis_tidak_tercatat_bukan_kosong():
     isi = render_score_csv(
         _sesi(rubric_version="", product_model_version="", judge_model_version=""),
         (_baris(case_version=""),),
     )
 
     baris = _baca(isi)[0]
-    assert baris["Versi Kasus"] == ""
-    assert baris["Versi Rubrik"] == ""
-    assert baris["Versi Model Produk"] == ""
-    assert baris["Model Penilai"] == ""
+    assert TIDAK_TERCATAT == "tidak tercatat"
+    assert baris["Versi Kasus"] == TIDAK_TERCATAT
+    assert baris["Versi Rubrik"] == TIDAK_TERCATAT
+    assert baris["Versi Model Produk"] == TIDAK_TERCATAT
+    assert baris["Model Penilai"] == TIDAK_TERCATAT
+
+
+# Review PR #152 B1: kasus tanpa skor tetap muncul, dengan status yang jelas.
+
+
+def test_kasus_yang_dinilai_berstatus_dinilai():
+    isi = render_score_csv(_sesi(), (_baris(),))
+
+    assert _baca(isi)[0]["Status Penilaian"] == "dinilai"
+
+
+def test_kasus_yang_tidak_dinilai_tetap_tertulis_dengan_skor_kosong():
+    isi = render_score_csv(_sesi(), (_baris(graded=False, det_score=None, llm_score=None),))
+
+    baris = _baca(isi)[0]
+    assert baris["Status Penilaian"] == "tidak dinilai"
+    assert baris["Skor Deterministik"] == ""
+    assert baris["Skor LLM"] == ""
+    assert baris["Versi Rubrik"] == "3"
 
 
 # Usulan teknis: netralkan sel yang dibaca spreadsheet sebagai formula.
@@ -154,9 +179,18 @@ def test_sel_diawali_karakter_formula_diberi_tanda_kutip(awal):
     assert neutralize_cell(f"{awal}SUM(A1)") == f"'{awal}SUM(A1)"
 
 
+@pytest.mark.parametrize(
+    "nilai", ["\n=SUM(A1)", " =SUM(A1)", "   +1+1", "\t =1", "\r\n@SUM(1)", "\n"]
+)
+def test_formula_di_balik_spasi_atau_baris_baru_juga_dinetralkan(nilai):
+    assert neutralize_cell(nilai) == "'" + nilai
+
+
 def test_sel_biasa_tidak_diubah():
     assert neutralize_cell("DeepSeek") == "DeepSeek"
     assert neutralize_cell("") == ""
+    assert neutralize_cell(" PDT 001") == " PDT 001"
+    assert neutralize_cell("a=b") == "a=b"
 
 
 def test_nama_produk_dan_kode_kasus_berformula_dinetralkan_di_berkas():
