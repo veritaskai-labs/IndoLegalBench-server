@@ -138,6 +138,7 @@ def visible_rows(
             case_version=_teks(case_version_nos.get(g.ref.case_version_id)),
             det_score=g.det,
             llm_score=g.llm,
+            graded=True,
         )
         for g in kasus
     ]
