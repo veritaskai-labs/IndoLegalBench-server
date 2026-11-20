@@ -9,6 +9,10 @@ Sumber aturan:
 - AC1: setiap angka bisa dibuka menjadi daftar kasus dan versi kasusnya.
 - D9 Sprint 4: daftar kasus dan skor terbuka untuk semua peran, isi kasus tidak.
 - D9 aturan umum 2: kode kasus test disamarkan untuk Developer AI.
+- AC2: satu kasus dibuka sampai jawaban asli, skor, alasan, versi rubrik; gagal teknis
+  "tidak dinilai"; jawaban manual dengan label, pengisi, dan tanggal.
+- AC3 dan D9 Sprint 4: isi kasus test hanya Admin dan Kontributor, isi kasus dev hanya
+  Admin dan Developer AI. Peran lain 403 dengan email untuk meminta isi kasus.
 
 Label: Positif = jalur normal, Negatif = harus ditolak atau disembunyikan,
 Edge = data batas atau tidak lengkap.
@@ -21,6 +25,7 @@ from unittest.mock import create_autospec
 
 import pytest
 
+from app.modules.auth import service as auth_service
 from app.modules.cases.models import SplitTag
 from app.modules.cases.service import MASKED_CASE_CODE
 from app.modules.reports import drilldown, history, repository
@@ -35,15 +40,17 @@ from app.modules.reports.models import (
     ScoreScope,
     ScoreSplit,
 )
-from app.modules.reports.repository import CaseBasisRow
+from app.modules.reports.repository import CaseBasisRow, ManualAnswerFacts
+from app.modules.runs.models import AttemptSource, AttemptStatus
 from app.modules.runs.schemas import (
+    AttemptGradeResult,
     CaseGradeResult,
     ScorePair,
     SessionGradingResponse,
     ThreeScores,
 )
 from app.modules.runs.session_grade import MemoryGradingStore
-from app.shared.exceptions import NotFoundError
+from app.shared.exceptions import ForbiddenError, NotFoundError
 from app.shared.security import CurrentUser, Role
 
 PEMBUAT = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
@@ -91,14 +98,17 @@ def _angka(report: Report, split=ScoreSplit.COMBINED) -> ReportResult:
     return ReportResult(id=uuid.uuid4(), report_id=report.id, session_id=SESI, score_split=split)
 
 
-def _kasus_dinilai(case_id, kode, tag, det, llm) -> CaseGradeResult:
+def _kasus_dinilai(case_id, kode, tag, det, llm, attempts=()) -> CaseGradeResult:
     return CaseGradeResult(
         snapshot_item_id=uuid.uuid4(),
         case_id=case_id,
         case_code=kode,
         title=f"Judul {kode}",
         split_tag=tag,
+        category="Ketenagakerjaan",
+        question=f"Pertanyaan {kode}",
         scores=ScorePair(deterministic=Decimal(det), quality=Decimal(llm), format=Decimal("0.90")),
+        attempts=list(attempts),
     )
 
 
@@ -309,3 +319,232 @@ def test_run_beku_tidak_ditemukan_dijawab_404(repo, run_id):
     with pytest.raises(NotFoundError) as galat:
         drilldown.list_cases(DB, report.id, angka.id, _pengguna(), runs=store)
     assert galat.value.code == drilldown.REPORT_GRADES_NOT_FOUND
+
+
+# --- Satu kasus sampai jawaban asli (AC2, AC3) -----------------------------------
+
+MANUAL_DINILAI = uuid.UUID("00000000-0000-0000-0000-0000000000e1")
+MANUAL_GAGAL = uuid.UUID("00000000-0000-0000-0000-0000000000e2")
+PENGISI = uuid.UUID("00000000-0000-0000-0000-0000000000f1")
+DIJAWAB = datetime(2026, 11, 20, tzinfo=UTC)
+
+
+@pytest.fixture
+def nama(monkeypatch):
+    """Nama pengisi dari modul auth, ditiru supaya tes tidak bergantung tabel users."""
+    tiruan = create_autospec(auth_service, instance=True)
+    tiruan.user_names.return_value = {PENGISI: "Kontributor Satu"}
+    monkeypatch.setattr(drilldown, "auth_service", tiruan)
+    return tiruan
+
+
+def _percobaan(attempt_id, nomor, *, gagal=False) -> AttemptGradeResult:
+    """Percobaan manual: yang gagal teknis tidak punya skor, sama seperti hasil session_grade."""
+    return AttemptGradeResult(
+        attempt_id=attempt_id,
+        repetition_no=nomor,
+        status=AttemptStatus.TECHNICAL_FAILURE if gagal else AttemptStatus.SUCCEEDED,
+        source=AttemptSource.MANUAL,
+        is_technical_disruption=gagal,
+        score=None if gagal else ScorePair(deterministic=Decimal("0.80"), quality=Decimal("0.75")),
+        answer_text=None if gagal else "Jawaban asli produk tentang PHK.",
+        explanation=None if gagal else "Pasal 151 dikutip dengan benar.",
+        reasons=[] if gagal else ["CITATION_OK"],
+    )
+
+
+def _siapkan_kasus(repo, report: Report, angka: ReportResult) -> MemoryGradingStore:
+    """Kasus test dengan dua percobaan manual (satu gagal teknis) dan kasus dev tanpa percobaan."""
+    _siapkan(repo, report, angka)
+    repo.manual_answer_facts.return_value = {
+        MANUAL_DINILAI: ManualAnswerFacts(PENGISI, DIJAWAB),
+        MANUAL_GAGAL: ManualAnswerFacts(None, None),
+    }
+    return _store(
+        _kasus_dinilai(
+            KASUS_TEST,
+            "UAT-PHK-001",
+            SplitTag.TEST,
+            "0.80",
+            "0.75",
+            attempts=[_percobaan(MANUAL_DINILAI, 1), _percobaan(MANUAL_GAGAL, 2, gagal=True)],
+        ),
+        _kasus_dinilai(KASUS_DEV, "DEV-PHK-009", SplitTag.DEV, "0.40", "0.55"),
+    )
+
+
+def test_kasus_dibuka_sampai_jawaban_asli_skor_alasan_dan_rubrik(repo, nama):
+    """Positif: Admin membaca jawaban asli, skor, alasan, dan versi rubrik tiap percobaan (AC2)."""
+    # Arrange
+    report = _laporan()
+    angka = _angka(report)
+    store = _siapkan_kasus(repo, report, angka)
+
+    # Act
+    kasus = drilldown.case_detail(DB, report.id, angka.id, KASUS_TEST, _pengguna(), runs=store)
+
+    # Assert
+    assert (kasus.case_code, kasus.case_version_no, kasus.question, kasus.rubric_version) == (
+        "UAT-PHK-001",
+        2,
+        "Pertanyaan UAT-PHK-001",
+        "v4",
+    )
+    pertama = kasus.attempts[0]
+    assert (pertama.graded, pertama.det_score, pertama.llm_score) == (
+        True,
+        Decimal("0.80"),
+        Decimal("0.75"),
+    )
+    assert (pertama.answer_text, pertama.explanation, pertama.reasons) == (
+        "Jawaban asli produk tentang PHK.",
+        "Pasal 151 dikutip dengan benar.",
+        ["CITATION_OK"],
+    )
+
+
+def test_jawaban_manual_membawa_label_pengisi_dan_tanggal(repo, nama):
+    """Positif: jawaban manual diberi label, nama pengisi, dan tanggal jawaban diperoleh (AC2)."""
+    # Arrange
+    report = _laporan()
+    angka = _angka(report)
+    store = _siapkan_kasus(repo, report, angka)
+
+    # Act
+    kasus = drilldown.case_detail(DB, report.id, angka.id, KASUS_TEST, _pengguna(), runs=store)
+
+    # Assert
+    pertama = kasus.attempts[0]
+    assert (pertama.source, pertama.filled_by_name, pertama.answered_at) == (
+        AttemptSource.MANUAL,
+        "Kontributor Satu",
+        DIJAWAB,
+    )
+    repo.manual_answer_facts.assert_called_once_with(DB, [MANUAL_DINILAI, MANUAL_GAGAL])
+    nama.user_names.assert_called_once_with(DB, {PENGISI})
+
+
+def test_percobaan_gagal_teknis_ditandai_tidak_dinilai(repo, nama):
+    """Edge: gagal teknis tidak punya skor dan ditandai tidak dinilai, bukan skor 0 (AC2)."""
+    # Arrange
+    report = _laporan()
+    angka = _angka(report)
+    store = _siapkan_kasus(repo, report, angka)
+
+    # Act
+    kasus = drilldown.case_detail(DB, report.id, angka.id, KASUS_TEST, _pengguna(), runs=store)
+
+    # Assert
+    gagal = kasus.attempts[1]
+    assert (gagal.graded, gagal.det_score, gagal.llm_score, gagal.filled_by_name) == (
+        False,
+        None,
+        None,
+        None,
+    )
+
+
+# Laporan test: satu-satunya jenis laporan yang bisa dibaca Viewer dan Kontributor (D9).
+_LAPORAN_TEST = {"score_scope": ScoreScope.TEST, "has_dev_scores": False}
+
+
+@pytest.mark.parametrize(
+    ("role", "case_id", "laporan", "split"),
+    [
+        # Positif: Kontributor membuka isi kasus test di laporan test (AC3).
+        (Role.CONTRIBUTOR, KASUS_TEST, _LAPORAN_TEST, ScoreSplit.TEST),
+        # Positif: Developer AI membuka isi kasus dev di laporan Dev + Test (D9 Sprint 4).
+        (Role.DEVELOPER_AI, KASUS_DEV, {}, ScoreSplit.COMBINED),
+    ],
+)
+def test_peran_yang_berhak_membuka_isi_kasus(repo, nama, role, case_id, laporan, split):
+    """Positif: hak membuka isi mengikuti tabel penelusuran di runs/case_visibility.py."""
+    # Arrange
+    report = _laporan(**laporan)
+    angka = _angka(report, split)
+    store = _siapkan_kasus(repo, report, angka)
+
+    # Act
+    kasus = drilldown.case_detail(DB, report.id, angka.id, case_id, _pengguna(role), runs=store)
+
+    # Assert
+    assert kasus.case_id == case_id
+
+
+@pytest.mark.parametrize(
+    ("role", "laporan", "split"),
+    [
+        # Negatif: Viewer murni tidak melihat isi kasus sama sekali (AC3).
+        (Role.VIEWER, _LAPORAN_TEST, ScoreSplit.TEST),
+        # Negatif: Developer AI tidak membuka isi kasus test (D9 aturan 2).
+        (Role.DEVELOPER_AI, {}, ScoreSplit.COMBINED),
+    ],
+)
+def test_peran_tanpa_hak_ditolak_403_tanpa_membaca_jawaban(repo, nama, role, laporan, split):
+    """Negatif: 403 CASE_CONTENT_FORBIDDEN dengan email kontak, dan run penilaian (yang berisi
+    jawaban asli) tidak pernah dibaca (D6 langkah 6).
+
+    Kontributor dan kasus dev tidak diuji di sini: laporan berisi kasus dev sudah 404 untuk
+    Kontributor; aturannya diuji di test_case_visibility.py.
+    """
+    # Arrange
+    report = _laporan(**laporan)
+    angka = _angka(report, split)
+    _siapkan_kasus(repo, report, angka)
+
+    # Act / Assert
+    with pytest.raises(ForbiddenError) as galat:
+        drilldown.case_detail(DB, report.id, angka.id, KASUS_TEST, _pengguna(role))
+    assert galat.value.code == drilldown.CASE_CONTENT_FORBIDDEN
+    assert "indolegalbench@veritask.ai" in galat.value.message
+    repo.grading_run_at.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("split", "case_id"),
+    [
+        # Negatif: kasus dev tidak bisa dibuka lewat angka test.
+        (ScoreSplit.TEST, KASUS_DEV),
+        # Negatif: kasus yang bukan dasar laporan ini.
+        (ScoreSplit.COMBINED, uuid.uuid4()),
+    ],
+)
+def test_kasus_di_luar_angka_ini_dijawab_404(repo, nama, split, case_id):
+    """Negatif: hanya kasus yang membentuk angka yang diklik yang bisa dibuka."""
+    # Arrange
+    report = _laporan()
+    angka = _angka(report, split)
+    _siapkan_kasus(repo, report, angka)
+
+    # Act / Assert
+    with pytest.raises(NotFoundError) as galat:
+        drilldown.case_detail(DB, report.id, angka.id, case_id, _pengguna())
+    assert galat.value.code == drilldown.REPORT_CASE_NOT_FOUND
+
+
+def test_kasus_dasar_yang_tidak_ada_di_run_dijawab_404(repo, nama):
+    """Edge: data rusak (kasus dasar tidak dinilai di run beku) tidak dijawab dengan isi kosong."""
+    # Arrange
+    report = _laporan()
+    angka = _angka(report)
+    _siapkan_kasus(repo, report, angka)
+
+    # Act / Assert
+    with pytest.raises(NotFoundError) as galat:
+        drilldown.case_detail(DB, report.id, angka.id, KASUS_TEST, _pengguna(), runs=_store())
+    assert galat.value.code == drilldown.REPORT_GRADES_NOT_FOUND
+
+
+def test_pengisi_yang_sudah_tidak_ada_namanya_kosong(repo, nama):
+    """Edge: akun pengisi yang sudah dihapus tidak menggagalkan penelusuran; namanya null."""
+    # Arrange
+    report = _laporan()
+    angka = _angka(report)
+    store = _siapkan_kasus(repo, report, angka)
+    nama.user_names.return_value = {}
+
+    # Act
+    kasus = drilldown.case_detail(DB, report.id, angka.id, KASUS_TEST, _pengguna(), runs=store)
+
+    # Assert
+    assert (kasus.attempts[0].filled_by_name, kasus.attempts[0].answered_at) == (None, DIJAWAB)

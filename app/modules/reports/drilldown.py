@@ -18,20 +18,30 @@ from typing import Protocol
 
 from sqlalchemy.orm import Session
 
+from app.modules.auth import service as auth_service
 from app.modules.cases.models import SplitTag
 from app.modules.reports import history, repository
 from app.modules.reports.access import visible_case_code
 from app.modules.reports.models import Report, ReportResult, ScoreSplit
-from app.modules.reports.repository import CaseBasisRow
-from app.modules.reports.schemas import ReportCaseScoreRead, ReportResultCasesRead
+from app.modules.reports.pdf import CONTACT_EMAIL
+from app.modules.reports.repository import CaseBasisRow, ManualAnswerFacts
+from app.modules.reports.schemas import (
+    ReportAttemptRead,
+    ReportCaseDetailRead,
+    ReportCaseScoreRead,
+    ReportResultCasesRead,
+)
 from app.modules.runs.case_visibility import can_view_drilldown_content
-from app.modules.runs.schemas import CaseGradeResult, SessionGradingResponse
+from app.modules.runs.models import AttemptSource
+from app.modules.runs.schemas import AttemptGradeResult, CaseGradeResult, SessionGradingResponse
 from app.modules.runs.session_grade import DbGradingStore
-from app.shared.exceptions import NotFoundError
+from app.shared.exceptions import ForbiddenError, NotFoundError
 from app.shared.security import CurrentUser
 
 REPORT_RESULT_NOT_FOUND = "REPORT_RESULT_NOT_FOUND"
 REPORT_GRADES_NOT_FOUND = "REPORT_GRADES_NOT_FOUND"
+REPORT_CASE_NOT_FOUND = "REPORT_CASE_NOT_FOUND"
+CASE_CONTENT_FORBIDDEN = "CASE_CONTENT_FORBIDDEN"
 
 # Angka dev hanya dibentuk kasus dev, angka test dari kasus test, gabungan dari keduanya
 # (D1, sama dengan service._ALLOWED_CASE_TAGS untuk jenis nilai laporan).
@@ -80,6 +90,113 @@ def list_cases(
             for basis in repository.case_basis(db, report.id)
             if basis.split_tag in _CASE_TAGS[result.score_split]
         ],
+    )
+
+
+def case_detail(
+    db: Session,
+    report_id: uuid.UUID,
+    result_id: uuid.UUID,
+    case_id: uuid.UUID,
+    user: CurrentUser,
+    *,
+    runs: GradingRunReader | None = None,
+) -> ReportCaseDetailRead:
+    """Satu kasus dibuka sampai jawaban asli tiap percobaan (AC2, D6 langkah 5-7).
+
+    Hak melihat isi dicek sebelum run penilaian dibaca (D6 langkah 6), jadi peran yang
+    tidak berhak tidak pernah memicu pembacaan jawaban asli: Viewer, Kontributor untuk
+    kasus dev, dan Developer AI untuk kasus test (AC3, D9).
+    """
+    report = history.readable_report(db, report_id, user)
+    result = _result(db, report, result_id)
+    basis = _basis_case(db, report, result, case_id)
+    if not can_view_drilldown_content(user.role, basis.split_tag.value):
+        raise ForbiddenError(
+            "Isi kasus dan jawaban asli tidak dapat dibuka dengan peran Anda. Untuk "
+            f"mendapatkan isi kasus, kirim email ke {CONTACT_EMAIL}.",
+            code=CASE_CONTENT_FORBIDDEN,
+        )
+    run = _frozen_run(db, report, result, runs or DbGradingStore(db))
+    graded = next((case for case in run.cases if case.case_id == case_id), None)
+    if graded is None:
+        raise NotFoundError(
+            "Hasil penilaian kasus ini tidak ditemukan.", code=REPORT_GRADES_NOT_FOUND
+        )
+    session = repository.get_report_session(db, report.id, result.session_id)
+    manual = _manual_facts(db, graded.attempts)
+    scores = graded.scores
+    return ReportCaseDetailRead(
+        report_id=report.id,
+        result_id=result.id,
+        case_id=case_id,
+        case_code=basis.case_code,
+        case_version_no=basis.case_version_no,
+        split_tag=basis.split_tag,
+        title=graded.title,
+        category=graded.category,
+        question=graded.question,
+        product_label=session.product_label,
+        measurement_kind=session.measurement_kind,
+        rubric_version=run.rubric_version,
+        det_score=scores.deterministic if scores else None,
+        llm_score=scores.quality if scores else None,
+        attempts=[_attempt(attempt, manual) for attempt in graded.attempts],
+    )
+
+
+def _basis_case(
+    db: Session, report: Report, result: ReportResult, case_id: uuid.UUID
+) -> CaseBasisRow:
+    # Hanya kasus yang membentuk angka ini: kasus dev tidak bisa dibuka lewat angka test.
+    allowed = _CASE_TAGS[result.score_split]
+    basis = next(
+        (
+            row
+            for row in repository.case_basis(db, report.id)
+            if row.case_id == case_id and row.split_tag in allowed
+        ),
+        None,
+    )
+    if basis is None:
+        raise NotFoundError("Kasus tidak ada di balik angka ini.", code=REPORT_CASE_NOT_FOUND)
+    return basis
+
+
+def _manual_facts(
+    db: Session, attempts: list[AttemptGradeResult]
+) -> dict[uuid.UUID, tuple[ManualAnswerFacts, str | None]]:
+    """Pengisi (nama) dan tanggal jawaban untuk percobaan manual saja (AC2)."""
+    ids = [a.attempt_id for a in attempts if a.source is AttemptSource.MANUAL]
+    facts = repository.manual_answer_facts(db, ids)
+    names = auth_service.user_names(db, {f.filled_by for f in facts.values() if f.filled_by})
+    return {
+        attempt_id: (fact, names.get(fact.filled_by) if fact.filled_by else None)
+        for attempt_id, fact in facts.items()
+    }
+
+
+def _attempt(
+    attempt: AttemptGradeResult, manual: dict[uuid.UUID, tuple[ManualAnswerFacts, str | None]]
+) -> ReportAttemptRead:
+    fact, filled_by_name = manual.get(attempt.attempt_id, (None, None))
+    score = attempt.score
+    return ReportAttemptRead(
+        attempt_id=attempt.attempt_id,
+        repetition_no=attempt.repetition_no,
+        source=attempt.source,
+        status=attempt.status,
+        # Gagal teknis (jawaban kosong, platform menolak, judge error) tidak punya skor dan
+        # ditampilkan "tidak dinilai", bukan skor 0 (AC2).
+        graded=not attempt.is_technical_disruption and score is not None,
+        det_score=score.deterministic if score else None,
+        llm_score=score.quality if score else None,
+        answer_text=attempt.answer_text,
+        explanation=attempt.explanation,
+        reasons=attempt.reasons,
+        criteria=attempt.criteria,
+        filled_by_name=filled_by_name,
+        answered_at=fact.answered_at if fact else None,
     )
 
 

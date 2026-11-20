@@ -16,6 +16,7 @@ semua peran dan dibagikan sebagai PDF, jadi tidak membawa id sesi/produk dan tot
 import uuid
 from datetime import datetime
 from decimal import Decimal
+from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
 
@@ -33,7 +34,13 @@ from app.modules.reports.models import (
     ScoreSplit,
 )
 from app.modules.reports.report_generation import GeneratedReport, ReportRequest
-from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType
+from app.modules.runs.models import (
+    AttemptSource,
+    AttemptStatus,
+    SessionPurpose,
+    SessionStatus,
+    SessionType,
+)
 from app.shared.text import strip_blank
 
 _TITLE_MAX = 200
@@ -382,3 +389,50 @@ class ReportResultCasesRead(BaseModel):
     score_split: ScoreSplit
     rubric_version: str = Field(description="Versi rubrik run penilaian di balik angka ini")
     cases: list[ReportCaseScoreRead]
+
+
+class ReportAttemptRead(BaseModel):
+    """Satu percobaan di balik skor satu kasus (AC2): jawaban asli, skor, dan alasannya."""
+
+    attempt_id: uuid.UUID
+    repetition_no: int
+    source: AttemptSource = Field(description="automatic atau manual; manual diberi label (AC2)")
+    status: AttemptStatus
+    graded: bool = Field(
+        description="false untuk percobaan gagal teknis: tampilkan 'tidak dinilai' (AC2)"
+    )
+    det_score: Decimal | None
+    llm_score: Decimal | None
+    answer_text: str | None = Field(description="Jawaban asli produk AI")
+    explanation: str | None = Field(description="Penjelasan penilai LLM")
+    reasons: list[str] = Field(description="Kode alasan penilaian per jalur")
+    criteria: list[dict[str, Any]] = Field(description="Hasil penilaian per kriteria rubrik")
+    filled_by_name: str | None = Field(
+        default=None, description="Siapa yang mengisi jawaban manual; null untuk otomatis"
+    )
+    answered_at: datetime | None = Field(
+        default=None, description="Tanggal jawaban manual diperoleh dari platform"
+    )
+
+
+class ReportCaseDetailRead(BaseModel):
+    """Satu kasus di balik satu angka, dibuka sampai jawaban asli (D6 langkah 5-7).
+
+    Hanya dikirim ke peran yang boleh melihat isi kasus (AC3); peran lain mendapat 403.
+    """
+
+    report_id: uuid.UUID
+    result_id: uuid.UUID
+    case_id: uuid.UUID
+    case_code: str
+    case_version_no: int
+    split_tag: SplitTag
+    title: str
+    category: str | None
+    question: str | None = Field(description="Isi kasus dari snapshot sesi")
+    product_label: str = Field(description="Label beku di laporan: nama asli atau kode")
+    measurement_kind: MeasurementKind
+    rubric_version: str = Field(description="Versi rubrik yang menilai percobaan-percobaan ini")
+    det_score: Decimal | None
+    llm_score: Decimal | None
+    attempts: list[ReportAttemptRead]

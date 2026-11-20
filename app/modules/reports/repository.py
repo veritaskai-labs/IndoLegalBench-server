@@ -27,6 +27,7 @@ from app.modules.reports.models import (
     ReportSession,
     ReportStatus,
 )
+from app.modules.runs.models import Attempt
 
 
 @dataclass(frozen=True)
@@ -36,6 +37,14 @@ class CaseBasisRow:
     split_tag: SplitTag
     # Penghubung ke hasil penilaian sesi saat penelusuran angka (PBI-16 SCRUM-326).
     case_id: uuid.UUID
+
+
+@dataclass(frozen=True)
+class ManualAnswerFacts:
+    """Pengisi dan tanggal jawaban manual satu percobaan (PBI-16 AC2, PBI-22 D9)."""
+
+    filled_by: uuid.UUID | None
+    answered_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -167,3 +176,17 @@ def grading_run_at(db: Session, session_id: uuid.UUID, at: datetime) -> uuid.UUI
         )
         .limit(1)
     )
+
+
+def manual_answer_facts(
+    db: Session, attempt_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, ManualAnswerFacts]:
+    """Pengisi dan answered_at_platform untuk percobaan yang diminta, dikunci id percobaan."""
+    if not attempt_ids:
+        return {}
+    rows = db.execute(
+        sa.select(Attempt.id, Attempt.filled_by, Attempt.answered_at_platform).where(
+            Attempt.id.in_(attempt_ids)
+        )
+    )
+    return {row.id: ManualAnswerFacts(row.filled_by, row.answered_at_platform) for row in rows}

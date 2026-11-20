@@ -18,6 +18,7 @@ import pytest
 
 from app.modules.grading.models import GradingRun, GradingRunKind, GradingRunStatus
 from app.modules.reports import repository
+from app.modules.runs.models import Attempt, AttemptSource
 from tests import reports_factory as pabrik
 
 LAPORAN_DIBUAT = datetime(2026, 12, 1, 10, tzinfo=UTC)
@@ -189,3 +190,44 @@ def test_run_sesi_lain_tidak_ikut_terbaca(db_session, laporan_satu_sesi):
 
     # Assert
     assert run_id is None
+
+
+# --- manual_answer_facts -------------------------------------------------------------
+
+
+def test_data_jawaban_manual_dibaca_per_percobaan(db_session, laporan_satu_sesi):
+    """Positif dan negatif: pengisi dan tanggal jawaban percobaan yang diminta saja (AC2)."""
+    # Arrange
+    admin, _, sesi, *_ = laporan_satu_sesi
+    dijawab = datetime(2026, 11, 20, tzinfo=UTC)
+    item = uuid.uuid4()  # SQLite tidak menegakkan FK ke case_snapshot_items.
+    manual = Attempt(
+        session_id=sesi.id,
+        snapshot_item_id=item,
+        repetition_no=1,
+        source=AttemptSource.MANUAL,
+        filled_by=admin.id,
+        answered_at_platform=dijawab,
+    )
+    lain = Attempt(
+        session_id=sesi.id, snapshot_item_id=item, repetition_no=2, source=AttemptSource.MANUAL
+    )
+    db_session.add_all([manual, lain])
+    db_session.flush()
+
+    # Act
+    fakta = repository.manual_answer_facts(db_session, [manual.id])
+
+    # Assert
+    assert list(fakta) == [manual.id]
+    assert fakta[manual.id].filled_by == admin.id
+    assert fakta[manual.id].answered_at.replace(tzinfo=UTC) == dijawab
+
+
+def test_data_jawaban_manual_tanpa_percobaan_tidak_query(db_session):
+    """Edge: kasus tanpa percobaan manual (semua otomatis) mengembalikan kosong."""
+    # Act
+    fakta = repository.manual_answer_facts(db_session, [])
+
+    # Assert
+    assert fakta == {}
