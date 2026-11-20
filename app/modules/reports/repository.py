@@ -11,6 +11,7 @@ laporan beku tidak punya jalur ubah atau hapus (SCRUM-300, AC10).
 import uuid
 from collections.abc import Sequence
 from dataclasses import dataclass
+from datetime import datetime
 
 import sqlalchemy as sa
 from sqlalchemy.orm import Session
@@ -18,7 +19,7 @@ from sqlalchemy.orm import Session
 # Kode dan nomor versi kasus serta nomor rubrik dibaca lewat join, bukan disalin ke tabel
 # laporan (keputusan review SCRUM-300). Pola impor model lintas modul ini sudah dipakai runs.
 from app.modules.cases.models import CaseVersion, SplitTag
-from app.modules.grading.models import RubricVersion
+from app.modules.grading.models import GradingRun, GradingRunStatus, RubricVersion
 from app.modules.reports.access import ReportVisibility
 from app.modules.reports.models import (
     PublishedReport,
@@ -28,6 +29,7 @@ from app.modules.reports.models import (
     ReportSession,
     ReportStatus,
 )
+from app.modules.runs.models import Attempt, AttemptEvidence, CaseSnapshot, CaseSnapshotItem
 
 
 @dataclass(frozen=True)
@@ -35,6 +37,16 @@ class CaseBasisRow:
     case_code: str
     case_version_no: int
     split_tag: SplitTag
+    # Penghubung ke hasil penilaian sesi saat penelusuran angka (PBI-16 SCRUM-326).
+    case_id: uuid.UUID
+
+
+@dataclass(frozen=True)
+class ManualAnswerFacts:
+    """Pengisi dan tanggal jawaban manual satu percobaan (PBI-16 AC2, PBI-22 D9)."""
+
+    filled_by: uuid.UUID | None
+    answered_at: datetime | None
 
 
 @dataclass(frozen=True)
@@ -99,21 +111,108 @@ def contents(db: Session, report: Report) -> ReportContents:
         .order_by(ReportSession.product_label)
     )
     results = db.scalars(sa.select(ReportResult).where(ReportResult.report_id == report.id))
-    case_basis = db.execute(
-        # Tag dari case_versions, bukan salinan di report_case_basis: penyamaran kasus test untuk
-        # Developer AI (access.visible_case_code) tidak boleh percaya salinan yang bisa salah
-        # (review #146). Versi kasus approved tidak pernah diubah, jadi hasilnya tetap beku.
-        sa.select(CaseVersion.case_code, CaseVersion.version_no, CaseVersion.split_tag)
-        .select_from(ReportCaseBasis)
-        .join(CaseVersion, CaseVersion.id == ReportCaseBasis.case_version_id)
-        .where(ReportCaseBasis.report_id == report.id)
-        .order_by(CaseVersion.case_code)
-    )
     return ReportContents(
         rubric_version_no=rubric_version_no,
         sessions=list(sessions),
         results=list(results),
-        case_basis=[CaseBasisRow(*row) for row in case_basis],
+        case_basis=case_basis(db, report.id),
+    )
+
+
+def case_basis(db: Session, report_id: uuid.UUID) -> list[CaseBasisRow]:
+    """Kasus dasar laporan beserta kode dan versinya, urut kode kasus."""
+    rows = db.execute(
+        # Tag dari case_versions, bukan salinan di report_case_basis: penyamaran kasus test untuk
+        # Developer AI (access.visible_case_code) tidak boleh percaya salinan yang bisa salah
+        # (review #146). Versi kasus approved tidak pernah diubah, jadi hasilnya tetap beku.
+        sa.select(
+            CaseVersion.case_code,
+            CaseVersion.version_no,
+            CaseVersion.split_tag,
+            ReportCaseBasis.case_id,
+        )
+        .select_from(ReportCaseBasis)
+        .join(CaseVersion, CaseVersion.id == ReportCaseBasis.case_version_id)
+        .where(ReportCaseBasis.report_id == report_id)
+        .order_by(CaseVersion.case_code)
+    )
+    return [CaseBasisRow(*row) for row in rows]
+
+
+# --- Penelusuran angka laporan (PBI-16 SCRUM-326, D6 langkah 2-7) --------------
+
+
+def get_result(db: Session, report_id: uuid.UUID, result_id: uuid.UUID) -> ReportResult | None:
+    """Satu angka laporan. id hasil dari laporan lain dijawab None, bukan baris orang lain."""
+    return db.scalar(
+        sa.select(ReportResult).where(
+            ReportResult.id == result_id, ReportResult.report_id == report_id
+        )
+    )
+
+
+def get_report_session(
+    db: Session, report_id: uuid.UUID, session_id: uuid.UUID
+) -> ReportSession | None:
+    return db.get(ReportSession, (report_id, session_id))
+
+
+def grading_run_at(db: Session, session_id: uuid.UUID, at: datetime) -> uuid.UUID | None:
+    """Run penilaian yang dipakai laporan yang dibuat pada waktu `at`.
+
+    SCRUM-313 mengambil skor dari run terbaru yang selesai (is_latest), dan is_latest pindah
+    ke run baru tepat saat run itu selesai (worker dan nilai ulang). Jadi run yang dipakai
+    laporan adalah run selesai terakhir dengan finished_at <= waktu laporan dibuat. Dengan
+    begitu skor per kasus di penelusuran tetap sama dengan angka laporan yang beku (D1),
+    walaupun sesinya dinilai ulang setelah laporan dibuat.
+    """
+    return db.scalar(
+        sa.select(GradingRun.id)
+        .where(
+            GradingRun.session_id == session_id,
+            GradingRun.status == GradingRunStatus.FINISHED,
+            GradingRun.finished_at <= at,
+        )
+        .order_by(
+            GradingRun.finished_at.desc(), GradingRun.triggered_at.desc(), GradingRun.id.desc()
+        )
+        .limit(1)
+    )
+
+
+def manual_answer_facts(
+    db: Session, attempt_ids: Sequence[uuid.UUID]
+) -> dict[uuid.UUID, ManualAnswerFacts]:
+    """Pengisi dan answered_at_platform untuk percobaan yang diminta, dikunci id percobaan."""
+    if not attempt_ids:
+        return {}
+    rows = db.execute(
+        sa.select(Attempt.id, Attempt.filled_by, Attempt.answered_at_platform).where(
+            Attempt.id.in_(attempt_ids)
+        )
+    )
+    return {row.id: ManualAnswerFacts(row.filled_by, row.answered_at_platform) for row in rows}
+
+
+def snapshot_item_id(db: Session, session_id: uuid.UUID, case_id: uuid.UUID) -> uuid.UUID | None:
+    """Item snapshot satu kasus di sesi ini, kunci endpoint bukti jawaban manual."""
+    return db.scalar(
+        sa.select(CaseSnapshotItem.id)
+        .join(CaseSnapshot, CaseSnapshot.id == CaseSnapshotItem.snapshot_id)
+        .where(CaseSnapshot.session_id == session_id, CaseSnapshotItem.case_id == case_id)
+    )
+
+
+def evidence_case_id(
+    db: Session, session_id: uuid.UUID, evidence_id: uuid.UUID
+) -> uuid.UUID | None:
+    """Kasus pemilik satu bukti di sesi ini; None bila bukti bukan milik sesi ini."""
+    return db.scalar(
+        sa.select(CaseSnapshotItem.case_id)
+        .select_from(AttemptEvidence)
+        .join(Attempt, Attempt.id == AttemptEvidence.attempt_id)
+        .join(CaseSnapshotItem, CaseSnapshotItem.id == Attempt.snapshot_item_id)
+        .where(AttemptEvidence.id == evidence_id, Attempt.session_id == session_id)
     )
 
 

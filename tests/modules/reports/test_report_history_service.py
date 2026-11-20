@@ -89,6 +89,7 @@ def _sesi(report: Report, session_id: uuid.UUID, label: str, **ubah) -> ReportSe
 
 def _hasil(report: Report, session_id: uuid.UUID, rank: int, **ubah) -> ReportResult:
     isi = {
+        "id": uuid.uuid4(),
         "report_id": report.id,
         "session_id": session_id,
         "score_split": ScoreSplit.TEST,
@@ -111,7 +112,7 @@ def _isi(report: Report, **ubah) -> ReportContents:
         "rubric_version_no": 4,
         "sessions": [_sesi(report, SESI_A, "Gemini"), _sesi(report, SESI_B, "Justisio")],
         "results": [_hasil(report, SESI_A, 1), _hasil(report, SESI_B, 2)],
-        "case_basis": [CaseBasisRow("UAT-PHK-001", 2, SplitTag.TEST)],
+        "case_basis": [CaseBasisRow("UAT-PHK-001", 2, SplitTag.TEST, uuid.uuid4())],
     } | ubah
     return ReportContents(**isi)
 
@@ -279,8 +280,8 @@ def test_get_report_kode_kasus_test_disamarkan_untuk_developer_ai(repo):
     repo.contents.return_value = _isi(
         laporan,
         case_basis=[
-            CaseBasisRow("UAT-PHK-001", 2, SplitTag.TEST),
-            CaseBasisRow("DEV-PHK-009", 1, SplitTag.DEV),
+            CaseBasisRow("UAT-PHK-001", 2, SplitTag.TEST, uuid.uuid4()),
+            CaseBasisRow("DEV-PHK-009", 1, SplitTag.DEV, uuid.uuid4()),
         ],
     )
 

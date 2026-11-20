@@ -20,15 +20,23 @@ SCRUM-320 (riwayat laporan dan PDF, diagram D3 langkah 10-15):
 - GET /reports/{id}/pdf: unduh laporan yang sama sebagai PDF
 Semua peran yang login boleh memanggil; siapa melihat laporan mana diputuskan service
 (reports/access.py).
+
+SCRUM-326 (penelusuran angka sampai bukti, PBI-16, diagram D6 langkah 1-7):
+- GET /reports/{id}/results/{result_id}/cases: kasus dasar di balik satu angka
+- GET /reports/{id}/results/{result_id}/cases/{case_id}: jawaban asli per percobaan
+- GET .../cases/{case_id}/attempts/{attempt_no}/evidence dan .../evidence/{id}/file: bukti
+  jawaban manual, hanya Admin dan Kontributor (AC4). Memakai service bukti SCRUM-233; route
+  sendiri karena endpoint bukti lama butuh session_id, yang ditutup di laporan mode kode.
 """
 
 import uuid
+from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Response, status
 from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
-from app.modules.reports import history, publication
+from app.modules.reports import drilldown, history, publication
 from app.modules.reports.dependencies import (
     get_eligible_session_lister,
     get_report_generator,
@@ -42,16 +50,21 @@ from app.modules.reports.schemas import (
     PublicationRead,
     PublishedReportListItem,
     PublishReport,
+    ReportCaseDetailRead,
     ReportCreate,
     ReportCreateResponse,
     ReportDetail,
     ReportNotComparableBody,
+    ReportResultCasesRead,
     ReportSessionNotFoundBody,
     ReportSummary,
     TrendRead,
 )
 from app.modules.reports.trend import TrendMetric, TrendRange
 from app.modules.reports.trend_service import TrendService
+from app.modules.runs.dependencies import get_manual_evidence_service
+from app.modules.runs.manual_evidence import ManualEvidenceService
+from app.modules.runs.schemas import EvidenceRead
 from app.shared.database import get_db
 from app.shared.pagination import Page, PageParams
 from app.shared.security import CurrentUser, Role, get_current_user, require_roles
@@ -281,3 +294,126 @@ def list_published_reports(
 ) -> Page[PublishedReportListItem]:
     """Versi yang sudah diganti tetap tersimpan, tetapi tidak muncul di daftar ini."""
     return publication.list_published(db, PageParams(page=page, size=size))
+
+
+@router.get(
+    "/{report_id}/results/{result_id}/cases",
+    response_model=ReportResultCasesRead,
+    summary="Kasus dasar di balik satu angka laporan, tanpa isi kasus",
+    responses={
+        404: {
+            "model": ErrorBody,
+            "description": "Laporan tidak boleh dibuka atau tidak ada (`REPORT_NOT_FOUND`), "
+            "angka bukan milik laporan ini (`REPORT_RESULT_NOT_FOUND`), atau hasil penilaiannya "
+            "tidak ditemukan (`REPORT_GRADES_NOT_FOUND`)",
+        }
+    },
+)
+def list_result_cases(
+    report_id: uuid.UUID,
+    result_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> ReportResultCasesRead:
+    """PBI-16 AC1: kode kasus, versi kasus, dan skor per kasus untuk semua peran (D9)."""
+    return drilldown.list_cases(db, report_id, result_id, user)
+
+
+@router.get(
+    "/{report_id}/results/{result_id}/cases/{case_id}",
+    response_model=ReportCaseDetailRead,
+    summary="Satu kasus di balik angka laporan, sampai jawaban asli tiap percobaan",
+    responses={
+        403: {
+            "model": ErrorBody,
+            "description": "Peran ini tidak boleh membuka isi kasus (`CASE_CONTENT_FORBIDDEN`): "
+            "Viewer, Kontributor untuk kasus dev, Developer AI untuk kasus test. Pesannya "
+            "menyebut email untuk meminta isi kasus.",
+        },
+        404: {
+            "model": ErrorBody,
+            "description": "Laporan tidak boleh dibuka atau tidak ada (`REPORT_NOT_FOUND`), angka "
+            "bukan milik laporan ini (`REPORT_RESULT_NOT_FOUND`), kasus tidak ada di balik angka "
+            "ini (`REPORT_CASE_NOT_FOUND`), atau hasil penilaiannya tidak ditemukan "
+            "(`REPORT_GRADES_NOT_FOUND`)",
+        },
+    },
+)
+def get_result_case(
+    report_id: uuid.UUID,
+    result_id: uuid.UUID,
+    case_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(get_current_user),
+) -> ReportCaseDetailRead:
+    """PBI-16 AC2 dan AC3: jawaban asli, skor, alasan, versi rubrik, dan data jawaban manual."""
+    return drilldown.case_detail(db, report_id, result_id, case_id, user)
+
+
+# PBI-16 AC4 dan D9 Sprint 4: bukti jawaban manual hanya Admin dan Kontributor.
+_evidence_roles = require_roles(Role.ADMIN, Role.CONTRIBUTOR)
+_EVIDENCE_ERRORS = {
+    403: {
+        "model": ErrorBody,
+        "description": "Peran ini tidak boleh membuka bukti (`FORBIDDEN`) atau isi kasus "
+        "(`CASE_CONTENT_FORBIDDEN`)",
+    },
+    404: {
+        "model": ErrorBody,
+        "description": "Laporan, angka, kasus, percobaan, atau bukti tidak ditemukan di balik "
+        "angka ini (`REPORT_NOT_FOUND`, `REPORT_RESULT_NOT_FOUND`, `REPORT_CASE_NOT_FOUND`, "
+        "`REPORT_EVIDENCE_NOT_FOUND`, `EVIDENCE_NOT_FOUND`)",
+    },
+}
+_CASE_PATH = "/{report_id}/results/{result_id}/cases/{case_id}"
+
+
+@router.get(
+    _CASE_PATH + "/attempts/{attempt_no}/evidence",
+    response_model=list[EvidenceRead],
+    summary="Bukti satu jawaban manual dari penelusuran laporan (Admin, Kontributor)",
+    responses=_EVIDENCE_ERRORS,
+)
+def list_result_case_evidence(
+    report_id: uuid.UUID,
+    result_id: uuid.UUID,
+    case_id: uuid.UUID,
+    attempt_no: int,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(_evidence_roles),
+    evidence: ManualEvidenceService = Depends(get_manual_evidence_service),
+) -> list[EvidenceRead]:
+    return drilldown.list_evidence(db, report_id, result_id, case_id, attempt_no, user, evidence)
+
+
+@router.get(
+    _CASE_PATH + "/evidence/{evidence_id}/file",
+    response_class=Response,
+    summary="Unduh berkas bukti jawaban manual dari penelusuran laporan (Admin, Kontributor)",
+    responses={
+        200: {
+            "description": "Isi berkas, selalu sebagai lampiran",
+            "content": {"image/png": {}, "image/jpeg": {}, "application/pdf": {}},
+        },
+        **_EVIDENCE_ERRORS,
+    },
+)
+def download_result_case_evidence(
+    report_id: uuid.UUID,
+    result_id: uuid.UUID,
+    case_id: uuid.UUID,
+    evidence_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(_evidence_roles),
+    evidence: ManualEvidenceService = Depends(get_manual_evidence_service),
+) -> Response:
+    berkas = drilldown.evidence_file(db, report_id, result_id, case_id, evidence_id, user, evidence)
+    return Response(
+        content=berkas.content,
+        media_type=berkas.mime_type,
+        headers={
+            # Sama dengan unduhan bukti di manual_router: lampiran, bukan inline.
+            "Content-Disposition": f"attachment; filename*=UTF-8''{quote(berkas.file_name)}",
+            "X-Content-Type-Options": "nosniff",
+        },
+    )
