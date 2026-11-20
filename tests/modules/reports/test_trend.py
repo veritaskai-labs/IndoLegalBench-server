@@ -29,13 +29,19 @@ from tests.modules.reports.test_report_generation import _nilai, _ref, _rekaman
 HARI_INI = date(2026, 11, 20)
 
 
-def _tren(*rekaman, scope=ScoreScope.TEST, metric=TrendMetric.TOTAL, window=TrendRange.ALL):
-    return build_trend(rekaman, scope=scope, metric=metric, window=window, today=HARI_INI)
+def _tren(
+    *rekaman,
+    scope=ScoreScope.TEST,
+    metric=TrendMetric.TOTAL,
+    window=TrendRange.ALL,
+    today=HARI_INI,
+):
+    return build_trend(rekaman, scope=scope, metric=metric, window=window, today=today)
 
 
-def _sesi(bulan: int, hari: int = 5, nama: str = "Produk A", kasus=None, **ubah):
+def _sesi(bulan: int, hari: int = 5, nama: str = "Produk A", kasus=None, tahun: int = 2026, **ubah):
     kasus = kasus if kasus is not None else [_nilai(1, "0.80", "0.60")]
-    return _rekaman(nama, kasus, dibuat=datetime(2026, bulan, hari, tzinfo=UTC), **ubah)
+    return _rekaman(nama, kasus, dibuat=datetime(tahun, bulan, hari, tzinfo=UTC), **ubah)
 
 
 class TestMonthlyPoints:
@@ -578,3 +584,93 @@ class TestSameCases:
         # Assert
         assert [p.value for p in tren.points] == [None, None]
         assert tren.warnings == (NO_SHARED_CASES,)
+
+
+class TestRange:
+    @pytest.fixture
+    def sepanjang_tahun(self):
+        """Satu sesi per bulan dari November 2025 sampai November 2026 (HARI_INI 20 Nov 2026)."""
+        return [_sesi(11, tahun=2025), _sesi(12, tahun=2025), *(_sesi(m) for m in range(1, 12))]
+
+    def test_all_is_the_default_and_keeps_every_month(self, sepanjang_tahun):
+        # Act
+        tren = _tren(*sepanjang_tahun)
+
+        # Assert
+        assert len(tren.points) == 13
+        assert tren.points[0].month == date(2025, 11, 1)
+
+    @pytest.mark.parametrize(
+        ("window", "first_month", "count"),
+        [
+            (TrendRange.THREE_MONTHS, date(2026, 9, 1), 3),
+            (TrendRange.SIX_MONTHS, date(2026, 6, 1), 6),
+            (TrendRange.TWELVE_MONTHS, date(2025, 12, 1), 12),
+        ],
+    )
+    def test_a_range_keeps_the_current_month_and_the_calendar_months_before_it(
+        self, sepanjang_tahun, window, first_month, count
+    ):
+        # Act
+        tren = _tren(*sepanjang_tahun, window=window)
+
+        # Assert
+        assert tren.points[0].month == first_month
+        assert tren.points[-1].month == date(2026, 11, 1)
+        assert len(tren.points) == count
+
+    def test_a_range_counts_calendar_months_across_a_new_year(self):
+        # Arrange
+        sesi = [
+            _sesi(10, tahun=2026),
+            _sesi(11, tahun=2026),
+            _sesi(12, tahun=2026),
+            _sesi(1, tahun=2027),
+        ]
+
+        # Act
+        tren = _tren(*sesi, window=TrendRange.THREE_MONTHS, today=date(2027, 1, 15))
+
+        # Assert
+        assert [p.month for p in tren.points] == [
+            date(2026, 11, 1),
+            date(2026, 12, 1),
+            date(2027, 1, 1),
+        ]
+
+    def test_a_range_with_no_session_inside_it_gives_an_empty_trend(self):
+        # Act
+        tren = _tren(_sesi(1), window=TrendRange.THREE_MONTHS)
+
+        # Assert
+        assert tren.points == ()
+        assert tren.warnings == ()
+
+    def test_cases_of_months_outside_the_range_do_not_limit_the_shared_cases(self):
+        # Arrange: Agustus hanya menjawab kasus 1; di luar rentang 3 bulan.
+        agustus = _sesi(8, kasus=[_nilai(1, "1.00", "1.00")], snapshot_tambahan=(_ref(2),))
+        september = _sesi(9, kasus=[_nilai(1, "0.00", "0.00"), _nilai(2, "0.50", "0.50")])
+        oktober = _sesi(10, kasus=[_nilai(1, "0.00", "0.00"), _nilai(2, "0.50", "0.50")])
+
+        # Act
+        semua = _tren(agustus, september, oktober)
+        tiga_bulan = _tren(agustus, september, oktober, window=TrendRange.THREE_MONTHS)
+
+        # Assert
+        assert [p.value for p in semua.points] == [
+            Decimal("1.00"),
+            Decimal("0.00"),
+            Decimal("0.00"),
+        ]
+        assert [p.value for p in tiga_bulan.points] == [Decimal("0.25"), Decimal("0.25")]
+
+    def test_the_first_point_in_the_range_has_no_break_even_if_the_month_before_differs(self):
+        # Arrange
+        lama = _sesi(8, rubrik=RUBRIK_BARU)
+        baru = _sesi(9)
+
+        # Act
+        tren = _tren(lama, baru, window=TrendRange.THREE_MONTHS)
+
+        # Assert
+        assert [p.breaks for p in tren.points] == [()]
