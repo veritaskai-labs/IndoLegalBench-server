@@ -6,15 +6,26 @@ Murni, tanpa database dan tanpa HTTP: menerima rekaman sesi yang sudah dibaca pe
 
 import uuid
 from collections.abc import Callable, Sequence
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import UTC, date, datetime
 from decimal import Decimal
 from enum import StrEnum
+from typing import cast
 
-from app.modules.reports.comparison_rules import is_eligible
+from app.modules.reports.comparison_rules import (
+    MODEL_VERSION_DIFFERS,
+    REPETITIONS_DIFFER,
+    SessionFacts,
+    comparison_markers,
+    comparison_rejections,
+    is_eligible,
+    session_markers,
+)
 from app.modules.reports.models import ScoreScope, ScoreSplit
 from app.modules.reports.report_scoring import SplitScore, cases_for_split, score_cases
+from app.modules.reports.service import allowed_case_tags
 from app.modules.reports.session_record import SessionRecord
+from app.modules.runs.models import SessionType
 from app.modules.runs.score_aggregation import round_score
 
 
@@ -80,10 +91,62 @@ def build_trend(
     pertama diukur. Skor dibulatkan hanya di sini, saat dipaparkan ke pemanggil.
     """
     latest = _latest_eligible_per_month(records)
+    ordered = [latest[month] for month in sorted(latest)]
+    facts = [_scoped_facts(record, scope) for record in ordered]
+    breaks = [() if i == 0 else _breaks_between(facts[i - 1], fact) for i, fact in enumerate(facts)]
+    repetitions_differ = len({fact.repetitions for fact in facts}) > 1
     points = tuple(
-        _point(month, latest[month], scope=scope, metric=metric) for month in sorted(latest)
+        _point(
+            month,
+            record,
+            scope=scope,
+            metric=metric,
+            breaks=cuts,
+            markers=_markers(fact, repetitions_differ),
+        )
+        for month, record, fact, cuts in zip(sorted(latest), ordered, facts, breaks, strict=True)
     )
     return Trend(points=points, warnings=())
+
+
+def _scoped_facts(record: SessionRecord, scope: ScoreScope) -> SessionFacts:
+    """Fakta sesi yang hanya memuat kasus pada jenis kasus yang digambar (AC12).
+
+    Perubahan pada kasus di luar jenis itu tidak boleh memutus garisnya.
+    """
+    tags = {tag.value for tag in allowed_case_tags(scope)}
+    facts = record.facts
+    # replace() mengembalikan tipe yang sama; cast hanya memberi tahu analisis statis (Sonar S5886).
+    return cast(
+        SessionFacts,
+        replace(
+            facts,
+            scored_cases=tuple(
+                graded.ref for graded in record.graded_cases if graded.split.value in tags
+            ),
+            snapshot_cases=tuple(ref for ref in facts.snapshot_cases if ref.split_tag in tags),
+        ),
+    )
+
+
+def _breaks_between(before: SessionFacts, after: SessionFacts) -> tuple[str, ...]:
+    """Alasan garis diputus antara dua titik berurutan (AC5, AC13).
+
+    Syaratnya sama dengan perbandingan PBI-15: versi rubrik, model penilai, dan suite atau
+    versi kasus, ditambah versi model produk. Jumlah percobaan berbeda tidak memutus garis,
+    hanya menjadi penanda.
+    """
+    reasons = [rejection.requirement for rejection in comparison_rejections((before, after))]
+    if MODEL_VERSION_DIFFERS in comparison_markers((before, after)):
+        reasons.append(MODEL_VERSION_DIFFERS)
+    return tuple(reasons)
+
+
+def _markers(facts: SessionFacts, repetitions_differ: bool) -> tuple[str, ...]:
+    markers = session_markers(facts)
+    if repetitions_differ and SessionType(facts.session_type) is SessionType.MANUAL:
+        markers += (REPETITIONS_DIFFER,)
+    return markers
 
 
 def _as_utc(moment: datetime) -> datetime:
@@ -106,7 +169,13 @@ def _latest_eligible_per_month(records: Sequence[SessionRecord]) -> dict[date, S
 
 
 def _point(
-    month: date, record: SessionRecord, *, scope: ScoreScope, metric: TrendMetric
+    month: date,
+    record: SessionRecord,
+    *,
+    scope: ScoreScope,
+    metric: TrendMetric,
+    breaks: tuple[str, ...],
+    markers: tuple[str, ...],
 ) -> TrendPoint:
     cases = cases_for_split(record.graded_cases, _SPLIT_FOR_SCOPE[scope])
     value = round_score(_METRIC_VALUE[metric](score_cases(cases)))
@@ -115,6 +184,6 @@ def _point(
         session_id=record.facts.session_id,
         label=record.label,
         value=value,
-        breaks=(),
-        markers=(),
+        breaks=breaks,
+        markers=markers,
     )
