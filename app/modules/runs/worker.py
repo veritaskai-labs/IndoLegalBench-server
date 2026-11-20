@@ -16,6 +16,7 @@ from app.modules.providers.adapters.params import ASK_TIMEOUT_SECONDS, ModelPara
 from app.modules.runs.models import SessionStatus, StopReason
 from app.modules.runs.ports import AttemptRecord, QueuePort, SessionStore
 from app.shared.exceptions import ValidationError
+from app.shared.langfuse_tracing import provider_host, score_case
 
 DEFAULT_REPEATS = 3
 MIN_REPEATS = 1
@@ -45,6 +46,7 @@ def run_session(
     product_id: uuid.UUID | None = None,
     before_attempt: Callable[[int, int], uuid.UUID | None] | None = None,
     after_attempt: Callable[[], None] | None = None,
+    user_id: str | None = None,
 ) -> None:
     """Jalankan setiap kasus × repeats. repeats di luar 1–5 ditolak.
 
@@ -69,6 +71,7 @@ def run_session(
         prompts,
         repeats,
         _Pace(interval, sleep, clock, call_log, product_id, before_attempt, after_attempt),
+        user_id,
     )
     if stopped:
         # Anggaran habis: hasil yang selesai tersimpan, sesi bisa dilanjutkan (Adra, 4 Nov).
@@ -98,12 +101,14 @@ def _run_prompts(
     prompts: list[str],
     repeats: int,
     pace: _Pace,
+    user_id: str | None,
 ) -> tuple[bool, int]:
     """(berhenti karena anggaran, jumlah percobaan gagal)."""
     completed = 0
     failed = 0
     next_start: float | None = None
     stopped = False
+    host = _adapter_host(adapter)
     for case_index, prompt in enumerate(prompts):
         completed, failed, next_start, stopped = _run_repeats(
             session_id,
@@ -117,6 +122,8 @@ def _run_prompts(
             completed,
             failed,
             next_start,
+            host,
+            user_id,
         )
         if stopped:
             break
@@ -135,6 +142,8 @@ def _run_repeats(
     completed: int,
     failed: int,
     next_start: float | None,
+    provider_host_name: str | None,
+    user_id: str | None,
 ) -> tuple[int, int, float | None, bool]:
     stopped = False
     for repeat_index in range(repeats):
@@ -147,7 +156,16 @@ def _run_repeats(
             continue
         started = pace.clock()
         started_at = datetime.now(UTC)
-        response = _ask(adapter, prompt, params)
+        with score_case(
+            session_id=str(session_id),
+            user_id=user_id,
+            prompt=prompt,
+            case_index=case_index,
+            repeat_index=repeat_index,
+            provider_host=_host_for(adapter, prompt, provider_host_name),
+        ) as observation:
+            response = _ask(adapter, prompt, params)
+            observation.set_outcome(response.text, response.failure_kind)
         ended_at = datetime.now(UTC)
         if pace.interval is not None:
             next_start = started + pace.interval
@@ -263,6 +281,7 @@ def run_next(
     product_id: uuid.UUID | None = None,
     before_attempt: Callable[[int, int], uuid.UUID | None] | None = None,
     after_attempt: Callable[[], None] | None = None,
+    user_id: str | None = None,
 ) -> bool:
     """Ambil satu sesi dari antrean. False kalau antrean kosong."""
     session_id = queue.take_next()
@@ -281,8 +300,32 @@ def run_next(
         product_id=product_id,
         before_attempt=before_attempt,
         after_attempt=after_attempt,
+        user_id=user_id,
     )
     return True
+
+
+def _adapter_host(adapter: object) -> str | None:
+    """Host penyedia. Adapter pengukuran menyimpan endpoint, adapter langsung menyimpan base_url."""
+    for name in ("base_url", "endpoint"):
+        found = provider_host(getattr(adapter, name, None))
+        if found:
+            return found
+    return None
+
+
+def _host_for(adapter: object, prompt: str, fallback: str | None) -> str | None:
+    """Host untuk metadata. Adapter boleh menentukannya per kasus."""
+    planned = getattr(adapter, "planned_host", None)
+    if not callable(planned):
+        return fallback
+    try:
+        found = planned(prompt)
+    except Exception:
+        return fallback
+    if isinstance(found, str) and found.strip():
+        return found.strip()
+    return fallback
 
 
 def _call_interval(rate_limit_per_minute: int | None) -> float | None:

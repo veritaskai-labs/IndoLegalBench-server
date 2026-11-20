@@ -5,6 +5,7 @@ from dataclasses import dataclass, field
 from decimal import ROUND_HALF_UP, Decimal
 
 from app.modules.runs.call_cost import CacheRates, actual_cost_idr
+from app.shared.langfuse_tracing import TracePrices, judge_call, use_trace_prices
 
 _QUALITY_LEAD = (
     "Score the quality of the provider answer against each criterion. "
@@ -101,27 +102,52 @@ def run_judge(
     repetitions: int,
     prices: JudgePrices | None = None,
     writer: MemoryJudgeWriter | None = None,
+    session_id: str | None = None,
+    user_id: str | None = None,
 ) -> MemoryJudgeWriter:
     if repetitions < 1:
         raise ValueError("repetitions must be at least 1")
     store = writer if writer is not None else MemoryJudgeWriter()
     expected = _criterion_names(inputs.criteria)
-    for repetition in range(1, repetitions + 1):
-        for kind, prompt in (
-            ("quality", quality_prompt(inputs)),
-            ("format", format_prompt(inputs)),
-        ):
-            store.rows.append(
-                _row(
-                    asker.ask(prompt),
-                    kind=kind,
-                    repetition=repetition,
+    with use_trace_prices(_trace_prices(prices)):
+        for repetition in range(1, repetitions + 1):
+            for kind, prompt in (
+                ("quality", quality_prompt(inputs)),
+                ("format", format_prompt(inputs)),
+            ):
+                with judge_call(
+                    session_id=session_id,
+                    user_id=user_id,
                     prompt=prompt,
-                    prices=prices,
-                    expected=expected,
+                    kind=kind,
+                ) as observation:
+                    response = asker.ask(prompt)
+                    observation.set_outcome(
+                        getattr(response, "text", "") or "",
+                        getattr(response, "failure_kind", None),
+                        score=False,
+                    )
+                store.rows.append(
+                    _row(
+                        response,
+                        kind=kind,
+                        repetition=repetition,
+                        prompt=prompt,
+                        prices=prices,
+                        expected=expected,
+                    )
                 )
-            )
     return store
+
+
+def _trace_prices(prices: JudgePrices | None) -> TracePrices | None:
+    if prices is None:
+        return None
+    return TracePrices(
+        usd_per_million_input=prices.usd_per_million_input_tokens,
+        usd_per_million_output=prices.usd_per_million_output_tokens,
+        cache_rates=prices.cache_rates,
+    )
 
 
 def _row(

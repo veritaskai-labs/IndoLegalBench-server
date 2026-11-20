@@ -1789,6 +1789,8 @@ def _execute_judge_for_attempt(
     att: AttemptGradeInput,
     case: CaseGradeInput,
     meter: JudgeMeter | None = None,
+    session_id: str | None = None,
+    user_id: str | None = None,
 ) -> None:
     """Menjalankan evaluasi penilai LLM (SCRUM-224 run_judge) untuk percobaan non-gangguan.
 
@@ -1800,7 +1802,12 @@ def _execute_judge_for_attempt(
     judge_in = _build_judge_inputs(case, att.answer_text)
     try:
         writer = run_judge(
-            asker, judge_in, repetitions=1, prices=None if meter is None else meter.prices
+            asker,
+            judge_in,
+            repetitions=1,
+            prices=None if meter is None else meter.prices,
+            session_id=session_id,
+            user_id=user_id,
         )
         for row in writer.rows:
             _apply_judge_row_to_attempt(att, row)
@@ -2074,6 +2081,8 @@ def execute_judge_for_all_cases(
     cases: Sequence[CaseGradeInput],
     meter: JudgeMeter | None = None,
     on_attempt: Callable[[], None] | None = None,
+    session_id: uuid.UUID | None = None,
+    user_id: str | None = None,
 ) -> None:
     """Panggil judge per percobaan; on_attempt dipanggil sesudah tiap percobaan (SCRUM-284)."""
     if judge_load_error:
@@ -2081,22 +2090,28 @@ def execute_judge_for_all_cases(
         return
     if asker is None:
         return
+    traced_session = None if session_id is None else str(session_id)
     for case in cases:
         for att in case.attempts:
-            _judge_one_attempt(asker, att, case, meter)
+            _judge_one_attempt(asker, att, case, meter, traced_session, user_id)
             if on_attempt is not None:
                 on_attempt()
 
 
 def _judge_one_attempt(
-    asker: object, att: AttemptGradeInput, case: CaseGradeInput, meter: JudgeMeter | None
+    asker: object,
+    att: AttemptGradeInput,
+    case: CaseGradeInput,
+    meter: JudgeMeter | None,
+    session_id: str | None = None,
+    user_id: str | None = None,
 ) -> None:
     if not _should_grade_with_judge(att):
         return
     if meter is not None and not meter.has_budget():
         att.judge_error = JUDGE_BUDGET_EXHAUSTED
         return
-    _execute_judge_for_attempt(asker, att, case, meter)
+    _execute_judge_for_attempt(asker, att, case, meter, session_id, user_id)
 
 
 def ensure_unchanged_since_load(
@@ -2267,7 +2282,14 @@ def grade_session(
     meter, pricing_error = open_judge_meter_or_error(db, binding, rates, now)
     if pricing_error is not None:
         active_asker, judge_load_error = None, pricing_error
-    execute_judge_for_all_cases(active_asker, judge_load_error, cases, meter)
+    execute_judge_for_all_cases(
+        active_asker,
+        judge_load_error,
+        cases,
+        meter,
+        session_id=session_id,
+        user_id=str(session.created_by),
+    )
 
     response = grade_session_data(
         session_id=session_id,

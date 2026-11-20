@@ -290,6 +290,8 @@ _DIBUKA = {
     ("GET", "/reports"),
     ("GET", "/reports/{report_id}"),
     ("GET", "/reports/{report_id}/pdf"),
+    # Pemantauan AI: antarmuka Langfuse lokal, peran yang sama dengan Eksekusi.
+    ("GET", "/ai-monitoring"),
 }
 # Jalur tanpa penjaga peran: login, profil sendiri, dan lonceng notifikasi.
 _TANPA_PERAN = ("/health", "/auth/", "/notifications")

@@ -143,7 +143,15 @@ def _grade(
         progress.heartbeat_at = clock()
         db.commit()
 
-    execute_judge_for_all_cases(asker, judge_error, cases, meter, on_attempt=tick)
+    execute_judge_for_all_cases(
+        asker,
+        judge_error,
+        cases,
+        meter,
+        on_attempt=tick,
+        session_id=session.id,
+        user_id=str(session.created_by),
+    )
     progress.attempts_graded = progress.attempts_total
 
     store = DbGradingStore(db)

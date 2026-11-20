@@ -14,6 +14,7 @@ from app.modules.providers.usage import (
     normalize_openai,
     normalize_usage,
 )
+from app.shared.langfuse_tracing import ask_generation, attempt_output
 
 _CONNECT_SECONDS = 15.0
 _TRUNCATED = "truncated by length limit"
@@ -42,16 +43,66 @@ def perform_ask(
     interpret,
 ) -> ProviderResponse:
     """POST sekali, tanpa retry, lalu baca body sukses atau kegagalan."""
-    response, error, latency_ms = post_json(
-        url,
-        headers=headers,
-        body=body,
-        timeout=ask_client_timeout(timeout),
-    )
-    failed = transport_failure(response, error, latency_ms, secret)
-    if failed is not None:
-        return failed
-    return interpret(json_object(response), latency_ms, model_name, secret)
+    prompt = scrub(case_prompt(body), secret)
+    with ask_generation(model_name=model_name, prompt=prompt) as generation:
+        response, error, latency_ms = post_json(
+            url,
+            headers=headers,
+            body=body,
+            timeout=ask_client_timeout(timeout),
+        )
+        failed = transport_failure(response, error, latency_ms, secret)
+        result = (
+            failed
+            if failed is not None
+            else interpret(json_object(response), latency_ms, model_name, secret)
+        )
+        generation.complete(
+            output=_generation_output(result, secret),
+            input_tokens=result.input_tokens,
+            output_tokens=result.output_tokens,
+            usage=result.usage,
+        )
+        return result
+
+
+def case_prompt(body: dict) -> str:
+    """Teks kasus dari body penyedia. Bukan header dan bukan JSON mentah."""
+    messages = body.get("messages")
+    if isinstance(messages, list):
+        parts: list[str] = []
+        for item in messages:
+            if not isinstance(item, dict):
+                continue
+            content = item.get("content")
+            if isinstance(content, str):
+                parts.append(content)
+            elif isinstance(content, list):
+                for block in content:
+                    if isinstance(block, dict) and isinstance(block.get("text"), str):
+                        parts.append(block["text"])
+        if parts:
+            return "\n".join(parts)
+    text = body.get("input")
+    if isinstance(text, str):
+        return text
+    return ""
+
+
+def _failure_name(result: ProviderResponse) -> str | None:
+    kind = result.failure_kind
+    if kind is None:
+        return None
+    return str(kind)
+
+
+def _generation_output(result: ProviderResponse, secret: str) -> str:
+    """Teks yang dibaca di generasi. Jawaban terpotong tetap teks; selain itu pesan kegagalan."""
+    if result.text.strip():
+        return scrub(result.text, secret)
+    if result.error:
+        return scrub(result.error, secret)
+    return scrub(attempt_output(result.text, _failure_name(result)), secret)
 
 
 def scrub(value, secret: str):

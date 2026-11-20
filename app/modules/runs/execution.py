@@ -12,7 +12,7 @@ from sqlalchemy import text
 
 from app.modules.providers import service as providers_service
 from app.modules.runs.adapters import ProductAdapter
-from app.modules.runs.call_cost import CacheRates
+from app.modules.runs.call_cost import CacheRates, cache_rates_from
 from app.modules.runs.call_log import CallLogService
 from app.modules.runs.dependencies import build_session_queue, get_exchange_rate
 from app.modules.runs.exchange_rate import ExchangeRateProvider
@@ -28,6 +28,7 @@ from app.modules.runs.summary_ports import ProductInfo
 from app.modules.runs.worker import run_next
 from app.shared.config import get_settings
 from app.shared.exceptions import DomainError
+from app.shared.langfuse_tracing import TracePrices, use_trace_prices
 
 logger = logging.getLogger(__name__)
 
@@ -76,6 +77,15 @@ def _frozen_cache_price(copied: object, catalog: Decimal | None) -> Decimal | No
     if isinstance(copied, Decimal):
         return copied
     return catalog
+
+
+def _trace_prices(product) -> TracePrices:
+    """Harga salinan sesi untuk biaya USD di Langfuse. Sama dengan yang ditagih ke call_logs."""
+    return TracePrices(
+        usd_per_million_input=product.price_input_usd_per_mtok,
+        usd_per_million_output=product.price_output_usd_per_mtok,
+        cache_rates=cache_rates_from(product),
+    )
 
 
 def _frozen_cache_rates(copy, catalog: ConfigPriceCatalog):
@@ -226,8 +236,9 @@ def _execute_claimed(db, session_id, options: _ExecutionOptions):
         limit = live.rate_limit_per_minute if options.rate_limit else None
         exchange = options.rates or get_exchange_rate()
         exchange.usd_idr()  # Preflight before any paid provider dispatch, not after the response.
+        frozen = _FrozenProduct(copy, ProductAdapter(db))
         billing = CallLogService(
-            products=_FrozenProduct(copy, ProductAdapter(db)),
+            products=frozen,
             repository=CallLogRepository(db),
             rates=exchange,
             clock=lambda: datetime.now(UTC),
@@ -240,20 +251,22 @@ def _execute_claimed(db, session_id, options: _ExecutionOptions):
             return True
         raise  # Fatal mid-run remains an explicit SA/PO decision, never guessed here.
     try:
-        return run_next(
-            _ClaimedQueue(session_id),
-            store,
-            adapter,
-            params=copy.model_params,
-            repeats=session.repetitions,
-            rate_limit_per_minute=limit,
-            sleep=_interruptible(options.sleep, store.stop_requested),
-            clock=options.clock,
-            call_log=billing,
-            product_id=copy.product_id,
-            before_attempt=store.prepare_attempt,
-            after_attempt=store.commit_attempt,
-        )
+        with use_trace_prices(_trace_prices(frozen.product)):
+            return run_next(
+                _ClaimedQueue(session_id),
+                store,
+                adapter,
+                params=copy.model_params,
+                repeats=session.repetitions,
+                rate_limit_per_minute=limit,
+                sleep=_interruptible(options.sleep, store.stop_requested),
+                clock=options.clock,
+                call_log=billing,
+                product_id=copy.product_id,
+                before_attempt=store.prepare_attempt,
+                after_attempt=store.commit_attempt,
+                user_id=str(session.created_by),
+            )
     except ExecutionInterrupted:
         db.rollback()
         if options.stopping():

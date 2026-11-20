@@ -59,6 +59,29 @@ def _unrated_bucket_rate(ordinary: Decimal | None) -> Decimal | None:
     return ordinary
 
 
+def actual_cost_usd(
+    *,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    usd_per_million_input_tokens: Decimal | None,
+    usd_per_million_output_tokens: Decimal | None,
+    usage: TokenUsage | None = None,
+    cache_rates: CacheRates | None = None,
+) -> Decimal | None:
+    """USD sebelum kurs. Rumus bagiannya sama dengan actual_cost_idr."""
+    parts = _cost_parts(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        usd_per_million_input_tokens=usd_per_million_input_tokens,
+        usd_per_million_output_tokens=usd_per_million_output_tokens,
+        usage=usage,
+        cache_rates=cache_rates,
+    )
+    if not parts:
+        return None
+    return sum(parts, Decimal(0))
+
+
 def actual_cost_idr(
     *,
     input_tokens: int | None,
@@ -74,29 +97,48 @@ def actual_cost_idr(
     cache_rates boleh kosong. Tanpa tarif cache, token yang penyedia tandai
     sebagai cache tetap masuk ke jumlah input dan memakai tarif input.
     """
+    usd = actual_cost_usd(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        usd_per_million_input_tokens=usd_per_million_input_tokens,
+        usd_per_million_output_tokens=usd_per_million_output_tokens,
+        usage=usage,
+        cache_rates=cache_rates,
+    )
+    if usd is None:
+        return None
+    return _rupiah([usd], usd_idr_rate)
+
+
+def _cost_parts(
+    *,
+    input_tokens: int | None,
+    output_tokens: int | None,
+    usd_per_million_input_tokens: Decimal | None,
+    usd_per_million_output_tokens: Decimal | None,
+    usage: TokenUsage | None,
+    cache_rates: CacheRates | None,
+) -> list[Decimal] | None:
     rates = cache_rates or CacheRates()
     if usage is not None and _usage_reported(usage):
         if not _cache_rate_given(rates):
-            return _input_output_cost(
+            return _input_output_parts(
                 usage.input_tokens,
                 usage.output,
                 usd_per_million_input_tokens,
                 usd_per_million_output_tokens,
-                usd_idr_rate,
             )
-        return _usage_cost_idr(
+        return _usage_parts(
             usage,
             usd_per_million_input_tokens=usd_per_million_input_tokens,
             usd_per_million_output_tokens=usd_per_million_output_tokens,
             cache_rates=rates,
-            usd_idr_rate=usd_idr_rate,
         )
-    return _input_output_cost(
+    return _input_output_parts(
         input_tokens,
         output_tokens,
         usd_per_million_input_tokens,
         usd_per_million_output_tokens,
-        usd_idr_rate,
     )
 
 
@@ -104,13 +146,12 @@ def _cache_rate_given(rates: CacheRates) -> bool:
     return any(rate is not None for rate in (rates.read, rates.write, rates.long))
 
 
-def _input_output_cost(
+def _input_output_parts(
     input_tokens: int | None,
     output_tokens: int | None,
     usd_per_million_input_tokens: Decimal | None,
     usd_per_million_output_tokens: Decimal | None,
-    usd_idr_rate: Decimal,
-) -> Decimal | None:
+) -> list[Decimal] | None:
     if input_tokens is None and output_tokens is None:
         return None
     parts = [
@@ -121,7 +162,7 @@ def _input_output_cost(
         )
         if part is not None
     ]
-    return _rupiah(parts, usd_idr_rate)
+    return parts or None
 
 
 def _usage_reported(usage: TokenUsage) -> bool:
@@ -137,14 +178,13 @@ def _usage_reported(usage: TokenUsage) -> bool:
     )
 
 
-def _usage_cost_idr(
+def _usage_parts(
     usage: TokenUsage,
     *,
     usd_per_million_input_tokens: Decimal | None,
     usd_per_million_output_tokens: Decimal | None,
     cache_rates: CacheRates,
-    usd_idr_rate: Decimal,
-) -> Decimal | None:
+) -> list[Decimal] | None:
     ordinary = usd_per_million_input_tokens
     parts = [
         _priced_tokens(usage.uncached_input, ordinary, "input"),
@@ -156,9 +196,7 @@ def _usage_cost_idr(
     if _UNPRICED in parts:
         return None
     priced = [part for part in parts if part is not None]
-    if not priced:
-        return None
-    return _rupiah(priced, usd_idr_rate)
+    return priced or None
 
 
 def _cache_part(

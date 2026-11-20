@@ -6670,6 +6670,27 @@
           }
         }
       }
+    },
+    "/ai-monitoring": {
+      "get": {
+        "tags": [
+          "monitoring"
+        ],
+        "summary": "Tautan antarmuka Langfuse lokal",
+        "operationId": "read_ai_monitoring_ai_monitoring_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/MonitoringLink"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -11679,6 +11700,32 @@
         "type": "object",
         "title": "ModelParams",
         "description": "Parameter model sebagai JSON object bebas (SCRUM-247, revisi UAT PBI-23 AC2).\n\nDikirim apa adanya ke API penyedia. Kunci milik sistem, kunci rahasia, dan\nukurannya diperiksa rules.model_params_problem supaya galatnya punya code."
+      },
+      "MonitoringLink": {
+        "properties": {
+          "url": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Url"
+          },
+          "reachable": {
+            "type": "boolean",
+            "title": "Reachable"
+          }
+        },
+        "type": "object",
+        "required": [
+          "url",
+          "reachable"
+        ],
+        "title": "MonitoringLink",
+        "description": "URL antarmuka Langfuse lokal, dan apakah health-nya menjawab."
       },
       "NeedsReassignmentResponse": {
         "properties": {

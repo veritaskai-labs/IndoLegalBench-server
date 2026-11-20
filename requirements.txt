@@ -55,3 +55,7 @@ reportlab==5.0.1
 # paket ini untuk membaca multipart/form-data (UploadFile, Form); tanpa ini
 # aplikasi gagal start begitu route unggah terdaftar.
 python-multipart==0.0.33
+
+# Jejak pengukuran dan penilai (span score-case, span judge-call, generasi
+# ask-provider). Kunci kosong atau URL kosong berarti tidak ada klien.
+langfuse==5.2.0

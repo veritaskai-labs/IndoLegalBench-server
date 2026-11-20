@@ -106,6 +106,12 @@ class Settings(BaseSettings):
     jisdor_api_url: str = "https://allratestoday.com/api/v1/central-bank/bi/latest"
     jisdor_api_key: str = ""
 
+    # Jejak pengukuran di Langfuse lokal. Kosong, atau host *.langfuse.com,
+    # berarti tidak ada klien dan tidak ada jaringan. Jangan pernah di-commit.
+    langfuse_public_key: str = ""
+    langfuse_secret_key: str = ""
+    langfuse_base_url: str = ""
+
     @property
     def frontend_origin(self) -> str:
         if self.cors_origins:
