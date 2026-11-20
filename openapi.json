@@ -12461,6 +12461,7 @@
             "title": "Supersedes Id"
           }
         },
+        "additionalProperties": false,
         "type": "object",
         "title": "PublishReport",
         "description": "Badan POST /reports/{id}/publish. version_no diisi server, bukan klien."
