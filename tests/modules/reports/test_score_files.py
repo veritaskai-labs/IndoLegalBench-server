@@ -2,6 +2,8 @@
 
 AC5 (isi), AC6 (hanya sesi layak, selain itu ditolak dengan alasan), AC7 (berkas disimpan).
 Sumber data dan penyimpanan diganti tiruan; tanpa database.
+Review PR #152: B1 (berkas tidak boleh kosong atau kehilangan kasus) dan B2 (kontrak
+diterima apa adanya tanpa penilaian).
 """
 
 import csv
@@ -22,6 +24,7 @@ from app.modules.reports.comparison_rules import (
     SESSION_RUN_FAILED,
 )
 from app.modules.reports.score_files import (
+    NO_VISIBLE_CASES,
     SESSION_ARCHIVED,
     ScoreFile,
     SessionScoreData,
@@ -31,7 +34,7 @@ from app.modules.reports.score_files import (
 from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType
 from app.shared.exceptions import ConflictError, NotFoundError
 from app.shared.security import Role
-from tests.modules.reports.test_report_generation import _nilai, _rekaman
+from tests.modules.reports.test_report_generation import _nilai, _ref, _rekaman
 
 PENGUNDUH = uuid.uuid4()
 RUN = uuid.uuid4()
@@ -330,3 +333,82 @@ def test_developer_ai_mendapat_kasus_dev_dengan_kode_test_disamarkan(dev_dan_tes
     kode = {b["Kasus"] for b in _baris(berkas)}
     kode_dev = dev_dan_test.record.graded_cases[1].ref.case_code
     assert kode == {MASKED_CASE_CODE, kode_dev}
+
+
+# Review PR #152 B1: semua kasus sesi tertulis, dan berkas tanpa kasus tidak diserahkan.
+
+
+def test_kasus_tanpa_skor_tetap_tertulis_sebagai_tidak_dinilai():
+    gagal = _ref(2)
+    rekaman = _dengan(
+        _rekaman(
+            "Produk A",
+            [_nilai(1, "0.5", "0.5")],
+            status=SessionStatus.FINISHED_WITH_FAILURES,
+            snapshot_tambahan=(gagal,),
+        ),
+        accepted_as_is_at=DITERIMA,
+    )
+    versi = {rekaman.graded_cases[0].ref.case_version_id: 2, gagal.case_version_id: 5}
+
+    berkas, _ = _unduh(_data(rekaman, case_version_nos=versi))
+
+    baris = {b["Kasus"]: b for b in _baris(berkas)}
+    assert baris[gagal.case_code]["Status Penilaian"] == "tidak dinilai"
+    assert baris[gagal.case_code]["Skor Deterministik"] == ""
+    assert baris[gagal.case_code]["Skor LLM"] == ""
+    assert baris[gagal.case_code]["Versi Kasus"] == "5"
+    assert baris[gagal.case_code]["Versi Rubrik"] == "3"
+    assert baris[rekaman.graded_cases[0].ref.case_code]["Status Penilaian"] == "dinilai"
+
+
+def test_kasus_dev_tanpa_skor_juga_tidak_terlihat_oleh_viewer():
+    rekaman = _rekaman(
+        "Produk A", [_nilai(1, "0.5", "0.5")], snapshot_tambahan=(_ref(2, split=SplitTag.DEV),)
+    )
+
+    berkas, _ = _unduh(_data(rekaman), role=Role.VIEWER)
+
+    assert [b["Kasus"] for b in _baris(berkas)] == [rekaman.graded_cases[0].ref.case_code]
+
+
+@pytest.mark.parametrize("role", [Role.VIEWER, Role.CONTRIBUTOR])
+def test_sesi_yang_hanya_berisi_kasus_dev_ditolak_untuk_peran_tanpa_akses_dev(role):
+    rekaman = _rekaman("Produk A", [_nilai(1, "0.5", "0.5", split=SplitTag.DEV)])
+
+    galat, simpanan = _tolak(_data(rekaman), role=role)
+
+    assert galat.code == NO_VISIBLE_CASES
+    assert [alasan["code"] for alasan in galat.details["reasons"]] == [NO_VISIBLE_CASES]
+    assert "diunduh" in galat.message
+    assert simpanan.berkas == []
+
+
+def test_sesi_yang_hanya_berisi_kasus_dev_tetap_bisa_diunduh_admin():
+    rekaman = _rekaman("Produk A", [_nilai(1, "0.5", "0.5", split=SplitTag.DEV)])
+
+    berkas, _ = _unduh(_data(rekaman), role=Role.ADMIN)
+
+    assert len(_baris(berkas)) == 1
+
+
+# Review PR #152 B2: D2 tetap mensyaratkan penilaian walaupun sesi diterima apa adanya.
+
+
+def test_sesi_diterima_apa_adanya_tanpa_penilaian_ditolak_karena_belum_dinilai():
+    rekaman = _dengan(
+        _rekaman(
+            "Produk A",
+            [],
+            status=SessionStatus.FINISHED_WITH_FAILURES,
+            rubrik=None,
+            snapshot_tambahan=(_ref(1),),
+        ),
+        accepted_as_is_at=DITERIMA,
+    )
+
+    galat, simpanan = _tolak(_data(rekaman))
+
+    assert galat.code == SESSION_NOT_GRADED
+    assert [alasan["code"] for alasan in galat.details["reasons"]] == [SESSION_NOT_GRADED]
+    assert simpanan.berkas == []
