@@ -411,6 +411,8 @@ class TrendRead(BaseModel):
 class PublishReport(BaseModel):
     """Badan POST /reports/{id}/publish. version_no diisi server, bukan klien."""
 
+    model_config = ConfigDict(extra="forbid")
+
     supersedes_id: uuid.UUID | None = None
 
 

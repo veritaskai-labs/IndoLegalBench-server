@@ -129,6 +129,31 @@ def get_publication(db: Session, publication_id: uuid.UUID) -> PublishedReport |
     return db.get(PublishedReport, publication_id)
 
 
+def lock_report(db: Session, report_id: uuid.UUID) -> Report | None:
+    """Kunci baris laporan sampai transaksi ini selesai.
+
+    Dua penerbitan untuk laporan yang sama jadi antre, jadi yang kedua melihat
+    status yang sudah berubah. SQLite mengabaikan FOR UPDATE; indeks unik di
+    published_reports yang menolak baris kedua.
+    """
+    return db.scalar(
+        sa.select(Report)
+        .where(Report.id == report_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
+def lock_publication(db: Session, publication_id: uuid.UUID) -> PublishedReport | None:
+    """Kunci satu versi terbit. Alasan dan batas SQLite-nya sama dengan lock_report."""
+    return db.scalar(
+        sa.select(PublishedReport)
+        .where(PublishedReport.id == publication_id)
+        .with_for_update()
+        .execution_options(populate_existing=True)
+    )
+
+
 def add_publication(db: Session, row: PublishedReport) -> None:
     """Tambah satu versi terbit dan flush, sebelum status laporannya diubah."""
     db.add(row)

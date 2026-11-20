@@ -18,6 +18,7 @@ status published, lalu status lama jadi superseded.
 import uuid
 from datetime import UTC, datetime
 
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from app.modules.reports import repository
@@ -30,6 +31,15 @@ from app.shared.pagination import Page, PageParams
 REPORT_NOT_FOUND = "REPORT_NOT_FOUND"
 REPORT_NOT_PUBLISHABLE = "REPORT_NOT_PUBLISHABLE"
 PUBLICATION_NOT_FOUND = "PUBLICATION_NOT_FOUND"
+
+# Nama constraint di Postgres, dan teks unik SQLite. FK atau NOT NULL tidak masuk
+# daftar ini, supaya kerusakan data lain tidak tersamar jadi 409 (pola grading_queue).
+_TAKEN = (
+    "uq_published_reports_report",
+    "uq_published_reports_supersedes",
+    "UNIQUE constraint failed: published_reports.report_id",
+    "UNIQUE constraint failed: published_reports.supersedes_id",
+)
 
 
 def publish(
@@ -49,13 +59,22 @@ def publish(
         published_at=datetime.now(UTC),
         supersedes_id=None if predecessor is None else predecessor.id,
     )
-    # Baris terbit harus ada sebelum status berubah: trigger BEFORE UPDATE
-    # menolak published kalau baris published_reports belum ada.
-    repository.add_publication(db, row)
-    report.status = ReportStatus.PUBLISHED
-    if replaced is not None:
-        replaced.status = ReportStatus.SUPERSEDED
-    db.commit()
+    try:
+        # Baris terbit harus ada sebelum status berubah: trigger BEFORE UPDATE
+        # menolak published kalau baris published_reports belum ada.
+        repository.add_publication(db, row)
+        report.status = ReportStatus.PUBLISHED
+        if replaced is not None:
+            replaced.status = ReportStatus.SUPERSEDED
+        db.commit()
+    except IntegrityError as exc:
+        db.rollback()
+        if not _publication_taken(exc):
+            raise
+        raise ConflictError(
+            "Versi ini sudah terbit atau sudah diganti.",
+            code=REPORT_NOT_PUBLISHABLE,
+        ) from None
     db.refresh(row)
     return PublicationRead.model_validate(row)
 
@@ -80,7 +99,7 @@ def list_published(db: Session, params: PageParams) -> Page[PublishedReportListI
 
 
 def _saved_report(db: Session, report_id: uuid.UUID) -> Report:
-    report = repository.get_report(db, report_id)
+    report = repository.lock_report(db, report_id)
     if report is None:
         raise NotFoundError("Laporan tidak ditemukan.", code=REPORT_NOT_FOUND)
     # Sebelum status, supaya laporan dev selalu 409 REPORT_HAS_DEV_SCORES.
@@ -98,16 +117,21 @@ def _current_predecessor(
 ) -> tuple[PublishedReport | None, Report | None]:
     if supersedes_id is None:
         return None, None
-    predecessor = repository.get_publication(db, supersedes_id)
+    predecessor = repository.lock_publication(db, supersedes_id)
     if predecessor is None:
         raise NotFoundError(
             "Versi terbit yang diganti tidak ditemukan.",
             code=PUBLICATION_NOT_FOUND,
         )
-    replaced = repository.get_report(db, predecessor.report_id)
+    replaced = repository.lock_report(db, predecessor.report_id)
     if replaced is None or replaced.status is not ReportStatus.PUBLISHED:
         raise ConflictError(
             "Hanya versi yang sedang terbit yang bisa diganti.",
             code=REPORT_NOT_PUBLISHABLE,
         )
     return predecessor, replaced
+
+
+def _publication_taken(exc: IntegrityError) -> bool:
+    message = str(exc.orig)
+    return any(token in message for token in _TAKEN)
