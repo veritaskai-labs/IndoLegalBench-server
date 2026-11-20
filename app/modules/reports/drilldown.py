@@ -10,20 +10,23 @@ mode kode tidak boleh membuka sesi dan produk di balik kodenya (review #145).
 Skor per kasus dibaca dari run penilaian yang dipakai laporan saat dibuat
 (repository.grading_run_at), bukan run terbaru, supaya penelusuran selalu cocok dengan
 angka laporan yang beku walaupun sesinya dinilai ulang (D1).
+
+Daftar kasus hanya membaca skor (GradingRunReader.get_case_scores), tidak pernah soal atau
+jawaban. Jawaban asli hanya dibaca oleh detail kasus, satu kasus saja, dan hanya setelah hak
+isi kasus dicek (D6 langkah 6, review #149).
 """
 
 import uuid
-from collections.abc import Mapping
 from typing import Protocol
 
 from sqlalchemy.orm import Session
 
 from app.modules.auth import service as auth_service
-from app.modules.cases.models import SplitTag
 from app.modules.reports import history, repository
 from app.modules.reports.access import visible_case_code
-from app.modules.reports.models import Report, ReportResult, ScoreSplit
+from app.modules.reports.models import Report, ReportResult
 from app.modules.reports.pdf import CONTACT_EMAIL
+from app.modules.reports.report_scoring import tags_for_split
 from app.modules.reports.repository import CaseBasisRow, ManualAnswerFacts
 from app.modules.reports.schemas import (
     ReportAttemptRead,
@@ -34,13 +37,8 @@ from app.modules.reports.schemas import (
 from app.modules.runs.case_visibility import can_view_drilldown_content
 from app.modules.runs.manual_evidence import EvidenceDownload
 from app.modules.runs.models import AttemptSource
-from app.modules.runs.schemas import (
-    AttemptGradeResult,
-    CaseGradeResult,
-    EvidenceRead,
-    SessionGradingResponse,
-)
-from app.modules.runs.session_grade import DbGradingStore
+from app.modules.runs.schemas import AttemptGradeResult, EvidenceRead, ScorePair
+from app.modules.runs.session_grade import DbGradingStore, RunCase, RunCaseScores
 from app.shared.exceptions import ForbiddenError, NotFoundError
 from app.shared.security import CurrentUser, Role
 
@@ -49,14 +47,6 @@ REPORT_GRADES_NOT_FOUND = "REPORT_GRADES_NOT_FOUND"
 REPORT_CASE_NOT_FOUND = "REPORT_CASE_NOT_FOUND"
 CASE_CONTENT_FORBIDDEN = "CASE_CONTENT_FORBIDDEN"
 REPORT_EVIDENCE_NOT_FOUND = "REPORT_EVIDENCE_NOT_FOUND"
-
-# Angka dev hanya dibentuk kasus dev, angka test dari kasus test, gabungan dari keduanya
-# (D1, sama dengan service._ALLOWED_CASE_TAGS untuk jenis nilai laporan).
-_CASE_TAGS: Mapping[ScoreSplit, frozenset[SplitTag]] = {
-    ScoreSplit.TEST: frozenset({SplitTag.TEST}),
-    ScoreSplit.DEV: frozenset({SplitTag.DEV}),
-    ScoreSplit.COMBINED: frozenset(SplitTag),
-}
 
 
 class EvidenceReader(Protocol):
@@ -72,11 +62,15 @@ class EvidenceReader(Protocol):
 
 
 class GradingRunReader(Protocol):
-    """Satu run penilaian lengkap dengan kasus dan percobaannya (runs.session_grade)."""
+    """Bacaan sempit dari satu run penilaian (runs.session_grade), bukan run lengkap."""
 
-    def get_grading_run(
+    def get_case_scores(
         self, session_id: uuid.UUID, grading_run_id: uuid.UUID
-    ) -> SessionGradingResponse | None: ...
+    ) -> RunCaseScores | None: ...
+
+    def get_grading_case(
+        self, session_id: uuid.UUID, grading_run_id: uuid.UUID, case_id: uuid.UUID
+    ) -> RunCase | None: ...
 
 
 def list_cases(
@@ -89,13 +83,16 @@ def list_cases(
 ) -> ReportResultCasesRead:
     """Kasus dasar di balik satu angka laporan, tanpa isi kasus (AC1, D6 langkah 2-3).
 
-    Terbuka untuk setiap peran yang boleh membaca laporannya (D9). Laporan yang tidak boleh
-    dibaca dan angka dari laporan lain sama-sama dijawab 404.
+    Terbuka untuk setiap peran yang boleh membaca laporannya (D9), karena hanya skor yang
+    dibaca. Laporan yang tidak boleh dibaca dan angka dari laporan lain sama-sama 404.
     """
     report = history.readable_report(db, report_id, user)
     result = _result(db, report, result_id)
-    run = _frozen_run(db, report, result, runs or DbGradingStore(db))
-    graded = {case.case_id: case for case in run.cases}
+    reader = runs or DbGradingStore(db)
+    run_id = _frozen_run_id(db, report, result)
+    run = reader.get_case_scores(result.session_id, run_id) if run_id else None
+    if run is None:
+        raise _grades_not_found()
     session = repository.get_report_session(db, report.id, result.session_id)
     return ReportResultCasesRead(
         report_id=report.id,
@@ -105,9 +102,9 @@ def list_cases(
         score_split=result.score_split,
         rubric_version=run.rubric_version,
         cases=[
-            _case_row(basis, graded.get(basis.case_id), user)
+            _case_row(basis, run.scores.get(basis.case_id), user)
             for basis in repository.case_basis(db, report.id)
-            if basis.split_tag in _CASE_TAGS[result.score_split]
+            if basis.split_tag in tags_for_split(result.score_split)
         ],
     )
 
@@ -125,15 +122,15 @@ def case_detail(
 
     Hak melihat isi dicek sebelum run penilaian dibaca (D6 langkah 6), jadi peran yang
     tidak berhak tidak pernah memicu pembacaan jawaban asli: Viewer, Kontributor untuk
-    kasus dev, dan Developer AI untuk kasus test (AC3, D9).
+    kasus dev, dan Developer AI untuk kasus test (AC3, D9). Yang dibaca hanya kasus ini.
     """
     report, result, basis = _openable_case(db, report_id, result_id, case_id, user)
-    run = _frozen_run(db, report, result, runs or DbGradingStore(db))
-    graded = next((case for case in run.cases if case.case_id == case_id), None)
-    if graded is None:
-        raise NotFoundError(
-            "Hasil penilaian kasus ini tidak ditemukan.", code=REPORT_GRADES_NOT_FOUND
-        )
+    reader = runs or DbGradingStore(db)
+    run_id = _frozen_run_id(db, report, result)
+    run = reader.get_grading_case(result.session_id, run_id, case_id) if run_id else None
+    if run is None:
+        raise _grades_not_found()
+    graded = run.case
     session = repository.get_report_session(db, report.id, result.session_id)
     manual = _manual_facts(db, graded.attempts)
     scores = graded.scores
@@ -220,7 +217,7 @@ def _basis_case(
     db: Session, report: Report, result: ReportResult, case_id: uuid.UUID
 ) -> CaseBasisRow:
     # Hanya kasus yang membentuk angka ini: kasus dev tidak bisa dibuka lewat angka test.
-    allowed = _CASE_TAGS[result.score_split]
+    allowed = tags_for_split(result.score_split)
     basis = next(
         (
             row
@@ -278,23 +275,21 @@ def _result(db: Session, report: Report, result_id: uuid.UUID) -> ReportResult:
     return result
 
 
-def _frozen_run(
-    db: Session, report: Report, result: ReportResult, runs: GradingRunReader
-) -> SessionGradingResponse:
-    run_id = repository.grading_run_at(db, result.session_id, report.created_at)
-    run = runs.get_grading_run(result.session_id, run_id) if run_id is not None else None
-    if run is None:
-        # Hanya terjadi pada data rusak: SCRUM-313 tidak menyimpan laporan tanpa run selesai.
-        raise NotFoundError(
-            "Hasil penilaian di balik angka ini tidak ditemukan.", code=REPORT_GRADES_NOT_FOUND
-        )
-    return run
+def _frozen_run_id(db: Session, report: Report, result: ReportResult) -> uuid.UUID | None:
+    return repository.grading_run_at(db, result.session_id, report.created_at)
+
+
+def _grades_not_found() -> NotFoundError:
+    # Hanya terjadi pada data rusak: SCRUM-313 tidak menyimpan laporan tanpa run selesai, dan
+    # kasus dasar laporan selalu ada di snapshot sesinya.
+    return NotFoundError(
+        "Hasil penilaian di balik angka ini tidak ditemukan.", code=REPORT_GRADES_NOT_FOUND
+    )
 
 
 def _case_row(
-    basis: CaseBasisRow, graded: CaseGradeResult | None, user: CurrentUser
+    basis: CaseBasisRow, scores: ScorePair | None, user: CurrentUser
 ) -> ReportCaseScoreRead:
-    scores = graded.scores if graded else None
     return ReportCaseScoreRead(
         case_id=basis.case_id,
         case_code=visible_case_code(user.role, basis.case_code, basis.split_tag),

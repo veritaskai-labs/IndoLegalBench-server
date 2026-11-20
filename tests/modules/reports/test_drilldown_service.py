@@ -52,7 +52,7 @@ from app.modules.runs.schemas import (
     SessionGradingResponse,
     ThreeScores,
 )
-from app.modules.runs.session_grade import MemoryGradingStore
+from app.modules.runs.session_grade import DbGradingStore, MemoryGradingStore, RunCaseScores
 from app.shared.exceptions import ForbiddenError, NotFoundError
 from app.shared.security import CurrentUser, Role
 
@@ -217,6 +217,26 @@ def test_skor_dibaca_dari_run_yang_dipakai_laporan(repo):
 
     # Assert
     repo.grading_run_at.assert_called_once_with(DB, SESI, report.created_at)
+
+
+@pytest.mark.parametrize("role", list(Role))
+def test_daftar_kasus_hanya_membaca_skor_bukan_jawaban(repo, role):
+    """Negatif: daftar kasus terbuka untuk semua peran, jadi tidak pernah membaca soal atau
+    jawaban asli; hanya skor per kasus dari run beku (D6 langkah 6, review #149)."""
+    # Arrange
+    report = _laporan(score_scope=ScoreScope.TEST, has_dev_scores=False)
+    angka = _angka(report, ScoreSplit.TEST)
+    _siapkan(repo, report, angka)
+    runs = create_autospec(DbGradingStore, instance=True)
+    runs.get_case_scores.return_value = RunCaseScores("v4", {})
+
+    # Act
+    drilldown.list_cases(DB, report.id, angka.id, _pengguna(role), runs=runs)
+
+    # Assert
+    runs.get_case_scores.assert_called_once_with(SESI, RUN)
+    runs.get_grading_case.assert_not_called()
+    runs.get_grading_run.assert_not_called()
 
 
 def test_developer_ai_kode_kasus_test_disamarkan_tetapi_skornya_tampil(repo):
