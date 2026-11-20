@@ -38,9 +38,14 @@ def can_see_case_codes(role: Role) -> bool:
     return role in _ROLES_THAT_SEE_CASE_CODES
 
 
+def can_use_scope(role: Role, scope: ScoreScope) -> bool:
+    """Boleh tidaknya peran memakai satu jenis nilai; dipakai pembuat laporan dan tren."""
+    return scope in _SCOPES_BY_ROLE.get(role, frozenset())
+
+
 def ensure_can_create(role: Role, scope: ScoreScope, label_mode: ProductLabelMode) -> None:
     """Tolak (403) permintaan yang melampaui hak peran. Jenis nilai diperiksa lebih dulu."""
-    if scope not in _SCOPES_BY_ROLE.get(role, frozenset()):
+    if not can_use_scope(role, scope):
         raise ForbiddenError(
             "Peran Anda tidak boleh membuat laporan dengan jenis nilai ini.",
             code=REPORT_SCOPE_FORBIDDEN,
