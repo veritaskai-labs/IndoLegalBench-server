@@ -14,12 +14,14 @@ from typing import cast
 
 from app.modules.reports.comparison_rules import (
     MODEL_VERSION_DIFFERS,
+    NO_SHARED_CASES,
     REPETITIONS_DIFFER,
     SessionFacts,
     comparison_markers,
     comparison_rejections,
     is_eligible,
     session_markers,
+    shared_cases,
 )
 from app.modules.reports.models import ScoreScope, ScoreSplit
 from app.modules.reports.report_scoring import SplitScore, cases_for_split, score_cases
@@ -94,6 +96,7 @@ def build_trend(
     ordered = [latest[month] for month in sorted(latest)]
     facts = [_scoped_facts(record, scope) for record in ordered]
     breaks = [() if i == 0 else _breaks_between(facts[i - 1], fact) for i, fact in enumerate(facts)]
+    shared, nothing_shared = _shared_case_keys(facts, breaks)
     repetitions_differ = len({fact.repetitions for fact in facts}) > 1
     points = tuple(
         _point(
@@ -103,10 +106,34 @@ def build_trend(
             metric=metric,
             breaks=cuts,
             markers=_markers(fact, repetitions_differ),
+            case_keys=keys,
         )
-        for month, record, fact, cuts in zip(sorted(latest), ordered, facts, breaks, strict=True)
+        for month, record, fact, cuts, keys in zip(
+            sorted(latest), ordered, facts, breaks, shared, strict=True
+        )
     )
-    return Trend(points=points, warnings=())
+    return Trend(points=points, warnings=(NO_SHARED_CASES,) if nothing_shared else ())
+
+
+def _shared_case_keys(
+    facts: Sequence[SessionFacts], breaks: Sequence[tuple[str, ...]]
+) -> tuple[list[frozenset[tuple[uuid.UUID, uuid.UUID]]], bool]:
+    """Kasus yang dijawab semua sesi pada garis yang sama, satu himpunan per titik (AC11).
+
+    Garis yang terputus (breaks tidak kosong) menjadi segmen baru dengan irisannya sendiri,
+    jadi perubahan versi tidak mengosongkan segmen lain. Segmen dengan dua titik atau lebih
+    yang irisannya kosong tidak digambar dan membuat peringatan; satu titik sendirian tidak
+    pernah diperingatkan.
+    """
+    starts = [i for i, cuts in enumerate(breaks) if i == 0 or cuts] + [len(facts)]
+    keys: list[frozenset[tuple[uuid.UUID, uuid.UUID]]] = []
+    nothing_shared = False
+    for begin, end in zip(starts, starts[1:], strict=False):
+        shared = shared_cases(facts[begin:end])
+        nothing_shared = nothing_shared or (end - begin > 1 and not shared)
+        segment_keys = frozenset((case.case_id, case.case_version_id) for case in shared)
+        keys.extend([segment_keys] * (end - begin))
+    return keys, nothing_shared
 
 
 def _scoped_facts(record: SessionRecord, scope: ScoreScope) -> SessionFacts:
@@ -176,8 +203,13 @@ def _point(
     metric: TrendMetric,
     breaks: tuple[str, ...],
     markers: tuple[str, ...],
+    case_keys: frozenset[tuple[uuid.UUID, uuid.UUID]],
 ) -> TrendPoint:
-    cases = cases_for_split(record.graded_cases, _SPLIT_FOR_SCOPE[scope])
+    cases = tuple(
+        case
+        for case in cases_for_split(record.graded_cases, _SPLIT_FOR_SCOPE[scope])
+        if (case.ref.case_id, case.ref.case_version_id) in case_keys
+    )
     value = round_score(_METRIC_VALUE[metric](score_cases(cases)))
     return TrendPoint(
         month=month,
