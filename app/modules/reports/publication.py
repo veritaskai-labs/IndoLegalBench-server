@@ -92,19 +92,23 @@ def list_published(db: Session, params: PageParams) -> Page[PublishedReportListI
     """Versi yang laporannya masih published, terbaru dulu, dengan nama beku."""
     rows, total = repository.list_current_publications(db, offset=params.offset, limit=params.size)
     labels = repository.frozen_product_labels(db, [row.report.id for row in rows])
-    items = [
-        PublishedReportListItem(
-            id=row.publication.id,
-            report_id=row.publication.report_id,
-            version_no=row.publication.version_no,
-            title=row.report.title,
-            published_at=row.publication.published_at,
-            published_by=row.publication.published_by,
-            product_labels=labels.get(row.report.id, []),
-        )
-        for row in rows
-    ]
+    items = [_list_item(row, labels.get(row.report.id, [])) for row in rows]
     return Page(items=items, total=total, page=params.page, size=params.size)
+
+
+def _list_item(
+    row: repository.CurrentPublication, product_labels: list[str]
+) -> PublishedReportListItem:
+    publication = row.publication
+    return PublishedReportListItem(
+        id=publication.id,
+        report_id=publication.report_id,
+        version_no=publication.version_no,
+        title=row.report.title,
+        published_at=publication.published_at,
+        published_by=publication.published_by,
+        product_labels=product_labels,
+    )
 
 
 def _saved_report(db: Session, report_id: uuid.UUID) -> Report:
