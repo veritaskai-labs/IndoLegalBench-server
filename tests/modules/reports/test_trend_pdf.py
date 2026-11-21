@@ -70,6 +70,12 @@ def _halaman(isi: bytes) -> int:
     return len(re.findall(rb"/Type /Page\b", isi))
 
 
+def _sambung(isi: bytes) -> bytes:
+    """Gabungkan potongan teks satu baris. Reportlab menulis teks hasil escape() sebagai
+    beberapa operator Tj berurutan, misalnya (Sesi <) Tj (i) Tj (>) Tj."""
+    return isi.replace(b") Tj (", b"")
+
+
 # --- Bagian atas ---------------------------------------------------------------
 
 
@@ -205,8 +211,8 @@ class TestHeader:
 
         # Assert
         assert isi.startswith(b"%PDF")
-        assert b"<b>A&B</b> <x>" in isi
-        assert b"Sesi <i>Okt</i> & <y>" in isi
+        assert b"<b>A&B</b> <x>" in _sambung(isi)
+        assert b"Sesi <i>Okt</i> & <y>" in _sambung(isi)
 
     def test_pdf_memuat_teks_permintaan_isi_kasus_lewat_email(self):
         """Positif: bagian bawah sama dengan PDF laporan."""
