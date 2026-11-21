@@ -166,6 +166,10 @@ def _baris_tren(trend: TrendRead, language: ReportLanguage) -> list[list[str]]:
     ]
 
 
+def _grafik_garis(trend: TrendRead, language: ReportLanguage):
+    raise NotImplementedError
+
+
 class TrendPdfRenderer:
     # Lebar kolom tabel dalam mm, total 277 = A4 lanskap dikurangi margin.
     _LEBAR = (30, 70, 20, 25, 66, 66)

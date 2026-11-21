@@ -19,6 +19,8 @@ from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
+from reportlab.graphics.charts.lineplots import LinePlot
+from reportlab.graphics.shapes import Line
 
 from app.modules.reports.comparison_rules import (
     JUDGE_MODEL,
@@ -33,7 +35,12 @@ from app.modules.reports.comparison_rules import (
 from app.modules.reports.models import ReportLanguage, ScoreScope
 from app.modules.reports.schemas import TrendPointRead, TrendRead
 from app.modules.reports.trend import TrendMetric, TrendRange
-from app.modules.reports.trend_pdf import TrendPdfRenderer, _baris_tren, trend_pdf_filename
+from app.modules.reports.trend_pdf import (
+    TrendPdfRenderer,
+    _baris_tren,
+    _grafik_garis,
+    trend_pdf_filename,
+)
 
 PRODUK = uuid.UUID("00000000-0000-0000-0000-0000000000b7")
 # 21 Nov 2026 10:00 WIB.
@@ -505,6 +512,190 @@ class TestDevBanner:
 
         # Assert
         assert b"skor dev" not in isi
+
+
+# --- Grafik garis ---------------------------------------------------------------
+# Grafik diperiksa dari objek Drawing-nya, karena isi grafik di PDF hanya garis dan kotak.
+
+
+def _plot(tren: TrendRead, bahasa=ReportLanguage.ID) -> LinePlot:
+    gambar = _grafik_garis(tren, bahasa)
+    return next(isi for isi in gambar.contents if isinstance(isi, LinePlot))
+
+
+def _panduan_putus(tren: TrendRead) -> list[Line]:
+    gambar = _grafik_garis(tren, ReportLanguage.ID)
+    return [isi for isi in gambar.contents if isinstance(isi, Line)]
+
+
+class TestLineChart:
+    def test_titik_yang_tersambung_menjadi_satu_garis(self):
+        """Positif: satu garis untuk satu metrik (AC3)."""
+        # Act
+        plot = _plot(_tren())
+
+        # Assert
+        assert plot.data == [[(0, 0.83), (1, 0.61)]]
+
+    def test_garis_diputus_di_titik_yang_versinya_berubah(self):
+        """Positif: versi berubah, garis diputus pada titik perubahan (AC5)."""
+        # Arrange
+        tren = _tren(
+            points=[
+                _titik(9, "0.50"),
+                _titik(10, "0.60", breaks=[RUBRIC_VERSION]),
+                _titik(11, "0.70"),
+            ]
+        )
+
+        # Act
+        plot = _plot(tren)
+
+        # Assert
+        assert plot.data == [[(0, 0.5)], [(1, 0.6), (2, 0.7)]]
+
+    def test_titik_putus_diberi_garis_bantu_putus_putus(self):
+        """Positif: titik perubahan ditandai di grafik, alasannya ada di tabel (AC5)."""
+        # Arrange
+        tren = _tren(points=[_titik(9), _titik(10, breaks=[RUBRIC_VERSION]), _titik(11)])
+
+        # Act
+        panduan = _panduan_putus(tren)
+
+        # Assert
+        assert len(panduan) == 1
+        assert panduan[0].strokeDashArray
+        assert panduan[0].x1 == panduan[0].x2
+
+    def test_tanpa_putus_tidak_ada_garis_bantu_dan_tidak_ada_garis_target(self):
+        """Negatif: tidak ada garis lain selain garis tren, termasuk garis target (AC7)."""
+        # Act
+        panduan = _panduan_putus(_tren())
+        plot = _plot(_tren())
+
+        # Assert
+        assert panduan == []
+        assert len(plot.data) == 1
+
+    def test_nilai_kosong_tidak_digambar_sebagai_nol_dan_memutus_garis(self):
+        """Negatif: titik tanpa nilai bukan skor 0, dan garis tidak melompatinya."""
+        # Arrange
+        tren = _tren(points=[_titik(9, "0.50"), _titik(10, None), _titik(11, "0.70")])
+
+        # Act
+        plot = _plot(tren)
+
+        # Assert
+        assert plot.data == [[(0, 0.5)], [(2, 0.7)]]
+
+    def test_bulan_tanpa_sesi_menjadi_celah_di_sumbu_waktu(self):
+        """Edge: bulan tanpa sesi dikosongkan (D4), jarak antar bulan tetap sesuai waktu."""
+        # Arrange
+        tren = _tren(points=[_titik(9, "0.50"), _titik(11, "0.70")])
+
+        # Act
+        plot = _plot(tren)
+
+        # Assert
+        assert plot.data == [[(0, 0.5), (2, 0.7)]]
+        assert plot.xValueAxis.valueSteps == [0, 2]
+
+    def test_sumbu_waktu_melewati_pergantian_tahun(self):
+        """Edge: Desember ke Januari berjarak satu bulan."""
+        # Arrange
+        tren = _tren(points=[_titik(12, "0.50", tahun=2025), _titik(1, "0.70", tahun=2026)])
+
+        # Act
+        plot = _plot(tren)
+
+        # Assert
+        assert plot.data == [[(0, 0.5), (1, 0.7)]]
+
+    def test_satu_titik_tetap_digambar_sebagai_titik(self):
+        """Edge: produk baru dengan satu bulan pengukuran (AC6)."""
+        # Act
+        plot = _plot(_tren(points=[_titik(10, "0.83")]))
+
+        # Assert
+        assert plot.data == [[(0, 0.83)]]
+
+    def test_segmen_tanpa_kasus_sama_tidak_digambar_tetapi_segmen_lain_tetap(self):
+        """Edge: segmen tanpa kasus sama tidak menghapus segmen lain (AC11)."""
+        # Arrange
+        tren = _tren(
+            points=[
+                _titik(8, None, case_count=0),
+                _titik(9, None, case_count=0),
+                _titik(10, "0.40", breaks=[RUBRIC_VERSION]),
+                _titik(11, "0.90"),
+            ],
+            warnings=[NO_SHARED_CASES],
+        )
+
+        # Act
+        plot = _plot(tren)
+
+        # Assert
+        assert plot.data == [[(2, 0.4), (3, 0.9)]]
+
+    def test_semua_nilai_kosong_tidak_ada_grafik(self):
+        """Edge: tidak ada kasus sama sama sekali, peringatan tanpa garis (AC11)."""
+        # Arrange
+        tren = _tren(
+            points=[_titik(10, None, case_count=0), _titik(11, None, case_count=0)],
+            warnings=[NO_SHARED_CASES],
+        )
+
+        # Act
+        gambar = _grafik_garis(tren, ReportLanguage.ID)
+        isi = _pdf(tren)
+
+        # Assert
+        assert gambar is None
+        assert isi.startswith(b"%PDF")
+
+    def test_tren_kosong_tidak_ada_grafik(self):
+        """Edge: tanpa titik tidak ada grafik."""
+        # Act
+        gambar = _grafik_garis(_tren(points=[]), ReportLanguage.ID)
+
+        # Assert
+        assert gambar is None
+
+    def test_label_sumbu_mengikuti_bahasa(self):
+        """Positif: nama bulan singkat dan pemisah desimal mengikuti bahasa."""
+        # Act
+        plot_id = _plot(_tren(), ReportLanguage.ID)
+        plot_en = _plot(_tren(), ReportLanguage.EN)
+
+        # Assert
+        assert plot_id.xValueAxis.labelTextFormat(0) == "Okt 26"
+        assert plot_en.xValueAxis.labelTextFormat(0) == "Oct 26"
+        assert plot_id.yValueAxis.labelTextFormat(0.5) == "0,50"
+        assert plot_en.yValueAxis.labelTextFormat(0.5) == "0.50"
+        assert (plot_id.yValueAxis.valueMin, plot_id.yValueAxis.valueMax) == (0, 1)
+
+    def test_lebih_dari_dua_belas_titik_label_bulan_diselang(self):
+        """Edge: rentang semua bisa lebih dari 12 titik; label diselang supaya tidak bertumpuk."""
+        # Arrange
+        titik = [_titik(bulan, tahun=tahun) for tahun in (2025, 2026) for bulan in range(1, 13)]
+
+        # Act
+        plot = _plot(_tren(points=titik))
+
+        # Assert
+        assert plot.xValueAxis.labelTextFormat(0) == "Jan 25"
+        assert plot.xValueAxis.labelTextFormat(1) == ""
+        assert plot.xValueAxis.labelTextFormat(2) == "Mar 25"
+
+    def test_grafik_masuk_ke_berkas(self):
+        """Positif: grafik ikut di PDF (label sumbu bulan hanya ada di grafik)."""
+        # Act
+        isi = _pdf(_tren())
+
+        # Assert
+        assert b"Okt 26" in isi
+        assert b"Nov 26" in isi
 
 
 # --- Nama berkas -------------------------------------------------------------
