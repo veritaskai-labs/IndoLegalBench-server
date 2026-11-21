@@ -152,15 +152,62 @@ class TestEligibility:
         # Assert
         assert [p.session_id for p in tren.points] == [layak.facts.session_id]
 
-    def test_a_session_without_a_creation_time_cannot_be_placed_in_a_month(self):
+
+class TestMonthFromTheFinishTimeInWib:
+    """D4 [KEPUTUSAN SA]: bulan titik dari waktu selesai sesi (finished_at, atau finalized_at
+    untuk manual) dalam WIB, bukan waktu dibuat dan bukan UTC. Review SA #153."""
+
+    def test_a_session_started_in_october_and_finished_in_november_is_a_november_point(self):
         # Arrange
-        tanpa_waktu = _sesi(10)
-        tanpa_waktu = type(tanpa_waktu)(
-            facts=tanpa_waktu.facts,
-            graded_cases=tanpa_waktu.graded_cases,
-            calls_by_split=tanpa_waktu.calls_by_split,
-            label=tanpa_waktu.label,
-            created_at=None,
+        sesi = _sesi(10, hari=28, selesai=datetime(2026, 11, 2, 3, tzinfo=UTC))
+
+        # Act
+        tren = _tren(sesi)
+
+        # Assert
+        assert [p.month for p in tren.points] == [date(2026, 11, 1)]
+
+    def test_31_october_18_utc_is_already_1_november_in_wib(self):
+        # Arrange: 31 Okt 18.00 UTC = 1 Nov 01.00 WIB (contoh dari review Kak Astha).
+        sesi = _sesi(10, hari=31, selesai=datetime(2026, 10, 31, 18, tzinfo=UTC))
+
+        # Act
+        tren = _tren(sesi)
+
+        # Assert
+        assert [p.month for p in tren.points] == [date(2026, 11, 1)]
+
+    def test_the_last_minute_of_october_in_wib_stays_in_october(self):
+        # Arrange: 31 Okt 16.59 UTC = 31 Okt 23.59 WIB.
+        sesi = _sesi(10, hari=31, selesai=datetime(2026, 10, 31, 16, 59, tzinfo=UTC))
+
+        # Act
+        tren = _tren(sesi)
+
+        # Assert
+        assert [p.month for p in tren.points] == [date(2026, 10, 1)]
+
+    def test_the_latest_session_of_a_month_is_the_one_that_finished_last(self):
+        # Arrange: dimulai lebih dulu tetapi selesai paling akhir (bukan waktu dinilai/dibuat).
+        dimulai_awal = _sesi(11, hari=3, selesai=datetime(2026, 11, 20, tzinfo=UTC))
+        dimulai_akhir = _sesi(11, hari=10, selesai=datetime(2026, 11, 12, tzinfo=UTC))
+
+        # Act
+        tren = _tren(dimulai_akhir, dimulai_awal)
+
+        # Assert
+        assert [p.session_id for p in tren.points] == [dimulai_awal.facts.session_id]
+
+    def test_a_session_without_a_finish_time_cannot_be_placed_in_a_month(self):
+        # Arrange
+        sesi = _sesi(10)
+        tanpa_waktu = type(sesi)(
+            facts=sesi.facts,
+            graded_cases=sesi.graded_cases,
+            calls_by_split=sesi.calls_by_split,
+            label=sesi.label,
+            created_at=sesi.created_at,
+            finished_at=None,
         )
 
         # Act
@@ -169,15 +216,20 @@ class TestEligibility:
         # Assert
         assert tren.points == ()
 
-    def test_a_naive_creation_time_is_read_as_utc(self):
-        # Arrange: SQLite mengembalikan datetime tanpa zona.
-        sesi = _rekaman("Produk A", [_nilai(1, "0.8", "0.6")], dibuat=datetime(2026, 10, 31, 23))
+    def test_a_naive_finish_time_is_read_as_utc(self):
+        # Arrange: SQLite mengembalikan datetime tanpa zona; 31 Okt 23.00 UTC = 1 Nov WIB.
+        sesi = _rekaman(
+            "Produk A",
+            [_nilai(1, "0.8", "0.6")],
+            dibuat=datetime(2026, 10, 20, tzinfo=UTC),
+            selesai=datetime(2026, 10, 31, 23),
+        )
 
         # Act
         tren = _tren(sesi)
 
         # Assert
-        assert [p.month for p in tren.points] == [date(2026, 10, 1)]
+        assert [p.month for p in tren.points] == [date(2026, 11, 1)]
 
 
 class TestMetric:

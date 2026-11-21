@@ -98,7 +98,9 @@ def _rekaman(nama: str, graded: list[GradedCase], **ubah) -> SessionRecord:
         graded_cases=tuple(graded),
         calls_by_split=ubah.pop("calls", {}),
         label=ubah.pop("label", f"Sesi {nama}"),
-        created_at=ubah.pop("dibuat", AWAL),
+        created_at=ubah.get("dibuat", AWAL),
+        # Waktu selesai sama dengan waktu dibuat kecuali diatur sendiri lewat "selesai".
+        finished_at=ubah.pop("selesai", ubah.pop("dibuat", AWAL)),
     )
 
 

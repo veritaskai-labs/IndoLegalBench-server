@@ -39,6 +39,10 @@ def _utc_today() -> date:
     return datetime.now(UTC).date()
 
 
+def wib_today(now: datetime) -> date:
+    raise NotImplementedError
+
+
 class TrendService:
     def __init__(
         self,
