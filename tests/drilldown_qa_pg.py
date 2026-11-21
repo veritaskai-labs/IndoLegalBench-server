@@ -4,41 +4,55 @@ Semua data dibuat lewat HTTP seperti pengguna (L3, sintetis): sesi otomatis dija
 dengan provider palsu, sesi manual diisi Kontributor, keduanya dinilai penilai uji, lalu
 laporan dibuat lewat POST /reports. Tidak ada baris laporan yang disisipkan langsung, jadi
 angka laporan, penelusuran, dan berkas skor terbukti berasal dari data yang sama.
+
+Hanya PostgreSQL, sama dengan lingkungan Docker. Tiap tes memakai database salinan sendiri,
+bukan satu transaksi yang di-rollback: di dalam satu transaksi now() berhenti, jadi laporan
+tidak akan menemukan run penilaiannya. Dengan salinan, tiap request berjalan di transaksinya
+sendiri seperti di server.
 """
 
 import csv
 import io
 import os
+import subprocess
+import sys
 import uuid
 from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from dataclasses import dataclass
-from datetime import UTC, date, datetime, timedelta
+from datetime import UTC, datetime
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
+from fastapi import Depends, Request
 from fastapi.testclient import TestClient
-from sqlalchemy import URL, create_engine, make_url, select, text
+from sqlalchemy import URL, create_engine, make_url, text
 from sqlalchemy.orm import Session
 
 from app.main import app
 from app.modules.auth.models import User
-from app.modules.grading.models import GradingRun, RubricVersion
 from app.modules.providers.adapters.base import FailureKind, ProviderResponse
 from app.modules.runs import dependencies, exchange_rate, session_grade
+from app.shared import request_context
 from app.shared.config import get_settings
-from app.shared.security import CurrentUser, Role
+from app.shared.database import get_db
+from app.shared.security import CurrentUser, Role, get_current_user
 from tests.grading_pg import buat_versi_aktif
 from tests.judge_rows import tambah_penilai
-from tests.modules.cases.test_cases import ADMIN_LAIN, _buat, _ganti, _setujui, _suite
-from tests.modules.conftest import USER_ID_QA
-from tests.modules.runs.test_execution_runtime import jenis_peraturan, runner  # noqa: F401
+from tests.modules.cases.test_cases import ADMIN_LAIN, _buat, _setujui, _suite
+from tests.modules.runs.test_execution_runtime import runner
 from tests.modules.runs.test_manual_evidence_http_qa import PNG
 from tests.modules.runs.test_manual_grade_http_qa import PenilaiUji
 from tests.modules.runs.test_manual_session_endpoint import _produk_manual
 from tests.modules.runs.test_summary_endpoint import _settings, _tambah_produk
 
+TEST_POSTGRES_URL = os.environ.get("TEST_POSTGRES_URL", "")
+HANYA_POSTGRES = [
+    pytest.mark.postgres,
+    pytest.mark.skipif(not TEST_POSTGRES_URL, reason="TEST_POSTGRES_URL not set"),
+]
 DIPEROLEH = datetime(2026, 11, 18, 14, 30, tzinfo=UTC)
 # Penanda di setiap jawaban asli: tidak boleh muncul di respons yang tidak berhak isi kasus.
 RAHASIA = "Rahasia-QA-330"
@@ -177,10 +191,21 @@ class Dunia:
     monkeypatch: pytest.MonkeyPatch
 
     def sebagai(self, orang: Orang) -> TestClient:
-        _ganti(
-            self.client,
-            CurrentUser(user_id=orang.id, name=orang.nama, email=orang.email, role=orang.peran),
+        pengguna = CurrentUser(
+            user_id=orang.id, name=orang.nama, email=orang.email, role=orang.peran
         )
+
+        def masuk(request: Request, db: Session = Depends(get_db)) -> CurrentUser:
+            # Sama dengan get_current_user asli: pelaku diikat ke session untuk audit (PBI-18).
+            request_context.bind(
+                db,
+                user_id=pengguna.user_id,
+                role=pengguna.role,
+                request_id=getattr(request.state, "request_id", None),
+            )
+            return pengguna
+
+        app.dependency_overrides[get_current_user] = masuk
         return self.client
 
     def pakai_penilai(self, penilai: type[PenilaiQA]) -> None:
@@ -191,99 +216,88 @@ class Dunia:
         )
 
 
-@pytest.fixture(params=["sqlite", pytest.param("postgres", marks=pytest.mark.postgres)])
-def db_session(request, db_session):
-    """SQLite seperti tes lain, plus PostgreSQL bila TEST_POSTGRES_URL diisi.
+@contextmanager
+def _database_baru(server: URL, templat: str | None = None) -> Iterator[URL]:
+    nama = f"qa_pbi16_{uuid.uuid4().hex[:12]}"
+    salin = f' TEMPLATE "{templat}"' if templat else ""
+    admin = create_engine(server.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    try:
+        with admin.connect() as conn:
+            conn.execute(text(f'CREATE DATABASE "{nama}"{salin}'))
+        yield server.set(database=nama)
+    finally:
+        with admin.connect() as conn:
+            conn.execute(text(f'DROP DATABASE IF EXISTS "{nama}" WITH (FORCE)'))
+        admin.dispose()
 
-    Di PostgreSQL tiap tes memakai database salinan sendiri, bukan satu transaksi yang
-    di-rollback: di dalam satu transaksi now() berhenti, jadi laporan tidak akan menemukan run
-    penilaiannya. Dengan salinan, setiap request punya transaksinya sendiri seperti di server.
+
+@pytest.fixture(scope="session")
+def templat_qa() -> Iterator[URL]:
+    """Database yang dimigrasi sekali per sesi pytest, sumber salinan setiap tes.
+
+    Bukan database TEST_POSTGRES_URL itu sendiri: lifespan aplikasi menahan koneksi ke
+    database bawaan, dan PostgreSQL menolak menyalin database yang sedang dipakai.
     """
-    if request.param == "sqlite":
-        yield db_session
-        return
-    url = os.environ.get("TEST_POSTGRES_URL")
-    if not url:
-        pytest.skip("TEST_POSTGRES_URL is not configured")
-    with _database_salinan(make_url(url)) as salinan:
-        engine = create_engine(salinan)
+    with _database_baru(make_url(TEST_POSTGRES_URL)) as url:
+        env = {**os.environ, "DATABASE_URL": url.render_as_string(hide_password=False)}
+        root = Path(__file__).resolve().parents[1]
+        subprocess.run(
+            [sys.executable, "-m", "alembic", "upgrade", "head"], cwd=root, env=env, check=True
+        )
+        yield url
+
+
+@pytest.fixture
+def db_qa(templat_qa: URL) -> Iterator[Session]:
+    with _database_baru(templat_qa, templat=templat_qa.database) as url:
+        engine = create_engine(url)
         with Session(engine) as db:
             yield db
         engine.dispose()
 
 
-@contextmanager
-def _database_salinan(asal: URL) -> Iterator[URL]:
-    nama = f"qa_pbi16_{uuid.uuid4().hex[:12]}"
-    admin = create_engine(asal.set(database="postgres"), isolation_level="AUTOCOMMIT")
-    with admin.connect() as conn:
-        conn.execute(text(f'CREATE DATABASE "{nama}" TEMPLATE "{asal.database}"'))
-    try:
-        yield asal.set(database=nama)
-    finally:
-        with admin.connect() as conn:
-            conn.execute(text(f'DROP DATABASE "{nama}" WITH (FORCE)'))
-        admin.dispose()
-
-
 @pytest.fixture
-def dunia(as_role, db_session, monkeypatch) -> Dunia:
+def dunia(db_qa: Session, monkeypatch) -> Iterator[Dunia]:
     """Sesi otomatis AiYU (satu percobaan gagal, diterima apa adanya) dan sesi manual
     LegalHero (bukti di PHK-001), keduanya sudah dinilai dan layak laporan."""
-    client = as_role(Role.CONTRIBUTOR)
-    db_session.add_all(User(id=o.id, email=o.email, name=o.nama, role=o.peran) for o in SEMUA)
-    # Pemilik kasus dan produk dari helper modul lain; PostgreSQL menegakkan foreign key-nya.
-    db_session.add_all(
-        [
-            User(
-                id=USER_ID_QA, email="qa@veritask.test", name="Pengguna QA", role=Role.CONTRIBUTOR
-            ),
-            User(
-                id=ADMIN_LAIN, email="admin-lain@veritask.test", name="Admin Lain", role=Role.ADMIN
-            ),
-        ]
+    db = db_qa
+    db.add_all(User(id=o.id, email=o.email, name=o.nama, role=o.peran) for o in SEMUA)
+    # _produk_manual dari modul runs mencatat ADMIN_LAIN sebagai pembuat produknya.
+    db.add(
+        User(id=ADMIN_LAIN, email="admin-lain@veritask.test", name="Admin Lain", role=Role.ADMIN)
     )
-    db_session.commit()
-    suite_id = _suite(client)
-    for kasus in KASUS:
-        _setujui(db_session, _buat_kasus(client, suite_id, kasus))
+    db.commit()
+    # Trigger: versi rubrik baru mulai nonaktif dan diaktifkan lewat UPDATE.
+    buat_versi_aktif(db.connection(), ADMIN.id)
+    db.commit()
 
+    semula = dict(app.dependency_overrides)
+    app.dependency_overrides[get_db] = lambda: db
     app.dependency_overrides[get_settings] = lambda: _settings()
     app.dependency_overrides[dependencies.get_exchange_rate] = lambda: (
         exchange_rate.ConfiguredExchangeRate(Decimal("16000"))
     )
-    if db_session.bind.dialect.name == "postgresql":
-        # Trigger PostgreSQL: versi baru mulai nonaktif dan diaktifkan lewat UPDATE.
-        buat_versi_aktif(db_session.connection(), ADMIN.id)
-    else:
-        db_session.add(_rubrik_aktif())
-    d = Dunia(
-        client=client,
-        db=db_session,
-        suite_id=suite_id,
-        otomatis=SimpleNamespace(produk=_tambah_produk(db_session), db=db_session),
-        manual=SimpleNamespace(produk=_produk_manual(db_session), db=db_session),
-        penilai_id=tambah_penilai(db_session, ADMIN.id).id,
-        monkeypatch=monkeypatch,
-    )
-    d.pakai_penilai(PenilaiQA)
-    d.otomatis.id = jalankan_sesi_otomatis(d)
-    terima_apa_adanya(d, d.otomatis.id)
-    nilai(d, d.otomatis.id)
-    d.manual.id = sesi_manual_selesai(d)
-    if d.db.bind.dialect.name == "sqlite":
-        penilaian_semenit_lalu(d)
-    return d
-
-
-def penilaian_semenit_lalu(d: Dunia) -> None:
-    """SQLite menyimpan now() laporan per detik, finished_at run per mikrodetik. Tanpa geser ini
-    laporan yang dibuat di detik yang sama dengan penilaian tidak menemukan run bekunya.
-    PostgreSQL tidak perlu (now() per mikrodetik) dan trigger-nya menolak run selesai diubah."""
-    for run in d.db.scalars(select(GradingRun)):
-        run.triggered_at -= timedelta(minutes=1)
-        run.finished_at = run.finished_at and run.finished_at - timedelta(minutes=1)
-    d.db.commit()
+    with TestClient(app) as client:
+        d = Dunia(
+            client=client,
+            db=db,
+            suite_id="",
+            otomatis=SimpleNamespace(produk=_tambah_produk(db, created_by=ADMIN.id), db=db),
+            manual=SimpleNamespace(produk=_produk_manual(db), db=db),
+            penilai_id=tambah_penilai(db, ADMIN.id).id,
+            monkeypatch=monkeypatch,
+        )
+        d.suite_id = _suite(d.sebagai(KONTRIBUTOR))
+        for kasus in KASUS:
+            _setujui(db, _buat_kasus(d.sebagai(KONTRIBUTOR), d.suite_id, kasus))
+        d.pakai_penilai(PenilaiQA)
+        d.otomatis.id = jalankan_sesi_otomatis(d)
+        terima_apa_adanya(d, d.otomatis.id)
+        nilai(d, d.otomatis.id)
+        d.manual.id = sesi_manual_selesai(d)
+        yield d
+    app.dependency_overrides.clear()
+    app.dependency_overrides.update(semula)
 
 
 def _buat_kasus(client: TestClient, suite_id: str, kasus: Kasus) -> str:
@@ -301,18 +315,6 @@ def _buat_kasus(client: TestClient, suite_id: str, kasus: Kasus) -> str:
     )
     assert respons.status_code == 201, respons.text
     return respons.json()["id"]
-
-
-def _rubrik_aktif() -> RubricVersion:
-    return RubricVersion(
-        version_no=1,
-        effective_date=date.today(),
-        is_active=True,
-        locked_at=datetime.now(UTC),
-        judge_prompt_quality="Prompt kualitas",
-        judge_prompt_format="Prompt format",
-        created_by=ADMIN.id,
-    )
 
 
 def _badan_sesi(d: Dunia, produk_id: uuid.UUID, **ubah) -> dict:

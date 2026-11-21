@@ -11,10 +11,11 @@ from app.main import app
 from app.modules.cases.service import MASKED_CASE_CODE
 from app.modules.reports.pdf import CONTACT_EMAIL
 from app.shared.security import get_current_user
-from tests.modules.reports.drilldown_qa import (
+from tests.drilldown_qa_pg import (
     ADMIN,
     BUKTI_DI,
     DEV_AI,
+    HANYA_POSTGRES,
     KASUS,
     KONTRIBUTOR,
     RAHASIA,
@@ -22,14 +23,14 @@ from tests.modules.reports.drilldown_qa import (
     VIEWER,
     angka,
     buat_laporan,
-    db_session,  # noqa: F401
     detail_kasus,
     id_kasus,
     jalur_kasus,
-    jenis_peraturan,  # noqa: F401
     terbitkan,
 )
 from tests.modules.runs.test_manual_evidence_http_qa import PNG
+
+pytestmark = HANYA_POSTGRES
 
 PERTANYAAN = tuple(k.pertanyaan for k in KASUS)
 

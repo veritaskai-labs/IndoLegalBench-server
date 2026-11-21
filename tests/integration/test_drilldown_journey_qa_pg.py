@@ -1,7 +1,7 @@
 """QA alur penelusuran angka laporan sampai jawaban asli. PBI-16 (SCRUM-83) AC1, AC2; SCRUM-330.
 
 Klik angka -> daftar kasus -> satu kasus -> percobaan, di atas laporan yang dibuat dari sesi
-sungguhan (drilldown_qa). Angka laporan harus cocok dengan skor kasus di baliknya, juga
+sungguhan (tests/drilldown_qa_pg.py). Angka laporan harus cocok dengan skor kasus di baliknya, juga
 setelah sesinya dinilai ulang (D1).
 
 Label: Positif = boleh dan berhasil, Edge = batas perilaku.
@@ -9,8 +9,9 @@ Label: Positif = boleh dan berhasil, Edge = batas perilaku.
 
 from decimal import ROUND_HALF_UP, Decimal
 
-from tests.modules.reports.drilldown_qa import (
+from tests.drilldown_qa_pg import (
     DIPEROLEH,
+    HANYA_POSTGRES,
     KASUS,
     KASUS_GAGAL_SEKALI,
     KODE_DEV,
@@ -20,11 +21,11 @@ from tests.modules.reports.drilldown_qa import (
     baca_laporan,
     buat_laporan,
     daftar_kasus,
-    db_session,  # noqa: F401
     detail_kasus,
-    jenis_peraturan,  # noqa: F401
     nilai,
 )
+
+pytestmark = HANYA_POSTGRES
 
 KODE_PER_SPLIT = {"test": KODE_TEST, "dev": KODE_DEV, "combined": KODE_TEST + KODE_DEV}
 

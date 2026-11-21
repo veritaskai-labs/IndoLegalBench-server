@@ -1,6 +1,6 @@
 """QA unduh skor per sesi (CSV). PBI-16 (SCRUM-83) AC5, AC6, AC7; SCRUM-330.
 
-GET /reports/sessions/{id}/csv di atas sesi sungguhan (drilldown_qa). Desain: decision table
+GET /reports/sessions/{id}/csv di atas sesi sungguhan (tests/drilldown_qa_pg.py). Desain: decision table
 status sesi x hasil unduhan untuk AC6, state transition Dibatalkan -> Dilanjutkan -> Selesai,
 dan perbandingan isi berkas dengan penelusuran laporan yang sama.
 
@@ -13,9 +13,10 @@ import pytest
 from sqlalchemy import func, select
 
 from app.modules.reports.models import SessionScoreFile
-from tests.modules.reports.drilldown_qa import (
+from tests.drilldown_qa_pg import (
     ADMIN,
     DEV_AI,
+    HANYA_POSTGRES,
     KASUS,
     KASUS_GAGAL_SEKALI,
     KODE_DEV,
@@ -31,17 +32,17 @@ from tests.modules.reports.drilldown_qa import (
     buat_laporan,
     buat_sesi_manual,
     daftar_kasus,
-    db_session,  # noqa: F401
     isi_jawaban_manual,
     jalankan_sesi_otomatis,
     jalankan_worker,
-    jenis_peraturan,  # noqa: F401
     mulai_sesi_otomatis,
     nilai,
     sesi_manual_selesai,
     terima_apa_adanya,
     unduh_skor,
 )
+
+pytestmark = HANYA_POSTGRES
 
 KOLOM = [
     "Kasus",
