@@ -11,10 +11,14 @@ _TREND_LABELS, jadi SCRUM-355 (PBI-26) cukup mengoreksi isinya.
 
 import io
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import date, datetime
+from decimal import Decimal
 from pathlib import Path
 from xml.sax.saxutils import escape
 
+from reportlab.graphics.charts.lineplots import LinePlot
+from reportlab.graphics.shapes import Drawing, Line
+from reportlab.graphics.widgets.markers import makeMarker
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
@@ -33,8 +37,13 @@ from app.modules.reports.comparison_rules import (
 )
 from app.modules.reports.models import ReportLanguage, ScoreScope
 from app.modules.reports.pdf import _LABELS, _WIB, DEFAULT_LOGO_PATH, format_score
-from app.modules.reports.schemas import TrendRead
+from app.modules.reports.schemas import TrendPointRead, TrendRead
 from app.modules.reports.trend import TrendMetric, TrendRange
+
+_GARIS_COLOR = colors.HexColor("#3B44C4")
+_PANDUAN_COLOR = colors.HexColor("#9AA0A6")
+# Di atas jumlah titik ini label bulan diselang satu, supaya tidak saling menimpa.
+_LABEL_BULAN_MAKS = 12
 
 
 @dataclass(frozen=True)
@@ -166,8 +175,90 @@ def _baris_tren(trend: TrendRead, language: ReportLanguage) -> list[list[str]]:
     ]
 
 
-def _grafik_garis(trend: TrendRead, language: ReportLanguage):
-    raise NotImplementedError
+def _indeks_bulan(bulan: date) -> int:
+    return bulan.year * 12 + bulan.month - 1
+
+
+def _segmen(points: list[TrendPointRead], awal: int) -> list[list[tuple[int, float]]]:
+    """Satu seri per potongan garis (AC5, AC11).
+
+    Potongan baru dimulai di titik yang punya alasan putus dan di sekitar nilai kosong:
+    nilai kosong tidak digambar (bukan 0) dan garis tidak boleh melompatinya.
+    """
+    seri: list[list[tuple[int, float]]] = []
+    sambung = False
+    for titik in points:
+        if titik.value is None:
+            sambung = False
+            continue
+        posisi = (_indeks_bulan(titik.month) - awal, float(titik.value))
+        if sambung and not titik.breaks:
+            seri[-1].append(posisi)
+        else:
+            seri.append([posisi])
+        sambung = True
+    return seri
+
+
+def _grafik_garis(trend: TrendRead, language: ReportLanguage) -> Drawing | None:
+    """Grafik garis satu metrik; None bila tidak ada nilai yang bisa digambar (AC11).
+
+    Sumbu x adalah bulan sebenarnya, jadi bulan tanpa sesi menjadi celah (D4). Tidak ada
+    garis target (AC7); satu-satunya garis lain adalah garis bantu putus-putus di titik
+    perubahan versi.
+    """
+    if not trend.points:
+        return None
+    awal = _indeks_bulan(trend.points[0].month)
+    seri = _segmen(trend.points, awal)
+    if not seri:
+        return None
+    nama_bulan = _LABELS[language].months
+    langkah = [_indeks_bulan(titik.month) - awal for titik in trend.points]
+    selang = 2 if len(langkah) > _LABEL_BULAN_MAKS else 1
+    label_bulan = {
+        x: f"{nama_bulan[titik.month.month - 1][:3]} {titik.month.year % 100:02d}"
+        if urutan % selang == 0
+        else ""
+        for urutan, (x, titik) in enumerate(zip(langkah, trend.points, strict=True))
+    }
+
+    gambar = Drawing(277 * mm, 72 * mm)
+    plot = LinePlot()
+    plot.x, plot.y, plot.width, plot.height = 15 * mm, 12 * mm, 240 * mm, 55 * mm
+    plot.data = seri
+    plot.xValueAxis.valueMin = -0.5
+    plot.xValueAxis.valueMax = langkah[-1] + 0.5
+    plot.xValueAxis.valueSteps = langkah
+    plot.xValueAxis.labelTextFormat = lambda x: label_bulan.get(round(x), "")
+    plot.yValueAxis.valueMin = 0
+    plot.yValueAxis.valueMax = 1
+    plot.yValueAxis.valueSteps = [0, 0.25, 0.5, 0.75, 1]
+    plot.yValueAxis.labelTextFormat = lambda y: format_score(Decimal(str(y)), language)
+    for axis in (plot.xValueAxis, plot.yValueAxis):
+        axis.labels.fontName = "Helvetica"
+        axis.labels.fontSize = 7
+    for urutan in range(len(seri)):
+        plot.lines[urutan].strokeColor = _GARIS_COLOR
+        plot.lines[urutan].strokeWidth = 1.5
+        plot.lines[urutan].symbol = makeMarker("FilledCircle", size=4)
+    gambar.add(plot)
+
+    lebar_bulan = plot.width / (plot.xValueAxis.valueMax - plot.xValueAxis.valueMin)
+    for x, titik in zip(langkah, trend.points, strict=True):
+        if titik.breaks:
+            px = plot.x + (x - plot.xValueAxis.valueMin) * lebar_bulan
+            gambar.add(
+                Line(
+                    px,
+                    plot.y,
+                    px,
+                    plot.y + plot.height,
+                    strokeColor=_PANDUAN_COLOR,
+                    strokeDashArray=[3, 2],
+                )
+            )
+    return gambar
 
 
 class TrendPdfRenderer:
@@ -197,6 +288,9 @@ class TrendPdfRenderer:
         )
         isi = [*self._kepala(trend, judul, label, language, generated_at, styles)]
         isi.append(Spacer(1, 4 * mm))
+        grafik = _grafik_garis(trend, language)
+        if grafik is not None:
+            isi += [grafik, Spacer(1, 3 * mm)]
         if trend.points:
             isi.append(self._tabel(trend, label, language, styles))
         else:
