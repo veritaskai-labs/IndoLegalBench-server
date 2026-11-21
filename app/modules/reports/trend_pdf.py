@@ -4,9 +4,10 @@ Masukan hanya TrendRead, objek yang sama dengan response GET /reports/trend, jad
 PDF selalu sama dengan halaman tren dan tidak dihitung ulang. Modul ini murni: tidak ada
 database dan HTTP.
 
-Logo, kertas, tanggal dibuat, nama bulan, format skor, dan bagian bawah diambil dari
-pdf_common, sama dengan PDF laporan (SCRUM-320), supaya kedua berkas terlihat dari pembuat
-yang sama. Teks dua bahasa disimpan sebagai data di
+Logo, kertas, tanggal dibuat, nama bulan, dan format skor diambil dari pdf_common, sama
+dengan PDF laporan (SCRUM-320), supaya kedua berkas terlihat dari pembuat yang sama. Kalimat
+permintaan isi kasus lewat email tidak dicetak: tren hanya angka agregat per bulan tanpa isi
+kasus (review SA #153). Teks dua bahasa disimpan sebagai data di
 _TREND_LABELS, jadi SCRUM-355 (PBI-26) cukup mengoreksi isinya.
 """
 
@@ -39,7 +40,6 @@ from app.modules.reports.models import ReportLanguage, ScoreScope
 from app.modules.reports.pdf_common import (
     DEFAULT_LOGO_PATH,
     WIB,
-    contact,
     created_text,
     format_score,
     landscape_document,
@@ -296,7 +296,6 @@ class TrendPdfRenderer:
             teks = escape(label.codes.get(peringatan, peringatan))
             isi.append(Paragraph(f"<b>{teks}</b>", styles["Normal"]))
         isi.append(Paragraph(label.no_target, styles["Normal"]))
-        isi += [Spacer(1, 4 * mm), contact(language, styles)]
         doc.build(isi)
         return buffer.getvalue()
 
