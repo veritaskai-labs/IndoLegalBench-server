@@ -26,7 +26,7 @@ from app.modules.reports.dependencies import (
     get_trend_pdf_renderer,
 )
 from app.modules.reports.models import ReportLanguage
-from app.modules.reports.pdf import format_score
+from app.modules.reports.pdf_common import format_score
 from app.modules.reports.schemas import TrendRead
 from app.modules.reports.trend_pdf import TrendPdfRenderer
 from app.shared.security import Role

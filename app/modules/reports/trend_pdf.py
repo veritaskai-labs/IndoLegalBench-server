@@ -4,8 +4,9 @@ Masukan hanya TrendRead, objek yang sama dengan response GET /reports/trend, jad
 PDF selalu sama dengan halaman tren dan tidak dihitung ulang. Modul ini murni: tidak ada
 database dan HTTP.
 
-Bagian atas, format skor, dan bagian bawah sama dengan PDF laporan (SCRUM-320), supaya
-kedua berkas terlihat dari pembuat yang sama. Teks dua bahasa disimpan sebagai data di
+Logo, kertas, tanggal dibuat, nama bulan, format skor, dan bagian bawah diambil dari
+pdf_common, sama dengan PDF laporan (SCRUM-320), supaya kedua berkas terlihat dari pembuat
+yang sama. Teks dua bahasa disimpan sebagai data di
 _TREND_LABELS, jadi SCRUM-355 (PBI-26) cukup mengoreksi isinya.
 """
 
@@ -20,10 +21,9 @@ from reportlab.graphics.charts.lineplots import LinePlot
 from reportlab.graphics.shapes import Drawing, Line
 from reportlab.graphics.widgets.markers import makeMarker
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 
 from app.modules.reports.comparison_rules import (
     JUDGE_MODEL,
@@ -36,7 +36,17 @@ from app.modules.reports.comparison_rules import (
     TRIAL_SESSION,
 )
 from app.modules.reports.models import ReportLanguage, ScoreScope
-from app.modules.reports.pdf import _LABELS, _WIB, DEFAULT_LOGO_PATH, format_score
+from app.modules.reports.pdf_common import (
+    DEFAULT_LOGO_PATH,
+    WIB,
+    contact,
+    created_text,
+    format_score,
+    landscape_document,
+    logo,
+    month_year,
+    short_month,
+)
 from app.modules.reports.schemas import TrendPointRead, TrendRead
 from app.modules.reports.trend import TrendMetric, TrendRange
 
@@ -147,7 +157,7 @@ def trend_pdf_filename(
 ) -> str:
     # Hanya id dan nilai enum: nama produk dan nama sesi diketik pengguna, jadi tidak boleh
     # masuk header Content-Disposition.
-    bulan = generated_at.astimezone(_WIB).strftime("%Y-%m")
+    bulan = generated_at.astimezone(WIB).strftime("%Y-%m")
     pilihan = "-".join(
         (trend.score_scope.value, trend.metric.value, trend.range.value, language.value)
     )
@@ -160,11 +170,10 @@ def _teks_kode(kode: list[str], label: _TrendLabels) -> str:
 
 def _baris_tren(trend: TrendRead, language: ReportLanguage) -> list[list[str]]:
     """Teks tiap baris tabel, belum di-escape; satu baris per titik, urut bulan (AC4)."""
-    bulan = _LABELS[language].months
     label = _TREND_LABELS[language]
     return [
         [
-            f"{bulan[titik.month.month - 1]} {titik.month.year}",
+            month_year(titik.month, language),
             titik.label,
             format_score(titik.value, language),
             str(titik.case_count),
@@ -213,13 +222,10 @@ def _grafik_garis(trend: TrendRead, language: ReportLanguage) -> Drawing | None:
     seri = _segmen(trend.points, awal)
     if not seri:
         return None
-    nama_bulan = _LABELS[language].months
     langkah = [_indeks_bulan(titik.month) - awal for titik in trend.points]
     selang = 2 if len(langkah) > _LABEL_BULAN_MAKS else 1
     label_bulan = {
-        x: f"{nama_bulan[titik.month.month - 1][:3]} {titik.month.year % 100:02d}"
-        if urutan % selang == 0
-        else ""
+        x: short_month(titik.month, language) if urutan % selang == 0 else ""
         for urutan, (x, titik) in enumerate(zip(langkah, trend.points, strict=True))
     }
 
@@ -276,16 +282,7 @@ class TrendPdfRenderer:
         styles = getSampleStyleSheet()
         judul = label.title.format(product=trend.product_name)
         buffer = io.BytesIO()
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=landscape(A4),
-            leftMargin=10 * mm,
-            rightMargin=10 * mm,
-            topMargin=10 * mm,
-            bottomMargin=10 * mm,
-            title=judul,
-            pageCompression=1 if self.compress else 0,
-        )
+        doc = landscape_document(buffer, title=judul, compress=self.compress)
         isi = [*self._kepala(trend, judul, label, language, generated_at, styles)]
         isi.append(Spacer(1, 4 * mm))
         grafik = _grafik_garis(trend, language)
@@ -299,7 +296,7 @@ class TrendPdfRenderer:
             teks = escape(label.codes.get(peringatan, peringatan))
             isi.append(Paragraph(f"<b>{teks}</b>", styles["Normal"]))
         isi.append(Paragraph(label.no_target, styles["Normal"]))
-        isi += [Spacer(1, 4 * mm), Paragraph(_LABELS[language].contact, styles["Italic"])]
+        isi += [Spacer(1, 4 * mm), contact(language, styles)]
         doc.build(isi)
         return buffer.getvalue()
 
@@ -312,27 +309,14 @@ class TrendPdfRenderer:
         generated_at: datetime,
         styles,
     ) -> list:
-        if self.logo_path.is_file():
-            logo = Image(
-                str(self.logo_path),
-                width=48 * mm,
-                height=12 * mm,
-                kind="proportional",
-                mask="auto",
-                hAlign="LEFT",
-            )
-        else:
-            logo = Paragraph("<b>VERITASK</b>", styles["Heading2"])
-        umum = _LABELS[language]
-        dibuat = generated_at.astimezone(_WIB)
         info = [
             f"{label.metric}: {label.metrics[trend.metric]}",
             f"{label.case_type}: {label.scopes[trend.score_scope]}",
             f"{label.range}: {label.ranges[trend.range]}",
-            f"{umum.created} {dibuat.day} {umum.months[dibuat.month - 1]} {dibuat.year}",
+            created_text(generated_at, language),
         ]
         kepala = [
-            logo,
+            logo(self.logo_path, styles),
             Paragraph(escape(judul), styles["Title"]),
             Paragraph(" · ".join(info), styles["Normal"]),
         ]
