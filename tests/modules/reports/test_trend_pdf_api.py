@@ -26,7 +26,7 @@ from app.modules.reports.dependencies import (
     get_trend_pdf_renderer,
 )
 from app.modules.reports.models import ReportLanguage
-from app.modules.reports.pdf_common import format_score
+from app.modules.reports.pdf_common import DEFAULT_LOGO_PATH, WIB, format_score
 from app.modules.reports.schemas import TrendRead
 from app.modules.reports.trend_pdf import TrendPdfRenderer
 from app.shared.security import Role
@@ -332,3 +332,43 @@ class TestErrors:
         # Assert
         assert respons.status_code != 422
         assert respons.headers["content-type"] == "application/pdf"
+
+
+class TestRealDependencies:
+    """Dependency asli yang di test lain diganti lewat dependency_overrides."""
+
+    def test_the_clock_is_the_current_utc_time(self):
+        # Arrange
+        sebelum = datetime.now(UTC)
+
+        # Act
+        sekarang = get_now()
+
+        # Assert
+        assert sekarang.tzinfo is UTC
+        assert sebelum <= sekarang <= datetime.now(UTC)
+
+    def test_the_default_renderer_compresses_and_uses_the_official_logo(self):
+        # Act
+        renderer = get_trend_pdf_renderer()
+
+        # Assert: satu objek tanpa keadaan dipakai ulang tiap permintaan.
+        assert renderer is get_trend_pdf_renderer()
+        assert renderer.compress is True
+        assert renderer.logo_path == DEFAULT_LOGO_PATH
+        assert renderer.logo_path.is_file()
+
+    def test_the_endpoint_works_with_the_real_clock_and_renderer(self, as_role, pasang):
+        # Arrange: hanya pembaca dan katalog yang palsu.
+        pasang(_sesi(10))
+        app.dependency_overrides.pop(get_now)
+        app.dependency_overrides.pop(get_trend_pdf_renderer)
+
+        # Act
+        respons = as_role(Role.VIEWER).get(URL, params={"product_id": str(PRODUK)})
+
+        # Assert
+        bulan = datetime.now(UTC).astimezone(WIB).strftime("%Y-%m")
+        assert respons.status_code == 200
+        assert respons.content.startswith(b"%PDF")
+        assert respons.headers["content-disposition"].endswith(f'-en-{bulan}.pdf"')
