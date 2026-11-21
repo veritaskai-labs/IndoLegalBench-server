@@ -27,6 +27,7 @@ from app.modules.reports.models import ScoreScope, ScoreSplit
 from app.modules.reports.report_scoring import SplitScore, cases_for_split, score_cases
 from app.modules.reports.service import allowed_case_tags
 from app.modules.reports.session_record import SessionRecord
+from app.modules.reports.wib import WIB
 from app.modules.runs.models import SessionType
 from app.modules.runs.score_aggregation import round_score
 
@@ -208,14 +209,19 @@ def _as_utc(moment: datetime) -> datetime:
 
 
 def _latest_eligible_per_month(records: Sequence[SessionRecord]) -> dict[date, SessionRecord]:
+    """Sesi layak yang selesai paling akhir di tiap bulan WIB (AC4, D4 [KEPUTUSAN SA]).
+
+    Bulan dan "terbaru" diambil dari waktu selesai sesi, bukan waktu dibuat atau dinilai,
+    jadi nilai ulang rubrik tidak memindahkan sesi ke bulan lain.
+    """
     # Id memutus seri waktu yang sama supaya hasilnya selalu sama.
     newest: dict[date, tuple[tuple[datetime, uuid.UUID], SessionRecord]] = {}
     for record in records:
-        if record.created_at is None or not is_eligible(record.facts):
+        if record.finished_at is None or not is_eligible(record.facts):
             continue
-        created = _as_utc(record.created_at)
-        month = created.date().replace(day=1)
-        recency = (created, record.facts.session_id)
+        finished = _as_utc(record.finished_at)
+        month = finished.astimezone(WIB).date().replace(day=1)
+        recency = (finished, record.facts.session_id)
         if month not in newest or recency > newest[month][0]:
             newest[month] = (recency, record)
     return {month: record for month, (_, record) in newest.items()}

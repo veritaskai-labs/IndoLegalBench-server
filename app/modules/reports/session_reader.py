@@ -13,6 +13,7 @@ pola yang sudah dipakai comparison_rules: modul ini hanya membaca.
 import uuid
 from collections import defaultdict
 from collections.abc import Mapping, Sequence
+from datetime import datetime
 from decimal import Decimal
 
 import sqlalchemy as sa
@@ -38,6 +39,7 @@ from app.modules.runs.models import (
     MeasurementSession,
     MeasurementSessionSuite,
     SessionProductCopy,
+    SessionType,
 )
 from app.modules.runs.score_aggregation import raw_mean_score
 from app.modules.runs.snapshot_cases import CaseFacts, case_facts_from_body
@@ -142,6 +144,7 @@ class SqlSessionRecordReader:
             calls_by_split=_calls_by_split(refs, calls),
             label=session.label,
             created_at=session.created_at,
+            finished_at=_finish_time(session),
         )
 
     def _judge_identity(self, run_id: uuid.UUID | None) -> tuple[uuid.UUID | None, str | None]:
@@ -267,3 +270,10 @@ def _calls_by_split(
         totals[split][0] += counts.total
         totals[split][1] += counts.failed
     return {split: CallCounts(total=t, failed=f) for split, (t, f) in totals.items()}
+
+
+def _finish_time(session: MeasurementSession) -> datetime | None:
+    """Waktu selesai sesi untuk bulan tren (D4): sesi manual selesai saat ditandai Selesai."""
+    if SessionType(session.session_type) is SessionType.MANUAL:
+        return session.finalized_at
+    return session.finished_at

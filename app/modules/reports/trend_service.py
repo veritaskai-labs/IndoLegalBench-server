@@ -13,6 +13,7 @@ from app.modules.reports.models import ScoreScope
 from app.modules.reports.session_record import SessionRecordReader
 from app.modules.reports.trend import Trend, TrendMetric, TrendRange, build_trend
 from app.modules.reports.trend_policy import ensure_can_view_trend
+from app.modules.reports.wib import WIB
 from app.shared.exceptions import NotFoundError
 from app.shared.security import Role
 
@@ -35,12 +36,13 @@ class ProductTrend:
     trend: Trend
 
 
-def _utc_today() -> date:
-    return datetime.now(UTC).date()
-
-
 def wib_today(now: datetime) -> date:
-    raise NotImplementedError
+    """Tanggal WIB dari satu saat; rentang tren dihitung dari bulan ini dalam WIB (D4)."""
+    return now.astimezone(WIB).date()
+
+
+def _today() -> date:
+    return wib_today(datetime.now(UTC))
 
 
 class TrendService:
@@ -48,7 +50,7 @@ class TrendService:
         self,
         reader: SessionRecordReader,
         catalog: ProductCatalog,
-        today: Callable[[], date] = _utc_today,
+        today: Callable[[], date] = _today,
     ) -> None:
         self._reader = reader
         self._catalog = catalog

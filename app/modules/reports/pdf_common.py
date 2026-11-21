@@ -8,7 +8,7 @@ Modul ini murni: tidak ada database dan HTTP.
 """
 
 from dataclasses import dataclass
-from datetime import date, datetime, timedelta, timezone
+from datetime import date, datetime
 from decimal import ROUND_HALF_UP, Decimal
 from pathlib import Path
 from typing import BinaryIO
@@ -18,12 +18,12 @@ from reportlab.lib.units import mm
 from reportlab.platypus import Flowable, Image, Paragraph, SimpleDocTemplate
 
 from app.modules.reports.models import ReportLanguage
+from app.modules.reports.wib import WIB
 
 # Wordmark resmi Veritask (PNG transparan, rasio 4:1) untuk bagian atas PDF.
 # Bila berkas hilang, bagian atas memakai tulisan VERITASK supaya PDF tetap bisa diunduh.
 DEFAULT_LOGO_PATH = Path(__file__).parent / "assets" / "veritask-logo.png"
 CONTACT_EMAIL = "indolegalbench@veritask.ai"
-WIB = timezone(timedelta(hours=7))
 KOSONG = "–"
 _CENT = Decimal("0.01")
 
