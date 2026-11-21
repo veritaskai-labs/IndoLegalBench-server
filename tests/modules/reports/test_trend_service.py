@@ -11,11 +11,12 @@ from decimal import Decimal
 import pytest
 
 from app.modules.cases.models import SplitTag
+from app.modules.reports import trend_service
 from app.modules.reports.comparison_rules import SUITE_VERSION
 from app.modules.reports.models import ScoreScope
 from app.modules.reports.trend import TrendMetric, TrendRange
 from app.modules.reports.trend_policy import TREND_SCOPE_FORBIDDEN
-from app.modules.reports.trend_service import TREND_PRODUCT_NOT_FOUND, TrendService
+from app.modules.reports.trend_service import TREND_PRODUCT_NOT_FOUND, TrendService, wib_today
 from app.shared.exceptions import ForbiddenError, NotFoundError
 from app.shared.security import Role
 from tests.modules.reports.test_report_generation import PembacaPalsu, _nilai, _rekaman
@@ -205,3 +206,33 @@ class TestDevTrend:
 
         # Assert
         assert hasil.trend.points[1].breaks == (SUITE_VERSION,)
+
+
+class TestTodayInWib:
+    """Rentang 3, 6, 12 bulan dihitung dari bulan ini dalam WIB, sama dengan bulan titik (D4)."""
+
+    def test_today_is_the_wib_date(self):
+        # Act + Assert: 30 Nov 18.00 UTC sudah 1 Desember di WIB.
+        assert wib_today(datetime(2026, 11, 30, 18, tzinfo=UTC)) == date(2026, 12, 1)
+
+    def test_before_17_utc_the_wib_date_is_the_same_day(self):
+        # Act + Assert: 30 Nov 16.59 UTC = 30 Nov 23.59 WIB.
+        assert wib_today(datetime(2026, 11, 30, 16, 59, tzinfo=UTC)) == date(2026, 11, 30)
+
+    def test_the_service_uses_the_wib_date_by_default(self, monkeypatch):
+        # Arrange: jam dipalsukan di modul service, jadi bawaan today yang diuji.
+        class JamPalsu(datetime):
+            @classmethod
+            def now(cls, tz=None):
+                return datetime(2026, 11, 30, 18, tzinfo=UTC)
+
+        monkeypatch.setattr(trend_service, "datetime", JamPalsu)
+        pembaca = PembacaPalsu(_sesi(9), _sesi(10))
+        service = TrendService(pembaca, KatalogPalsu({PRODUK: "Produk A"}))
+
+        # Act: 3 bulan terakhir dari 1 Desember WIB = Oktober sampai Desember. Dengan tanggal
+        # UTC (30 November) September masih ikut.
+        tren = service.get_trend(role=Role.ADMIN, product_id=PRODUK, window=TrendRange.THREE_MONTHS)
+
+        # Assert
+        assert [p.month for p in tren.trend.points] == [date(2026, 10, 1)]
