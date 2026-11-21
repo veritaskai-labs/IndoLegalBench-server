@@ -213,6 +213,11 @@ def get_trend(
     return TrendRead.from_trend(result)
 
 
+@router.get("/trend/pdf", response_class=Response, summary="Unduh tren skor sebagai PDF")
+def download_trend_pdf(user: CurrentUser = Depends(_trend_roles)) -> Response:
+    raise NotImplementedError
+
+
 # Rute /{report_id} di bawah ini sengaja didaftarkan setelah /eligible-sessions (lihat docstring).
 _TIDAK_ADA = {
     404: {
