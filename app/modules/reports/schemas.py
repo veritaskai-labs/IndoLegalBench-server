@@ -462,6 +462,11 @@ class TrendPointRead(BaseModel):
         description="Penanda titik: TRIAL_SESSION, MANUAL_ANSWER_RANGE_OVER_LIMIT, "
         "REPETITIONS_DIFFER (jumlah percobaan berbeda, hanya sesi manual)"
     )
+    case_count: int = Field(
+        description="Jumlah kasus yang sama pada segmen garis titik ini; semua titik di satu "
+        "segmen memakai kumpulan kasus yang sama, jadi nilainya sama. 0 bila tidak ada kasus "
+        "yang sama"
+    )
 
 
 class TrendRead(BaseModel):
@@ -492,6 +497,7 @@ class TrendRead(BaseModel):
                     value=point.value,
                     breaks=list(point.breaks),
                     markers=list(point.markers),
+                    case_count=point.case_count,
                 )
                 for point in result.trend.points
             ],

@@ -674,3 +674,104 @@ class TestRange:
 
         # Assert
         assert [p.breaks for p in tren.points] == [()]
+
+
+class TestCaseCount:
+    """SCRUM-333: jumlah kasus tiap segmen ikut dikirim (D4, alur p17), karena sesi baru bisa
+    menggeser titik lama di segmen yang sama (keputusan SA di D4)."""
+
+    def test_a_single_session_counts_all_its_own_cases(self):
+        # Arrange
+        sesi = _sesi(10, kasus=[_nilai(1, "0.80", "0.60"), _nilai(2, "0.40", "0.20")])
+
+        # Act
+        tren = _tren(sesi)
+
+        # Assert
+        assert tren.points[0].case_count == 2
+
+    def test_every_point_of_a_segment_counts_the_shared_cases_only(self):
+        # Arrange: kasus 2 satu-satunya yang dijawab kedua sesi.
+        oktober = _sesi(
+            10,
+            kasus=[_nilai(1, "1.00", "1.00"), _nilai(2, "0.50", "0.50")],
+            snapshot_tambahan=(_ref(3),),
+        )
+        november = _sesi(
+            11,
+            kasus=[_nilai(2, "0.70", "0.70"), _nilai(3, "0.00", "0.00")],
+            snapshot_tambahan=(_ref(1),),
+        )
+
+        # Act
+        tren = _tren(oktober, november)
+
+        # Assert
+        assert [p.case_count for p in tren.points] == [1, 1]
+
+    def test_each_segment_has_its_own_count_after_a_break(self):
+        # Arrange: rubrik baru di November memulai segmen baru dengan tiga kasusnya sendiri.
+        september = _sesi(
+            9,
+            kasus=[_nilai(1, "1.00", "1.00"), _nilai(2, "0.50", "0.50")],
+            snapshot_tambahan=(_ref(3),),
+        )
+        oktober = _sesi(
+            10,
+            kasus=[_nilai(2, "0.50", "0.50"), _nilai(3, "0.00", "0.00")],
+            snapshot_tambahan=(_ref(1),),
+        )
+        november = _sesi(
+            11,
+            kasus=[_nilai(1, "1.00", "1.00"), _nilai(2, "0.00", "0.00"), _nilai(3, "0.00", "0.00")],
+            rubrik=RUBRIK_BARU,
+        )
+
+        # Act
+        tren = _tren(september, oktober, november)
+
+        # Assert
+        assert [p.case_count for p in tren.points] == [1, 1, 3]
+
+    def test_a_segment_without_shared_cases_counts_zero(self):
+        # Arrange
+        oktober = _sesi(10, kasus=[_nilai(1, "0.80", "0.60")], snapshot_tambahan=(_ref(2),))
+        november = _sesi(11, kasus=[_nilai(2, "0.70", "0.50")], snapshot_tambahan=(_ref(1),))
+
+        # Act
+        tren = _tren(oktober, november)
+
+        # Assert
+        assert [p.case_count for p in tren.points] == [0, 0]
+        assert tren.warnings == (NO_SHARED_CASES,)
+
+    @pytest.mark.parametrize(
+        ("scope", "jumlah"),
+        [(ScoreScope.TEST, 2), (ScoreScope.DEV, 1), (ScoreScope.DEV_TEST, 3)],
+    )
+    def test_the_count_follows_the_case_type_filter(self, scope, jumlah):
+        # Arrange: dua kasus test dan satu kasus dev.
+        sesi = _sesi(
+            10,
+            kasus=[
+                _nilai(1, "0.80", "0.60", SplitTag.TEST),
+                _nilai(2, "0.40", "0.20", SplitTag.TEST),
+                _nilai(3, "0.20", "0.20", SplitTag.DEV),
+            ],
+        )
+
+        # Act
+        tren = _tren(sesi, scope=scope)
+
+        # Assert
+        assert tren.points[0].case_count == jumlah
+
+    def test_a_case_without_a_score_on_the_chosen_path_still_counts(self):
+        # Arrange: kasus 2 belum punya skor LLM, tetapi tetap bagian dari dasar perbandingan.
+        sesi = _sesi(10, kasus=[_nilai(1, "0.80", "0.60"), _nilai(2, "0.40", None)])
+
+        # Act
+        tren = _tren(sesi, metric=TrendMetric.LLM)
+
+        # Assert
+        assert tren.points[0].case_count == 2

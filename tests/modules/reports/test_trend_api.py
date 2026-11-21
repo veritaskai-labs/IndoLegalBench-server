@@ -66,6 +66,7 @@ class TestTrendResponse:
         assert [Decimal(str(p["value"])) for p in isi["points"]] == [Decimal("0.70")] * 2
         assert [p["breaks"] for p in isi["points"]] == [[], [RUBRIC_VERSION]]
         assert isi["points"][0]["label"] == "Sesi Produk A"
+        assert [p["case_count"] for p in isi["points"]] == [1, 1]
         assert isi["warnings"] == []
 
     def test_a_point_does_not_expose_the_session_id(self, as_role, pasang):
@@ -76,7 +77,14 @@ class TestTrendResponse:
         respons = as_role(Role.VIEWER).get(URL, params={"product_id": str(PRODUK)})
 
         # Assert
-        assert set(respons.json()["points"][0]) == {"month", "label", "value", "breaks", "markers"}
+        assert set(respons.json()["points"][0]) == {
+            "month",
+            "label",
+            "value",
+            "breaks",
+            "markers",
+            "case_count",
+        }
 
     def test_the_query_options_are_applied(self, as_role, pasang):
         # Arrange

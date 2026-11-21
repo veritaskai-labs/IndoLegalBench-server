@@ -56,6 +56,8 @@ class TrendPoint:
     value: Decimal | None
     breaks: tuple[str, ...]
     markers: tuple[str, ...]
+    # Jumlah kasus yang sama pada segmen garis titik ini (D4: "jumlah kasus tiap segmen").
+    case_count: int = 0
 
 
 @dataclass(frozen=True)
