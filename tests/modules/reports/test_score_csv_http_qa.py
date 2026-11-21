@@ -31,9 +31,11 @@ from tests.modules.reports.drilldown_qa import (
     buat_laporan,
     buat_sesi_manual,
     daftar_kasus,
+    db_session,  # noqa: F401
     isi_jawaban_manual,
     jalankan_sesi_otomatis,
     jalankan_worker,
+    jenis_peraturan,  # noqa: F401
     mulai_sesi_otomatis,
     nilai,
     sesi_manual_selesai,

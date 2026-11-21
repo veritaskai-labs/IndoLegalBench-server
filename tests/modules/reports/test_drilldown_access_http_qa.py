@@ -22,9 +22,11 @@ from tests.modules.reports.drilldown_qa import (
     VIEWER,
     angka,
     buat_laporan,
+    db_session,  # noqa: F401
     detail_kasus,
     id_kasus,
     jalur_kasus,
+    jenis_peraturan,  # noqa: F401
     terbitkan,
 )
 from tests.modules.runs.test_manual_evidence_http_qa import PNG

@@ -8,8 +8,10 @@ angka laporan, penelusuran, dan berkas skor terbukti berasal dari data yang sama
 
 import csv
 import io
+import os
 import uuid
-from collections.abc import Iterable
+from collections.abc import Iterable, Iterator
+from contextlib import contextmanager
 from dataclasses import dataclass
 from datetime import UTC, date, datetime, timedelta
 from decimal import Decimal
@@ -17,7 +19,7 @@ from types import SimpleNamespace
 
 import pytest
 from fastapi.testclient import TestClient
-from sqlalchemy import select
+from sqlalchemy import URL, create_engine, make_url, select, text
 from sqlalchemy.orm import Session
 
 from app.main import app
@@ -27,9 +29,11 @@ from app.modules.providers.adapters.base import FailureKind, ProviderResponse
 from app.modules.runs import dependencies, exchange_rate, session_grade
 from app.shared.config import get_settings
 from app.shared.security import CurrentUser, Role
+from tests.grading_pg import buat_versi_aktif
 from tests.judge_rows import tambah_penilai
-from tests.modules.cases.test_cases import _buat, _ganti, _setujui, _suite
-from tests.modules.runs.test_execution_runtime import runner
+from tests.modules.cases.test_cases import ADMIN_LAIN, _buat, _ganti, _setujui, _suite
+from tests.modules.conftest import USER_ID_QA
+from tests.modules.runs.test_execution_runtime import jenis_peraturan, runner  # noqa: F401
 from tests.modules.runs.test_manual_evidence_http_qa import PNG
 from tests.modules.runs.test_manual_grade_http_qa import PenilaiUji
 from tests.modules.runs.test_manual_session_endpoint import _produk_manual
@@ -187,12 +191,58 @@ class Dunia:
         )
 
 
+@pytest.fixture(params=["sqlite", pytest.param("postgres", marks=pytest.mark.postgres)])
+def db_session(request, db_session):
+    """SQLite seperti tes lain, plus PostgreSQL bila TEST_POSTGRES_URL diisi.
+
+    Di PostgreSQL tiap tes memakai database salinan sendiri, bukan satu transaksi yang
+    di-rollback: di dalam satu transaksi now() berhenti, jadi laporan tidak akan menemukan run
+    penilaiannya. Dengan salinan, setiap request punya transaksinya sendiri seperti di server.
+    """
+    if request.param == "sqlite":
+        yield db_session
+        return
+    url = os.environ.get("TEST_POSTGRES_URL")
+    if not url:
+        pytest.skip("TEST_POSTGRES_URL is not configured")
+    with _database_salinan(make_url(url)) as salinan:
+        engine = create_engine(salinan)
+        with Session(engine) as db:
+            yield db
+        engine.dispose()
+
+
+@contextmanager
+def _database_salinan(asal: URL) -> Iterator[URL]:
+    nama = f"qa_pbi16_{uuid.uuid4().hex[:12]}"
+    admin = create_engine(asal.set(database="postgres"), isolation_level="AUTOCOMMIT")
+    with admin.connect() as conn:
+        conn.execute(text(f'CREATE DATABASE "{nama}" TEMPLATE "{asal.database}"'))
+    try:
+        yield asal.set(database=nama)
+    finally:
+        with admin.connect() as conn:
+            conn.execute(text(f'DROP DATABASE "{nama}" WITH (FORCE)'))
+        admin.dispose()
+
+
 @pytest.fixture
 def dunia(as_role, db_session, monkeypatch) -> Dunia:
     """Sesi otomatis AiYU (satu percobaan gagal, diterima apa adanya) dan sesi manual
     LegalHero (bukti di PHK-001), keduanya sudah dinilai dan layak laporan."""
     client = as_role(Role.CONTRIBUTOR)
     db_session.add_all(User(id=o.id, email=o.email, name=o.nama, role=o.peran) for o in SEMUA)
+    # Pemilik kasus dan produk dari helper modul lain; PostgreSQL menegakkan foreign key-nya.
+    db_session.add_all(
+        [
+            User(
+                id=USER_ID_QA, email="qa@veritask.test", name="Pengguna QA", role=Role.CONTRIBUTOR
+            ),
+            User(
+                id=ADMIN_LAIN, email="admin-lain@veritask.test", name="Admin Lain", role=Role.ADMIN
+            ),
+        ]
+    )
     db_session.commit()
     suite_id = _suite(client)
     for kasus in KASUS:
@@ -202,7 +252,11 @@ def dunia(as_role, db_session, monkeypatch) -> Dunia:
     app.dependency_overrides[dependencies.get_exchange_rate] = lambda: (
         exchange_rate.ConfiguredExchangeRate(Decimal("16000"))
     )
-    db_session.add(_rubrik_aktif())
+    if db_session.bind.dialect.name == "postgresql":
+        # Trigger PostgreSQL: versi baru mulai nonaktif dan diaktifkan lewat UPDATE.
+        buat_versi_aktif(db_session.connection(), ADMIN.id)
+    else:
+        db_session.add(_rubrik_aktif())
     d = Dunia(
         client=client,
         db=db_session,
@@ -217,13 +271,15 @@ def dunia(as_role, db_session, monkeypatch) -> Dunia:
     terima_apa_adanya(d, d.otomatis.id)
     nilai(d, d.otomatis.id)
     d.manual.id = sesi_manual_selesai(d)
-    penilaian_semenit_lalu(d)
+    if d.db.bind.dialect.name == "sqlite":
+        penilaian_semenit_lalu(d)
     return d
 
 
 def penilaian_semenit_lalu(d: Dunia) -> None:
     """SQLite menyimpan now() laporan per detik, finished_at run per mikrodetik. Tanpa geser ini
-    laporan yang dibuat di detik yang sama dengan penilaian tidak menemukan run bekunya."""
+    laporan yang dibuat di detik yang sama dengan penilaian tidak menemukan run bekunya.
+    PostgreSQL tidak perlu (now() per mikrodetik) dan trigger-nya menolak run selesai diubah."""
     for run in d.db.scalars(select(GradingRun)):
         run.triggered_at -= timedelta(minutes=1)
         run.finished_at = run.finished_at and run.finished_at - timedelta(minutes=1)

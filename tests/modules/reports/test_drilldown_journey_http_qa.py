@@ -20,7 +20,9 @@ from tests.modules.reports.drilldown_qa import (
     baca_laporan,
     buat_laporan,
     daftar_kasus,
+    db_session,  # noqa: F401
     detail_kasus,
+    jenis_peraturan,  # noqa: F401
     nilai,
 )
 
