@@ -21,6 +21,16 @@ from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
 from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
 
+from app.modules.reports.comparison_rules import (
+    JUDGE_MODEL,
+    MANUAL_ANSWER_RANGE_OVER_LIMIT,
+    MODEL_VERSION_DIFFERS,
+    NO_SHARED_CASES,
+    REPETITIONS_DIFFER,
+    RUBRIC_VERSION,
+    SUITE_VERSION,
+    TRIAL_SESSION,
+)
 from app.modules.reports.models import ReportLanguage, ScoreScope
 from app.modules.reports.pdf import _LABELS, _WIB, DEFAULT_LOGO_PATH, format_score
 from app.modules.reports.schemas import TrendRead
@@ -38,6 +48,11 @@ class _TrendLabels:
     ranges: dict[TrendRange, str]
     columns: tuple[str, ...]
     no_points: str
+    # Kode alasan putus, penanda, dan peringatan dari service tren (comparison_rules).
+    # Kode yang belum ada di sini tetap dicetak apa adanya, tidak membuat PDF gagal.
+    codes: dict[str, str]
+    dev_banner: str
+    no_target: str
 
 
 _TREND_LABELS: dict[ReportLanguage, _TrendLabels] = {
@@ -64,6 +79,19 @@ _TREND_LABELS: dict[ReportLanguage, _TrendLabels] = {
         },
         columns=("Bulan", "Sesi", "Nilai", "Jumlah kasus", "Alasan garis putus", "Penanda"),
         no_points="Belum ada sesi layak untuk produk ini pada rentang ini.",
+        codes={
+            RUBRIC_VERSION: "Versi rubrik berubah",
+            JUDGE_MODEL: "Model penilai berubah",
+            SUITE_VERSION: "Versi suite atau kasus berubah",
+            MODEL_VERSION_DIFFERS: "Versi model produk berubah",
+            TRIAL_SESSION: "Uji Coba",
+            REPETITIONS_DIFFER: "Jumlah percobaan berbeda",
+            MANUAL_ANSWER_RANGE_OVER_LIMIT: "Rentang jawaban manual lebih dari 7 hari",
+            NO_SHARED_CASES: "Tidak ada kasus yang sama di antara sesi pada satu garis, "
+            "jadi garis itu tidak digambar.",
+        },
+        dev_banner="Tren berisi skor dev, hanya untuk internal dan tidak diterbitkan.",
+        no_target="Tanpa garis target.",
     ),
     ReportLanguage.EN: _TrendLabels(
         title="Score trend: {product}",
@@ -88,6 +116,19 @@ _TREND_LABELS: dict[ReportLanguage, _TrendLabels] = {
         },
         columns=("Month", "Session", "Value", "Cases", "Line break reason", "Markers"),
         no_points="No eligible session for this product in this range.",
+        codes={
+            RUBRIC_VERSION: "Rubric version changed",
+            JUDGE_MODEL: "Judge model changed",
+            SUITE_VERSION: "Suite or case version changed",
+            MODEL_VERSION_DIFFERS: "Product model version changed",
+            TRIAL_SESSION: "Trial",
+            REPETITIONS_DIFFER: "Different number of attempts",
+            MANUAL_ANSWER_RANGE_OVER_LIMIT: "Manual answers span more than 7 days",
+            NO_SHARED_CASES: "No case is shared by the sessions of a line, "
+            "so that line is not drawn.",
+        },
+        dev_banner="This trend contains dev scores. Internal only, it is never published.",
+        no_target="No target line.",
     ),
 }
 
@@ -104,17 +145,22 @@ def trend_pdf_filename(
     return f"tren-{trend.product_id}-{pilihan}-{bulan}.pdf"
 
 
+def _teks_kode(kode: list[str], label: _TrendLabels) -> str:
+    return "; ".join(label.codes.get(satu, satu) for satu in kode)
+
+
 def _baris_tren(trend: TrendRead, language: ReportLanguage) -> list[list[str]]:
     """Teks tiap baris tabel, belum di-escape; satu baris per titik, urut bulan (AC4)."""
     bulan = _LABELS[language].months
+    label = _TREND_LABELS[language]
     return [
         [
             f"{bulan[titik.month.month - 1]} {titik.month.year}",
             titik.label,
             format_score(titik.value, language),
             str(titik.case_count),
-            "; ".join(titik.breaks),
-            "; ".join(titik.markers),
+            _teks_kode(titik.breaks, label),
+            _teks_kode(titik.markers, label),
         ]
         for titik in trend.points
     ]
@@ -151,6 +197,10 @@ class TrendPdfRenderer:
             isi.append(self._tabel(trend, label, language, styles))
         else:
             isi.append(Paragraph(label.no_points, styles["Normal"]))
+        for peringatan in trend.warnings:
+            teks = escape(label.codes.get(peringatan, peringatan))
+            isi.append(Paragraph(f"<b>{teks}</b>", styles["Normal"]))
+        isi.append(Paragraph(label.no_target, styles["Normal"]))
         isi += [Spacer(1, 4 * mm), Paragraph(_LABELS[language].contact, styles["Italic"])]
         doc.build(isi)
         return buffer.getvalue()
@@ -183,11 +233,15 @@ class TrendPdfRenderer:
             f"{label.range}: {label.ranges[trend.range]}",
             f"{umum.created} {dibuat.day} {umum.months[dibuat.month - 1]} {dibuat.year}",
         ]
-        return [
+        kepala = [
             logo,
             Paragraph(escape(judul), styles["Title"]),
             Paragraph(" · ".join(info), styles["Normal"]),
         ]
+        # AC12: tren yang memuat skor dev hanya untuk internal (tren tidak pernah diterbitkan).
+        if trend.score_scope is not ScoreScope.TEST:
+            kepala.append(Paragraph(f"<b>{label.dev_banner}</b>", styles["Normal"]))
+        return kepala
 
     def _tabel(self, trend: TrendRead, label: _TrendLabels, language: ReportLanguage, styles):
         sel = styles["BodyText"].clone("sel", fontSize=8, leading=10)
