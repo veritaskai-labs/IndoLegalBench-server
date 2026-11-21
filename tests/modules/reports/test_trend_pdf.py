@@ -231,13 +231,15 @@ class TestHeader:
         assert b"<b>A&B</b> <x>" in _sambung(isi)
         assert b"Sesi <i>Okt</i> & <y>" in _sambung(isi)
 
-    def test_pdf_memuat_teks_permintaan_isi_kasus_lewat_email(self):
-        """Positif: bagian bawah sama dengan PDF laporan."""
+    @pytest.mark.parametrize("bahasa", [ReportLanguage.ID, ReportLanguage.EN])
+    def test_pdf_tren_tidak_memuat_permintaan_isi_kasus(self, bahasa):
+        """Negatif: tren hanya angka agregat per bulan tanpa isi kasus, jadi kalimat
+        permintaan isi kasus lewat email (milik PDF laporan) tidak dicetak (review SA #153)."""
         # Act
-        isi = _pdf(_tren())
+        isi = _pdf(_tren(), language=bahasa)
 
         # Assert
-        assert b"indolegalbench@veritask.ai" in isi
+        assert b"indolegalbench@veritask.ai" not in isi
 
 
 # --- Tabel per bulan -----------------------------------------------------------
