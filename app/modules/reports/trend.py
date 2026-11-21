@@ -57,7 +57,7 @@ class TrendPoint:
     breaks: tuple[str, ...]
     markers: tuple[str, ...]
     # Jumlah kasus yang sama pada segmen garis titik ini (D4: "jumlah kasus tiap segmen").
-    case_count: int = 0
+    case_count: int
 
 
 @dataclass(frozen=True)
@@ -244,4 +244,5 @@ def _point(
         value=value,
         breaks=breaks,
         markers=markers,
+        case_count=len(case_keys),
     )
