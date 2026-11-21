@@ -20,6 +20,16 @@ from decimal import Decimal
 
 import pytest
 
+from app.modules.reports.comparison_rules import (
+    JUDGE_MODEL,
+    MANUAL_ANSWER_RANGE_OVER_LIMIT,
+    MODEL_VERSION_DIFFERS,
+    NO_SHARED_CASES,
+    REPETITIONS_DIFFER,
+    RUBRIC_VERSION,
+    SUITE_VERSION,
+    TRIAL_SESSION,
+)
 from app.modules.reports.models import ReportLanguage, ScoreScope
 from app.modules.reports.schemas import TrendPointRead, TrendRead
 from app.modules.reports.trend import TrendMetric, TrendRange
@@ -321,6 +331,180 @@ class TestTable:
         assert _halaman(isi) > 1
         assert b"Januari 2024" in isi
         assert b"Desember 2026" in isi
+
+
+# --- Alasan putus, penanda, peringatan ------------------------------------------
+
+ALASAN_PUTUS = {
+    RUBRIC_VERSION: ("Versi rubrik berubah", "Rubric version changed"),
+    JUDGE_MODEL: ("Model penilai berubah", "Judge model changed"),
+    SUITE_VERSION: ("Versi suite atau kasus berubah", "Suite or case version changed"),
+    MODEL_VERSION_DIFFERS: ("Versi model produk berubah", "Product model version changed"),
+}
+PENANDA = {
+    TRIAL_SESSION: ("Uji Coba", "Trial"),
+    REPETITIONS_DIFFER: ("Jumlah percobaan berbeda", "Different number of attempts"),
+    MANUAL_ANSWER_RANGE_OVER_LIMIT: (
+        "Rentang jawaban manual lebih dari 7 hari",
+        "Manual answers span more than 7 days",
+    ),
+}
+
+
+class TestBreaksMarkersWarnings:
+    @pytest.mark.parametrize("kode", list(ALASAN_PUTUS))
+    @pytest.mark.parametrize("bahasa", [ReportLanguage.ID, ReportLanguage.EN])
+    def test_setiap_alasan_putus_punya_label_di_kedua_bahasa(self, kode, bahasa):
+        """Positif: garis putus ditandai jelas, bukan kode mentah (AC5)."""
+        # Arrange
+        tren = _tren(points=[_titik(10), _titik(11, breaks=[kode])])
+
+        # Act
+        baris = _baris_tren(tren, bahasa)
+
+        # Assert
+        assert baris[0][4] == ""
+        assert baris[1][4] == ALASAN_PUTUS[kode][bahasa is ReportLanguage.EN]
+
+    @pytest.mark.parametrize("kode", list(PENANDA))
+    @pytest.mark.parametrize("bahasa", [ReportLanguage.ID, ReportLanguage.EN])
+    def test_setiap_penanda_punya_label_di_kedua_bahasa(self, kode, bahasa):
+        """Positif: Uji Coba, jumlah percobaan berbeda, rentang jawaban manual (AC5)."""
+        # Arrange
+        tren = _tren(points=[_titik(10, markers=[kode])])
+
+        # Act
+        baris = _baris_tren(tren, bahasa)
+
+        # Assert
+        assert baris[0][5] == PENANDA[kode][bahasa is ReportLanguage.EN]
+
+    def test_beberapa_alasan_dan_penanda_digabung_dalam_satu_sel(self):
+        """Positif: semua alasan putus tercetak, sama dengan daftar breaks dari tren."""
+        # Arrange
+        tren = _tren(
+            points=[
+                _titik(
+                    10,
+                    breaks=[RUBRIC_VERSION, MODEL_VERSION_DIFFERS],
+                    markers=[TRIAL_SESSION, REPETITIONS_DIFFER],
+                )
+            ]
+        )
+
+        # Act
+        baris = _baris_tren(tren, ReportLanguage.ID)
+
+        # Assert
+        assert baris[0][4] == "Versi rubrik berubah; Versi model produk berubah"
+        assert baris[0][5] == "Uji Coba; Jumlah percobaan berbeda"
+
+    def test_kode_yang_belum_dikenal_tetap_tercetak_apa_adanya(self):
+        """Edge: kode baru dari service tren tidak membuat PDF gagal dan tidak hilang diam-diam."""
+        # Arrange
+        tren = _tren(points=[_titik(10, breaks=["KODE_BARU"], markers=["<PENANDA&BARU>"])])
+
+        # Act
+        baris = _baris_tren(tren, ReportLanguage.ID)
+        isi = _pdf(tren)
+
+        # Assert
+        assert baris[0][4:] == ["KODE_BARU", "<PENANDA&BARU>"]
+        assert b"<PENANDA&BARU>" in _sambung(isi)
+
+    def test_alasan_putus_dan_penanda_masuk_ke_berkas(self):
+        """Positif: label benar-benar tercetak di PDF."""
+        # Arrange
+        tren = _tren(
+            points=[_titik(10), _titik(11, breaks=[RUBRIC_VERSION], markers=[TRIAL_SESSION])]
+        )
+
+        # Act
+        isi = _pdf(tren)
+
+        # Assert
+        assert b"Versi rubrik berubah" in isi
+        assert b"Uji Coba" in isi
+
+    @pytest.mark.parametrize(
+        ("bahasa", "teks"),
+        [
+            (
+                ReportLanguage.ID,
+                b"Tidak ada kasus yang sama di antara sesi pada satu garis, jadi garis itu tidak digambar.",
+            ),
+            (
+                ReportLanguage.EN,
+                b"No case is shared by the sessions of a line, so that line is not drawn.",
+            ),
+        ],
+    )
+    def test_peringatan_tanpa_kasus_sama_tercetak(self, bahasa, teks):
+        """Edge: tidak ada kasus yang sama, peringatan jelas tanpa garis (AC11)."""
+        # Arrange
+        tren = _tren(
+            points=[_titik(10, None, case_count=0), _titik(11, None, case_count=0)],
+            warnings=[NO_SHARED_CASES],
+        )
+
+        # Act
+        isi = _pdf(tren, language=bahasa)
+
+        # Assert
+        assert teks in isi
+
+    def test_tanpa_peringatan_tidak_ada_teks_peringatan(self):
+        """Negatif: tren normal tidak diberi peringatan palsu."""
+        # Act
+        isi = _pdf(_tren())
+
+        # Assert
+        assert b"Tidak ada kasus yang sama" not in isi
+
+    def test_peringatan_yang_belum_dikenal_tetap_tercetak(self):
+        """Edge: kode peringatan baru tetap tercetak apa adanya."""
+        # Act
+        isi = _pdf(_tren(warnings=["PERINGATAN_BARU"]))
+
+        # Assert
+        assert b"PERINGATAN_BARU" in isi
+
+    def test_catatan_tanpa_garis_target_tercetak(self):
+        """Positif: tidak ada garis target OKR/KR3c, dan pembaca diberi tahu (AC7)."""
+        # Act
+        isi_id = _pdf(_tren())
+        isi_en = _pdf(_tren(), language=ReportLanguage.EN)
+
+        # Assert
+        assert b"Tanpa garis target." in isi_id
+        assert b"No target line." in isi_en
+
+
+class TestDevBanner:
+    @pytest.mark.parametrize("scope", [ScoreScope.DEV, ScoreScope.DEV_TEST])
+    def test_tren_dengan_skor_dev_diberi_tanda_internal(self, scope):
+        """Positif: tren dev hanya untuk internal dan tidak pernah diterbitkan (AC12)."""
+        # Act
+        isi = _pdf(_tren(score_scope=scope))
+
+        # Assert
+        assert b"Tren berisi skor dev, hanya untuk internal dan tidak diterbitkan." in isi
+
+    def test_tanda_internal_dalam_bahasa_inggris(self):
+        """Positif: tanda yang sama dalam bahasa Inggris."""
+        # Act
+        isi = _pdf(_tren(score_scope=ScoreScope.DEV), language=ReportLanguage.EN)
+
+        # Assert
+        assert b"This trend contains dev scores. Internal only, it is never published." in isi
+
+    def test_tren_test_tidak_diberi_tanda_skor_dev(self):
+        """Negatif: skor resmi (test) tidak diberi tanda internal."""
+        # Act
+        isi = _pdf(_tren(score_scope=ScoreScope.TEST))
+
+        # Assert
+        assert b"skor dev" not in isi
 
 
 # --- Nama berkas -------------------------------------------------------------
