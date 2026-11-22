@@ -1,17 +1,20 @@
-"""Impor kasus lewat CSV: template, pemeriksaan berkas, dan pemeriksaan baris. PBI-4 SCRUM-338.
+"""Impor kasus lewat CSV: template, pemeriksaan berkas, dan pemeriksaan baris.
 
-Diagram D7 (alur) dan D8 (tabel). Modul ini murni, tanpa basis data:
-- Template (AC6): delapan kolom yang diturunkan dari CaseWrite (keputusan SA), tanpa case_code
-  karena kode dibuat sistem. UTF-8 dengan BOM dan pemisah koma.
+Modul ini murni, tanpa basis data:
+- Template: delapan kolom yang diturunkan dari CaseWrite, tanpa case_code karena kode dibuat
+  sistem. UTF-8 dengan BOM dan pemisah koma.
 - Tingkat berkas (gagal = tolak semua, tidak ada yang disimpan): ekstensi .csv, UTF-8 dengan
-  atau tanpa BOM, header sama dengan template, maksimal 500 baris kasus (AC4).
+  atau tanpa BOM, header sama dengan template, maksimal 500 baris kasus.
+- Tingkat baris (gagal = baris itu saja): semua field boleh kosong karena hasilnya draft.
 - Baris yang seluruhnya kosong dilewati tanpa dicatat. Nomor baris mengikuti spreadsheet
   (header = baris 1), supaya alasan gagal mudah dicari di Google Sheets.
 """
 
 import csv
+import hashlib
 import io
 import json
+import re
 from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
@@ -34,7 +37,7 @@ TEMPLATE_COLUMNS = (
     "must_not_contain",
     "expected_conclusion",
 )
-# AC4: impor sekali untuk migrasi awal, sekitar 500 kasus per berkas.
+# Impor dipakai sekali untuk migrasi awal, sekitar 500 kasus per berkas.
 MAX_ROWS = 500
 # 500 baris dengan pertanyaan 20.000 karakter sudah sekitar 10 MB; 20 MB memberi ruang untuk
 # rujukan dan kriteria tanpa membiarkan berkas raksasa dibaca ke memori.
@@ -52,7 +55,7 @@ _BOM = "﻿"
 
 
 class ImportFileError(ValidationError):
-    """Seluruh berkas ditolak (D7), 422. Tidak ada batch, suite, atau kasus yang dibuat."""
+    """Seluruh berkas ditolak, 422. Tidak ada batch, suite, atau kasus yang dibuat."""
 
 
 @dataclass(frozen=True)
@@ -64,14 +67,14 @@ class RawRow:
 
 
 def template_csv() -> bytes:
-    """Template unduhan (AC6): hanya header, supaya mengunggahnya kembali tidak membuat kasus."""
+    """Template unduhan: hanya header, supaya mengunggahnya kembali tidak membuat kasus."""
     keluaran = io.StringIO()
     csv.writer(keluaran, lineterminator="\r\n").writerow(TEMPLATE_COLUMNS)
     return (_BOM + keluaran.getvalue()).encode("utf-8")
 
 
 def read_file(file_name: str, data: bytes) -> list[RawRow]:
-    """Periksa berkas (D7 tingkat berkas) lalu kembalikan baris kasusnya.
+    """Periksa berkas lalu kembalikan baris kasusnya.
 
     Raises ImportFileError bila berkas harus ditolak utuh. Jumlah kolom per baris tidak
     diperiksa di sini: kolom yang kurang atau lebih adalah kegagalan baris itu saja.
@@ -139,8 +142,6 @@ def _nama_kolom(sel: str) -> str:
     return sel.strip().lower()
 
 
-# Tingkat baris (D7): gagal = baris itu saja. Semua field boleh kosong karena hasilnya draft.
-
 _BATAS_TEKS = {"title": 300, "question": 20000, "category": 120}
 _TAG = {tag.value: tag for tag in SplitTag}
 
@@ -159,6 +160,7 @@ class ImportedCase:
     must_not_contain: list[str]
     expected_conclusion: str | None
     fingerprint: str | None
+    row_identity: str
 
     def as_payload(self, case_code: str) -> dict[str, Any]:
         """Bentuk body CaseWrite, untuk kelengkapan yang sama dengan kasus manual."""
@@ -177,7 +179,7 @@ class ImportedCase:
 
 @dataclass(frozen=True)
 class RowFailure:
-    """Baris yang gagal; alasannya ditampilkan di ringkasan (AC7). Tidak menjadi kasus (AC8)."""
+    """Baris yang gagal; alasannya ditampilkan di ringkasan dan baris ini tidak menjadi kasus."""
 
     row_no: int
     reason: str
@@ -192,7 +194,7 @@ class _BarisGagal(Exception):
 def parse_row(
     raw: RawRow, *, regulation_types: Mapping[str, bool], current_year: int
 ) -> ImportedCase | RowFailure:
-    """Periksa satu baris (D7 tingkat baris). Masalah pertama, urut kolom template, dilaporkan.
+    """Periksa satu baris. Hanya masalah pertama, urut kolom template, yang dilaporkan.
 
     regulation_types: kode jenis peraturan -> aktif (legal_refs.TypeCatalog.active). Jenis
     nonaktif ditolak karena rujukan hasil impor selalu baru.
@@ -224,7 +226,23 @@ def _baca_baris(
         must_not_contain=_frasa(sel, "must_not_contain"),
         expected_conclusion=sel["expected_conclusion"].strip() or None,
         fingerprint=content_fingerprint(title, question),
+        row_identity=_identitas_baris(raw.cells),
     )
+
+
+_SPASI = re.compile(r"\s+")
+
+
+def _identitas_baris(sel: tuple[str, ...]) -> str:
+    """Sidik jari impor satu baris: sidik jari isi bila judul atau pertanyaan ada, kalau tidak
+    SHA-256 seluruh kolom yang dinormalkan, supaya baris tanpa judul dan pertanyaan pun dikenali
+    saat berkas yang sama diimpor ulang. Awalan "baris" menjaga nilainya tidak pernah sama dengan
+    sidik jari isi."""
+    isi = content_fingerprint(sel[0], sel[1])
+    if isi is not None:
+        return isi
+    normal = "\n".join(_SPASI.sub(" ", nilai).strip().casefold() for nilai in sel)
+    return hashlib.sha256(f"baris\n{normal}".encode()).hexdigest()
 
 
 def _teks(sel: dict[str, str], kolom: str) -> str:
@@ -271,7 +289,7 @@ def _frasa(sel: dict[str, str], kolom: str) -> list[str]:
 def _rujukan(
     nilai: str, regulation_types: Mapping[str, bool], current_year: int
 ) -> list[dict[str, Any]]:
-    """AC10: setiap isi boleh teks bebas atau objek rujukan terstruktur (bentuk LegalRefWrite)."""
+    """Setiap isi boleh teks bebas atau objek rujukan terstruktur (bentuk LegalRefWrite)."""
     hasil = []
     for indeks, item in enumerate(_list_json("legal_refs", nilai)):
         if isinstance(item, str):
@@ -287,7 +305,7 @@ def _rujukan(
 def _satu_rujukan(
     indeks: int, item: dict[str, Any], regulation_types: Mapping[str, bool], current_year: int
 ) -> dict[str, Any]:
-    """Aturan simpan rujukan yang sama dengan editor (PBI-21): skema, aturan link, lalu jenis."""
+    """Aturan simpan rujukan yang sama dengan editor: skema, aturan link, lalu jenis."""
     try:
         rujukan = LegalRefWrite.model_validate(item).model_dump(mode="json")
     except PydanticValidationError as galat:

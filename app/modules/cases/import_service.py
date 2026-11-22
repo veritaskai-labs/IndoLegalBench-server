@@ -1,20 +1,19 @@
-"""Impor kasus lama lewat CSV. PBI-4 SCRUM-81 SCRUM-338, AC4-AC11, diagram D7 dan D8.
+"""Impor kasus lama lewat CSV.
 
-Alur D7:
+Alur:
 1. Berkas diperiksa utuh (csv_import.read_file). Gagal = tolak semua, tidak ada yang disimpan.
-2. Batch dan satu suite sementara dibuat (keputusan SA: semua kasus satu berkas masuk satu suite).
-3. Setiap baris diperiksa (csv_import.parse_row), lalu dicek kembar: sidik jari judul + pertanyaan
-   sama dengan kasus yang sudah ada, atau dengan baris sebelumnya yang sudah masuk di berkas ini.
+2. Batch dan satu suite sementara dibuat; semua kasus satu berkas masuk ke suite itu.
+3. Setiap baris diperiksa (csv_import.parse_row), lalu dicek kembar (lihat _alasan_kembar).
 4. Baris valid menjadi kasus: kode dari sistem, draft versi 1, origin import, penulis pengimpor,
    tag boleh kosong. Setiap baris disimpan dalam commit sendiri bersama hasil barisnya, jadi baris
    valid tetap tersimpan walau baris lain gagal (tidak ada rollback satu berkas).
 5. Jumlah berhasil, gagal, dan dilewati ditambah di batch dalam commit yang sama dengan hasil
-   barisnya, jadi batch tetap benar walau impor terhenti di tengah (review PR #157).
+   barisnya, jadi batch tetap benar walau impor terhenti di tengah.
 6. Suite sementara yang tidak mendapat satu kasus pun diarsipkan, supaya tidak menumpuk suite
-   kosong yang aktif (review PR #157).
+   kosong yang aktif.
 
 Kasus hasil impor berstatus draft dengan created_by pengimpor, jadi alur review yang sudah ada
-(dua reviewer, penulis tidak boleh mereview kasusnya sendiri) berlaku tanpa perubahan (AC11).
+(dua reviewer, penulis tidak boleh mereview kasusnya sendiri) berlaku tanpa perubahan.
 """
 
 import uuid
@@ -59,7 +58,7 @@ def upload_limit_bytes() -> int:
 def import_cases(
     db: Session, *, file_name: str, data: bytes, actor_id: uuid.UUID
 ) -> ImportSummaryRead:
-    """Jalankan satu impor (D7) dan kembalikan ringkasannya (AC7).
+    """Jalankan satu impor dan kembalikan ringkasannya.
 
     Raises csv_import.ImportFileError bila berkas ditolak utuh; saat itu belum ada yang ditulis.
     """
@@ -75,7 +74,7 @@ def import_cases(
             continue
         kembar = _alasan_kembar(db, hasil, di_berkas)
         if kembar is not None:
-            _catat(db, batch.id, hasil.row_no, ImportRowStatus.SKIPPED, kembar, hasil.fingerprint)
+            _catat(db, batch.id, hasil.row_no, ImportRowStatus.SKIPPED, kembar, hasil.row_identity)
             continue
         try:
             _simpan_kasus(db, batch, hasil, actor_id)
@@ -89,17 +88,16 @@ def import_cases(
                 hasil.row_no,
                 ImportRowStatus.FAILED,
                 _ALASAN_BENTROK,
-                hasil.fingerprint,
+                hasil.row_identity,
             )
             continue
-        if hasil.fingerprint is not None:
-            di_berkas.setdefault(hasil.fingerprint, hasil.row_no)
+        di_berkas.setdefault(hasil.row_identity, hasil.row_no)
     _arsipkan_suite_kosong(db, batch.id)
     return read_summary(db, batch.id)
 
 
 def read_summary(db: Session, batch_id: uuid.UUID) -> ImportSummaryRead:
-    """Ringkasan satu batch dari tabel D8, sama dengan yang dikembalikan saat impor."""
+    """Ringkasan satu batch dari tabel impor, sama dengan yang dikembalikan saat impor."""
     batch = db.get(ImportBatch, batch_id)
     if batch is None:
         raise NotFoundError("Batch impor tidak ditemukan", code=IMPORT_BATCH_NOT_FOUND)
@@ -135,7 +133,7 @@ def read_summary(db: Session, batch_id: uuid.UUID) -> ImportSummaryRead:
 
 
 def _buat_batch(db: Session, file_name: str, actor_id: uuid.UUID, *, total: int) -> ImportBatch:
-    """Batch dan suite sementaranya (keputusan SA), disimpan sebelum baris pertama."""
+    """Batch dan suite sementaranya, disimpan sebelum baris pertama."""
     batch_id = uuid.uuid4()
     waktu = datetime.now(validation.WIB).strftime("%Y-%m-%d %H:%M")
     nama_berkas = file_name.strip()[:255]
@@ -161,28 +159,26 @@ def _buat_batch(db: Session, file_name: str, actor_id: uuid.UUID, *, total: int)
 
 
 def _alasan_kembar(db: Session, kasus: ImportedCase, di_berkas: dict[str, int]) -> str | None:
-    """Keputusan SA (D7): kembar bila sidik jarinya sama dengan baris lain yang sudah masuk di
-    berkas ini, dengan kasus yang sudah ada, atau dengan baris impor sebelumnya yang menjadi kasus.
-    Yang terakhir menjaga AC11 walau kasus hasil impor itu sudah disunting, karena sidik jari di
-    cases ikut berubah saat judul atau pertanyaannya diubah (review PR #157). Tanpa judul dan
-    pertanyaan, tidak pernah kembar."""
-    if kasus.fingerprint is None:
-        return None
-    if kasus.fingerprint in di_berkas:
-        return f"Kembar dengan baris {di_berkas[kasus.fingerprint]} di berkas ini."
-    kode = db.scalars(
-        select(Case.case_code)
-        .where(Case.content_fingerprint == kasus.fingerprint)
-        .order_by(Case.case_code)
-        .limit(1)
-    ).first()
-    if kode is not None:
-        return f"Kembar dengan kasus {kode} yang sudah ada."
+    """Kembar bila sidik jarinya sama dengan baris lain yang sudah masuk di berkas ini, dengan
+    kasus yang sudah ada, atau dengan baris impor sebelumnya yang menjadi kasus. Yang terakhir
+    tetap berlaku walau kasus hasil impor itu sudah disunting, karena sidik jari di cases ikut
+    berubah saat judul atau pertanyaannya diubah.
+
+    Berkas dan impor sebelumnya dibandingkan lewat row_identity, yang juga ada untuk baris tanpa
+    judul dan pertanyaan (seluruh kolom), jadi impor ulang tetap melewatinya. Kasus yang sudah
+    ada hanya dibandingkan lewat sidik jari isi, supaya draft kosong tidak pernah dianggap kembar
+    dengan kasus yang ditulis manual."""
+    if kasus.row_identity in di_berkas:
+        return f"Kembar dengan baris {di_berkas[kasus.row_identity]} di berkas ini."
+    if kasus.fingerprint is not None:
+        kode = _kasus_dengan_sidik_jari(db, kasus.fingerprint)
+        if kode is not None:
+            return f"Kembar dengan kasus {kode} yang sudah ada."
     sebelumnya = db.execute(
         select(ImportRowResult.row_no, Case.case_code)
         .join(Case, Case.id == ImportRowResult.case_id)
         .where(
-            ImportRowResult.row_fingerprint == kasus.fingerprint,
+            ImportRowResult.row_fingerprint == kasus.row_identity,
             ImportRowResult.status == ImportRowStatus.CREATED,
         )
         .order_by(Case.case_code)
@@ -194,6 +190,15 @@ def _alasan_kembar(db: Session, kasus: ImportedCase, di_berkas: dict[str, int]) 
             f"(kasus {sebelumnya.case_code})."
         )
     return None
+
+
+def _kasus_dengan_sidik_jari(db: Session, fingerprint: str) -> str | None:
+    return db.scalars(
+        select(Case.case_code)
+        .where(Case.content_fingerprint == fingerprint)
+        .order_by(Case.case_code)
+        .limit(1)
+    ).first()
 
 
 def _simpan_kasus(
@@ -242,7 +247,7 @@ def _simpan_kasus(
             row_no=kasus.row_no,
             status=ImportRowStatus.CREATED,
             case_id=case_id,
-            row_fingerprint=kasus.fingerprint,
+            row_fingerprint=kasus.row_identity,
         )
     )
     _hitung(db, batch.id, ImportRowStatus.CREATED)
@@ -279,7 +284,7 @@ _KOLOM_JUMLAH = {
 
 
 def _hitung(db: Session, batch_id: uuid.UUID, status: ImportRowStatus) -> None:
-    """Tambah jumlah batch untuk satu hasil baris, di transaksi yang sama dengan barisnya (D8)."""
+    """Tambah jumlah batch untuk satu hasil baris, di transaksi yang sama dengan barisnya."""
     kolom = _KOLOM_JUMLAH[status]
     db.execute(update(ImportBatch).where(ImportBatch.id == batch_id).values({kolom: kolom + 1}))
 
