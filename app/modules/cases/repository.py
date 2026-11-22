@@ -7,8 +7,9 @@ Isi file ini murni query, tanpa logika bisnis.
 """
 
 import uuid
+from collections.abc import Iterator
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
@@ -30,6 +31,24 @@ def get_by_id(db: Session, case_id: uuid.UUID) -> Case | None:
 def get_by_code(db: Session, case_code: str) -> Case | None:
     """Find a case_code across every suite. The code is globally unique."""
     return db.query(Case).filter(Case.case_code == case_code).one_or_none()
+
+
+def search_candidates(
+    db: Session, *, approved_dev_only: bool
+) -> Iterator[tuple[Case, CaseVersion]]:
+    version_id = func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
+    if approved_dev_only:
+        version_id = Case.latest_approved_version_id
+    statement = (
+        select(Case, CaseVersion)
+        .join(CaseVersion, CaseVersion.id == version_id)
+        .order_by(func.lower(Case.case_code), Case.id)
+    )
+    if approved_dev_only:
+        statement = statement.where(
+            CaseVersion.status == CaseStatus.APPROVED, CaseVersion.split_tag == SplitTag.DEV
+        )
+    yield from db.execute(statement.execution_options(yield_per=100)).tuples()
 
 
 def list_for_suite(

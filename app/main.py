@@ -43,6 +43,7 @@ from app.modules.reviews.validation import verdict_error_from_pydantic
 from app.modules.runs.manual_router import router as manual_runs_router
 from app.modules.runs.router import results_router
 from app.modules.runs.router import router as runs_router
+from app.modules.search.router import router as search_router
 from app.modules.suites.router import router as suites_router
 from app.shared.config import get_settings
 from app.shared.dev_db import bootstrap_local_sqlite
@@ -208,3 +209,4 @@ app.include_router(dashboard_router)  # PBI-19
 app.include_router(grading_router)  # PBI-14
 app.include_router(judge_providers_router)  # PBI-14 SCRUM-258
 app.include_router(judge_options_router)  # PBI-14 SCRUM-258
+app.include_router(search_router)  # PBI-20 SCRUM-351

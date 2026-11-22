@@ -9,6 +9,7 @@ yang boleh mengubah kasus.
 
 import copy
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
 from sqlalchemy.exc import IntegrityError
@@ -147,6 +148,41 @@ def preview_legal_refs(
 def get_case(db: Session, case_id: uuid.UUID) -> CaseRead:
     """Return the version that is in effect, or raise when the id does not exist."""
     return _to_read(_require_case(db, case_id), katalog=legal_refs_service.load_catalog(db))
+
+
+def search_cases(
+    db: Session,
+    query: str,
+    suite_archives: Mapping[uuid.UUID, bool],
+    *,
+    approved_dev_only: bool,
+) -> list[tuple[uuid.UUID, str, str, bool]]:
+    catalog = legal_refs_service.load_catalog(db)
+    hits = []
+    for case, version in repository.search_candidates(db, approved_dev_only=approved_dev_only):
+        if case.suite_id not in suite_archives:
+            continue
+        content = version.content or {}
+        label = content.get("title") or case.case_code
+        criteria = content.get("answer_criteria") or {}
+        fields = [
+            case.case_code,
+            label,
+            content.get("question"),
+            criteria.get("expected_conclusion"),
+            *(criteria.get("must_contain") or []),
+            *(criteria.get("must_not_contain") or []),
+        ]
+        for citation in _legal_refs_read(version, catalog):
+            fields.append(citation.display_text)
+            fields.extend(link.about for link in citation.links)
+        if query == str(case.id) or any(
+            isinstance(field, str) and query in field.casefold() for field in fields
+        ):
+            hits.append((case.id, label, case.case_code, suite_archives[case.suite_id]))
+            if len(hits) == 20:
+                break
+    return hits
 
 
 def get_case_for_developer_ai(db: Session, case_id: uuid.UUID) -> CaseRead:

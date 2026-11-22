@@ -15,7 +15,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Protocol
+from typing import Literal, Protocol
 
 from sqlalchemy.orm import Session
 
@@ -25,7 +25,7 @@ from app.modules.runs.call_log import month_start, monthly_limit
 from app.modules.runs.case_progress import case_progress
 from app.modules.runs.cost_estimator import estimate_cost_idr
 from app.modules.runs.exchange_rate import ExchangeRateProvider
-from app.modules.runs.models import SessionStatus
+from app.modules.runs.models import SessionStatus, SessionType
 from app.modules.runs.pricing import PriceCatalog
 from app.modules.runs.progress import compute_progress
 from app.modules.runs.progress_ports import SessionProgressPort
@@ -39,6 +39,7 @@ from app.modules.runs.schemas import (
     SummaryRequest,
     SummaryResponse,
 )
+from app.modules.runs.session_grade import DbGradingStore
 from app.modules.runs.session_list import SessionListService
 from app.modules.runs.session_notice import Notifier, notify_session_ended
 from app.modules.runs.session_ports import (
@@ -52,6 +53,7 @@ from app.modules.runs.session_ports import (
     SnapshotSource,
     WaitingSession,
 )
+from app.modules.runs.session_rules import has_ended
 from app.modules.runs.summary_ports import (
     AnswerLengthPort,
     CaseCountPort,
@@ -62,6 +64,7 @@ from app.modules.runs.summary_ports import (
 )
 from app.modules.runs.tokenizer import TokenCounter
 from app.shared.exceptions import InternalError, NotFoundError, ValidationError
+from app.shared.security import Role
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +80,41 @@ _SPLITS_FOR_FILTER: Mapping[CaseFilter, tuple[str, ...]] = {
     CaseFilter.TEST: ("test",),
     CaseFilter.BOTH: ("dev", "test"),
 }
+
+SearchDestination = Literal["automatic_detail", "manual_detail", "grading_results"]
+
+
+def search_sessions(
+    db: Session, query: str, role: Role
+) -> list[tuple[uuid.UUID, str, bool, SessionType, SearchDestination]]:
+    hits = []
+    grading = DbGradingStore(db)
+    rows = repository.search_session_rows(db, include_manual=role in {Role.ADMIN, Role.CONTRIBUTOR})
+    for session_id, label, kind, status, archived_at in rows:
+        destination = _search_destination(grading, role, session_id, kind, status)
+        if destination and query in label.casefold():
+            hits.append((session_id, label, archived_at is not None, kind, destination))
+            if len(hits) == 20:
+                break
+    return hits
+
+
+def _search_destination(
+    grading: DbGradingStore,
+    role: Role,
+    session_id: uuid.UUID,
+    kind: SessionType,
+    status: SessionStatus,
+) -> SearchDestination | None:
+    if kind == SessionType.MANUAL:
+        if role in {Role.ADMIN, Role.CONTRIBUTOR}:
+            return "manual_detail"
+    elif kind == SessionType.AUTOMATIC:
+        if role in {Role.ADMIN, Role.DEVELOPER_AI}:
+            return "automatic_detail"
+        if role == Role.CONTRIBUTOR and has_ended(status) and grading.has_results(session_id):
+            return "grading_results"
+    return None
 
 
 def eligible_case_count(counts: Mapping[str, int], case_filter: CaseFilter) -> int:
