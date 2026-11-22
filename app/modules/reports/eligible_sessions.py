@@ -12,6 +12,7 @@ import uuid
 from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 
 from app.modules.cases.models import SplitTag
 from app.modules.reports.comparison_rules import (
@@ -47,12 +48,30 @@ class EligibleSession:
     reasons: tuple[IneligibilityReason, ...]
 
 
+class SessionValidity(StrEnum):
+    ALL = "all"
+    VALID = "valid"
+    INVALID = "invalid"
+
+
+@dataclass(frozen=True)
+class EligibleSessionQuery:
+    """Pencarian dan penyaringan daftar sesi untuk pemilih sesi. Semua kriteria digabung (AND)."""
+
+    q: str | None = None
+    validity: SessionValidity = SessionValidity.ALL
+    product_id: uuid.UUID | None = None
+
+
 class EligibleSessionLister:
     def __init__(self, reader: SessionRecordReader) -> None:
         self._reader = reader
 
     def list(
-        self, *, measurement_filter: MeasurementFilter = MeasurementFilter.ALL
+        self,
+        *,
+        measurement_filter: MeasurementFilter = MeasurementFilter.ALL,
+        query: EligibleSessionQuery = EligibleSessionQuery(),
     ) -> list[EligibleSession]:
         """Semua sesi aktif menurut urutan pembaca, tiap sesi dengan semua alasannya."""
         kinds = KINDS_BY_FILTER[measurement_filter]
