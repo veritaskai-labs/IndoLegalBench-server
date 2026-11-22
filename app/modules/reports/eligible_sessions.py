@@ -9,10 +9,16 @@ Modul ini murni: tanpa database dan tanpa HTTP, hanya mengenal port SessionRecor
 """
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
 
-from app.modules.reports.comparison_rules import eligibility_problems, ineligibility_message
+from app.modules.cases.models import SplitTag
+from app.modules.reports.comparison_rules import (
+    CaseRef,
+    eligibility_problems,
+    ineligibility_message,
+)
 from app.modules.reports.models import MeasurementFilter
 from app.modules.reports.report_generation import KINDS_BY_FILTER
 from app.modules.reports.session_record import SessionRecordReader
@@ -36,6 +42,7 @@ class EligibleSession:
     purpose: SessionPurpose
     status: SessionStatus
     judge_model_version: str | None
+    case_kinds: tuple[SplitTag, ...]
     eligible: bool
     reasons: tuple[IneligibilityReason, ...]
 
@@ -69,8 +76,15 @@ class EligibleSessionLister:
                     purpose=SessionPurpose(facts.purpose),
                     status=SessionStatus(facts.status),
                     judge_model_version=facts.judge_model_version,
+                    case_kinds=_case_kinds(facts.snapshot_cases),
                     eligible=not reasons,
                     reasons=reasons,
                 )
             )
         return items
+
+
+def _case_kinds(snapshot_cases: Iterable[CaseRef]) -> tuple[SplitTag, ...]:
+    """Jenis kasus (dev, test) yang ada di snapshot sesi, tanpa duplikat, urut menurut SplitTag."""
+    present = {SplitTag(ref.split_tag) for ref in snapshot_cases}
+    return tuple(tag for tag in SplitTag if tag in present)
