@@ -63,7 +63,18 @@ class EligibleSessionQuery:
     product_id: uuid.UUID | None = None
 
     def matches(self, item: "EligibleSession") -> bool:
-        return self._matches_validity(item) and self._matches_product(item)
+        return (
+            self._matches_text(item)
+            and self._matches_validity(item)
+            and self._matches_product(item)
+        )
+
+    def _matches_text(self, item: "EligibleSession") -> bool:
+        needle = (self.q or "").strip().casefold()
+        if not needle:
+            return True
+        haystacks = (item.label, item.product_name, str(item.session_id))
+        return any(needle in text.casefold() for text in haystacks)
 
     def _matches_product(self, item: "EligibleSession") -> bool:
         return self.product_id is None or item.product_id == self.product_id
