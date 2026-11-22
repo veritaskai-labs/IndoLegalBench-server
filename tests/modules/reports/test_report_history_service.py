@@ -39,6 +39,8 @@ PEMBUAT = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
 ORANG_LAIN = uuid.UUID("00000000-0000-0000-0000-0000000000b2")
 SESI_A = uuid.UUID("00000000-0000-0000-0000-00000000005a")
 SESI_B = uuid.UUID("00000000-0000-0000-0000-00000000005b")
+PRODUK_A = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
+PRODUK_B = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
 DB = object()  # Sesi database palsu: service hanya meneruskannya ke repository.
 
 
@@ -302,6 +304,7 @@ def test_get_report_mode_kode_tidak_membuka_identitas_produk(repo, role):
     # Arrange
     laporan = _laporan(product_label_mode=ProductLabelMode.CODE)
     repo.get_report.return_value = laporan
+    repo.product_names.return_value = {}
     repo.contents.return_value = _isi(
         laporan,
         sessions=[_sesi(laporan, SESI_A, "Produk A")],
@@ -317,6 +320,82 @@ def test_get_report_mode_kode_tidak_membuka_identitas_produk(repo, role):
     assert "product_id" not in sesi and "session_id" not in sesi
     assert sesi["results"][0]["product_model_version"] is None
     assert sesi["results"][0]["judge_model_version"] == "judge-2026-12"
+
+
+def _laporan_kode(repo, **ubah_isi):
+    """Laporan mode kode dengan dua sesi yang product_id-nya diketahui, siap dibaca."""
+    laporan = _laporan(product_label_mode=ProductLabelMode.CODE)
+    sesi = [
+        _sesi(laporan, SESI_A, "Product A", product_id=PRODUK_A),
+        _sesi(laporan, SESI_B, "Product B", product_id=PRODUK_B),
+    ]
+    repo.get_report.return_value = laporan
+    repo.contents.return_value = _isi(laporan, sessions=sesi, **ubah_isi)
+    return laporan
+
+
+def test_get_report_admin_mode_kode_menerima_pemetaan_kode_ke_nama_asli(repo):
+    """Positif: Admin membaca laporan kode beserta nama asli di balik tiap kode (AC9)."""
+    # Arrange
+    laporan = _laporan_kode(repo)
+    repo.product_names.return_value = {PRODUK_A: "Justisio", PRODUK_B: "Gemini"}
+
+    # Act
+    detail = history.get_report(DB, laporan.id, _pengguna(Role.ADMIN))
+
+    # Assert
+    repo.product_names.assert_called_once_with(DB, [PRODUK_A, PRODUK_B])
+    assert [m.model_dump() for m in detail.product_mapping] == [
+        {"label": "Product A", "real_name": "Justisio"},
+        {"label": "Product B", "real_name": "Gemini"},
+    ]
+
+
+@pytest.mark.parametrize("role", [Role.DEVELOPER_AI, Role.CONTRIBUTOR, Role.VIEWER])
+def test_get_report_peran_lain_tidak_menerima_pemetaan(repo, role):
+    """Negatif: selain Admin, pemetaan tidak dikirim dan nama asli tidak pernah dibaca (AC9)."""
+    # Arrange
+    laporan = _laporan_kode(repo)
+    laporan.created_by = PEMBUAT  # Pemilik sendiri pun tidak berhak (Developer AI butuh skor dev).
+    laporan.status = ReportStatus.PUBLISHED
+
+    # Act
+    detail = history.get_report(DB, laporan.id, _pengguna(role))
+
+    # Assert
+    assert detail.product_mapping is None
+    repo.product_names.assert_not_called()
+
+
+def test_get_report_admin_mode_nama_asli_tanpa_pemetaan(repo):
+    """Edge: label sudah nama asli, jadi tidak ada yang dipetakan dan tidak ada query tambahan."""
+    # Arrange
+    laporan = _laporan()
+    repo.get_report.return_value = laporan
+    repo.contents.return_value = _isi(laporan)
+
+    # Act
+    detail = history.get_report(DB, laporan.id, _pengguna(Role.ADMIN))
+
+    # Assert
+    assert detail.product_mapping is None
+    repo.product_names.assert_not_called()
+
+
+def test_get_report_produk_yang_tidak_ditemukan_dipetakan_ke_kosong(repo):
+    """Edge: product_id tanpa baris produk tidak membuat galat 500, nama aslinya kosong."""
+    # Arrange
+    laporan = _laporan_kode(repo)
+    repo.product_names.return_value = {PRODUK_A: "Justisio"}
+
+    # Act
+    detail = history.get_report(DB, laporan.id, _pengguna(Role.ADMIN))
+
+    # Assert
+    assert [(m.label, m.real_name) for m in detail.product_mapping] == [
+        ("Product A", "Justisio"),
+        ("Product B", None),
+    ]
 
 
 def test_get_report_nama_asli_tetap_mengirim_versi_model_tanpa_total_score(repo):
@@ -427,3 +506,19 @@ def test_report_pdf_memakai_aturan_baca_yang_sama(repo, monkeypatch):
     with pytest.raises(NotFoundError):
         history.report_pdf(DB, uuid.uuid4(), _pengguna(Role.VIEWER))
     renderer.render.assert_not_called()
+
+
+def test_report_pdf_admin_mode_kode_tidak_membawa_pemetaan(repo, monkeypatch):
+    """Negatif: PDF dibagikan ke luar, jadi pemetaan tidak ikut walau pembacanya Admin (AC9)."""
+    # Arrange
+    laporan = _laporan_kode(repo)
+    renderer = create_autospec(history.ReportPdfRenderer, instance=True)
+    renderer.render.return_value = b"%PDF-palsu"
+    monkeypatch.setattr(history, "_PDF", renderer)
+
+    # Act
+    history.report_pdf(DB, laporan.id, _pengguna(Role.ADMIN))
+
+    # Assert
+    assert renderer.render.call_args.args[0].product_mapping is None
+    repo.product_names.assert_not_called()
