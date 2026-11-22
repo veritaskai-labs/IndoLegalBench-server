@@ -5443,7 +5443,7 @@
           "reports"
         ],
         "summary": "Daftar sesi beserta kelayakannya untuk laporan",
-        "description": "Semua sesi aktif dengan eligible dan alasannya, supaya halaman tidak menunggu 409.\n\neligible hanya menilai satu sesi; syarat antar sesi (rubrik, penilai, suite) tetap dicek\nsaat POST /reports (PBI-15 AC2, AC4).",
+        "description": "Semua sesi aktif dengan eligible dan alasannya, supaya halaman tidak menunggu 409.\n\neligible hanya menilai satu sesi; syarat antar sesi (rubrik, penilai, suite) tetap dicek\nsaat POST /reports (PBI-15 AC2, AC4). q, validity, dan product menyaring daftar untuk\npemilih sesi (SCRUM-361); semuanya digabung dengan AND.",
         "operationId": "list_eligible_sessions_reports_eligible_sessions_get",
         "parameters": [
           {
@@ -5456,6 +5456,55 @@
               "default": "all"
             },
             "description": "Saring sesi otomatis atau manual saja; bawaannya semuanya."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Cari nama sesi, id sesi, atau nama produk; huruf besar/kecil tidak dibedakan.",
+              "title": "Q"
+            },
+            "description": "Cari nama sesi, id sesi, atau nama produk; huruf besar/kecil tidak dibedakan."
+          },
+          {
+            "name": "validity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SessionValidity",
+              "description": "valid: hanya sesi layak. invalid: hanya sesi belum layak. all: semuanya.",
+              "default": "all"
+            },
+            "description": "valid: hanya sesi layak. invalid: hanya sesi belum layak. all: semuanya."
+          },
+          {
+            "name": "product",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Hanya sesi milik produk dengan id ini.",
+              "title": "Product"
+            },
+            "description": "Hanya sesi milik produk dengan id ini."
           }
         ],
         "responses": {
@@ -10113,6 +10162,14 @@
             "title": "Judge Model Version",
             "description": "Versi model penilai yang menilai sesi; kosong bila belum dinilai"
           },
+          "case_kinds": {
+            "items": {
+              "$ref": "#/components/schemas/SplitTag"
+            },
+            "type": "array",
+            "title": "Case Kinds",
+            "description": "Jenis kasus di sesi ini: dev, test, atau keduanya; kosong bila tanpa kasus"
+          },
           "eligible": {
             "type": "boolean",
             "title": "Eligible"
@@ -10137,6 +10194,7 @@
           "purpose",
           "status",
           "judge_model_version",
+          "case_kinds",
           "eligible",
           "reasons"
         ],
@@ -16065,6 +16123,15 @@
         ],
         "title": "SessionUnarchiveResponse",
         "description": "Hasil unarchive. Sesinya tampil lagi di GET /measurements, status tidak berubah (AC10)."
+      },
+      "SessionValidity": {
+        "type": "string",
+        "enum": [
+          "all",
+          "valid",
+          "invalid"
+        ],
+        "title": "SessionValidity"
       },
       "SplitTag": {
         "type": "string",
