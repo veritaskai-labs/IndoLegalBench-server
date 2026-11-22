@@ -261,6 +261,9 @@ class EligibleSessionRead(BaseModel):
     judge_model_version: str | None = Field(
         description="Versi model penilai yang menilai sesi; kosong bila belum dinilai"
     )
+    case_kinds: list[SplitTag] = Field(
+        description="Jenis kasus di sesi ini: dev, test, atau keduanya; kosong bila tanpa kasus"
+    )
     eligible: bool
     reasons: list[EligibleSessionReasonRead] = Field(
         description="Semua alasan sesi belum layak; kosong bila eligible"
@@ -278,6 +281,7 @@ class EligibleSessionRead(BaseModel):
             purpose=item.purpose,
             status=item.status,
             judge_model_version=item.judge_model_version,
+            case_kinds=list(item.case_kinds),
             eligible=item.eligible,
             reasons=[
                 EligibleSessionReasonRead(code=r.code, message=r.message) for r in item.reasons
