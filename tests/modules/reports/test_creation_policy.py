@@ -5,9 +5,11 @@ AC7, AC9, AC14. Murni, tanpa database.
 
 import pytest
 
+from app.modules.cases.models import SplitTag
 from app.modules.reports.creation_policy import (
     REPORT_LABEL_MODE_FORBIDDEN,
     REPORT_SCOPE_FORBIDDEN,
+    available_scopes,
     ensure_can_create,
 )
 from app.modules.reports.models import ProductLabelMode, ScoreScope
@@ -77,3 +79,59 @@ class TestLabelMode:
 
         # Assert
         assert galat.value.code == REPORT_SCOPE_FORBIDDEN
+
+
+class TestAvailableScopes:
+    @pytest.mark.parametrize("role", [Role.ADMIN, Role.DEVELOPER_AI])
+    def test_a_slice_with_only_dev_cases_offers_only_dev(self, role):
+        # Act
+        hasil = available_scopes(role, {SplitTag.DEV})
+
+        # Assert
+        assert hasil == (ScoreScope.DEV,)
+
+    @pytest.mark.parametrize("role", [Role.ADMIN, Role.DEVELOPER_AI])
+    def test_a_slice_with_only_test_cases_offers_only_test(self, role):
+        # Act
+        hasil = available_scopes(role, {SplitTag.TEST})
+
+        # Assert
+        assert hasil == (ScoreScope.TEST,)
+
+    @pytest.mark.parametrize("role", [Role.ADMIN, Role.DEVELOPER_AI])
+    def test_a_slice_with_both_kinds_offers_every_scope(self, role):
+        # Act
+        hasil = available_scopes(role, {SplitTag.DEV, SplitTag.TEST})
+
+        # Assert
+        assert hasil == (ScoreScope.TEST, ScoreScope.DEV, ScoreScope.DEV_TEST)
+
+    @pytest.mark.parametrize("role", [Role.VIEWER, Role.CONTRIBUTOR])
+    def test_viewer_and_contributor_only_ever_get_test(self, role):
+        # Act
+        hasil = available_scopes(role, {SplitTag.DEV, SplitTag.TEST})
+
+        # Assert
+        assert hasil == (ScoreScope.TEST,)
+
+    @pytest.mark.parametrize("role", [Role.VIEWER, Role.CONTRIBUTOR])
+    def test_viewer_gets_nothing_when_the_slice_has_only_dev_cases(self, role):
+        # Act
+        hasil = available_scopes(role, {SplitTag.DEV})
+
+        # Assert
+        assert hasil == ()
+
+    def test_an_empty_slice_offers_nothing(self):
+        # Act
+        hasil = available_scopes(Role.ADMIN, set())
+
+        # Assert
+        assert hasil == ()
+
+    def test_an_unknown_role_gets_nothing(self):
+        # Act
+        hasil = available_scopes("intern", {SplitTag.TEST})
+
+        # Assert
+        assert hasil == ()
