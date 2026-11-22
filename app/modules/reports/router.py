@@ -54,7 +54,11 @@ from app.modules.reports.dependencies import (
     get_trend_pdf_renderer,
     get_trend_service,
 )
-from app.modules.reports.eligible_sessions import EligibleSessionLister
+from app.modules.reports.eligible_sessions import (
+    EligibleSessionLister,
+    EligibleSessionQuery,
+    SessionValidity,
+)
 from app.modules.reports.models import MeasurementFilter, ReportLanguage, ScoreScope
 from app.modules.reports.report_generation import ReportGenerator
 from app.modules.reports.schemas import (
@@ -146,15 +150,29 @@ def list_eligible_sessions(
         default=MeasurementFilter.ALL,
         description="Saring sesi otomatis atau manual saja; bawaannya semuanya.",
     ),
+    q: str | None = Query(
+        default=None,
+        max_length=200,
+        description="Cari nama sesi, id sesi, atau nama produk; huruf besar/kecil tidak dibedakan.",
+    ),
+    validity: SessionValidity = Query(
+        default=SessionValidity.ALL,
+        description="valid: hanya sesi layak. invalid: hanya sesi belum layak. all: semuanya.",
+    ),
+    product: uuid.UUID | None = Query(
+        default=None, description="Hanya sesi milik produk dengan id ini."
+    ),
     _user: CurrentUser = Depends(_create_roles),
     lister: EligibleSessionLister = Depends(get_eligible_session_lister),
 ) -> list[EligibleSessionRead]:
     """Semua sesi aktif dengan eligible dan alasannya, supaya halaman tidak menunggu 409.
 
     eligible hanya menilai satu sesi; syarat antar sesi (rubrik, penilai, suite) tetap dicek
-    saat POST /reports (PBI-15 AC2, AC4).
+    saat POST /reports (PBI-15 AC2, AC4). q, validity, dan product menyaring daftar untuk
+    pemilih sesi (SCRUM-361); semuanya digabung dengan AND.
     """
-    items = lister.list(measurement_filter=measurement_filter)
+    query = EligibleSessionQuery(q=q, validity=validity, product_id=product)
+    items = lister.list(measurement_filter=measurement_filter, query=query)
     return [EligibleSessionRead.from_item(item) for item in items]
 
 
