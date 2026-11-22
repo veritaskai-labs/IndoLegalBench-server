@@ -119,22 +119,31 @@ def test_produk_baru_dimulai_dari_bulan_pertama_diukur(dunia_tren):
     assert bulan_titik(baru) == _bulan(0)
 
 
+# Bulan yang diukur, dihitung mundur dari bulan ini (0). Setiap batas punya dua sisi: bulan
+# terakhir yang masih masuk (2, 5, 11) dan bulan pertama yang sudah keluar (3, 6, 12), jadi
+# rentang yang meleset satu bulan ke arah mana pun membuat tes gagal (review #155).
+DIUKUR = (13, 12, 11, 6, 5, 3, 2, 0)
+
+
 @pytest.mark.parametrize(
     ("rentang", "mundur"),
     [
-        # Batas: bulan ke-3 terakhir masuk 3m, bulan ke-4 tidak (5 bulan lalu = bulan ke-6).
+        # 3m = bulan ini dan dua bulan sebelumnya: 2 bulan lalu masuk, 3 bulan lalu keluar.
         ("3m", (2, 0)),
-        ("6m", (5, 2, 0)),
-        # Batas: 11 bulan lalu adalah bulan ke-12 dan masih masuk; 13 bulan lalu tidak.
-        ("12m", (11, 5, 2, 0)),
-        ("all", (13, 11, 5, 2, 0)),
+        # 6m: 5 bulan lalu masuk, 6 bulan lalu keluar.
+        ("6m", (5, 3, 2, 0)),
+        # 12m: 11 bulan lalu masuk, 12 bulan lalu keluar.
+        ("12m", (11, 6, 5, 3, 2, 0)),
+        # all: tanpa batas, termasuk 12 dan 13 bulan lalu.
+        ("all", DIUKUR),
     ],
 )
 def test_rentang_waktu_memotong_bulan_kalender_terakhir(dunia_tren, rentang, mundur):
     """Positif dan Edge: AC2, rentang 3, 6, 12 bulan atau semua, dihitung dalam bulan kalender
-    termasuk bulan ini; bawaannya semua."""
+    termasuk bulan ini; bawaannya semua. Boundary value: bulan terakhir yang masih masuk dan
+    bulan pertama yang sudah keluar diukur dua-duanya."""
     # Arrange
-    for m in (13, 11, 5, 2, 0):
+    for m in DIUKUR:
         sesi_otomatis(dunia_tren, "AiYU", kapan=waktu_di_bulan(m))
 
     # Act

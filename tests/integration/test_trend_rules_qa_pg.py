@@ -18,6 +18,7 @@ from tests.trend_qa_pg import (
     HANYA_POSTGRES,
     PenilaiTrenBaru,
     ProviderTren,
+    awal_bulan,
     buat_suite,
     rubrik_baru,
     sesi_manual,
@@ -31,21 +32,42 @@ from tests.trend_qa_pg import (
 pytestmark = HANYA_POSTGRES
 
 
+# Setiap perubahan dijalankan di antara dua sesi dan mengembalikan argumen tambahan untuk sesi
+# kedua (kosong bila perubahannya di dunia, bukan di sesi).
+def _ganti_rubrik(d) -> dict:
+    rubrik_baru(d)
+    return {}
+
+
+def _ganti_penilai(d) -> dict:
+    d.pakai_penilai(PenilaiTrenBaru)
+    return {}
+
+
 def _ganti_suite(d) -> dict:
     d.suite_id = buat_suite(d, "Tren ketenagakerjaan B", akhiran="-B")
     return {}
 
 
-# Satu perubahan di antara dua sesi -> argumen sesi kedua, dan alasan putus yang diharapkan.
+def _versi_kasus(kode: str):
+    def ubah(d) -> dict:
+        versi_kasus_baru(d, kode)
+        return {}
+
+    return ubah
+
+
+def _ganti_model_produk(d) -> dict:
+    return {"provider": ProviderTren(model="aiyu-2026-12")}
+
+
+# Satu perubahan di antara dua sesi, dan alasan putus yang diharapkan di titik sesudahnya.
 PERUBAHAN = {
-    "versi rubrik": (lambda d: rubrik_baru(d) or {}, ["RUBRIC_VERSION"]),
-    "model penilai": (lambda d: d.pakai_penilai(PenilaiTrenBaru) or {}, ["JUDGE_MODEL"]),
+    "versi rubrik": (_ganti_rubrik, ["RUBRIC_VERSION"]),
+    "model penilai": (_ganti_penilai, ["JUDGE_MODEL"]),
     "suite": (_ganti_suite, ["SUITE_VERSION"]),
-    "versi kasus test": (lambda d: versi_kasus_baru(d, "TRN-001") or {}, ["SUITE_VERSION"]),
-    "versi model produk": (
-        lambda d: {"provider": ProviderTren(model="aiyu-2026-12")},
-        ["MODEL_VERSION_DIFFERS"],
-    ),
+    "versi kasus test": (_versi_kasus("TRN-001"), ["SUITE_VERSION"]),
+    "versi model produk": (_ganti_model_produk, ["MODEL_VERSION_DIFFERS"]),
 }
 
 
@@ -105,7 +127,7 @@ def test_versi_kasus_dev_berubah_tidak_memutus_tren_test(dunia_tren):
     """Edge: AC5 dan AC12, perubahan pada kasus dev hanya memutus tren dev; tren test tidak
     berubah karena kasus di luar jenisnya tidak ikut dihitung."""
     # Arrange
-    _dua_sesi(dunia_tren, lambda d: versi_kasus_baru(d, "TRN-003") or {})
+    _dua_sesi(dunia_tren, _versi_kasus("TRN-003"))
 
     # Act
     tes = titik(tren(dunia_tren, "AiYU"))
@@ -127,6 +149,7 @@ def test_sesi_manual_dengan_jumlah_percobaan_berbeda_diberi_penanda(dunia_tren):
     lalu, kini = titik(tren(dunia_tren, "LegalHero"))
 
     # Assert
+    assert (lalu["month"], kini["month"]) == (awal_bulan(1).isoformat(), awal_bulan(0).isoformat())
     assert (lalu["markers"], kini["markers"]) == (["REPETITIONS_DIFFER"], ["REPETITIONS_DIFFER"])
     assert (lalu["breaks"], kini["breaks"]) == ([], [])
 
