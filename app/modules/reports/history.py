@@ -40,8 +40,9 @@ def list_reports(db: Session, user: CurrentUser, params: PageParams) -> Page[Rep
     rows, total = repository.list_reports(
         db, visibility_for(user), offset=params.offset, limit=params.size
     )
+    labels = repository.frozen_product_labels(db, [row.id for row in rows])
     return Page(
-        items=[ReportSummary.model_validate(row) for row in rows],
+        items=[ReportSummary.from_report(row, labels.get(row.id, [])) for row in rows],
         total=total,
         page=params.page,
         size=params.size,
@@ -101,7 +102,9 @@ def _detail(report: Report, contents: ReportContents, user: CurrentUser) -> Repo
     ]
     return ReportDetail.model_validate(
         {
-            **ReportSummary.model_validate(report).model_dump(),
+            **ReportSummary.from_report(
+                report, [session.product_label for session in contents.sessions]
+            ).model_dump(),
             "measurement_filter": report.measurement_filter,
             "product_label_mode": report.product_label_mode,
             "rubric_version_no": contents.rubric_version_no,
