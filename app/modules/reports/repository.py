@@ -20,6 +20,7 @@ from sqlalchemy.orm import Session
 # laporan (keputusan review SCRUM-300). Pola impor model lintas modul ini sudah dipakai runs.
 from app.modules.cases.models import CaseVersion, SplitTag
 from app.modules.grading.models import GradingRun, GradingRunStatus, RubricVersion
+from app.modules.providers.models import AiProduct
 from app.modules.reports.access import ReportVisibility
 from app.modules.reports.models import (
     PublishedReport,
@@ -292,3 +293,11 @@ def frozen_product_labels(
     for report_id, label in rows:
         found.setdefault(report_id, []).append(label)
     return found
+
+
+def product_names(db: Session, product_ids: Sequence[uuid.UUID]) -> dict[uuid.UUID, str]:
+    """Nama asli produk menurut ai_products, untuk pemetaan label laporan mode kode."""
+    if not product_ids:
+        return {}
+    rows = db.execute(sa.select(AiProduct.id, AiProduct.name).where(AiProduct.id.in_(product_ids)))
+    return dict(rows.tuples().all())
