@@ -6,7 +6,8 @@ Router hanya menerjemahkan HTTP ke pemanggilan service. Tidak ada
 logika bisnis dan tidak ada query database di file ini.
 
 SCRUM-313: POST /reports membuat laporan dan GET /reports/eligible-sessions mendaftar sesi
-beserta kelayakannya. Rute statis eligible-sessions harus didaftarkan SEBELUM rute
+beserta kelayakannya. SCRUM-362: POST /reports/validate memeriksa pilihan sesi (dry-run) dengan
+aturan yang sama, tanpa menyimpan. Rute statis eligible-sessions harus didaftarkan SEBELUM rute
 /{report_id} (SCRUM-320), kalau tidak FastAPI menganggapnya sebuah report_id. Hal yang sama
 berlaku untuk GET /reports/trend (PBI-17 SCRUM-331) dan GET /reports/trend/pdf (SCRUM-333).
 GET /reports/trend/pdf membuat PDF dari TrendRead yang sama dengan GET /reports/trend; kedua
@@ -50,6 +51,7 @@ from app.modules.reports.dependencies import (
     get_eligible_session_lister,
     get_now,
     get_report_generator,
+    get_report_validator,
     get_score_file_service,
     get_trend_pdf_renderer,
     get_trend_service,
@@ -61,6 +63,7 @@ from app.modules.reports.eligible_sessions import (
 )
 from app.modules.reports.models import MeasurementFilter, ReportLanguage, ScoreScope
 from app.modules.reports.report_generation import ReportGenerator
+from app.modules.reports.report_validation import ReportValidator
 from app.modules.reports.schemas import (
     EligibleSessionRead,
     PublicationRead,
@@ -74,6 +77,8 @@ from app.modules.reports.schemas import (
     ReportResultCasesRead,
     ReportSessionNotFoundBody,
     ReportSummary,
+    ReportValidateRequest,
+    ReportValidationRead,
     TrendRead,
 )
 from app.modules.reports.score_files import SessionScoreFileService
@@ -138,6 +143,35 @@ def create_report(
     if generated.report is None:
         response.status_code = status.HTTP_200_OK
     return ReportCreateResponse.from_generated(generated)
+
+
+@router.post(
+    "/validate",
+    response_model=ReportValidationRead,
+    summary="Periksa pilihan sesi untuk laporan tanpa menyimpan (dry-run)",
+    responses={
+        403: _CREATE_RESPONSES[403],
+        404: _CREATE_RESPONSES[404],
+    },
+)
+def validate_report_selection(
+    payload: ReportValidateRequest,
+    user: CurrentUser = Depends(_create_roles),
+    validator: ReportValidator = Depends(get_report_validator),
+) -> ReportValidationRead:
+    """Semua pelanggaran sekaligus saat sesi dipilih, bukan setelah klik Buat Laporan.
+
+    Aturannya sama dengan POST /reports (PBI-15 AC1, AC4, AC5, AC13, AC14), tetapi tidak
+    menyimpan apa pun dan selalu 200 untuk pilihan yang bisa dibaca. POST /reports tetap
+    memeriksa ulang di server.
+    """
+    validation = validator.validate(
+        role=user.role,
+        session_ids=tuple(payload.session_ids),
+        score_scope=payload.score_scope,
+        measurement_filter=payload.measurement_filter,
+    )
+    return ReportValidationRead.from_validation(validation)
 
 
 @router.get(
