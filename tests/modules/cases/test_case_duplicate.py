@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from app.modules.audit.models import AuditLog
 from app.modules.cases import service
 from app.modules.cases.models import Case, CaseOrigin, CaseStatus
-from app.shared.security import CurrentUser, Role
+from app.shared.security import Role
 from tests.modules.cases.test_cases import AUTHOR_LAIN, _badan, _buat, _ganti, _setujui, _suite
 
 
@@ -30,10 +30,6 @@ def _kasus_approved(client, db_session, **ubah) -> dict:
     dibuat = _buat(client, _suite(client), **ubah).json()
     _setujui(db_session, dibuat["id"])
     return client.get(f"/cases/{dibuat['id']}").json()
-
-
-def _pengguna(peran: Role, user_id: uuid.UUID) -> CurrentUser:
-    return CurrentUser(user_id=user_id, name="Penyalin", email="salin@veritask.test", role=peran)
 
 
 def _salin(client, case_id: str):
@@ -64,13 +60,15 @@ def test_salinan_adalah_kasus_baru_berstatus_draft_tanpa_tag(penulis, db_session
         assert salinan[bagian] == asal[bagian], bagian
 
 
-def test_penulis_salinan_adalah_penyalin_dan_kasus_asal_tidak_berubah(penulis, db_session):
+def test_penulis_salinan_adalah_penyalin_dan_kasus_asal_tidak_berubah(
+    penulis, db_session, buat_pengguna
+):
     """Positif: keputusan SA D8, salinan ditulis penyalin, bukan penulis asal; kasus asal tetap
     approved dengan tag dan kodenya."""
     # Arrange
     asal = _kasus_approved(penulis, db_session)
     penyalin = uuid.uuid4()
-    _ganti(penulis, _pengguna(Role.CONTRIBUTOR, penyalin))
+    _ganti(penulis, buat_pengguna(Role.CONTRIBUTOR, user_id=penyalin))
 
     # Act
     salinan = _salin(penulis, asal["id"]).json()
@@ -174,12 +172,14 @@ def test_admin_boleh_menduplikasi(as_role, db_session):
 
 
 @pytest.mark.parametrize("peran", [Role.VIEWER, Role.DEVELOPER_AI])
-def test_viewer_dan_developer_ai_tidak_boleh_menduplikasi(penulis, db_session, peran):
+def test_viewer_dan_developer_ai_tidak_boleh_menduplikasi(
+    penulis, db_session, peran, buat_pengguna
+):
     """Negatif: D9, hanya Kontributor dan Admin; tidak ada kasus yang ikut terbuat."""
     # Arrange
     asal = _kasus_approved(penulis, db_session)
     jumlah = db_session.query(Case).count()
-    _ganti(penulis, _pengguna(peran, uuid.uuid4()))
+    _ganti(penulis, buat_pengguna(peran, user_id=uuid.uuid4()))
 
     # Act
     respons = _salin(penulis, asal["id"])
@@ -235,12 +235,12 @@ def test_salinan_punya_sidik_jari_dan_jejak_audit_asalnya(penulis, db_session):
     }
 
 
-def test_kasus_draft_milik_orang_lain_bisa_disalin_kontributor(penulis):
+def test_kasus_draft_milik_orang_lain_bisa_disalin_kontributor(penulis, buat_pengguna):
     """Edge: menduplikasi tidak butuh hak menulis kasus asal; Kontributor lain boleh memakai
     kasus siapa pun sebagai contoh (AC2)."""
     # Arrange
     asal = _buat(penulis, _suite(penulis)).json()
-    _ganti(penulis, _pengguna(Role.CONTRIBUTOR, AUTHOR_LAIN))
+    _ganti(penulis, buat_pengguna(Role.CONTRIBUTOR, user_id=AUTHOR_LAIN))
 
     # Act
     respons = _salin(penulis, asal["id"])
