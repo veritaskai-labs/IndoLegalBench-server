@@ -13,6 +13,7 @@ from decimal import Decimal
 from unittest.mock import create_autospec
 
 import pytest
+from pydantic import ValidationError
 
 from app.modules.cases.models import SplitTag
 from app.modules.cases.service import MASKED_CASE_CODE
@@ -31,6 +32,7 @@ from app.modules.reports.models import (
     ScoreSplit,
 )
 from app.modules.reports.repository import CaseBasisRow, ReportContents
+from app.modules.reports.schemas import ReportSummary
 from app.shared.exceptions import NotFoundError
 from app.shared.pagination import PageParams
 from app.shared.security import CurrentUser, Role
@@ -247,6 +249,25 @@ def test_get_report_memuat_produk_sesuai_label_sesi(repo):
 
     # Assert
     assert detail.products == ["Gemini", "Justisio"]
+
+
+def test_respons_laporan_mewajibkan_produk():
+    """Negatif: products wajib di daftar dan detail, supaya tipe klien tidak opsional (AC9)."""
+    # Arrange
+    ringkasan = {
+        "id": uuid.uuid4(),
+        "title": "Laporan",
+        "score_scope": ScoreScope.TEST,
+        "has_dev_scores": False,
+        "status": ReportStatus.SAVED,
+        "created_by": PEMBUAT,
+        "created_at": datetime(2026, 12, 1, tzinfo=UTC),
+    }
+
+    # Act / Assert
+    with pytest.raises(ValidationError, match="products"):
+        ReportSummary(**ringkasan)
+    assert "products" in ReportSummary.model_json_schema(mode="serialization")["required"]
 
 
 def test_get_report_hasil_hanya_masuk_ke_sesinya_sendiri(repo):
