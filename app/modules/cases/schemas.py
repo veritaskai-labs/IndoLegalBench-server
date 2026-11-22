@@ -283,7 +283,10 @@ class CaseRead(BaseModel):
     )
     status: CaseStatus
     was_dev: bool = Field(
-        description="Kasus ini pernah berada di dev set (PBI-9 AC3); tidak pernah kembali false",
+        description=(
+            "Teks kasus ini sudah pernah terlihat Developer AI: kasus pernah berada di dev set "
+            "(PBI-9 AC3), atau salinan dari kasus seperti itu (PBI-4). Tidak pernah kembali false"
+        ),
     )
     origin: CaseOrigin = Field(description="Cara kasus masuk: manual, import, atau duplicate (D8)")
     source_case_id: uuid.UUID | None = Field(

@@ -216,7 +216,7 @@ def duplicate_case(
 
     Salinan memakai id dan case_code baru (`<kode asal>-SALIN`, lalu `-SALIN-2`, ...),
     berstatus draf, tanpa tag dev/test, dengan origin `duplicate` dan source_case_id kasus asal.
-    Tanpa body.
+    Salinan kasus dev (atau kasus yang sudah was_dev) ikut ditandai `was_dev`. Tanpa body.
     """
     return service.duplicate_case(db, case_id, actor_id=_user_id(user))
 

@@ -1419,7 +1419,7 @@
           "cases"
         ],
         "summary": "Duplikasi kasus menjadi kasus baru berstatus draf",
-        "description": "PBI-4 AC2 (D8, D9): Kontributor dan Admin menyalin kasus sebagai titik awal kasus baru.\n\nSalinan memakai id dan case_code baru (`<kode asal>-SALIN`, lalu `-SALIN-2`, ...),\nberstatus draf, tanpa tag dev/test, dengan origin `duplicate` dan source_case_id kasus asal.\nTanpa body.",
+        "description": "PBI-4 AC2 (D8, D9): Kontributor dan Admin menyalin kasus sebagai titik awal kasus baru.\n\nSalinan memakai id dan case_code baru (`<kode asal>-SALIN`, lalu `-SALIN-2`, ...),\nberstatus draf, tanpa tag dev/test, dengan origin `duplicate` dan source_case_id kasus asal.\nSalinan kasus dev (atau kasus yang sudah was_dev) ikut ditandai `was_dev`. Tanpa body.",
         "operationId": "duplicate_case_cases__case_id__duplicate_post",
         "parameters": [
           {
@@ -9573,7 +9573,7 @@
           "was_dev": {
             "type": "boolean",
             "title": "Was Dev",
-            "description": "Kasus ini pernah berada di dev set (PBI-9 AC3); tidak pernah kembali false"
+            "description": "Teks kasus ini sudah pernah terlihat Developer AI: kasus pernah berada di dev set (PBI-9 AC3), atau salinan dari kasus seperti itu (PBI-4). Tidak pernah kembali false"
           },
           "origin": {
             "$ref": "#/components/schemas/CaseOrigin",

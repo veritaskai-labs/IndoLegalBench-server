@@ -54,7 +54,7 @@ def test_salinan_adalah_kasus_baru_berstatus_draft_tanpa_tag(penulis, db_session
         "draft",
         1,
     )
-    assert (salinan["split_tag"], salinan["was_dev"]) == (None, False)
+    assert salinan["split_tag"] is None
     assert (salinan["origin"], salinan["source_case_id"]) == ("duplicate", asal["id"])
     for bagian in ("suite_id", "identity", "legal_refs", "answer_criteria"):
         assert salinan[bagian] == asal[bagian], bagian
@@ -288,3 +288,47 @@ def test_galat_database_lain_tidak_disamarkan_sebagai_bentrok_kode(
     # Act / Assert
     with pytest.raises(IntegrityError, match="fk_lain"):
         _salin(penulis, asal["id"])
+
+
+@pytest.mark.parametrize(
+    ("tag_asal", "pernah_dev", "harapan"),
+    [
+        # Positif: teks kasus dev sudah terlihat Developer AI, jadi salinannya was_dev.
+        ("dev", False, True),
+        # Positif: kasus test yang dulu dev (dipindah Admin) tetap membawa tandanya.
+        ("test", True, True),
+        # Negatif: salinan kasus test yang tidak pernah dev mulai tanpa tanda.
+        ("test", False, False),
+    ],
+)
+def test_salinan_kasus_dev_ditandai_was_dev(penulis, db_session, tag_asal, pernah_dev, harapan):
+    """Positif dan Negatif: keputusan SA review #156, was_dev salinan mengikuti apakah teksnya
+    sudah pernah terlihat Developer AI; tandanya hanya informasi untuk reviewer."""
+    # Arrange
+    asal = _kasus_approved(penulis, db_session, split_tag=tag_asal)
+    if pernah_dev:
+        db_session.get(Case, uuid.UUID(asal["id"])).was_dev = True
+        db_session.commit()
+
+    # Act
+    salinan = _salin(penulis, asal["id"]).json()
+
+    # Assert
+    assert (salinan["was_dev"], salinan["split_tag"]) == (harapan, None)
+
+
+def test_tag_test_tetap_boleh_dipilih_untuk_salinan_kasus_dev(penulis, db_session):
+    """Positif: keputusan SA review #156, was_dev tidak memblokir; penulis salinan boleh
+    memberi tag test, dan tandanya tetap ada."""
+    # Arrange
+    asal = _kasus_approved(penulis, db_session, split_tag="dev")
+    salinan = _salin(penulis, asal["id"]).json()
+
+    # Act
+    respons = penulis.put(
+        f"/cases/{salinan['id']}", json=_badan(case_code=salinan["case_code"], split_tag="test")
+    )
+
+    # Assert
+    assert respons.status_code == 200, respons.text
+    assert (respons.json()["split_tag"], respons.json()["was_dev"]) == ("test", True)
