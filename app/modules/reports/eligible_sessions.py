@@ -63,7 +63,10 @@ class EligibleSessionQuery:
     product_id: uuid.UUID | None = None
 
     def matches(self, item: "EligibleSession") -> bool:
-        return self._matches_validity(item)
+        return self._matches_validity(item) and self._matches_product(item)
+
+    def _matches_product(self, item: "EligibleSession") -> bool:
+        return self.product_id is None or item.product_id == self.product_id
 
     def _matches_validity(self, item: "EligibleSession") -> bool:
         if self.validity is SessionValidity.VALID:
