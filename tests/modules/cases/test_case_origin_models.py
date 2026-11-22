@@ -159,6 +159,11 @@ def test_kasus_impor_dan_hasil_barisnya_tersimpan(db_session, kasus):
             {"status": ImportRowStatus.SKIPPED, "reason": "   "},
             "ck_import_row_results_reason_when_not_created",
         ),
+        # Edge: tab dan baris baru dari ekspor Google Sheets juga dianggap kosong (sql_not_blank).
+        (
+            {"status": ImportRowStatus.FAILED, "reason": "\t\n "},
+            "ck_import_row_results_reason_when_not_created",
+        ),
         # Edge: nomor baris dimulai dari 1.
         (
             {"status": ImportRowStatus.FAILED, "reason": "rusak", "row_no": 0},
