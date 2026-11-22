@@ -12,7 +12,11 @@ from app.modules.reports.comparison_rules import (
     SESSION_NOT_ACCEPTED_AS_IS,
     SESSION_NOT_GRADED,
 )
-from app.modules.reports.eligible_sessions import EligibleSessionLister
+from app.modules.reports.eligible_sessions import (
+    EligibleSessionLister,
+    EligibleSessionQuery,
+    SessionValidity,
+)
 from app.modules.reports.models import MeasurementFilter
 from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType
 from tests.modules.reports.test_report_generation import (
@@ -186,3 +190,48 @@ def test_case_kinds_come_from_the_snapshot_and_not_only_from_graded_cases():
 
     # Assert
     assert item.case_kinds == (SplitTag.DEV, SplitTag.TEST)
+
+
+@pytest.fixture
+def layak_dan_tidak():
+    layak = _rekaman("Layak", [_nilai(1, "0.5", "0.5")])
+    batal = _rekaman("Batal", [_nilai(1, "0.5", "0.5")], status=SessionStatus.CANCELLED)
+    belum = _rekaman("Belum", [_nilai(1, "0.5", "0.5")], rubrik=None)
+    return layak, batal, belum
+
+
+@pytest.mark.parametrize(
+    ("validitas", "diharapkan"),
+    [
+        (SessionValidity.ALL, ["Layak", "Batal", "Belum"]),
+        (SessionValidity.VALID, ["Layak"]),
+        (SessionValidity.INVALID, ["Batal", "Belum"]),
+    ],
+)
+def test_the_validity_filter_splits_eligible_from_ineligible(
+    layak_dan_tidak, validitas, diharapkan
+):
+    # Act
+    hasil = _daftar(*layak_dan_tidak, query=EligibleSessionQuery(validity=validitas))
+
+    # Assert
+    assert [item.product_name for item in hasil] == diharapkan
+
+
+def test_the_validity_filter_keeps_the_reasons_of_invalid_sessions(layak_dan_tidak):
+    # Act
+    hasil = _daftar(*layak_dan_tidak, query=EligibleSessionQuery(validity=SessionValidity.INVALID))
+
+    # Assert
+    assert [[alasan.code for alasan in item.reasons] for item in hasil] == [
+        [SESSION_CANCELLED],
+        [SESSION_NOT_GRADED],
+    ]
+
+
+def test_no_query_means_no_filtering(layak_dan_tidak):
+    # Act
+    hasil = _daftar(*layak_dan_tidak)
+
+    # Assert
+    assert len(hasil) == 3
