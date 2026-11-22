@@ -158,6 +158,24 @@ def test_tag_harus_dipilih_ulang_sebelum_salinan_siap_direview(penulis, db_sessi
     assert (sesudah["missing"], sesudah["ready_for_review"]) == ([], True)
 
 
+def test_kelengkapan_tersimpan_salinan_dihitung_ulang_tanpa_tag(penulis, db_session):
+    """Positif: persentase kelengkapan yang disimpan di content salinan dihitung ulang, bukan
+    disalin dari asal; karena tag dikosongkan, angkanya turun dan sama dengan hitungan endpoint
+    /completeness."""
+    # Arrange
+    asal = _kasus_approved(penulis, db_session)
+
+    # Act
+    salinan = _salin(penulis, asal["id"]).json()
+    hitung = penulis.get(f"/cases/{salinan['id']}/completeness").json()
+    tersimpan = db_session.get(Case, uuid.UUID(salinan["id"])).current_version.content
+
+    # Assert
+    assert asal["completeness_pct"] == 100
+    assert salinan["completeness_pct"] == hitung["pct"] < 100
+    assert tersimpan["completeness"]["pct"] == hitung["pct"]
+
+
 def test_admin_boleh_menduplikasi(as_role, db_session):
     """Positif: D9, Admin juga boleh menduplikasi kasus."""
     # Arrange
@@ -302,7 +320,7 @@ def test_galat_database_lain_tidak_disamarkan_sebagai_bentrok_kode(
     ],
 )
 def test_salinan_kasus_dev_ditandai_was_dev(penulis, db_session, tag_asal, pernah_dev, harapan):
-    """Positif dan Negatif: keputusan SA review #156, was_dev salinan mengikuti apakah teksnya
+    """Positif dan Negatif: keputusan SA (diagram D8), was_dev salinan mengikuti apakah teksnya
     sudah pernah terlihat Developer AI; tandanya hanya informasi untuk reviewer."""
     # Arrange
     asal = _kasus_approved(penulis, db_session, split_tag=tag_asal)
@@ -318,7 +336,7 @@ def test_salinan_kasus_dev_ditandai_was_dev(penulis, db_session, tag_asal, perna
 
 
 def test_tag_test_tetap_boleh_dipilih_untuk_salinan_kasus_dev(penulis, db_session):
-    """Positif: keputusan SA review #156, was_dev tidak memblokir; penulis salinan boleh
+    """Positif: keputusan SA (diagram D8), was_dev tidak memblokir; penulis salinan boleh
     memberi tag test, dan tandanya tetap ada."""
     # Arrange
     asal = _kasus_approved(penulis, db_session, split_tag="dev")
