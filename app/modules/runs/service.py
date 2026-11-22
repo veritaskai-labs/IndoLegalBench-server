@@ -106,15 +106,15 @@ def _search_destination(
     kind: SessionType,
     status: SessionStatus,
 ) -> SearchDestination | None:
-    if kind == SessionType.MANUAL:
-        if role in {Role.ADMIN, Role.CONTRIBUTOR}:
-            return "manual_detail"
-    elif kind == SessionType.AUTOMATIC:
-        if role in {Role.ADMIN, Role.DEVELOPER_AI}:
-            return "automatic_detail"
-        if role == Role.CONTRIBUTOR and has_ended(status) and grading.has_results(session_id):
-            return "grading_results"
-    return None
+    if kind == SessionType.MANUAL and role in {Role.ADMIN, Role.CONTRIBUTOR}:
+        return "manual_detail"
+    if kind != SessionType.AUTOMATIC:
+        return None
+    if role in {Role.ADMIN, Role.DEVELOPER_AI}:
+        return "automatic_detail"
+    if role != Role.CONTRIBUTOR or not has_ended(status) or not grading.has_results(session_id):
+        return None
+    return "grading_results"
 
 
 def eligible_case_count(counts: Mapping[str, int], case_filter: CaseFilter) -> int:
