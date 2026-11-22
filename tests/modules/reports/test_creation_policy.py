@@ -11,6 +11,7 @@ from app.modules.reports.creation_policy import (
     REPORT_SCOPE_FORBIDDEN,
     available_scopes,
     ensure_can_create,
+    ensure_can_use_scope,
 )
 from app.modules.reports.models import ProductLabelMode, ScoreScope
 from app.shared.exceptions import ForbiddenError
@@ -135,3 +136,21 @@ class TestAvailableScopes:
 
         # Assert
         assert hasil == ()
+
+
+class TestEnsureCanUseScope:
+    @pytest.mark.parametrize("role", [Role.ADMIN, Role.DEVELOPER_AI])
+    @pytest.mark.parametrize("scope", list(ScoreScope))
+    def test_admin_and_developer_ai_may_use_any_scope(self, role, scope):
+        # Act and Assert
+        ensure_can_use_scope(role, scope)
+
+    @pytest.mark.parametrize("role", [Role.VIEWER, Role.CONTRIBUTOR])
+    def test_viewer_and_contributor_are_refused_dev_scores(self, role):
+        # Act
+        with pytest.raises(ForbiddenError) as galat:
+            ensure_can_use_scope(role, ScoreScope.DEV_TEST)
+
+        # Assert
+        assert galat.value.status_code == 403
+        assert galat.value.code == REPORT_SCOPE_FORBIDDEN
