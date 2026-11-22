@@ -156,6 +156,7 @@ def search_cases(
     suite_archives: Mapping[uuid.UUID, bool],
     *,
     approved_dev_only: bool,
+    limit: int,
 ) -> list[tuple[uuid.UUID, str, str, bool]]:
     catalog = legal_refs_service.load_catalog(db)
     hits = []
@@ -165,7 +166,7 @@ def search_cases(
         label = (version.content or {}).get("title") or case.case_code
         if _matches_case(query, case, version, label, catalog):
             hits.append((case.id, label, case.case_code, suite_archives[case.suite_id]))
-            if len(hits) == 20:
+            if len(hits) == limit:
                 break
     return hits
 

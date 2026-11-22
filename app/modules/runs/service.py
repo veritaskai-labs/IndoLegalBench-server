@@ -85,7 +85,7 @@ SearchDestination = Literal["automatic_detail", "manual_detail", "grading_result
 
 
 def search_sessions(
-    db: Session, query: str, role: Role
+    db: Session, query: str, role: Role, *, limit: int
 ) -> list[tuple[uuid.UUID, str, bool, SessionType, SearchDestination]]:
     hits = []
     grading = DbGradingStore(db)
@@ -94,7 +94,7 @@ def search_sessions(
         destination = _search_destination(grading, role, session_id, kind, status)
         if destination and query in label.casefold():
             hits.append((session_id, label, archived_at is not None, kind, destination))
-            if len(hits) == 20:
+            if len(hits) == limit:
                 break
     return hits
 
