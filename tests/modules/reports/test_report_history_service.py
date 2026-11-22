@@ -125,6 +125,7 @@ def test_list_reports_mengirim_filter_d9_dan_halaman_ke_repository(repo):
     # Arrange
     laporan = _laporan()
     repo.list_reports.return_value = ([laporan], 41)
+    repo.frozen_product_labels.return_value = {}
 
     # Act
     halaman = history.list_reports(DB, _pengguna(), PageParams(page=3, size=20))
@@ -145,12 +146,61 @@ def test_list_reports_kosong_tetap_halaman_valid(repo):
     """Edge: pengguna baru belum punya laporan, daftar kosong bukan galat."""
     # Arrange
     repo.list_reports.return_value = ([], 0)
+    repo.frozen_product_labels.return_value = {}
 
     # Act
     halaman = history.list_reports(DB, _pengguna(Role.ADMIN), PageParams())
 
     # Assert
     assert (halaman.items, halaman.total) == ([], 0)
+
+
+def test_list_reports_memuat_produk_dari_label_beku(repo):
+    """Positif: tiap baris daftar membawa produk yang dibandingkan, sesuai label beku (AC9)."""
+    # Arrange
+    pertama, kedua = _laporan(), _laporan(title="Laporan Januari")
+    repo.list_reports.return_value = ([pertama, kedua], 2)
+    repo.frozen_product_labels.return_value = {
+        pertama.id: ["Gemini", "Justisio"],
+        kedua.id: ["Product A", "Product B", "Product C"],
+    }
+
+    # Act
+    halaman = history.list_reports(DB, _pengguna(Role.ADMIN), PageParams())
+
+    # Assert
+    assert [item.products for item in halaman.items] == [
+        ["Gemini", "Justisio"],
+        ["Product A", "Product B", "Product C"],
+    ]
+
+
+def test_list_reports_mengambil_label_satu_kali_untuk_seluruh_halaman(repo):
+    """Positif: satu query label per halaman, bukan satu per laporan (tanpa N+1)."""
+    # Arrange
+    pertama, kedua = _laporan(), _laporan()
+    repo.list_reports.return_value = ([pertama, kedua], 2)
+    repo.frozen_product_labels.return_value = {}
+
+    # Act
+    history.list_reports(DB, _pengguna(Role.ADMIN), PageParams())
+
+    # Assert
+    repo.frozen_product_labels.assert_called_once_with(DB, [pertama.id, kedua.id])
+
+
+def test_list_reports_laporan_tanpa_sesi_punya_daftar_produk_kosong(repo):
+    """Edge: laporan yang tidak punya baris sesi tetap valid dengan produk kosong, bukan galat."""
+    # Arrange
+    laporan = _laporan()
+    repo.list_reports.return_value = ([laporan], 1)
+    repo.frozen_product_labels.return_value = {}
+
+    # Act
+    halaman = history.list_reports(DB, _pengguna(), PageParams())
+
+    # Assert
+    assert halaman.items[0].products == []
 
 
 # --- Buka ulang satu laporan (GET /reports/{id}) -----------------------------
@@ -181,6 +231,20 @@ def test_get_report_merakit_hasil_beku_tanpa_menghitung_ulang(repo):
         "case_version_no": 2,
         "split_tag": SplitTag.TEST,
     }
+
+
+def test_get_report_memuat_produk_sesuai_label_sesi(repo):
+    """Positif: detail laporan membawa daftar produk yang sama dengan sesinya (AC9)."""
+    # Arrange
+    laporan = _laporan()
+    repo.get_report.return_value = laporan
+    repo.contents.return_value = _isi(laporan)
+
+    # Act
+    detail = history.get_report(DB, laporan.id, _pengguna())
+
+    # Assert
+    assert detail.products == ["Gemini", "Justisio"]
 
 
 def test_get_report_hasil_hanya_masuk_ke_sesinya_sendiri(repo):
