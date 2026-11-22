@@ -9443,6 +9443,16 @@
         "title": "CaseNotReadyBody",
         "description": "422 CASE_NOT_READY: every section that blocks the submission."
       },
+      "CaseOrigin": {
+        "type": "string",
+        "enum": [
+          "manual",
+          "import",
+          "duplicate"
+        ],
+        "title": "CaseOrigin",
+        "description": "Cara kasus masuk ke platform (D8). Kasus lama sebelum PBI-4 semuanya manual."
+      },
       "CaseRead": {
         "properties": {
           "id": {
@@ -9473,7 +9483,15 @@
             "$ref": "#/components/schemas/AnswerCriteria"
           },
           "split_tag": {
-            "$ref": "#/components/schemas/SplitTag"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SplitTag"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kosong hanya pada draft hasil impor atau duplikasi (PBI-4 AC2, AC8). Wajib dipilih sebelum diajukan review; selama kosong, kasus tertutup untuk Developer AI."
           },
           "status": {
             "$ref": "#/components/schemas/CaseStatus"
@@ -9482,6 +9500,36 @@
             "type": "boolean",
             "title": "Was Dev",
             "description": "Kasus ini pernah berada di dev set (PBI-9 AC3); tidak pernah kembali false"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/CaseOrigin",
+            "description": "Cara kasus masuk: manual, import, atau duplicate (D8)"
+          },
+          "source_case_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Case Id",
+            "description": "Kasus asal bila origin = duplicate"
+          },
+          "import_batch_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Import Batch Id",
+            "description": "Batch impor CSV bila origin = import"
           },
           "completeness_pct": {
             "type": "integer",
@@ -9515,6 +9563,7 @@
           "split_tag",
           "status",
           "was_dev",
+          "origin",
           "completeness_pct",
           "version",
           "created_at",
@@ -9625,10 +9674,22 @@
             "title": "Title"
           },
           "split_tag": {
-            "$ref": "#/components/schemas/SplitTag"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SplitTag"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kosong hanya pada draft hasil impor atau duplikasi (PBI-4 AC2, AC8)"
           },
           "status": {
             "$ref": "#/components/schemas/CaseStatus"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/CaseOrigin",
+            "default": "manual"
           },
           "completeness_pct": {
             "type": "integer",
@@ -16908,7 +16969,14 @@
             "title": "Case Code"
           },
           "split_tag": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Split Tag"
           },
           "legal_refs": {

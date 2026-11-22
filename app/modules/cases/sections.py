@@ -44,7 +44,7 @@ SECTIONS = (
 def sections_from(
     *,
     case_code: str,
-    split_tag: str,
+    split_tag: str | None,
     content: dict | None,
     legal_refs: list[dict[str, Any]],
 ) -> dict[str, Any]:

@@ -24,7 +24,8 @@ from app.modules.cases import (
     validation,
 )
 from app.modules.cases.display_text import citation_text
-from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
+from app.modules.cases.fingerprint import content_fingerprint
+from app.modules.cases.models import Case, CaseOrigin, CaseStatus, CaseVersion, SplitTag
 from app.modules.cases.schemas import (
     ActorRead,
     CaseCompleteness,
@@ -680,7 +681,7 @@ def _section_values(version: CaseVersion, katalog: legal_refs_service.TypeCatalo
     """
     return sections.sections_from(
         case_code=version.case_code,
-        split_tag=version.split_tag.value,
+        split_tag=version.split_tag.value if version.split_tag else None,
         content=version.content,
         legal_refs=_legal_refs_json(version, katalog),
     )
@@ -712,6 +713,10 @@ def _write_version(
     data = payload.model_dump(mode="json")
     case.case_code = payload.case_code
     case.updated_by = actor_id
+    # PBI-4 D7: kasus kembar saat impor dicari dengan sidik jari versi yang sedang dikerjakan.
+    case.content_fingerprint = content_fingerprint(
+        payload.identity.title, payload.identity.question
+    )
     version.case_code = payload.case_code
     version.split_tag = payload.split_tag
     version.content = {
@@ -753,6 +758,10 @@ def _to_read(
         status=versi.status,
         # None pada objek Case yang belum di-flush; default kolomnya false.
         was_dev=bool(case.was_dev),
+        # Sama: origin None sebelum flush berarti default kolomnya, manual.
+        origin=case.origin or CaseOrigin.MANUAL,
+        source_case_id=case.source_case_id,
+        import_batch_id=case.import_batch_id,
         completeness_pct=_completeness_pct(isi.get("completeness")),
         version=versi.version_no,
         created_at=versi.created_at,
@@ -775,6 +784,7 @@ def _to_summary(
         title=isi.get("title") or "",
         split_tag=version.split_tag,
         status=version.status,
+        origin=case.origin or CaseOrigin.MANUAL,
         completeness_pct=_pct_from_version(case, version, katalog),
         updated_at=version.updated_at,
     )
