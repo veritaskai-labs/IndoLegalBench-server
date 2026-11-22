@@ -5,6 +5,7 @@ berubah, kontrak API ikut berubah, jadi wajib diumumkan ke tim.
 
 PBI-15 SCRUM-79 SCRUM-313: POST /reports dan GET /reports/eligible-sessions. Aturan isian ditulis di sini sekali; frontend tidak
 menyalinnya.
+PBI-15 SCRUM-79 SCRUM-362: bentuk POST /reports/validate (ReportValidateRequest, ReportValidationRead).
 
 PBI-17 SCRUM-84 SCRUM-331: bentuk response GET /reports/trend (TrendRead).
 PBI-17 SCRUM-84 SCRUM-332: POST /reports/{id}/publish dan GET /published-reports.
@@ -38,6 +39,7 @@ from app.modules.reports.models import (
     ScoreSplit,
 )
 from app.modules.reports.report_generation import GeneratedReport, ReportRequest
+from app.modules.reports.report_validation import ReportValidation, ViolationKind
 from app.modules.reports.trend import TrendMetric, TrendRange
 from app.modules.reports.trend_service import ProductTrend
 from app.modules.runs.models import (
@@ -50,6 +52,7 @@ from app.modules.runs.models import (
 from app.shared.text import strip_blank
 
 _TITLE_MAX = 200
+_MESSAGE_DESCRIPTION = "Pesan siap tampil untuk pengguna"
 
 
 class ReportCreate(BaseModel):
@@ -236,9 +239,88 @@ class ReportNotComparableBody(ErrorBody):
     rejections: list[ReportRejectionRead]
 
 
+class ReportValidateRequest(BaseModel):
+    """Pilihan sesi yang diperiksa tanpa menyimpan laporan (dry-run)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    session_ids: list[uuid.UUID] = Field(
+        description=(
+            "Sesi yang dipilih sejauh ini. Boleh kosong atau satu sesi: itu dijawab sebagai "
+            "pelanggaran NEED_AT_LEAST_TWO_PRODUCTS, bukan galat, karena halaman memanggil "
+            "ini tiap pilihan berubah."
+        ),
+    )
+    score_scope: ScoreScope = Field(
+        default=ScoreScope.TEST,
+        description="Jenis nilai yang ingin dibuat. dev dan dev_test hanya untuk Admin dan "
+        "Developer AI; peran lain mendapat 403 REPORT_SCOPE_FORBIDDEN.",
+    )
+    measurement_filter: MeasurementFilter = Field(
+        default=MeasurementFilter.ALL,
+        description="Saring sesi otomatis atau manual saja; bawaannya semuanya.",
+    )
+
+
+class ReportViolationRead(BaseModel):
+    kind: ViolationKind = Field(
+        description="selection (kombinasi sesi), session (satu sesi tidak layak), "
+        "requirement (rubrik, penilai, suite), atau case_slice (irisan kasus kosong)"
+    )
+    code: str = Field(description="Kode stabil, misalnya SESSION_CANCELLED atau RUBRIC_VERSION")
+    message: str = Field(description=_MESSAGE_DESCRIPTION)
+    session_id: uuid.UUID | None = Field(
+        default=None, description="Sesi yang bermasalah; hanya terisi untuk kind session"
+    )
+
+
+class ReportWarningRead(BaseModel):
+    code: str = Field(
+        description="REPETITIONS_DIFFER, MANUAL_ANSWER_RANGE_OVER_LIMIT, MODEL_VERSION_DIFFERS, "
+        "atau TRIAL_SESSION"
+    )
+    message: str = Field(description=_MESSAGE_DESCRIPTION)
+    session_id: uuid.UUID | None = Field(
+        default=None, description="Sesi yang ditandai; kosong bila berlaku untuk seluruh pilihan"
+    )
+
+
+class ReportValidationRead(BaseModel):
+    """Hasil dry-run. Server tetap memeriksa ulang saat POST /reports (tidak percaya FE)."""
+
+    valid: bool = Field(description="True bila tidak ada pelanggaran; peringatan tidak dihitung")
+    violations: list[ReportViolationRead] = Field(
+        description="Semua pelanggaran sekaligus; POST /reports akan menolak selama ada isinya"
+    )
+    warnings: list[ReportWarningRead] = Field(
+        description="Penanda yang tidak memblokir; tetap tampil di laporan"
+    )
+    available_scopes: list[ScoreScope] = Field(
+        description="Jenis nilai yang boleh dipilih peran ini, dihitung dari jenis kasus "
+        "(dev, test) pada irisan kasus sesi yang layak. Kosong bila tidak ada irisan."
+    )
+
+    @classmethod
+    def from_validation(cls, validation: ReportValidation) -> "ReportValidationRead":
+        return cls(
+            valid=validation.valid,
+            violations=[
+                ReportViolationRead(
+                    kind=v.kind, code=v.code, message=v.message, session_id=v.session_id
+                )
+                for v in validation.violations
+            ],
+            warnings=[
+                ReportWarningRead(code=w.code, message=w.message, session_id=w.session_id)
+                for w in validation.warnings
+            ],
+            available_scopes=list(validation.available_scopes),
+        )
+
+
 class EligibleSessionReasonRead(BaseModel):
     code: str = Field(description="Kode alasan, misalnya SESSION_NOT_GRADED atau SESSION_CANCELLED")
-    message: str = Field(description="Pesan siap tampil untuk pengguna")
+    message: str = Field(description=_MESSAGE_DESCRIPTION)
 
 
 class EligibleSessionRead(BaseModel):

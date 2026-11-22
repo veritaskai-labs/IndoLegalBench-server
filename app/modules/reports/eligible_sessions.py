@@ -21,7 +21,7 @@ from app.modules.reports.comparison_rules import (
     ineligibility_message,
 )
 from app.modules.reports.models import MeasurementFilter
-from app.modules.reports.report_generation import KINDS_BY_FILTER
+from app.modules.reports.report_planning import KINDS_BY_FILTER
 from app.modules.reports.session_record import SessionRecordReader
 from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType
 

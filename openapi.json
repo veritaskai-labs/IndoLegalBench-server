@@ -5437,6 +5437,68 @@
         }
       }
     },
+    "/reports/validate": {
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Periksa pilihan sesi untuk laporan tanpa menyimpan (dry-run)",
+        "description": "Semua pelanggaran sekaligus saat sesi dipilih, bukan setelah klik Buat Laporan.\n\nAturannya sama dengan POST /reports (PBI-15 AC1, AC4, AC5, AC13, AC14), tetapi tidak\nmenyimpan apa pun dan selalu 200 untuk pilihan yang bisa dibaca. POST /reports tetap\nmemeriksa ulang di server.",
+        "operationId": "validate_report_selection_reports_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportValidateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportValidationRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Jenis nilai atau label di luar hak peran (`REPORT_SCOPE_FORBIDDEN`, `REPORT_LABEL_MODE_FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ada sesi yang dipilih tidak ditemukan (`REPORT_SESSION_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportSessionNotFoundBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/reports/eligible-sessions": {
       "get": {
         "tags": [
@@ -14475,6 +14537,149 @@
         "title": "ReportSummary",
         "description": "Satu baris di daftar laporan tersimpan (GET /reports)."
       },
+      "ReportValidateRequest": {
+        "properties": {
+          "session_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Session Ids",
+            "description": "Sesi yang dipilih sejauh ini. Boleh kosong atau satu sesi: itu dijawab sebagai pelanggaran NEED_AT_LEAST_TWO_PRODUCTS, bukan galat, karena halaman memanggil ini tiap pilihan berubah."
+          },
+          "score_scope": {
+            "$ref": "#/components/schemas/ScoreScope",
+            "description": "Jenis nilai yang ingin dibuat. dev dan dev_test hanya untuk Admin dan Developer AI; peran lain mendapat 403 REPORT_SCOPE_FORBIDDEN.",
+            "default": "test"
+          },
+          "measurement_filter": {
+            "$ref": "#/components/schemas/MeasurementFilter",
+            "description": "Saring sesi otomatis atau manual saja; bawaannya semuanya.",
+            "default": "all"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "session_ids"
+        ],
+        "title": "ReportValidateRequest",
+        "description": "Pilihan sesi yang diperiksa tanpa menyimpan laporan (dry-run)."
+      },
+      "ReportValidationRead": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid",
+            "description": "True bila tidak ada pelanggaran; peringatan tidak dihitung"
+          },
+          "violations": {
+            "items": {
+              "$ref": "#/components/schemas/ReportViolationRead"
+            },
+            "type": "array",
+            "title": "Violations",
+            "description": "Semua pelanggaran sekaligus; POST /reports akan menolak selama ada isinya"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/ReportWarningRead"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "Penanda yang tidak memblokir; tetap tampil di laporan"
+          },
+          "available_scopes": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreScope"
+            },
+            "type": "array",
+            "title": "Available Scopes",
+            "description": "Jenis nilai yang boleh dipilih peran ini, dihitung dari jenis kasus (dev, test) pada irisan kasus sesi yang layak. Kosong bila tidak ada irisan."
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid",
+          "violations",
+          "warnings",
+          "available_scopes"
+        ],
+        "title": "ReportValidationRead",
+        "description": "Hasil dry-run. Server tetap memeriksa ulang saat POST /reports (tidak percaya FE)."
+      },
+      "ReportViolationRead": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ViolationKind",
+            "description": "selection (kombinasi sesi), session (satu sesi tidak layak), requirement (rubrik, penilai, suite), atau case_slice (irisan kasus kosong)"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Kode stabil, misalnya SESSION_CANCELLED atau RUBRIC_VERSION"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Pesan siap tampil untuk pengguna"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id",
+            "description": "Sesi yang bermasalah; hanya terisi untuk kind session"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "code",
+          "message"
+        ],
+        "title": "ReportViolationRead"
+      },
+      "ReportWarningRead": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "REPETITIONS_DIFFER, MANUAL_ANSWER_RANGE_OVER_LIMIT, MODEL_VERSION_DIFFERS, atau TRIAL_SESSION"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Pesan siap tampil untuk pengguna"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id",
+            "description": "Sesi yang ditandai; kosong bila berlaku untuk seluruh pilihan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ReportWarningRead"
+      },
       "ReviewCopy": {
         "properties": {
           "case_id": {
@@ -17070,6 +17275,16 @@
         ],
         "title": "VersionSummary",
         "description": "One row of GET /cases/{id}/versions."
+      },
+      "ViolationKind": {
+        "type": "string",
+        "enum": [
+          "selection",
+          "session",
+          "requirement",
+          "case_slice"
+        ],
+        "title": "ViolationKind"
       }
     }
   }
