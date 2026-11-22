@@ -1,13 +1,9 @@
 """GET /case-imports/template, POST /case-imports, GET /case-imports/{id}.
-PBI-4 SCRUM-81 SCRUM-338, AC4-AC11, diagram D7 dan D8.
 
-AC6 template diunduh dari sistem. AC7 ringkasan berhasil, gagal (dengan alasan per baris), dan
-dilewati; baris valid tetap tersimpan. AC8 baris gagal tidak disimpan. AC9 ID dari sistem, tag
-boleh kosong. AC11 hasil impor berstatus draft, ditulis pengimpor, jadi wajib lewat review dua
-reviewer seperti kasus manual. Keputusan SA: semua kasus satu berkas masuk satu suite sementara;
-kembar = sidik jari judul + pertanyaan, dicek ke kasus yang ada dan ke baris lain di berkas.
-
-Label: Positif = jalur normal, Negatif = harus ditolak, Edge = data batas.
+Baris valid tersimpan walau baris lain gagal, baris gagal dilaporkan dengan alasan, baris kembar
+dilewati. Kasus hasil impor adalah draft baru dengan kode dari sistem, ditulis pengimpor, di satu
+suite sementara per berkas. Kembar = sidik jari judul + pertanyaan, dicek ke kasus yang ada, ke
+baris lain di berkas, dan ke baris impor sebelumnya.
 """
 
 import csv
@@ -18,6 +14,7 @@ import uuid
 import pytest
 from sqlalchemy.exc import IntegrityError
 
+from app.modules.auth.models import User
 from app.modules.cases import import_service
 from app.modules.cases.csv_import import TEMPLATE_COLUMNS, template_csv
 from app.modules.cases.models import (
@@ -31,7 +28,7 @@ from app.modules.cases.models import (
 from app.modules.suites.models import Suite
 from app.shared.security import Role
 from tests.legal_refs import rujukan_pasal
-from tests.modules.cases.test_cases import _buat, _suite
+from tests.modules.cases.test_cases import _badan, _buat, _suite
 from tests.modules.conftest import USER_ID_QA
 
 
@@ -70,12 +67,9 @@ def _lengkap(
     )
 
 
-# Template (AC6)
-
-
 @pytest.mark.parametrize("peran", [Role.CONTRIBUTOR, Role.ADMIN])
 def test_template_bisa_diunduh_kontributor_dan_admin(as_role, peran):
-    """Positif: AC6, template CSV dari sistem."""
+    """Template CSV dari sistem."""
     respons = as_role(peran).get("/case-imports/template")
 
     assert respons.status_code == 200
@@ -88,18 +82,15 @@ def test_template_bisa_diunduh_kontributor_dan_admin(as_role, peran):
 
 @pytest.mark.parametrize("peran", [Role.VIEWER, Role.DEVELOPER_AI])
 def test_template_dan_impor_tertutup_untuk_selain_penulis(as_role, peran):
-    """Negatif: D9, hanya Kontributor dan Admin yang menulis kasus."""
+    """Hanya Kontributor dan Admin yang menulis kasus."""
     client = as_role(peran)
 
     assert client.get("/case-imports/template").status_code == 403
     assert _impor(client, _berkas(_lengkap())).status_code == 403
 
 
-# Impor (AC7-AC11)
-
-
 def test_baris_valid_tersimpan_baris_gagal_dilaporkan(pengimpor, db_session):
-    """Positif: AC7, AC8, ringkasan berhasil dan gagal beserta alasan; baris valid tetap tersimpan
+    """Ringkasan berhasil dan gagal beserta alasan; baris valid tetap tersimpan
     walau baris lain gagal."""
     respons = _impor(
         pengimpor,
@@ -129,7 +120,7 @@ def test_baris_valid_tersimpan_baris_gagal_dilaporkan(pengimpor, db_session):
 
 
 def test_kasus_hasil_impor_adalah_draft_baru_milik_pengimpor(pengimpor, db_session):
-    """Positif: AC9, AC11, D7, kode dari sistem, draft versi 1, origin import, penulis pengimpor,
+    """Kode dari sistem, draft versi 1, origin import, penulis pengimpor,
     masuk suite sementara batch itu."""
     ringkasan = _impor(pengimpor, _berkas(_lengkap())).json()
 
@@ -149,7 +140,7 @@ def test_kasus_hasil_impor_adalah_draft_baru_milik_pengimpor(pengimpor, db_sessi
 
 
 def test_isi_kasus_bisa_dibaca_seperti_kasus_manual(pengimpor):
-    """Positif: AC10, rujukan campuran tersimpan dan dibaca lewat API kasus biasa."""
+    """Rujukan campuran tersimpan dan dibaca lewat API kasus biasa."""
     case_id = _impor(pengimpor, _berkas(_lengkap())).json()["rows"][0]["case_id"]
 
     kasus = pengimpor.get(f"/cases/{case_id}").json()
@@ -165,7 +156,7 @@ def test_isi_kasus_bisa_dibaca_seperti_kasus_manual(pengimpor):
 
 
 def test_kasus_dengan_field_kosong_tetap_bisa_dibaca_dan_dilengkapi(pengimpor):
-    """Edge: AC5, AC8, kasus lama dengan field lebih sedikit masuk sebagai draft tanpa tag;
+    """Kasus lama dengan field lebih sedikit masuk sebagai draft tanpa tag;
     halaman kasus tetap bisa membukanya walau judul atau pertanyaannya kosong."""
     ringkasan = _impor(pengimpor, _berkas(_baris(question="Hanya pertanyaan"))).json()
     case_id = ringkasan["rows"][0]["case_id"]
@@ -180,7 +171,7 @@ def test_kasus_dengan_field_kosong_tetap_bisa_dibaca_dan_dilengkapi(pengimpor):
 
 
 def test_suite_sementara_satu_per_berkas(pengimpor, db_session):
-    """Positif: keputusan SA, semua kasus satu berkas masuk satu suite sementara yang aktif."""
+    """Semua kasus satu berkas masuk satu suite sementara yang aktif."""
     ringkasan = _impor(pengimpor, _berkas(_lengkap("A", "1"), _lengkap("B", "2"))).json()
 
     suite = db_session.get(Suite, uuid.UUID(ringkasan["suite_id"]))
@@ -194,7 +185,7 @@ def test_suite_sementara_satu_per_berkas(pengimpor, db_session):
 
 
 def test_batch_dan_hasil_per_baris_tersimpan(pengimpor, db_session):
-    """Positif: D8, jumlah di import_batches sama dengan hitungan import_row_results."""
+    """Jumlah di import_batches sama dengan hitungan import_row_results."""
     ringkasan = _impor(pengimpor, _berkas(_lengkap(), _baris(title="x" * 301))).json()
 
     batch = db_session.get(ImportBatch, uuid.UUID(ringkasan["batch_id"]))
@@ -220,18 +211,15 @@ def test_batch_dan_hasil_per_baris_tersimpan(pengimpor, db_session):
 
 
 def test_baris_kosong_tidak_dicatat(pengimpor):
-    """Edge: D7, baris yang seluruhnya kosong dilewati tanpa dicatat gagal."""
+    """Baris yang seluruhnya kosong dilewati tanpa dicatat gagal."""
     ringkasan = _impor(pengimpor, _berkas(_lengkap(), _baris(), _lengkap("B", "2"))).json()
 
     assert ringkasan["total_rows"] == 2
     assert [b["row_no"] for b in ringkasan["rows"]] == [2, 4]
 
 
-# Kembar (AC11 impor ulang, keputusan SA)
-
-
 def test_kembar_dengan_kasus_yang_sudah_ada_dilewati(pengimpor, db_session):
-    """Positif: keputusan SA, judul + pertanyaan yang dinormalkan sama dengan kasus yang ada."""
+    """Judul + pertanyaan yang dinormalkan sama dengan kasus yang ada."""
     _buat(pengimpor, _suite(pengimpor), case_code="PDT-001")
 
     ringkasan = _impor(
@@ -246,7 +234,7 @@ def test_kembar_dengan_kasus_yang_sudah_ada_dilewati(pengimpor, db_session):
 
 
 def test_kembar_di_dalam_berkas_yang_sama_dilewati(pengimpor):
-    """Positif: keputusan SA, baris kedua dengan judul dan pertanyaan sama dilewati."""
+    """Baris kedua dengan judul dan pertanyaan sama dilewati."""
     ringkasan = _impor(pengimpor, _berkas(_lengkap(), _lengkap())).json()
 
     assert [b["status"] for b in ringkasan["rows"]] == ["created", "skipped"]
@@ -254,7 +242,7 @@ def test_kembar_di_dalam_berkas_yang_sama_dilewati(pengimpor):
 
 
 def test_impor_ulang_berkas_yang_sama_melewati_semua_baris(pengimpor, db_session):
-    """Positif: AC11, berkas yang sama diimpor lagi, semua baris dilewati."""
+    """Berkas yang sama diimpor lagi, semua baris dilewati."""
     data = _berkas(_lengkap("A", "1"), _lengkap("B", "2"))
     pertama = _impor(pengimpor, data).json()
 
@@ -267,7 +255,7 @@ def test_impor_ulang_berkas_yang_sama_melewati_semua_baris(pengimpor, db_session
 
 
 def test_baris_gagal_tidak_dianggap_ada_untuk_cek_kembar(pengimpor):
-    """Edge: baris yang gagal tidak tersimpan, jadi baris kembarannya yang valid tetap masuk."""
+    """Baris yang gagal tidak tersimpan, jadi baris kembarannya yang valid tetap masuk."""
     rusak = _lengkap()
     rusak[TEMPLATE_COLUMNS.index("split_tag")] = "salah"
 
@@ -276,18 +264,15 @@ def test_baris_gagal_tidak_dianggap_ada_untuk_cek_kembar(pengimpor):
     assert [b["status"] for b in ringkasan["rows"]] == ["failed", "created"]
 
 
-def test_tanpa_judul_dan_pertanyaan_tidak_pernah_kembar(pengimpor):
-    """Edge: sidik jari kosong, dua draft tanpa judul dan pertanyaan bukan kembar."""
+def test_tanpa_judul_dan_pertanyaan_dengan_isi_lain_berbeda_bukan_kembar(pengimpor):
+    """Tanpa judul dan pertanyaan, baris dengan isi lain yang berbeda tetap dua kasus."""
     ringkasan = _impor(pengimpor, _berkas(_baris(category="a"), _baris(category="b"))).json()
 
     assert [b["status"] for b in ringkasan["rows"]] == ["created", "created"]
 
 
-# Berkas ditolak utuh (D7)
-
-
 def test_berkas_ditolak_tidak_menyimpan_apa_pun(pengimpor, db_session):
-    """Negatif: D7, header salah = tolak seluruh berkas; tidak ada batch, suite, atau kasus."""
+    """Header salah = tolak seluruh berkas; tidak ada batch, suite, atau kasus."""
     respons = pengimpor.post(
         "/case-imports", files={"file": ("kasus.csv", b"judul,pertanyaan\r\nA,B\r\n", "text/csv")}
     )
@@ -300,7 +285,7 @@ def test_berkas_ditolak_tidak_menyimpan_apa_pun(pengimpor, db_session):
 
 
 def test_tanpa_berkas_ditolak(pengimpor):
-    """Negatif: field file wajib."""
+    """Field file wajib."""
     respons = pengimpor.post("/case-imports", data={"lain": "x"})
 
     assert respons.status_code == 422
@@ -308,7 +293,7 @@ def test_tanpa_berkas_ditolak(pengimpor):
 
 
 def test_berkas_terlalu_besar_ditolak_dari_content_length(pengimpor, monkeypatch, db_session):
-    """Negatif: unggahan raksasa ditolak sebelum body dibaca utuh (pola bukti manual, #121)."""
+    """Unggahan raksasa ditolak sebelum body dibaca utuh."""
     monkeypatch.setattr(import_service, "upload_limit_bytes", lambda: 10)
 
     respons = _impor(pengimpor, _berkas(*[_lengkap(f"K{i}", "Q") for i in range(2000)]))
@@ -318,11 +303,8 @@ def test_berkas_terlalu_besar_ditolak_dari_content_length(pengimpor, monkeypatch
     assert db_session.query(ImportBatch).count() == 0
 
 
-# Bentrok saat menyimpan
-
-
 def test_bentrok_kode_saat_simpan_hanya_menggagalkan_baris_itu(pengimpor, db_session, monkeypatch):
-    """Edge: kode yang tadi bebas dipakai penyimpanan lain; baris itu gagal dengan alasan, baris
+    """Kode yang tadi bebas dipakai penyimpanan lain; baris itu gagal dengan alasan, baris
     lain tetap tersimpan, dan impor ulang akan melewati baris yang sudah masuk."""
     kode_asli = import_service.free_case_code
     dipakai = _buat(pengimpor, _suite(pengimpor), case_code="PDT-009").json()["case_code"]
@@ -341,7 +323,7 @@ def test_bentrok_kode_saat_simpan_hanya_menggagalkan_baris_itu(pengimpor, db_ses
 
 
 def test_galat_simpan_lain_tidak_disembunyikan(pengimpor, monkeypatch):
-    """Negatif: IntegrityError selain bentrok kode tetap dilempar, bukan dicatat diam-diam."""
+    """IntegrityError selain bentrok kode tetap dilempar, bukan dicatat diam-diam."""
 
     def gagal(*_args, **_kwargs):
         raise IntegrityError("INSERT", {}, Exception("FOREIGN KEY constraint failed"))
@@ -352,11 +334,8 @@ def test_galat_simpan_lain_tidak_disembunyikan(pengimpor, monkeypatch):
         _impor(pengimpor, _berkas(_lengkap()))
 
 
-# Ringkasan dibuka ulang
-
-
 def test_ringkasan_bisa_dibuka_lagi(pengimpor):
-    """Positif: AC7, ringkasan yang sama bisa dibaca ulang dari batch-nya."""
+    """Ringkasan yang sama bisa dibaca ulang dari batch-nya."""
     ringkasan = _impor(pengimpor, _berkas(_lengkap(), _baris(split_tag="x"))).json()
 
     lagi = pengimpor.get(f"/case-imports/{ringkasan['batch_id']}")
@@ -366,8 +345,131 @@ def test_ringkasan_bisa_dibuka_lagi(pengimpor):
 
 
 def test_ringkasan_batch_tidak_dikenal_404(pengimpor):
-    """Negatif: batch yang tidak ada."""
+    """Batch yang tidak ada."""
     respons = pengimpor.get(f"/case-imports/{uuid.uuid4()}")
 
     assert respons.status_code == 404
     assert respons.json()["code"] == "IMPORT_BATCH_NOT_FOUND"
+
+
+def test_impor_ulang_setelah_kasus_disunting_tetap_dilewati(pengimpor, db_session):
+    """Kasus hasil impor yang judulnya sudah diubah tidak dibuat lagi saat berkas
+    yang sama diimpor ulang; sidik jari baris impor sebelumnya ikut dicek."""
+    data = _berkas(_lengkap())
+    pertama = _impor(pengimpor, data).json()["rows"][0]
+    disunting = pengimpor.put(
+        f"/cases/{pertama['case_id']}",
+        json=_badan(case_code=pertama["case_code"], split_tag="test")
+        | {"identity": {"title": "PHK tanpa surat", "question": "Apakah sah?"}},
+    )
+    assert disunting.status_code == 200, disunting.text
+
+    ulang = _impor(pengimpor, data).json()
+
+    baris = ulang["rows"][0]
+    assert (baris["status"], baris["case_id"]) == ("skipped", None)
+    assert baris["reason"] == (
+        f"Kembar dengan baris 2 dari impor sebelumnya (kasus {pertama['case_code']})."
+    )
+    assert db_session.query(Case).count() == 1
+
+
+def test_suite_sementara_tanpa_kasus_diarsipkan(pengimpor, db_session):
+    """Semua baris gagal atau dilewati, jadi suite sementaranya diarsipkan supaya tidak
+    menumpuk suite kosong yang aktif; ringkasannya tetap bisa dibuka."""
+    ringkasan = _impor(pengimpor, _berkas(_baris(split_tag="salah"))).json()
+
+    suite = db_session.get(Suite, uuid.UUID(ringkasan["suite_id"]))
+    assert (ringkasan["success_count"], suite.status) == (0, "archived")
+    assert pengimpor.get(f"/case-imports/{ringkasan['batch_id']}").status_code == 200
+
+
+def test_jumlah_batch_tetap_benar_bila_impor_terhenti(pengimpor, db_session, monkeypatch):
+    """Galat tak terduga di baris kedua; baris pertama sudah tersimpan dan jumlah di batch
+    sudah ikut dihitung, bukan menunggu akhir impor."""
+    kode_asli = import_service.free_case_code
+    panggilan = iter([None, RuntimeError("putus")])
+
+    def kode(db, dasar):
+        galat = next(panggilan)
+        if galat is not None:
+            raise galat
+        return kode_asli(db, dasar)
+
+    monkeypatch.setattr(import_service, "free_case_code", kode)
+
+    with pytest.raises(RuntimeError):
+        _impor(pengimpor, _berkas(_lengkap("A", "1"), _lengkap("B", "2")))
+
+    db_session.expire_all()
+    batch = db_session.query(ImportBatch).one()
+    assert (batch.total_rows, batch.success_count, batch.failed_count) == (2, 1, 0)
+    assert db_session.query(ImportRowResult).count() == 1
+
+
+def test_kasus_hasil_impor_lewat_review_dua_reviewer(pengimpor, db_session):
+    """Setelah dilengkapi, kasus hasil impor diajukan seperti kasus manual: dua
+    reviewer ditugaskan dan pengimpor (penulisnya) tidak pernah menjadi reviewer."""
+    for nomor in range(1, 4):
+        db_session.add(
+            User(
+                id=uuid.UUID(f"00000000-0000-0000-0000-{nomor:012d}"),
+                email=f"reviewer{nomor}@veritask.test",
+                name=f"Reviewer {nomor}",
+                role=Role.CONTRIBUTOR,
+                is_active=True,
+            )
+        )
+    db_session.add(
+        User(id=USER_ID_QA, email="qa@veritask.test", name="Pengimpor", role=Role.CONTRIBUTOR)
+    )
+    db_session.commit()
+    baris = _impor(pengimpor, _berkas(_baris(title="Belum lengkap"))).json()["rows"][0]
+    belum = pengimpor.post(f"/cases/{baris['case_id']}/submit-review")
+    assert (belum.status_code, belum.json()["code"]) == (422, "CASE_NOT_READY")
+    pengimpor.put(f"/cases/{baris['case_id']}", json=_badan(case_code=baris["case_code"]))
+
+    diajukan = pengimpor.post(f"/cases/{baris['case_id']}/submit-review")
+
+    assert diajukan.status_code == 200, diajukan.text
+    review = pengimpor.get(f"/cases/{baris['case_id']}/review").json()
+    reviewer = [slot["reviewer"]["id"] for slot in review["reviewers"]]
+    assert len(reviewer) == 2
+    assert str(USER_ID_QA) not in reviewer
+
+
+def test_impor_ulang_baris_tanpa_judul_dan_pertanyaan_dilewati(pengimpor, db_session):
+    """Berkas yang sama diimpor lagi; baris yang hanya berisi kategori tidak
+    punya sidik jari isi, jadi dikenali dari identitas baris (semua kolomnya)."""
+    data = _berkas(_baris(category="ketenagakerjaan"))
+    pertama = _impor(pengimpor, data).json()["rows"][0]
+
+    ulang = _impor(pengimpor, data).json()["rows"][0]
+
+    assert (ulang["status"], ulang["case_id"]) == ("skipped", None)
+    assert ulang["reason"] == (
+        f"Kembar dengan baris 2 dari impor sebelumnya (kasus {pertama['case_code']})."
+    )
+    assert db_session.query(Case).count() == 1
+
+
+def test_baris_tanpa_judul_dan_pertanyaan_yang_sama_di_berkas_dilewati(pengimpor):
+    """Dua baris identik tanpa judul dan pertanyaan di satu berkas, yang kedua dilewati."""
+    sama = _baris(category="ketenagakerjaan", must_contain='["surat"]')
+
+    ringkasan = _impor(pengimpor, _berkas(sama, sama)).json()
+
+    assert [b["status"] for b in ringkasan["rows"]] == ["created", "skipped"]
+    assert ringkasan["rows"][1]["reason"] == "Kembar dengan baris 2 di berkas ini."
+
+
+def test_baris_tanpa_judul_tidak_kembar_dengan_kasus_manual_hanya_karena_kosong(
+    pengimpor, db_session
+):
+    """Identitas baris hanya dibandingkan dengan baris impor, bukan kasus manual, jadi
+    draft kosong tidak pernah dianggap kembar dengan kasus yang ditulis manual."""
+    _buat(pengimpor, _suite(pengimpor), case_code="PDT-002")
+
+    baris = _impor(pengimpor, _berkas(_baris(category="ketenagakerjaan"))).json()["rows"][0]
+
+    assert baris["status"] == "created"
