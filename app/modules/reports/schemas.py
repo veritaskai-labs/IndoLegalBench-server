@@ -52,6 +52,7 @@ from app.modules.runs.models import (
 from app.shared.text import strip_blank
 
 _TITLE_MAX = 200
+_MESSAGE_DESCRIPTION = "Pesan siap tampil untuk pengguna"
 
 
 class ReportCreate(BaseModel):
@@ -267,7 +268,7 @@ class ReportViolationRead(BaseModel):
         "requirement (rubrik, penilai, suite), atau case_slice (irisan kasus kosong)"
     )
     code: str = Field(description="Kode stabil, misalnya SESSION_CANCELLED atau RUBRIC_VERSION")
-    message: str = Field(description="Pesan siap tampil untuk pengguna")
+    message: str = Field(description=_MESSAGE_DESCRIPTION)
     session_id: uuid.UUID | None = Field(
         default=None, description="Sesi yang bermasalah; hanya terisi untuk kind session"
     )
@@ -278,7 +279,7 @@ class ReportWarningRead(BaseModel):
         description="REPETITIONS_DIFFER, MANUAL_ANSWER_RANGE_OVER_LIMIT, MODEL_VERSION_DIFFERS, "
         "atau TRIAL_SESSION"
     )
-    message: str = Field(description="Pesan siap tampil untuk pengguna")
+    message: str = Field(description=_MESSAGE_DESCRIPTION)
     session_id: uuid.UUID | None = Field(
         default=None, description="Sesi yang ditandai; kosong bila berlaku untuk seluruh pilihan"
     )
@@ -319,7 +320,7 @@ class ReportValidationRead(BaseModel):
 
 class EligibleSessionReasonRead(BaseModel):
     code: str = Field(description="Kode alasan, misalnya SESSION_NOT_GRADED atau SESSION_CANCELLED")
-    message: str = Field(description="Pesan siap tampil untuk pengguna")
+    message: str = Field(description=_MESSAGE_DESCRIPTION)
 
 
 class EligibleSessionRead(BaseModel):
