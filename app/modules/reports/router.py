@@ -8,7 +8,9 @@ logika bisnis dan tidak ada query database di file ini.
 SCRUM-313: POST /reports membuat laporan dan GET /reports/eligible-sessions mendaftar sesi
 beserta kelayakannya. Rute statis eligible-sessions harus didaftarkan SEBELUM rute
 /{report_id} (SCRUM-320), kalau tidak FastAPI menganggapnya sebuah report_id. Hal yang sama
-berlaku untuk GET /reports/trend (PBI-17 SCRUM-331).
+berlaku untuk GET /reports/trend (PBI-17 SCRUM-331) dan GET /reports/trend/pdf (SCRUM-333).
+GET /reports/trend/pdf membuat PDF dari TrendRead yang sama dengan GET /reports/trend; kedua
+rute membaca parameter lewat satu dependency (TrendQuery), jadi pilihan dan validasinya sama.
 
 SCRUM-332 (penerbitan, diagram D1 dan D9):
 - POST /reports/{id}/publish: Admin menerbitkan laporan tersimpan, atau mengganti satu versi
@@ -35,6 +37,8 @@ Pathnya tiga segmen, jadi tidak bertabrakan dengan /{report_id} maupun /{report_
 """
 
 import uuid
+from dataclasses import dataclass
+from datetime import datetime
 from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Response, status
@@ -44,12 +48,14 @@ from app.modules.auth.schemas import ErrorBody
 from app.modules.reports import drilldown, history, publication
 from app.modules.reports.dependencies import (
     get_eligible_session_lister,
+    get_now,
     get_report_generator,
     get_score_file_service,
+    get_trend_pdf_renderer,
     get_trend_service,
 )
 from app.modules.reports.eligible_sessions import EligibleSessionLister
-from app.modules.reports.models import MeasurementFilter, ScoreScope
+from app.modules.reports.models import MeasurementFilter, ReportLanguage, ScoreScope
 from app.modules.reports.report_generation import ReportGenerator
 from app.modules.reports.schemas import (
     EligibleSessionRead,
@@ -68,6 +74,7 @@ from app.modules.reports.schemas import (
 )
 from app.modules.reports.score_files import SessionScoreFileService
 from app.modules.reports.trend import TrendMetric, TrendRange
+from app.modules.reports.trend_pdf import TrendPdfRenderer, trend_pdf_filename
 from app.modules.reports.trend_service import TrendService
 from app.modules.runs.dependencies import get_manual_evidence_service
 from app.modules.runs.manual_evidence import ManualEvidenceService
@@ -178,13 +185,15 @@ _TREND_RESPONSES = {
 }
 
 
-@router.get(
-    "/trend",
-    response_model=TrendRead,
-    summary="Tren skor satu produk antar bulan",
-    responses=_TREND_RESPONSES,
-)
-def get_trend(
+@dataclass(frozen=True)
+class TrendQuery:
+    product_id: uuid.UUID
+    score_scope: ScoreScope
+    metric: TrendMetric
+    range_: TrendRange
+
+
+def trend_query(
     product_id: uuid.UUID = Query(description="Produk AI yang trennya dilihat."),
     score_scope: ScoreScope = Query(
         default=ScoreScope.TEST,
@@ -199,18 +208,70 @@ def get_trend(
         alias="range",
         description="Bulan kalender terakhir: `3m`, `6m`, `12m`, atau `all` (bawaan).",
     ),
+) -> TrendQuery:
+    """Parameter tren, sama untuk halaman tren dan PDF-nya (D4 langkah 8: parameter sama)."""
+    return TrendQuery(product_id=product_id, score_scope=score_scope, metric=metric, range_=range_)
+
+
+def _trend_read(query: TrendQuery, user: CurrentUser, service: TrendService) -> TrendRead:
+    result = service.get_trend(
+        role=user.role,
+        product_id=query.product_id,
+        scope=query.score_scope,
+        metric=query.metric,
+        window=query.range_,
+    )
+    return TrendRead.from_trend(result)
+
+
+@router.get(
+    "/trend",
+    response_model=TrendRead,
+    summary="Tren skor satu produk antar bulan",
+    responses=_TREND_RESPONSES,
+)
+def get_trend(
+    query: TrendQuery = Depends(trend_query),
     user: CurrentUser = Depends(_trend_roles),
     service: TrendService = Depends(get_trend_service),
 ) -> TrendRead:
     """Satu titik per bulan dari sesi layak terbaru, hanya pada kasus yang sama (PBI-17)."""
-    result = service.get_trend(
-        role=user.role,
-        product_id=product_id,
-        scope=score_scope,
-        metric=metric,
-        window=range_,
+    return _trend_read(query, user, service)
+
+
+@router.get(
+    "/trend/pdf",
+    response_class=Response,
+    summary="Unduh tren skor satu produk sebagai PDF",
+    responses={
+        200: {"content": {"application/pdf": {}}, "description": "Berkas PDF tren"},
+        **_TREND_RESPONSES,
+    },
+)
+def download_trend_pdf(
+    query: TrendQuery = Depends(trend_query),
+    language: ReportLanguage = Query(
+        default=ReportLanguage.EN,
+        description="Bahasa PDF: `en` (bawaan) atau `id`. Disiapkan untuk PBI-26.",
+    ),
+    user: CurrentUser = Depends(_trend_roles),
+    service: TrendService = Depends(get_trend_service),
+    renderer: TrendPdfRenderer = Depends(get_trend_pdf_renderer),
+    now: datetime = Depends(get_now),
+) -> Response:
+    """Tren yang sama dengan GET /reports/trend sebagai PDF (PBI-17 AC8, D4 langkah 8).
+
+    Aturan peran sama karena lewat TrendService: Viewer dan Kontributor yang meminta skor dev
+    ditolak 403 sebelum sesi dibaca.
+    """
+    trend = _trend_read(query, user, service)
+    isi = renderer.render(trend, language=language, generated_at=now)
+    nama_berkas = trend_pdf_filename(trend, language=language, generated_at=now)
+    return Response(
+        content=isi,
+        media_type="application/pdf",
+        headers={"Content-Disposition": f'attachment; filename="{nama_berkas}"'},
     )
-    return TrendRead.from_trend(result)
 
 
 # Rute /{report_id} di bawah ini sengaja didaftarkan setelah /eligible-sessions (lihat docstring).

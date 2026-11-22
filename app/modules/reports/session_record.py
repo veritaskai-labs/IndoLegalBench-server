@@ -37,6 +37,9 @@ class SessionRecord:
     calls_by_split: Mapping[SplitTag, CallCounts]
     label: str = ""
     created_at: datetime | None = None
+    # Waktu selesai sesi: finished_at untuk sesi otomatis, finalized_at untuk sesi manual.
+    # Bulan titik tren diambil dari sini dalam WIB (D4 [KEPUTUSAN SA]).
+    finished_at: datetime | None = None
 
     @property
     def measurement_kind(self) -> MeasurementKind:

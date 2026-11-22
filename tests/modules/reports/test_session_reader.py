@@ -658,3 +658,44 @@ class TestRecordLabel:
         # Assert
         assert rekaman.label == "Sesi Produk A"
         assert rekaman.created_at == SEKARANG
+
+    def test_an_automatic_session_finishes_at_its_finished_at(self, db_session, admin):
+        # Arrange: bulan tren diambil dari waktu selesai, bukan waktu dibuat (D4).
+        selesai = SEKARANG + timedelta(days=3)
+        sesi = _sesi(db_session, admin, created_at=SEKARANG, finished_at=selesai)
+
+        # Act
+        (rekaman,) = _baca(db_session, sesi.id)
+
+        # Assert
+        assert rekaman.finished_at == selesai
+
+    def test_a_manual_session_finishes_when_it_is_finalized(self, db_session, admin):
+        # Arrange: sesi manual selesai saat ditandai Selesai (finalized_at), D4.
+        ditandai = SEKARANG + timedelta(days=5)
+        sesi = _sesi(
+            db_session,
+            admin,
+            session_type=SessionType.MANUAL,
+            status=SessionStatus.FINALIZED,
+            created_at=SEKARANG,
+            finished_at=None,
+            finalized_at=ditandai,
+            finalized_by=admin.id,
+        )
+
+        # Act
+        (rekaman,) = _baca(db_session, sesi.id)
+
+        # Assert
+        assert rekaman.finished_at == ditandai
+
+    def test_an_unfinished_session_has_no_finish_time(self, db_session, admin):
+        # Arrange
+        sesi = _sesi(db_session, admin, status=SessionStatus.RUNNING, created_at=SEKARANG)
+
+        # Act
+        (rekaman,) = _baca(db_session, sesi.id)
+
+        # Assert
+        assert rekaman.finished_at is None

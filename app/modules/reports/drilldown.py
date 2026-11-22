@@ -25,7 +25,7 @@ from app.modules.auth import service as auth_service
 from app.modules.reports import history, repository
 from app.modules.reports.access import visible_case_code
 from app.modules.reports.models import Report, ReportResult
-from app.modules.reports.pdf import CONTACT_EMAIL
+from app.modules.reports.pdf_common import CONTACT_EMAIL
 from app.modules.reports.report_scoring import tags_for_split
 from app.modules.reports.repository import CaseBasisRow, ManualAnswerFacts
 from app.modules.reports.schemas import (
