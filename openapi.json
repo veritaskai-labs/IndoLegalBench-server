@@ -5585,6 +5585,112 @@
         }
       }
     },
+    "/reports/trend/pdf": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Unduh tren skor satu produk sebagai PDF",
+        "description": "Tren yang sama dengan GET /reports/trend sebagai PDF (PBI-17 AC8, D4 langkah 8).\n\nAturan peran sama karena lewat TrendService: Viewer dan Kontributor yang meminta skor dev\nditolak 403 sebelum sesi dibaca.",
+        "operationId": "download_trend_pdf_reports_trend_pdf_get",
+        "parameters": [
+          {
+            "name": "language",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ReportLanguage",
+              "description": "Bahasa PDF: `en` (bawaan) atau `id`. Disiapkan untuk PBI-26.",
+              "default": "en"
+            },
+            "description": "Bahasa PDF: `en` (bawaan) atau `id`. Disiapkan untuk PBI-26."
+          },
+          {
+            "name": "product_id",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "description": "Produk AI yang trennya dilihat.",
+              "title": "Product Id"
+            },
+            "description": "Produk AI yang trennya dilihat."
+          },
+          {
+            "name": "score_scope",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/ScoreScope",
+              "description": "Jenis kasus: `test` (bawaan, skor resmi), `dev`, atau `dev_test` (All). `dev` dan `dev_test` hanya untuk Admin dan Developer AI.",
+              "default": "test"
+            },
+            "description": "Jenis kasus: `test` (bawaan, skor resmi), `dev`, atau `dev_test` (All). `dev` dan `dev_test` hanya untuk Admin dan Developer AI."
+          },
+          {
+            "name": "metric",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TrendMetric",
+              "description": "Satu metrik per grafik; skor tidak digabung.",
+              "default": "total"
+            },
+            "description": "Satu metrik per grafik; skor tidak digabung."
+          },
+          {
+            "name": "range",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/TrendRange",
+              "description": "Bulan kalender terakhir: `3m`, `6m`, `12m`, atau `all` (bawaan).",
+              "default": "all"
+            },
+            "description": "Bulan kalender terakhir: `3m`, `6m`, `12m`, atau `all` (bawaan)."
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Berkas PDF tren",
+            "content": {
+              "application/pdf": {}
+            }
+          },
+          "403": {
+            "description": "Peran tidak boleh melihat tren yang memuat skor dev (`TREND_SCOPE_FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Produk AI tidak ditemukan (`TREND_PRODUCT_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/reports/{report_id}": {
       "get": {
         "tags": [
@@ -16413,6 +16519,11 @@
             "type": "array",
             "title": "Markers",
             "description": "Penanda titik: TRIAL_SESSION, MANUAL_ANSWER_RANGE_OVER_LIMIT, REPETITIONS_DIFFER (jumlah percobaan berbeda, hanya sesi manual)"
+          },
+          "case_count": {
+            "type": "integer",
+            "title": "Case Count",
+            "description": "Jumlah kasus yang sama pada segmen garis titik ini; semua titik di satu segmen memakai kumpulan kasus yang sama, jadi nilainya sama. 0 bila tidak ada kasus yang sama"
           }
         },
         "type": "object",
@@ -16421,7 +16532,8 @@
           "label",
           "value",
           "breaks",
-          "markers"
+          "markers",
+          "case_count"
         ],
         "title": "TrendPointRead",
         "description": "Satu titik tren: sesi layak terbaru pada satu bulan. Tanpa id sesi."

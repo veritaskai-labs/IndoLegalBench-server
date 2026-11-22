@@ -12,13 +12,13 @@ dua kolom dan dua batang terpisah; total_score hanya dipakai untuk urutan
 
 Teks mengikuti reports.language. Label dua bahasa disimpan sebagai data
 di _LABELS supaya SCRUM-355 (PBI-26) cukup menambah atau mengoreksi isi,
-bukan mengubah alur render.
+bukan mengubah alur render. Logo, kertas, tanggal, nama bulan, format skor,
+dan kalimat kontak dipakai bersama PDF tren lewat pdf_common (SCRUM-333).
 """
 
 import io
 from dataclasses import dataclass
-from datetime import timedelta, timezone
-from decimal import ROUND_HALF_UP, Decimal
+from decimal import Decimal
 from pathlib import Path
 from xml.sax.saxutils import escape
 
@@ -27,10 +27,9 @@ from reportlab.graphics.charts.legends import Legend
 from reportlab.graphics.charts.textlabels import NA_Label
 from reportlab.graphics.shapes import Drawing
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import A4, landscape
 from reportlab.lib.styles import getSampleStyleSheet
 from reportlab.lib.units import mm
-from reportlab.platypus import Image, Paragraph, SimpleDocTemplate, Spacer, Table, TableStyle
+from reportlab.platypus import Paragraph, Spacer, Table, TableStyle
 
 from app.modules.reports.models import (
     MeasurementKind,
@@ -39,15 +38,17 @@ from app.modules.reports.models import (
     ReportMarkerCode,
     ScoreSplit,
 )
+from app.modules.reports.pdf_common import (
+    DEFAULT_LOGO_PATH,
+    KOSONG,
+    contact,
+    created_text,
+    format_score,
+    landscape_document,
+    logo,
+)
 from app.modules.reports.schemas import ReportDetail, ReportDetailSessionRead, ReportMarkerRead
 
-# Wordmark resmi Veritask (PNG transparan, rasio 4:1) untuk bagian atas laporan (AC tampilan).
-# Bila berkas hilang, bagian atas memakai tulisan VERITASK supaya PDF tetap bisa diunduh.
-DEFAULT_LOGO_PATH = Path(__file__).parent / "assets" / "veritask-logo.png"
-CONTACT_EMAIL = "indolegalbench@veritask.ai"
-_WIB = timezone(timedelta(hours=7))
-_CENT = Decimal("0.01")
-_KOSONG = "–"
 _DET_COLOR = colors.HexColor("#3B44C4")
 _LLM_COLOR = colors.HexColor("#147D7A")
 # Nama produk di bawah grafik dipotong dan dimiringkan supaya tidak saling tumpang tindih
@@ -66,10 +67,8 @@ class _Labels:
     judge_model: str
     case_basis: str
     case_versions: str
-    created: str
     dev_banner: str
     no_results: str
-    contact: str
     columns: tuple[str, ...]
     deterministic: str
     llm: str
@@ -77,7 +76,6 @@ class _Labels:
     trial: str
     # Kunci dari ReportMarkerCode (SCRUM-300); test memastikan tiap kode punya label.
     markers: dict[ReportMarkerCode, str]
-    months: tuple[str, ...]
 
 
 _LABELS: dict[ReportLanguage, _Labels] = {
@@ -90,10 +88,8 @@ _LABELS: dict[ReportLanguage, _Labels] = {
         judge_model="Model penilai",
         case_basis="Jumlah kasus dasar perbandingan",
         case_versions="Versi kasus",
-        created="Dibuat",
         dev_banner="Laporan berisi skor dev, hanya untuk internal dan tidak dapat diterbitkan.",
         no_results="Tidak ada hasil untuk laporan ini.",
-        contact=f"Untuk mendapatkan isi kasus, kirim email ke {CONTACT_EMAIL}.",
         columns=(
             "Peringkat",
             "Produk",
@@ -121,20 +117,6 @@ _LABELS: dict[ReportLanguage, _Labels] = {
             ReportMarkerCode.MANUAL_DATE_SPAN_OVER_7_DAYS: "Rentang jawaban manual lebih dari 7 hari",
             ReportMarkerCode.REFUSALS: "Menolak menjawab",
         },
-        months=(
-            "Januari",
-            "Februari",
-            "Maret",
-            "April",
-            "Mei",
-            "Juni",
-            "Juli",
-            "Agustus",
-            "September",
-            "Oktober",
-            "November",
-            "Desember",
-        ),
     ),
     ReportLanguage.EN: _Labels(
         automatic="Automatic",
@@ -145,10 +127,8 @@ _LABELS: dict[ReportLanguage, _Labels] = {
         judge_model="Judge model",
         case_basis="Cases used for comparison",
         case_versions="Case versions",
-        created="Created",
         dev_banner="This report contains dev scores. Internal only, it cannot be published.",
         no_results="This report has no results.",
-        contact=f"To get the case contents, email {CONTACT_EMAIL}.",
         columns=(
             "Rank",
             "Product",
@@ -176,30 +156,8 @@ _LABELS: dict[ReportLanguage, _Labels] = {
             ReportMarkerCode.MANUAL_DATE_SPAN_OVER_7_DAYS: "Manual answers span more than 7 days",
             ReportMarkerCode.REFUSALS: "Refused to answer",
         },
-        months=(
-            "January",
-            "February",
-            "March",
-            "April",
-            "May",
-            "June",
-            "July",
-            "August",
-            "September",
-            "October",
-            "November",
-            "December",
-        ),
     ),
 }
-
-
-def format_score(value: Decimal | None, language: ReportLanguage) -> str:
-    """Dua desimal tanpa persen (AC skor). Pembulatan sama dengan score_aggregation."""
-    if value is None:
-        return _KOSONG
-    teks = f"{value.quantize(_CENT, rounding=ROUND_HALF_UP):.2f}"
-    return teks.replace(".", ",") if language is ReportLanguage.ID else teks
 
 
 def report_pdf_filename(report: ReportDetail) -> str:
@@ -219,16 +177,7 @@ class ReportPdfRenderer:
         label = _LABELS[report.language]
         styles = getSampleStyleSheet()
         buffer = io.BytesIO()
-        doc = SimpleDocTemplate(
-            buffer,
-            pagesize=landscape(A4),
-            leftMargin=10 * mm,
-            rightMargin=10 * mm,
-            topMargin=10 * mm,
-            bottomMargin=10 * mm,
-            title=report.title,
-            pageCompression=1 if self.compress else 0,
-        )
+        doc = landscape_document(buffer, title=report.title, compress=self.compress)
         isi = [*self._kepala(report, label, styles), Spacer(1, 4 * mm)]
         splits = [s for s in ScoreSplit if any(_hasil(sesi, s) for sesi in report.sessions)]
         if not splits:
@@ -240,34 +189,20 @@ class ReportPdfRenderer:
                 f"{escape(kasus.case_code)} v{kasus.case_version_no}" for kasus in report.case_basis
             )
             isi.append(Paragraph(f"<b>{label.case_versions}:</b> {versi}", styles["BodyText"]))
-        isi += [Spacer(1, 4 * mm), Paragraph(label.contact, styles["Italic"])]
+        isi += [Spacer(1, 4 * mm), contact(report.language, styles)]
         doc.build(isi)
         return buffer.getvalue()
 
     def _kepala(self, report: ReportDetail, label: _Labels, styles) -> list:
-        if self.logo_path.is_file():
-            # proportional: logo dimuat di kotak 48x12 mm tanpa melar; mask auto menjaga transparansi.
-            logo = Image(
-                str(self.logo_path),
-                width=48 * mm,
-                height=12 * mm,
-                kind="proportional",
-                mask="auto",
-                hAlign="LEFT",
-            )
-        else:
-            logo = Paragraph("<b>VERITASK</b>", styles["Heading2"])
-        dibuat = report.created_at.astimezone(_WIB)
-        tanggal = f"{dibuat.day} {label.months[dibuat.month - 1]} {dibuat.year}"
         info = [
-            f"{label.created} {tanggal}",
+            created_text(report.created_at, report.language),
             f"{label.rubric} v{report.rubric_version_no}" if report.rubric_version_no else None,
             f"{label.judge_model}: {escape(report.judge_model_name)}"
             if report.judge_model_name
             else None,
             f"{label.case_basis}: {report.case_basis_count}",
         ]
-        kepala = [logo, Paragraph(escape(report.title), styles["Title"])]
+        kepala = [logo(self.logo_path, styles), Paragraph(escape(report.title), styles["Title"])]
         kepala.append(Paragraph(" · ".join(i for i in info if i), styles["Normal"]))
         if report.has_dev_scores:
             kepala.append(Paragraph(f"<b>{label.dev_banner}</b>", styles["Normal"]))
@@ -282,11 +217,11 @@ class ReportPdfRenderer:
             if manual:
                 gagal = label.not_applicable
             elif hasil.failure_rate is None:
-                gagal = _KOSONG
+                gagal = KOSONG
             else:
                 gagal = f"{format_score(hasil.failure_rate, report.language)}%"
             kolom = [
-                str(hasil.rank) if hasil.rank is not None else _KOSONG,
+                str(hasil.rank) if hasil.rank is not None else KOSONG,
                 escape(sesi.product_label),
                 label.manual if manual else label.automatic,
                 format_score(hasil.det_score, report.language),
@@ -346,7 +281,7 @@ def _versi_model(report: ReportDetail, hasil, label: _Labels) -> str:
     # versi yang memang tidak tercatat.
     if report.product_label_mode is ProductLabelMode.CODE:
         return label.hidden
-    return escape(hasil.product_model_version or _KOSONG)
+    return escape(hasil.product_model_version or KOSONG)
 
 
 def _nilai_grafik(nilai: Decimal | None) -> float | None:
@@ -378,7 +313,7 @@ def _grafik_batang(
     grafik.valueAxis.valueMin = 0
     grafik.valueAxis.valueMax = max([1.0, *(n for n in det + llm if n is not None)])
     grafik.naLabel = NA_Label()
-    grafik.naLabel.text = _KOSONG
+    grafik.naLabel.text = KOSONG
     grafik.naLabel.fontName = "Helvetica"
     grafik.categoryAxis.categoryNames = [_nama_grafik(s.product_label) for s in sesi] or [""]
     if miring:
