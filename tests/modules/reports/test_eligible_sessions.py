@@ -290,3 +290,73 @@ def test_the_product_and_validity_filters_combine_with_and():
 
     # Assert
     assert [item.session_id for item in hasil] == [batal.facts.session_id]
+
+
+@pytest.fixture
+def tiga_sesi():
+    alfa = _rekaman("AiYU", [_nilai(1, "0.5", "0.5")], label="Pengukuran Resmi Oktober")
+    beta = _rekaman("Justisio", [_nilai(1, "0.5", "0.5")], label="Uji coba AiYU lama")
+    gamma = _rekaman("LegalHero", [_nilai(1, "0.5", "0.5")], label="Pengukuran 100%_final")
+    return alfa, beta, gamma
+
+
+@pytest.mark.parametrize(
+    ("kata", "diharapkan"),
+    [
+        ("oktober", ["AiYU"]),
+        ("JUSTISIO", ["Justisio"]),
+        ("  legalhero  ", ["LegalHero"]),
+        ("aiyu", ["AiYU", "Justisio"]),
+        ("100%_final", ["LegalHero"]),
+        ("tidak-ada", []),
+    ],
+)
+def test_the_search_matches_label_or_product_name_ignoring_case_and_padding(
+    tiga_sesi, kata, diharapkan
+):
+    # Act
+    hasil = _daftar(*tiga_sesi, query=EligibleSessionQuery(q=kata))
+
+    # Assert
+    assert [item.product_name for item in hasil] == diharapkan
+
+
+def test_the_search_matches_a_part_of_the_session_id(tiga_sesi):
+    # Arrange
+    alfa, beta, _ = tiga_sesi
+    potongan = str(beta.facts.session_id)[:13].upper()
+
+    # Act
+    hasil = _daftar(*tiga_sesi, query=EligibleSessionQuery(q=potongan))
+
+    # Assert
+    assert [item.session_id for item in hasil] == [beta.facts.session_id]
+
+
+@pytest.mark.parametrize("kosong", [None, "", "   "])
+def test_an_empty_search_does_not_filter(tiga_sesi, kosong):
+    # Act
+    hasil = _daftar(*tiga_sesi, query=EligibleSessionQuery(q=kosong))
+
+    # Assert
+    assert len(hasil) == 3
+
+
+def test_the_search_combines_with_the_other_filters(tiga_sesi):
+    # Arrange
+    alfa, beta, gamma = tiga_sesi
+    batal = _rekaman(
+        "AiYU", [_nilai(1, "0.5", "0.5")], label="AiYU batal", status=SessionStatus.CANCELLED
+    )
+
+    # Act
+    hasil = _daftar(
+        alfa,
+        beta,
+        gamma,
+        batal,
+        query=EligibleSessionQuery(q="aiyu", validity=SessionValidity.VALID),
+    )
+
+    # Assert
+    assert [item.session_id for item in hasil] == [alfa.facts.session_id, beta.facts.session_id]
