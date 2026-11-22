@@ -162,27 +162,37 @@ def search_cases(
     for case, version in repository.search_candidates(db, approved_dev_only=approved_dev_only):
         if case.suite_id not in suite_archives:
             continue
-        content = version.content or {}
-        label = content.get("title") or case.case_code
-        criteria = content.get("answer_criteria") or {}
-        fields = [
-            case.case_code,
-            label,
-            content.get("question"),
-            criteria.get("expected_conclusion"),
-            *(criteria.get("must_contain") or []),
-            *(criteria.get("must_not_contain") or []),
-        ]
-        for citation in _legal_refs_read(version, catalog):
-            fields.append(citation.display_text)
-            fields.extend(link.about for link in citation.links)
-        if query == str(case.id) or any(
-            isinstance(field, str) and query in field.casefold() for field in fields
-        ):
+        label = (version.content or {}).get("title") or case.case_code
+        if _matches_case(query, case, version, label, catalog):
             hits.append((case.id, label, case.case_code, suite_archives[case.suite_id]))
             if len(hits) == 20:
                 break
     return hits
+
+
+def _matches_case(
+    query: str,
+    case: Case,
+    version: CaseVersion,
+    label: str,
+    catalog: legal_refs_service.TypeCatalog,
+) -> bool:
+    content = version.content or {}
+    criteria = content.get("answer_criteria") or {}
+    fields = [
+        case.case_code,
+        label,
+        content.get("question"),
+        criteria.get("expected_conclusion"),
+        *(criteria.get("must_contain") or []),
+        *(criteria.get("must_not_contain") or []),
+    ]
+    for citation in _legal_refs_read(version, catalog):
+        fields.append(citation.display_text)
+        fields.extend(link.about for link in citation.links)
+    return query == str(case.id) or any(
+        isinstance(field, str) and query in field.casefold() for field in fields
+    )
 
 
 def get_case_for_developer_ai(db: Session, case_id: uuid.UUID) -> CaseRead:
