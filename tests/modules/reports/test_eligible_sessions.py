@@ -6,6 +6,7 @@ eligible beserta alasannya, urutan dari pembaca dipertahankan, dan filter jenis 
 
 import pytest
 
+from app.modules.cases.models import SplitTag
 from app.modules.reports.comparison_rules import (
     SESSION_CANCELLED,
     SESSION_NOT_ACCEPTED_AS_IS,
@@ -14,7 +15,13 @@ from app.modules.reports.comparison_rules import (
 from app.modules.reports.eligible_sessions import EligibleSessionLister
 from app.modules.reports.models import MeasurementFilter
 from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType
-from tests.modules.reports.test_report_generation import AWAL, PembacaPalsu, _nilai, _rekaman
+from tests.modules.reports.test_report_generation import (
+    AWAL,
+    PembacaPalsu,
+    _nilai,
+    _ref,
+    _rekaman,
+)
 
 
 def _daftar(*rekaman, **ubah):
@@ -143,3 +150,39 @@ def test_a_session_without_a_known_judge_model_has_none():
     # Assert
     assert item.judge_model_version is None
     assert item.product_id == belum.facts.product_id
+
+
+@pytest.mark.parametrize(
+    ("kasus", "diharapkan"),
+    [
+        ([SplitTag.TEST], (SplitTag.TEST,)),
+        ([SplitTag.DEV], (SplitTag.DEV,)),
+        ([SplitTag.TEST, SplitTag.DEV, SplitTag.TEST], (SplitTag.DEV, SplitTag.TEST)),
+        ([], ()),
+    ],
+)
+def test_a_session_lists_the_case_kinds_in_its_snapshot(kasus, diharapkan):
+    # Arrange
+    rekaman = _rekaman(
+        "Produk A", [_nilai(nomor, "0.5", "0.5", split) for nomor, split in enumerate(kasus, 1)]
+    )
+
+    # Act
+    (item,) = _daftar(rekaman)
+
+    # Assert
+    assert item.case_kinds == diharapkan
+
+
+def test_case_kinds_come_from_the_snapshot_and_not_only_from_graded_cases():
+    # Arrange: kasus dev ada di snapshot tetapi belum dinilai.
+    dev_belum_dinilai = _ref(2, split=SplitTag.DEV)
+    rekaman = _rekaman(
+        "Produk A", [_nilai(1, "0.5", "0.5")], snapshot_tambahan=(dev_belum_dinilai,)
+    )
+
+    # Act
+    (item,) = _daftar(rekaman)
+
+    # Assert
+    assert item.case_kinds == (SplitTag.DEV, SplitTag.TEST)
