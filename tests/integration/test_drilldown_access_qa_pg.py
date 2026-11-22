@@ -9,7 +9,6 @@ Label: Positif = boleh, Negatif = ditolak.
 
 from app.main import app
 from app.modules.cases.service import MASKED_CASE_CODE
-from app.modules.reports.pdf import CONTACT_EMAIL
 from app.shared.security import get_current_user
 from tests.drilldown_qa_pg import (
     ADMIN,
@@ -92,7 +91,7 @@ def test_isi_kasus_test_hanya_untuk_admin_dan_kontributor(dunia):
     assert RAHASIA in respons[KONTRIBUTOR].json()["attempts"][0]["answer_text"]
     for ditolak in (respons[VIEWER], respons[DEV_AI]):
         assert ditolak.json()["code"] == "CASE_CONTENT_FORBIDDEN"
-        assert CONTACT_EMAIL in ditolak.json()["message"]
+        assert "indolegalbench@veritask.ai" in ditolak.json()["message"]
         assert _tanpa_isi_kasus(ditolak.text)
 
 

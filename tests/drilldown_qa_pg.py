@@ -191,6 +191,7 @@ class Dunia:
     monkeypatch: pytest.MonkeyPatch
 
     def sebagai(self, orang: Orang) -> TestClient:
+        # Mengganti pengguna global dan mengembalikan client yang sama: panggil tepat sebelum request.
         pengguna = CurrentUser(
             user_id=orang.id, name=orang.nama, email=orang.email, role=orang.peran
         )
@@ -277,27 +278,29 @@ def dunia(db_qa: Session, monkeypatch) -> Iterator[Dunia]:
     app.dependency_overrides[dependencies.get_exchange_rate] = lambda: (
         exchange_rate.ConfiguredExchangeRate(Decimal("16000"))
     )
-    with TestClient(app) as client:
-        d = Dunia(
-            client=client,
-            db=db,
-            suite_id="",
-            otomatis=SimpleNamespace(produk=_tambah_produk(db, created_by=ADMIN.id), db=db),
-            manual=SimpleNamespace(produk=_produk_manual(db), db=db),
-            penilai_id=tambah_penilai(db, ADMIN.id).id,
-            monkeypatch=monkeypatch,
-        )
-        d.suite_id = _suite(d.sebagai(KONTRIBUTOR))
-        for kasus in KASUS:
-            _setujui(db, _buat_kasus(d.sebagai(KONTRIBUTOR), d.suite_id, kasus))
-        d.pakai_penilai(PenilaiQA)
-        d.otomatis.id = jalankan_sesi_otomatis(d)
-        terima_apa_adanya(d, d.otomatis.id)
-        nilai(d, d.otomatis.id)
-        d.manual.id = sesi_manual_selesai(d)
-        yield d
-    app.dependency_overrides.clear()
-    app.dependency_overrides.update(semula)
+    try:
+        with TestClient(app) as client:
+            d = Dunia(
+                client=client,
+                db=db,
+                suite_id="",
+                otomatis=SimpleNamespace(produk=_tambah_produk(db, created_by=ADMIN.id), db=db),
+                manual=SimpleNamespace(produk=_produk_manual(db), db=db),
+                penilai_id=tambah_penilai(db, ADMIN.id).id,
+                monkeypatch=monkeypatch,
+            )
+            d.suite_id = _suite(d.sebagai(KONTRIBUTOR))
+            for kasus in KASUS:
+                _setujui(db, _buat_kasus(d.sebagai(KONTRIBUTOR), d.suite_id, kasus))
+            d.pakai_penilai(PenilaiQA)
+            d.otomatis.id = jalankan_sesi_otomatis(d)
+            terima_apa_adanya(d, d.otomatis.id)
+            nilai(d, d.otomatis.id)
+            d.manual.id = sesi_manual_selesai(d)
+            yield d
+    finally:
+        app.dependency_overrides.clear()
+        app.dependency_overrides.update(semula)
 
 
 def _buat_kasus(client: TestClient, suite_id: str, kasus: Kasus) -> str:
