@@ -14,8 +14,9 @@ from sqlalchemy import select
 from app.modules.auth.models import User
 from app.modules.auth.seeds import ADMIN_SUB, AUTHOR_SUB, VIEWER_SUB, seed_users
 from app.modules.cases.models import SplitTag
+from app.modules.grading.models import RubricVersion
 from app.modules.reports import repository
-from app.modules.reports.models import ReportStatus, ScoreScope, ScoreSplit
+from app.modules.reports.models import ProductLabelMode, ReportStatus, ScoreScope, ScoreSplit
 from tests import reports_factory as pabrik
 from tests.login import complete_login
 
@@ -24,14 +25,14 @@ def _id_pengguna(db, email):
     return db.scalar(select(User.id).where(User.email == email))
 
 
-def _simpan(db, admin, rubrik, sesi, created_by, **ubah):
+def _simpan(db, admin, rubrik, sesi, created_by, label="Gemini", **ubah):
     """Satu laporan lengkap berisi satu sesi, dibuat oleh pengguna tertentu."""
     report = pabrik.laporan(admin, rubrik, case_basis_count=1, created_by=created_by, **ubah)
     dev = report.score_scope is not ScoreScope.TEST
     repository.add_report(
         db,
         report,
-        [pabrik.sesi_laporan(report, sesi, product_label="Gemini")],
+        [pabrik.sesi_laporan(report, sesi, product_label=label)],
         [pabrik.hasil(report, sesi, score_split=ScoreSplit.DEV if dev else ScoreSplit.TEST)],
         [pabrik.dasar(report, split_tag=SplitTag.DEV if dev else SplitTag.TEST)],
     )
@@ -195,3 +196,95 @@ def test_unduh_pdf_laporan_yang_tidak_boleh_dibaca_dijawab_404(client, db_sessio
     # Assert
     assert respons.status_code == 404
     assert respons.json()["code"] == "REPORT_NOT_FOUND"
+
+
+# --- Kolom produk, pemetaan label, dan bahasa (SCRUM-363, AC9) -----------------
+
+
+@pytest.fixture
+def laporan_kode(db_session, laporan):
+    """Laporan mode kode milik Viewer: labelnya Product A, produk aslinya Gemini."""
+    viewer = _id_pengguna(db_session, "viewer@veritask.test")
+    admin = pabrik.buat_admin(db_session)
+    rubrik = db_session.scalar(select(RubricVersion))  # Dibuat fixture laporan, versinya unik.
+    sesi = pabrik.buat_sesi(db_session, admin, "Justisio")
+    return _simpan(
+        db_session,
+        admin,
+        rubrik,
+        sesi,
+        viewer,
+        label="Product A",
+        product_label_mode=ProductLabelMode.CODE,
+    )
+
+
+def test_daftar_memuat_produk_dan_tidak_memuat_bahasa(client, db_session, laporan):
+    """Positif dan negatif: baris daftar punya kolom produk dan tidak lagi mengirim bahasa."""
+    # Arrange
+    complete_login(client, db_session, sub=VIEWER_SUB)
+
+    # Act
+    respons = client.get("/reports")
+
+    # Assert
+    assert respons.status_code == 200
+    baris = respons.json()["items"][0]
+    assert baris["products"] == ["Gemini"]
+    assert "language" not in baris
+
+
+def test_detail_tidak_memuat_bahasa_tetapi_memuat_produk(client, db_session, laporan):
+    """Positif dan negatif: detail mengirim daftar produk, bahasanya hanya dipakai PDF."""
+    # Arrange
+    complete_login(client, db_session, sub=VIEWER_SUB)
+
+    # Act
+    respons = client.get(f"/reports/{laporan['milik_viewer'].id}")
+
+    # Assert
+    body = respons.json()
+    assert body["products"] == ["Gemini"]
+    assert "language" not in body
+
+
+def test_admin_menerima_pemetaan_di_detail_laporan_kode(client, db_session, laporan_kode):
+    """Positif: Admin membaca kode Product A beserta nama asli produknya."""
+    # Arrange
+    complete_login(client, db_session, sub=ADMIN_SUB)
+
+    # Act
+    respons = client.get(f"/reports/{laporan_kode.id}")
+
+    # Assert
+    assert respons.status_code == 200
+    assert respons.json()["product_mapping"] == [{"label": "Product A", "real_name": "Justisio"}]
+
+
+def test_pemilik_viewer_tidak_menerima_pemetaan_di_laporan_kode(client, db_session, laporan_kode):
+    """Negatif: pembuat laporan yang bukan Admin tidak pernah melihat nama asli di balik kode."""
+    # Arrange
+    complete_login(client, db_session, sub=VIEWER_SUB)
+
+    # Act
+    respons = client.get(f"/reports/{laporan_kode.id}")
+
+    # Assert
+    assert respons.status_code == 200
+    body = respons.json()
+    assert body["product_mapping"] is None
+    assert "Justisio" not in respons.text
+
+
+def test_pdf_laporan_kode_untuk_admin_tidak_membuka_nama_asli(client, db_session, laporan_kode):
+    """Negatif: PDF tetap terunduh, tanpa pemetaan, walau pembacanya Admin."""
+    # Arrange
+    complete_login(client, db_session, sub=ADMIN_SUB)
+
+    # Act
+    respons = client.get(f"/reports/{laporan_kode.id}/pdf")
+
+    # Assert
+    assert respons.status_code == 200
+    assert respons.headers["content-type"] == "application/pdf"
+    assert b"Justisio" not in respons.content
