@@ -8,7 +8,10 @@ Alur D7:
 4. Baris valid menjadi kasus: kode dari sistem, draft versi 1, origin import, penulis pengimpor,
    tag boleh kosong. Setiap baris disimpan dalam commit sendiri bersama hasil barisnya, jadi baris
    valid tetap tersimpan walau baris lain gagal (tidak ada rollback satu berkas).
-5. Jumlah berhasil, gagal, dan dilewati disimpan di batch dan dikembalikan sebagai ringkasan.
+5. Jumlah berhasil, gagal, dan dilewati ditambah di batch dalam commit yang sama dengan hasil
+   barisnya, jadi batch tetap benar walau impor terhenti di tengah (review PR #157).
+6. Suite sementara yang tidak mendapat satu kasus pun diarsipkan, supaya tidak menumpuk suite
+   kosong yang aktif (review PR #157).
 
 Kasus hasil impor berstatus draft dengan created_by pengimpor, jadi alur review yang sudah ada
 (dua reviewer, penulis tidak boleh mereview kasusnya sendiri) berlaku tanpa perubahan (AC11).
@@ -17,7 +20,7 @@ Kasus hasil impor berstatus draft dengan created_by pengimpor, jadi alur review 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -91,7 +94,7 @@ def import_cases(
             continue
         if hasil.fingerprint is not None:
             di_berkas.setdefault(hasil.fingerprint, hasil.row_no)
-    _tutup_batch(db, batch.id)
+    _arsipkan_suite_kosong(db, batch.id)
     return read_summary(db, batch.id)
 
 
@@ -159,7 +162,10 @@ def _buat_batch(db: Session, file_name: str, actor_id: uuid.UUID, *, total: int)
 
 def _alasan_kembar(db: Session, kasus: ImportedCase, di_berkas: dict[str, int]) -> str | None:
     """Keputusan SA (D7): kembar bila sidik jarinya sama dengan baris lain yang sudah masuk di
-    berkas ini, atau dengan kasus yang sudah ada. Tanpa judul dan pertanyaan, tidak pernah kembar."""
+    berkas ini, dengan kasus yang sudah ada, atau dengan baris impor sebelumnya yang menjadi kasus.
+    Yang terakhir menjaga AC11 walau kasus hasil impor itu sudah disunting, karena sidik jari di
+    cases ikut berubah saat judul atau pertanyaannya diubah (review PR #157). Tanpa judul dan
+    pertanyaan, tidak pernah kembar."""
     if kasus.fingerprint is None:
         return None
     if kasus.fingerprint in di_berkas:
@@ -172,6 +178,21 @@ def _alasan_kembar(db: Session, kasus: ImportedCase, di_berkas: dict[str, int]) 
     ).first()
     if kode is not None:
         return f"Kembar dengan kasus {kode} yang sudah ada."
+    sebelumnya = db.execute(
+        select(ImportRowResult.row_no, Case.case_code)
+        .join(Case, Case.id == ImportRowResult.case_id)
+        .where(
+            ImportRowResult.row_fingerprint == kasus.fingerprint,
+            ImportRowResult.status == ImportRowStatus.CREATED,
+        )
+        .order_by(Case.case_code)
+        .limit(1)
+    ).first()
+    if sebelumnya is not None:
+        return (
+            f"Kembar dengan baris {sebelumnya.row_no} dari impor sebelumnya "
+            f"(kasus {sebelumnya.case_code})."
+        )
     return None
 
 
@@ -224,6 +245,7 @@ def _simpan_kasus(
             row_fingerprint=kasus.fingerprint,
         )
     )
+    _hitung(db, batch.id, ImportRowStatus.CREATED)
     db.commit()
     return case
 
@@ -245,16 +267,27 @@ def _catat(
             row_fingerprint=fingerprint,
         )
     )
+    _hitung(db, batch_id, status)
     db.commit()
 
 
-def _tutup_batch(db: Session, batch_id: uuid.UUID) -> None:
-    """Jumlah di batch dihitung dari hasil barisnya, jadi keduanya selalu sama (D8)."""
+_KOLOM_JUMLAH = {
+    ImportRowStatus.CREATED: ImportBatch.success_count,
+    ImportRowStatus.FAILED: ImportBatch.failed_count,
+    ImportRowStatus.SKIPPED: ImportBatch.skipped_count,
+}
+
+
+def _hitung(db: Session, batch_id: uuid.UUID, status: ImportRowStatus) -> None:
+    """Tambah jumlah batch untuk satu hasil baris, di transaksi yang sama dengan barisnya (D8)."""
+    kolom = _KOLOM_JUMLAH[status]
+    db.execute(update(ImportBatch).where(ImportBatch.id == batch_id).values({kolom: kolom + 1}))
+
+
+def _arsipkan_suite_kosong(db: Session, batch_id: uuid.UUID) -> None:
+    """Suite sementara tanpa satu kasus pun diarsipkan; batch dan ringkasannya tetap ada."""
     batch = db.get(ImportBatch, batch_id)
-    status = list(
-        db.scalars(select(ImportRowResult.status).where(ImportRowResult.batch_id == batch_id))
-    )
-    batch.success_count = status.count(ImportRowStatus.CREATED)
-    batch.failed_count = status.count(ImportRowStatus.FAILED)
-    batch.skipped_count = status.count(ImportRowStatus.SKIPPED)
-    db.commit()
+    db.refresh(batch)
+    if batch.success_count == 0:
+        db.get(Suite, batch.suite_id).status = SuiteStatus.ARCHIVED
+        db.commit()
