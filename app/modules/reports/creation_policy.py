@@ -69,13 +69,18 @@ def available_scopes(role: Role, case_kinds: Collection[SplitTag]) -> tuple[Scor
     return tuple(scope for scope in offered if can_use_scope(role, scope))
 
 
-def ensure_can_create(role: Role, scope: ScoreScope, label_mode: ProductLabelMode) -> None:
-    """Tolak (403) permintaan yang melampaui hak peran. Jenis nilai diperiksa lebih dulu."""
+def ensure_can_use_scope(role: Role, scope: ScoreScope) -> None:
+    """Tolak (403) jenis nilai di luar hak peran. Dipakai POST /reports dan /reports/validate."""
     if not can_use_scope(role, scope):
         raise ForbiddenError(
             "Peran Anda tidak boleh membuat laporan dengan jenis nilai ini.",
             code=REPORT_SCOPE_FORBIDDEN,
         )
+
+
+def ensure_can_create(role: Role, scope: ScoreScope, label_mode: ProductLabelMode) -> None:
+    """Tolak (403) permintaan yang melampaui hak peran. Jenis nilai diperiksa lebih dulu."""
+    ensure_can_use_scope(role, scope)
     if label_mode not in _LABEL_MODES_BY_ROLE.get(role, frozenset()):
         raise ForbiddenError(
             "Hanya Admin yang boleh memakai kode sebagai label produk.",
