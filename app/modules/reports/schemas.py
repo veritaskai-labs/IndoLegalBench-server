@@ -433,7 +433,6 @@ class ReportSummary(BaseModel):
     score_scope: ScoreScope
     has_dev_scores: bool
     status: ReportStatus
-    language: ReportLanguage
     created_by: uuid.UUID
     created_at: datetime
     products: list[str] = Field(
@@ -458,6 +457,8 @@ class ProductLabelMappingRead(BaseModel):
 class ReportDetail(ReportSummary):
     """Laporan lengkap untuk dibuka ulang dan dicetak ke PDF (GET /reports/{id})."""
 
+    # Bahasa dipakai PDF dan disiapkan untuk PBI-26, tetapi tidak dikirim ke klien (SCRUM-363).
+    language: ReportLanguage = Field(exclude=True)
     measurement_filter: MeasurementFilter
     product_label_mode: ProductLabelMode = ProductLabelMode.REAL_NAME
     rubric_version_no: int | None

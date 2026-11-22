@@ -119,6 +119,7 @@ def _detail(report: Report, contents: ReportContents, user: CurrentUser) -> Repo
             **ReportSummary.from_report(
                 report, [session.product_label for session in contents.sessions]
             ).model_dump(),
+            "language": report.language,
             "measurement_filter": report.measurement_filter,
             "product_label_mode": report.product_label_mode,
             "rubric_version_no": contents.rubric_version_no,
