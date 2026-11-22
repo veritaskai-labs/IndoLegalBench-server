@@ -448,6 +448,13 @@ class ReportSummary(BaseModel):
         return cls(**fields, products=products)
 
 
+class ProductLabelMappingRead(BaseModel):
+    """Satu kode produk di laporan mode kode beserta nama aslinya (hanya untuk Admin)."""
+
+    label: str = Field(description="Kode di laporan, mis. Product A")
+    real_name: str | None = Field(description="Nama asli produk; kosong bila produknya tidak ada")
+
+
 class ReportDetail(ReportSummary):
     """Laporan lengkap untuk dibuka ulang dan dicetak ke PDF (GET /reports/{id})."""
 
@@ -458,6 +465,13 @@ class ReportDetail(ReportSummary):
     case_basis_count: int
     sessions: list[ReportDetailSessionRead]
     case_basis: list[ReportCaseBasisRead]
+    product_mapping: list[ProductLabelMappingRead] | None = Field(
+        default=None,
+        description=(
+            "Pemetaan kode ke nama asli. Hanya diisi untuk Admin pada laporan mode kode, "
+            "dijaga di server; selain itu null."
+        ),
+    )
 
 
 # --- Penelusuran angka laporan (PBI-16 SCRUM-326, D6) ----------------------------
