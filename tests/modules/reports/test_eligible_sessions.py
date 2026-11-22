@@ -4,6 +4,8 @@ Murni, tanpa database: pembaca sesi diganti pembaca palsu. Yang diuji: tiap sesi
 eligible beserta alasannya, urutan dari pembaca dipertahankan, dan filter jenis pengukuran.
 """
 
+import uuid
+
 import pytest
 
 from app.modules.cases.models import SplitTag
@@ -235,3 +237,56 @@ def test_no_query_means_no_filtering(layak_dan_tidak):
 
     # Assert
     assert len(hasil) == 3
+
+
+@pytest.fixture
+def dua_produk():
+    produk_a, produk_b = uuid.uuid4(), uuid.uuid4()
+    a1 = _rekaman("A", [_nilai(1, "0.5", "0.5")], product_id=produk_a, label="A pertama")
+    a2 = _rekaman("A", [_nilai(1, "0.5", "0.5")], product_id=produk_a, label="A kedua")
+    b = _rekaman("B", [_nilai(1, "0.5", "0.5")], product_id=produk_b)
+    return produk_a, (a1, a2, b)
+
+
+def test_the_product_filter_keeps_every_session_of_that_product(dua_produk):
+    # Arrange
+    produk_a, rekaman = dua_produk
+
+    # Act
+    hasil = _daftar(*rekaman, query=EligibleSessionQuery(product_id=produk_a))
+
+    # Assert
+    assert [item.label for item in hasil] == ["A pertama", "A kedua"]
+    assert {item.product_id for item in hasil} == {produk_a}
+
+
+def test_the_product_filter_for_a_product_without_sessions_is_empty(dua_produk):
+    # Arrange
+    _, rekaman = dua_produk
+
+    # Act
+    hasil = _daftar(*rekaman, query=EligibleSessionQuery(product_id=uuid.uuid4()))
+
+    # Assert
+    assert hasil == []
+
+
+def test_the_product_and_validity_filters_combine_with_and():
+    # Arrange
+    produk = uuid.uuid4()
+    layak = _rekaman("A", [_nilai(1, "0.5", "0.5")], product_id=produk)
+    batal = _rekaman(
+        "A", [_nilai(1, "0.5", "0.5")], product_id=produk, status=SessionStatus.CANCELLED
+    )
+    lain_batal = _rekaman("B", [_nilai(1, "0.5", "0.5")], status=SessionStatus.CANCELLED)
+
+    # Act
+    hasil = _daftar(
+        layak,
+        batal,
+        lain_batal,
+        query=EligibleSessionQuery(product_id=produk, validity=SessionValidity.INVALID),
+    )
+
+    # Assert
+    assert [item.session_id for item in hasil] == [batal.facts.session_id]
