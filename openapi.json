@@ -1413,6 +1413,80 @@
         }
       }
     },
+    "/cases/{case_id}/duplicate": {
+      "post": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Duplikasi kasus menjadi kasus baru berstatus draf",
+        "description": "PBI-4 AC2 (D8, D9): Kontributor dan Admin menyalin kasus sebagai titik awal kasus baru.\n\nSalinan memakai id dan case_code baru (`<kode asal>-SALIN`, lalu `-SALIN-2`, ...),\nberstatus draf, tanpa tag dev/test, dengan origin `duplicate` dan source_case_id kasus asal.\nTanpa body.",
+        "operationId": "duplicate_case_cases__case_id__duplicate_post",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Kontributor atau Admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Kode salinan baru saja dipakai salinan lain (`CASE_CODE_TAKEN`); ulangi permintaan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Suite kasus asal sudah tidak aktif (`SUITE_NOT_ACTIVE`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/cases/{case_id}/submit-review": {
       "post": {
         "tags": [

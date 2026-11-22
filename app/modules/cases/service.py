@@ -308,6 +308,81 @@ def start_new_version(
     return _to_read(case, version, katalog=katalog)
 
 
+# Batas panjang case_code (cases.case_code varchar 64, pola sementara Klarifikasi #7).
+_PANJANG_KODE = 64
+_AKHIRAN_SALINAN = "-SALIN"
+
+
+def duplicate_case(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -> CaseRead:
+    """Salin kasus lama menjadi kasus baru sebagai titik awal menulis (PBI-4 AC2, diagram D8).
+
+    Salinan adalah kasus baru: id dan case_code baru dari sistem, versi 1 berstatus draft,
+    penulisnya pengguna yang menyalin, dan tag dev/test dikosongkan supaya dipilih ulang.
+    Riwayat versi dan review tidak ikut (keputusan SA). Isi yang disalin adalah versi yang
+    sedang berlaku (approved terakhir, atau draft bila belum pernah disetujui), dan salinan
+    masuk ke suite yang sama, yang harus masih aktif.
+    """
+    asal = _require_case(db, case_id)
+    _require_active_suite(db, asal.suite_id)
+    versi_asal = _in_effect(asal)
+    katalog = legal_refs_service.load_catalog(db)
+    rujukan = _citations(versi_asal, katalog)
+    kode = free_case_code(db, asal.case_code, _AKHIRAN_SALINAN)
+    isi = copy.deepcopy(versi_asal.content or {})
+    case_id_baru, version_id = uuid.uuid4(), uuid.uuid4()
+    case = Case(
+        id=case_id_baru,
+        suite_id=asal.suite_id,
+        case_code=kode,
+        current_version_id=version_id,
+        latest_approved_version_id=None,
+        origin=CaseOrigin.DUPLICATE,
+        source_case_id=asal.id,
+        content_fingerprint=content_fingerprint(isi.get("title"), isi.get("question")),
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    version = CaseVersion(
+        id=version_id,
+        case_id=case_id_baru,
+        version_no=1,
+        status=CaseStatus.DRAFT,
+        case_code=kode,
+        split_tag=None,
+        content=isi,
+        created_by=actor_id,
+        based_on_version_id=None,
+    )
+    # Kelengkapan dihitung ulang: salinan kehilangan tag, jadi persentase asal sudah tidak benar.
+    isi["completeness"] = completeness.evaluate(completeness.row_data(case, version, rujukan))
+    legal_refs_service.replace_for_version(db, version_id, rujukan)
+    _catat_versi_baru(version)
+    try:
+        tersimpan = repository.create(db, case, version)
+    except IntegrityError as galat:
+        db.rollback()
+        if not _code_clash(galat):
+            raise
+        # Kode yang tadi bebas baru saja dipakai salinan lain; pengguna cukup mengulang.
+        raise _code_taken(db, kode) from None
+    return _to_read(tersimpan, version, katalog=katalog)
+
+
+def free_case_code(db: Session, dasar: str, penanda: str = "") -> str:
+    """case_code buatan sistem yang belum dipakai: dasar+penanda, lalu dengan -2, -3, dan seterusnya.
+
+    Dipakai duplikasi (SCRUM-337, penanda "-SALIN") dan impor CSV (SCRUM-338). Yang dipotong
+    hanya dasar, supaya penanda dan nomornya selalu utuh dan hasilnya muat 64 karakter.
+    """
+    nomor = 1
+    while True:
+        akhiran = penanda + ("" if nomor == 1 else f"-{nomor}")
+        kode = dasar[: _PANJANG_KODE - len(akhiran)] + akhiran
+        if repository.get_by_code(db, kode) is None:
+            return kode
+        nomor += 1
+
+
 def submit_for_review(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -> ReviewSubmission:
     """Ajukan versi yang sedang dikerjakan untuk direview (PBI-6 AC1, D3 langkah 1-12).
 
