@@ -62,6 +62,16 @@ class EligibleSessionQuery:
     validity: SessionValidity = SessionValidity.ALL
     product_id: uuid.UUID | None = None
 
+    def matches(self, item: "EligibleSession") -> bool:
+        return self._matches_validity(item)
+
+    def _matches_validity(self, item: "EligibleSession") -> bool:
+        if self.validity is SessionValidity.VALID:
+            return item.eligible
+        if self.validity is SessionValidity.INVALID:
+            return not item.eligible
+        return True
+
 
 class EligibleSessionLister:
     def __init__(self, reader: SessionRecordReader) -> None:
@@ -73,7 +83,7 @@ class EligibleSessionLister:
         measurement_filter: MeasurementFilter = MeasurementFilter.ALL,
         query: EligibleSessionQuery = EligibleSessionQuery(),
     ) -> list[EligibleSession]:
-        """Semua sesi aktif menurut urutan pembaca, tiap sesi dengan semua alasannya."""
+        """Sesi aktif yang cocok dengan query, menurut urutan pembaca, dengan semua alasannya."""
         kinds = KINDS_BY_FILTER[measurement_filter]
         items = []
         for record in self._reader.read(self._reader.list_ids()):
@@ -84,22 +94,22 @@ class EligibleSessionLister:
                 IneligibilityReason(code, ineligibility_message(code))
                 for code in eligibility_problems(facts)
             )
-            items.append(
-                EligibleSession(
-                    session_id=facts.session_id,
-                    label=record.label,
-                    product_id=facts.product_id,
-                    product_name=facts.product_name,
-                    created_at=record.created_at,
-                    session_type=SessionType(facts.session_type),
-                    purpose=SessionPurpose(facts.purpose),
-                    status=SessionStatus(facts.status),
-                    judge_model_version=facts.judge_model_version,
-                    case_kinds=_case_kinds(facts.snapshot_cases),
-                    eligible=not reasons,
-                    reasons=reasons,
-                )
+            item = EligibleSession(
+                session_id=facts.session_id,
+                label=record.label,
+                product_id=facts.product_id,
+                product_name=facts.product_name,
+                created_at=record.created_at,
+                session_type=SessionType(facts.session_type),
+                purpose=SessionPurpose(facts.purpose),
+                status=SessionStatus(facts.status),
+                judge_model_version=facts.judge_model_version,
+                case_kinds=_case_kinds(facts.snapshot_cases),
+                eligible=not reasons,
+                reasons=reasons,
             )
+            if query.matches(item):
+                items.append(item)
         return items
 
 
