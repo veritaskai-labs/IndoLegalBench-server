@@ -194,7 +194,7 @@ if settings.auth_oidc_mode == "fake":
     app.include_router(fake_router)
 app.include_router(suites_router)  # PBI-2
 app.include_router(cases_router)  # PBI-3
-app.include_router(case_imports_router)  # PBI-4 SCRUM-338
+app.include_router(case_imports_router)
 app.include_router(providers_router)  # PBI-10
 app.include_router(product_options_router)  # PBI-23 SCRUM-201
 app.include_router(reviews_router)  # PBI-6

@@ -1847,7 +1847,7 @@
           "case-imports"
         ],
         "summary": "Unduh template CSV impor kasus",
-        "description": "PBI-4 AC6: template CSV bulk dari sistem. case_code tidak ada karena dibuat sistem.",
+        "description": "Template CSV dari sistem. case_code tidak ada karena dibuat sistem.",
         "operationId": "download_import_template_case_imports_template_get",
         "responses": {
           "200": {
@@ -1879,7 +1879,7 @@
           "case-imports"
         ],
         "summary": "Impor kasus dari satu berkas CSV",
-        "description": "PBI-4 AC4-AC11 (D7): baris valid menjadi kasus draft di satu suite sementara, baris gagal\ndilaporkan dengan alasan, baris kembar dilewati. Nomor baris mengikuti spreadsheet.",
+        "description": "Baris valid menjadi kasus draft di satu suite sementara, baris gagal dilaporkan dengan\nalasan, baris kembar dilewati. Nomor baris mengikuti spreadsheet.",
         "operationId": "import_cases_case_imports_post",
         "requestBody": {
           "content": {
@@ -1941,7 +1941,7 @@
           "case-imports"
         ],
         "summary": "Buka lagi ringkasan satu impor CSV",
-        "description": "PBI-4 AC7: ringkasan yang sama dengan respons impor, dibaca dari tabel D8.",
+        "description": "Ringkasan yang sama dengan respons impor, dibaca dari tabel impor.",
         "operationId": "read_import_summary_case_imports__batch_id__get",
         "parameters": [
           {
@@ -9678,7 +9678,7 @@
           "question"
         ],
         "title": "CaseIdentityRead",
-        "description": "Identitas kasus saat dibaca. Judul dan pertanyaan boleh kosong hanya pada draft hasil impor\nCSV (PBI-4 AC5, AC8, SCRUM-338): kasus lama masuk dengan field lebih sedikit lalu dilengkapi.\nMenyimpan lewat editor tetap memakai CaseIdentity, yang mewajibkan keduanya."
+        "description": "Identitas kasus saat dibaca. Judul dan pertanyaan boleh kosong hanya pada draft hasil impor\nCSV: kasus lama masuk dengan field lebih sedikit lalu dilengkapi. Menyimpan lewat editor tetap\nmemakai CaseIdentity, yang mewajibkan keduanya."
       },
       "CaseNotReadyBody": {
         "properties": {

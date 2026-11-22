@@ -1,7 +1,7 @@
-"""Impor CSV di PostgreSQL. PBI-4 SCRUM-81 SCRUM-338, diagram D7 dan D8.
+"""Impor CSV di PostgreSQL.
 
-Yang tidak dibuktikan SQLite: CHECK D8 benar-benar dijalankan (origin import wajib punya batch,
-hasil baris created wajib menunjuk kasus dan yang lain wajib beralasan, jumlah batch tidak
+Yang tidak dibuktikan SQLite: CHECK tabel impor benar-benar dijalankan (origin import wajib punya
+batch, hasil baris created wajib menunjuk kasus dan yang lain wajib beralasan, jumlah batch tidak
 melebihi total, tag kosong hanya pada draft), foreign key ke users, suites, dan import_batches,
 enum PostgreSQL, serta seed jenis peraturan dari migrasi untuk rujukan terstruktur.
 
@@ -99,7 +99,7 @@ def _kasus_manual(sesi: Session, user_id: uuid.UUID, judul: str) -> str:
 
 
 def test_impor_lengkap_lolos_semua_check_d8(db):
-    """Positif: created, failed, dan skipped tersimpan bersama di PostgreSQL; draft tanpa tag
+    """Baris created, failed, dan skipped tersimpan bersama di PostgreSQL; draft tanpa tag
     diterima, rujukan terstruktur memakai jenis dari seed migrasi."""
     sesi, user_id = db
     kode_manual = _kasus_manual(sesi, user_id, "Kasus manual")
@@ -153,7 +153,7 @@ def test_impor_lengkap_lolos_semua_check_d8(db):
 
 
 def test_kasus_hasil_impor_tercatat_di_audit_dengan_batch(db):
-    """Positif: D8 SCRUM-337, case.created mencatat origin import dan import_batch_id."""
+    """Event case.created mencatat origin import dan import_batch_id."""
     sesi, user_id = db
 
     ringkasan = import_service.import_cases(
@@ -169,7 +169,7 @@ def test_kasus_hasil_impor_tercatat_di_audit_dengan_batch(db):
 
 
 def test_suite_sementara_milik_pengimpor(db):
-    """Positif: keputusan SA, suite sementara aktif dengan FK ke users."""
+    """Suite sementara aktif dengan FK ke users."""
     sesi, user_id = db
 
     ringkasan = import_service.import_cases(

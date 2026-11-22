@@ -79,8 +79,8 @@ class CaseIdentity(BaseModel):
 
 class CaseIdentityRead(BaseModel):
     """Identitas kasus saat dibaca. Judul dan pertanyaan boleh kosong hanya pada draft hasil impor
-    CSV (PBI-4 AC5, AC8, SCRUM-338): kasus lama masuk dengan field lebih sedikit lalu dilengkapi.
-    Menyimpan lewat editor tetap memakai CaseIdentity, yang mewajibkan keduanya."""
+    CSV: kasus lama masuk dengan field lebih sedikit lalu dilengkapi. Menyimpan lewat editor tetap
+    memakai CaseIdentity, yang mewajibkan keduanya."""
 
     title: str = Field(
         max_length=300, description="Judul pertanyaan; kosong hanya pada draft impor"

@@ -1,10 +1,10 @@
-"""Endpoint impor kasus lewat CSV. PBI-4 SCRUM-81 SCRUM-338, AC4-AC11, diagram D7.
+"""Endpoint impor kasus lewat CSV.
 
-GET /case-imports/template   template CSV (AC6)
-POST /case-imports           unggah satu berkas, kembalikan ringkasan (AC7)
+GET /case-imports/template   template CSV
+POST /case-imports           unggah satu berkas, kembalikan ringkasan
 GET /case-imports/{batch_id} buka lagi ringkasan satu batch
 
-Hanya Kontributor dan Admin (D9), sama dengan menulis kasus. Path terpisah dari /cases supaya
+Hanya Kontributor dan Admin, sama dengan menulis kasus. Path terpisah dari /cases supaya
 tidak bertabrakan dengan /cases/{case_id}.
 """
 
@@ -29,7 +29,7 @@ _can_write = require_roles(*WRITER_ROLES, Role.ADMIN)
 
 IMPORT_FILE_REQUIRED = "IMPORT_FILE_REQUIRED"
 TEMPLATE_FILE_NAME = "template-impor-kasus.csv"
-# Ruang untuk boundary dan header multipart di atas batas berkas (pola bukti manual, #121).
+# Ruang untuk boundary dan header multipart di atas batas berkas.
 _MULTIPART_OVERHEAD = 64 * 1024
 
 _UPLOAD_FORM = {
@@ -110,7 +110,7 @@ def _capped_body(request: Request, limit_bytes: int) -> Request:
     },
 )
 def download_import_template(_: CurrentUser = Depends(_can_write)) -> Response:
-    """PBI-4 AC6: template CSV bulk dari sistem. case_code tidak ada karena dibuat sistem."""
+    """Template CSV dari sistem. case_code tidak ada karena dibuat sistem."""
     return Response(
         content=template_csv(),
         media_type="text/csv; charset=utf-8",
@@ -144,8 +144,8 @@ async def import_cases(
     db: Session = Depends(get_db),
     user: CurrentUser = Depends(_can_write),
 ) -> ImportSummaryRead:
-    """PBI-4 AC4-AC11 (D7): baris valid menjadi kasus draft di satu suite sementara, baris gagal
-    dilaporkan dengan alasan, baris kembar dilewati. Nomor baris mengikuti spreadsheet."""
+    """Baris valid menjadi kasus draft di satu suite sementara, baris gagal dilaporkan dengan
+    alasan, baris kembar dilewati. Nomor baris mengikuti spreadsheet."""
     limit = import_service.upload_limit_bytes()
     _reject_oversized(request, limit)
     async with _capped_body(request, limit).form(max_files=1, max_fields=1) as form:
@@ -174,5 +174,5 @@ def read_import_summary(
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(_can_write),
 ) -> ImportSummaryRead:
-    """PBI-4 AC7: ringkasan yang sama dengan respons impor, dibaca dari tabel D8."""
+    """Ringkasan yang sama dengan respons impor, dibaca dari tabel impor."""
     return import_service.read_summary(db, batch_id)
