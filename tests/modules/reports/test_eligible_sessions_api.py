@@ -57,6 +57,7 @@ class TestList:
             "product_id": str(layak.facts.product_id),
             "product_name": "Produk A",
             "judge_model_version": "judge-1",
+            "case_kinds": ["test"],
             "created_at": "2026-11-01T00:00:00Z",
             "session_type": "automatic",
             "purpose": "official",
