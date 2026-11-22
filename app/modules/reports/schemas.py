@@ -436,7 +436,6 @@ class ReportSummary(BaseModel):
     created_by: uuid.UUID
     created_at: datetime
     products: list[str] = Field(
-        default_factory=list,
         description="Label produk yang dibandingkan, beku di laporan: nama asli atau kode",
     )
 
