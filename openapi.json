@@ -7771,6 +7771,62 @@
           }
         }
       }
+    },
+    "/search": {
+      "get": {
+        "tags": [
+          "search"
+        ],
+        "summary": "Cari suite, kasus, dan sesi pengukuran",
+        "operationId": "search_search_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "minLength": 1,
+              "maxLength": 200,
+              "description": "Kata kunci pencarian",
+              "title": "Q"
+            },
+            "description": "Kata kunci pencarian"
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/SearchResponse"
+                }
+              }
+            }
+          },
+          "401": {
+            "description": "Autentikasi diperlukan",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
     }
   },
   "components": {
@@ -10024,6 +10080,35 @@
         ],
         "title": "CaseReview",
         "description": "GET /cases/{case_id}/review: round terakhir kasus ini."
+      },
+      "CaseSearchHit": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "archived": {
+            "type": "boolean",
+            "title": "Archived"
+          },
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "archived",
+          "case_code"
+        ],
+        "title": "CaseSearchHit"
       },
       "CaseStatus": {
         "type": "string",
@@ -15943,6 +16028,62 @@
         "title": "ScoreSplit",
         "description": "Satu baris report_results. Dev + Test menyimpan tiga baris per sesi (D1)."
       },
+      "SearchHit": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "archived": {
+            "type": "boolean",
+            "title": "Archived"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "archived"
+        ],
+        "title": "SearchHit"
+      },
+      "SearchResponse": {
+        "properties": {
+          "suites": {
+            "items": {
+              "$ref": "#/components/schemas/SearchHit"
+            },
+            "type": "array",
+            "title": "Suites"
+          },
+          "cases": {
+            "items": {
+              "$ref": "#/components/schemas/CaseSearchHit"
+            },
+            "type": "array",
+            "title": "Cases"
+          },
+          "sessions": {
+            "items": {
+              "$ref": "#/components/schemas/SessionSearchHit"
+            },
+            "type": "array",
+            "title": "Sessions"
+          }
+        },
+        "type": "object",
+        "required": [
+          "suites",
+          "cases",
+          "sessions"
+        ],
+        "title": "SearchResponse"
+      },
       "SessionAcceptRequest": {
         "properties": {
           "reason": {
@@ -16803,6 +16944,49 @@
         ],
         "title": "SessionRetryResponse",
         "description": "Sesi berjalan lagi; runner hanya memanggil ulang percobaan yang dibuka."
+      },
+      "SessionSearchHit": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "label": {
+            "type": "string",
+            "title": "Label"
+          },
+          "archived": {
+            "type": "boolean",
+            "title": "Archived"
+          },
+          "session_type": {
+            "type": "string",
+            "enum": [
+              "automatic",
+              "manual"
+            ],
+            "title": "Session Type"
+          },
+          "destination": {
+            "type": "string",
+            "enum": [
+              "automatic_detail",
+              "manual_detail",
+              "grading_results"
+            ],
+            "title": "Destination"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "label",
+          "archived",
+          "session_type",
+          "destination"
+        ],
+        "title": "SessionSearchHit"
       },
       "SessionStatus": {
         "type": "string",

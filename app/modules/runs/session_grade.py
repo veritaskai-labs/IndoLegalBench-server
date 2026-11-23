@@ -1205,6 +1205,19 @@ class DbGradingStore:
     def get_latest_grading_run(self, session_id: uuid.UUID) -> SessionGradingResponse | None:
         return pilih_run_terbaru(self.get_grading_runs(session_id))
 
+    def has_results(self, session_id: uuid.UUID) -> bool:
+        """Check availability for navigation without building current grading payloads."""
+        from app.modules.grading.models import GradingRun
+
+        ended_run = self.db.scalar(
+            select(GradingRun.id)
+            .where(
+                GradingRun.session_id == session_id, GradingRun.status.in_(_ended_run_statuses())
+            )
+            .limit(1)
+        )
+        return ended_run is not None or bool(self._get_grading_runs_from_audit(session_id))
+
     def get_grading_run(
         self, session_id: uuid.UUID, grading_run_id: uuid.UUID
     ) -> SessionGradingResponse | None:

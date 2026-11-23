@@ -9,6 +9,7 @@ yang boleh mengubah kasus.
 
 import copy
 import uuid
+from collections.abc import Mapping
 from typing import Any
 
 from sqlalchemy.exc import IntegrityError
@@ -46,6 +47,7 @@ from app.modules.legal_refs import service as legal_refs_service
 from app.modules.notifications.service import DbNotifier
 from app.modules.reviews import service as reviews_service
 from app.modules.reviews.ports import DeferredNotifier
+from app.modules.search.schemas import CaseSearchHit
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
 
 CASE_CODE_TAKEN = "CASE_CODE_TAKEN"
@@ -148,6 +150,63 @@ def preview_legal_refs(
 def get_case(db: Session, case_id: uuid.UUID) -> CaseRead:
     """Return the version that is in effect, or raise when the id does not exist."""
     return _to_read(_require_case(db, case_id), katalog=legal_refs_service.load_catalog(db))
+
+
+def search_cases(
+    db: Session,
+    query: str,
+    suite_archives: Mapping[uuid.UUID, bool],
+    *,
+    approved_dev_only: bool,
+    limit: int,
+) -> list[CaseSearchHit]:
+    catalog = legal_refs_service.load_catalog(db)
+    hits = []
+    for case, version in repository.search_candidates(db, approved_dev_only=approved_dev_only):
+        if case.suite_id not in suite_archives:
+            continue
+        label = (version.content or {}).get("title") or case.case_code
+        if _matches_case(query, case, version, label, catalog):
+            hits.append(
+                CaseSearchHit(
+                    id=case.id,
+                    label=label,
+                    case_code=case.case_code,
+                    archived=suite_archives[case.suite_id],
+                )
+            )
+            if len(hits) == limit:
+                break
+    return hits
+
+
+def _matches_case(
+    query: str,
+    case: Case,
+    version: CaseVersion,
+    label: str,
+    catalog: legal_refs_service.TypeCatalog,
+) -> bool:
+    content = version.content or {}
+    criteria = content.get("answer_criteria") or {}
+    fields = [
+        case.case_code,
+        label,
+        content.get("question"),
+        criteria.get("expected_conclusion"),
+        *(criteria.get("must_contain") or []),
+        *(criteria.get("must_not_contain") or []),
+    ]
+    if query == str(case.id) or any(
+        isinstance(field, str) and query in field.casefold() for field in fields
+    ):
+        return True
+    for citation in _legal_refs_read(version, catalog):
+        if query in citation.display_text.casefold() or any(
+            link.about and query in link.about.casefold() for link in citation.links
+        ):
+            return True
+    return False
 
 
 def get_case_for_developer_ai(db: Session, case_id: uuid.UUID) -> CaseRead:

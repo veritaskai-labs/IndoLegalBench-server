@@ -313,6 +313,9 @@ _DIBUKA = {
     # PBI-17 AC9 (SCRUM-332, diagram D9): daftar terbit terbuka untuk setiap
     # peran yang login. POST /reports/{report_id}/publish tetap tertutup.
     ("GET", "/published-reports"),
+    # PBI-20 (SCRUM-351): pencarian hanya mencocokkan kasus dev yang disetujui
+    # untuk Developer AI, diuji di tests/modules/search/test_search.py.
+    ("GET", "/search"),
 }
 # Jalur tanpa penjaga peran: login, profil sendiri, dan lonceng notifikasi.
 _TANPA_PERAN = ("/health", "/auth/", "/notifications")
