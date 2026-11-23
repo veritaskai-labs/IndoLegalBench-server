@@ -91,8 +91,10 @@ def search_sessions(
     grading = DbGradingStore(db)
     rows = repository.search_session_rows(db, include_manual=role in {Role.ADMIN, Role.CONTRIBUTOR})
     for session_id, label, kind, status, archived_at in rows:
+        if query not in label.casefold():
+            continue
         destination = _search_destination(grading, role, session_id, kind, status)
-        if destination and query in label.casefold():
+        if destination:
             hits.append((session_id, label, archived_at is not None, kind, destination))
             if len(hits) == limit:
                 break
