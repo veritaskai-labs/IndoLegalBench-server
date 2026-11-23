@@ -189,12 +189,17 @@ def _matches_case(
         *(criteria.get("must_contain") or []),
         *(criteria.get("must_not_contain") or []),
     ]
-    for citation in _legal_refs_read(version, catalog):
-        fields.append(citation.display_text)
-        fields.extend(link.about for link in citation.links)
-    return query == str(case.id) or any(
+    if query == str(case.id) or any(
         isinstance(field, str) and query in field.casefold() for field in fields
-    )
+    ):
+        return True
+    for citation in _legal_refs_read(version, catalog):
+        if query in citation.display_text.casefold() or any(
+            link.about and query in link.about.casefold() for link in citation.links
+        ):
+            return True
+    return False
+
 
 
 def get_case_for_developer_ai(db: Session, case_id: uuid.UUID) -> CaseRead:
