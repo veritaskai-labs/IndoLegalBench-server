@@ -228,3 +228,40 @@ def test_contents_tag_kasus_diambil_dari_versi_kasus_bukan_salinan(db_session, d
     assert isi.case_basis == [
         repository.CaseBasisRow("RAHASIA-001", 1, SplitTag.TEST, versi.case_id)
     ]
+
+
+# --- Nama asli produk untuk pemetaan label (SCRUM-363, AC9) ---------------------
+
+
+def test_product_names_memetakan_id_produk_ke_nama_aslinya(db_session, dasar_data):
+    """Positif: nama asli dibaca dari ai_products lewat product_id sesi laporan."""
+    # Arrange
+    _, _, sesi_a, sesi_b = dasar_data
+
+    # Act
+    nama = repository.product_names(db_session, [sesi_a.product_id, sesi_b.product_id])
+
+    # Assert
+    assert nama == {sesi_a.product_id: "Gemini", sesi_b.product_id: "Justisio"}
+
+
+def test_product_names_hanya_mengembalikan_produk_yang_diminta(db_session, dasar_data):
+    """Edge: produk lain di database tidak ikut, dan id yang tidak ada tidak menimbulkan galat."""
+    # Arrange
+    _, _, sesi_a, _ = dasar_data
+    tidak_ada = uuid.uuid4()
+
+    # Act
+    nama = repository.product_names(db_session, [sesi_a.product_id, tidak_ada])
+
+    # Assert
+    assert nama == {sesi_a.product_id: "Gemini"}
+
+
+def test_product_names_tanpa_id_mengembalikan_kosong(db_session):
+    """Edge: daftar id kosong menghasilkan dict kosong tanpa query."""
+    # Act
+    nama = repository.product_names(db_session, [])
+
+    # Assert
+    assert nama == {}

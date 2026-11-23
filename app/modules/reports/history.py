@@ -14,11 +14,12 @@ import uuid
 from sqlalchemy.orm import Session
 
 from app.modules.reports import repository
-from app.modules.reports.access import visibility_for, visible_case_code
+from app.modules.reports.access import sees_product_mapping, visibility_for, visible_case_code
 from app.modules.reports.models import ProductLabelMode, Report, ReportResult
 from app.modules.reports.pdf import ReportPdfRenderer, report_pdf_filename
 from app.modules.reports.repository import ReportContents
 from app.modules.reports.schemas import (
+    ProductLabelMappingRead,
     ReportCaseBasisRead,
     ReportDetail,
     ReportDetailResultRead,
@@ -40,8 +41,9 @@ def list_reports(db: Session, user: CurrentUser, params: PageParams) -> Page[Rep
     rows, total = repository.list_reports(
         db, visibility_for(user), offset=params.offset, limit=params.size
     )
+    labels = repository.frozen_product_labels(db, [row.id for row in rows])
     return Page(
-        items=[ReportSummary.model_validate(row) for row in rows],
+        items=[ReportSummary.from_report(row, labels.get(row.id, [])) for row in rows],
         total=total,
         page=params.page,
         size=params.size,
@@ -56,7 +58,18 @@ def get_report(db: Session, report_id: uuid.UUID, user: CurrentUser) -> ReportDe
     dibaca dari database.
     """
     report = readable_report(db, report_id, user)
-    return _detail(report, repository.contents(db, report), user)
+    contents = repository.contents(db, report)
+    detail = _detail(report, contents, user)
+    if not sees_product_mapping(user.role, report.product_label_mode):
+        return detail
+    names = repository.product_names(db, [session.product_id for session in contents.sessions])
+    mapping = [
+        ProductLabelMappingRead(
+            label=session.product_label, real_name=names.get(session.product_id)
+        )
+        for session in contents.sessions
+    ]
+    return detail.model_copy(update={"product_mapping": mapping})
 
 
 def readable_report(db: Session, report_id: uuid.UUID, user: CurrentUser) -> Report:
@@ -74,10 +87,12 @@ def readable_report(db: Session, report_id: uuid.UUID, user: CurrentUser) -> Rep
 def report_pdf(db: Session, report_id: uuid.UUID, user: CurrentUser) -> tuple[bytes, str]:
     """PDF dan nama berkasnya, dari ReportDetail yang sama dengan halaman web (D3 langkah 13-15).
 
-    Aturan baca ikut get_report, jadi laporan yang tidak boleh dibuka juga tidak bisa
-    diunduh. Bahasa PDF mengikuti reports.language (disiapkan untuk PBI-26).
+    Aturan baca ikut get_report (readable_report), jadi laporan yang tidak boleh dibuka juga
+    tidak bisa diunduh. Bahasa PDF mengikuti reports.language (disiapkan untuk PBI-26).
     """
-    detail = get_report(db, report_id, user)
+    report = readable_report(db, report_id, user)
+    # PDF dibagikan ke luar, jadi dibuat tanpa pemetaan kode ke nama asli walau pembacanya Admin.
+    detail = _detail(report, repository.contents(db, report), user)
     return _PDF.render(detail), report_pdf_filename(detail)
 
 
@@ -101,7 +116,10 @@ def _detail(report: Report, contents: ReportContents, user: CurrentUser) -> Repo
     ]
     return ReportDetail.model_validate(
         {
-            **ReportSummary.model_validate(report).model_dump(),
+            **ReportSummary.from_report(
+                report, [session.product_label for session in contents.sessions]
+            ).model_dump(),
+            "language": report.language,
             "measurement_filter": report.measurement_filter,
             "product_label_mode": report.product_label_mode,
             "rubric_version_no": contents.rubric_version_no,

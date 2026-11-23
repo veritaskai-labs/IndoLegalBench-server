@@ -9,12 +9,19 @@ Modul ini murni: tanpa database dan tanpa HTTP, hanya mengenal port SessionRecor
 """
 
 import uuid
+from collections.abc import Iterable
 from dataclasses import dataclass
 from datetime import datetime
+from enum import StrEnum
 
-from app.modules.reports.comparison_rules import eligibility_problems, ineligibility_message
+from app.modules.cases.models import SplitTag
+from app.modules.reports.comparison_rules import (
+    CaseRef,
+    eligibility_problems,
+    ineligibility_message,
+)
 from app.modules.reports.models import MeasurementFilter
-from app.modules.reports.report_generation import KINDS_BY_FILTER
+from app.modules.reports.report_planning import KINDS_BY_FILTER
 from app.modules.reports.session_record import SessionRecordReader
 from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType
 
@@ -36,8 +43,48 @@ class EligibleSession:
     purpose: SessionPurpose
     status: SessionStatus
     judge_model_version: str | None
+    case_kinds: tuple[SplitTag, ...]
     eligible: bool
     reasons: tuple[IneligibilityReason, ...]
+
+
+class SessionValidity(StrEnum):
+    ALL = "all"
+    VALID = "valid"
+    INVALID = "invalid"
+
+
+@dataclass(frozen=True)
+class EligibleSessionQuery:
+    """Pencarian dan penyaringan daftar sesi untuk pemilih sesi. Semua kriteria digabung (AND)."""
+
+    q: str | None = None
+    validity: SessionValidity = SessionValidity.ALL
+    product_id: uuid.UUID | None = None
+
+    def matches(self, item: "EligibleSession") -> bool:
+        return (
+            self._matches_text(item)
+            and self._matches_validity(item)
+            and self._matches_product(item)
+        )
+
+    def _matches_text(self, item: "EligibleSession") -> bool:
+        needle = (self.q or "").strip().casefold()
+        if not needle:
+            return True
+        haystacks = (item.label, item.product_name, str(item.session_id))
+        return any(needle in text.casefold() for text in haystacks)
+
+    def _matches_product(self, item: "EligibleSession") -> bool:
+        return self.product_id is None or item.product_id == self.product_id
+
+    def _matches_validity(self, item: "EligibleSession") -> bool:
+        if self.validity is SessionValidity.VALID:
+            return item.eligible
+        if self.validity is SessionValidity.INVALID:
+            return not item.eligible
+        return True
 
 
 class EligibleSessionLister:
@@ -45,9 +92,12 @@ class EligibleSessionLister:
         self._reader = reader
 
     def list(
-        self, *, measurement_filter: MeasurementFilter = MeasurementFilter.ALL
+        self,
+        *,
+        measurement_filter: MeasurementFilter = MeasurementFilter.ALL,
+        query: EligibleSessionQuery = EligibleSessionQuery(),
     ) -> list[EligibleSession]:
-        """Semua sesi aktif menurut urutan pembaca, tiap sesi dengan semua alasannya."""
+        """Sesi aktif yang cocok dengan query, menurut urutan pembaca, dengan semua alasannya."""
         kinds = KINDS_BY_FILTER[measurement_filter]
         items = []
         for record in self._reader.read(self._reader.list_ids()):
@@ -58,19 +108,26 @@ class EligibleSessionLister:
                 IneligibilityReason(code, ineligibility_message(code))
                 for code in eligibility_problems(facts)
             )
-            items.append(
-                EligibleSession(
-                    session_id=facts.session_id,
-                    label=record.label,
-                    product_id=facts.product_id,
-                    product_name=facts.product_name,
-                    created_at=record.created_at,
-                    session_type=SessionType(facts.session_type),
-                    purpose=SessionPurpose(facts.purpose),
-                    status=SessionStatus(facts.status),
-                    judge_model_version=facts.judge_model_version,
-                    eligible=not reasons,
-                    reasons=reasons,
-                )
+            item = EligibleSession(
+                session_id=facts.session_id,
+                label=record.label,
+                product_id=facts.product_id,
+                product_name=facts.product_name,
+                created_at=record.created_at,
+                session_type=SessionType(facts.session_type),
+                purpose=SessionPurpose(facts.purpose),
+                status=SessionStatus(facts.status),
+                judge_model_version=facts.judge_model_version,
+                case_kinds=_case_kinds(facts.snapshot_cases),
+                eligible=not reasons,
+                reasons=reasons,
             )
+            if query.matches(item):
+                items.append(item)
         return items
+
+
+def _case_kinds(snapshot_cases: Iterable[CaseRef]) -> tuple[SplitTag, ...]:
+    """Jenis kasus (dev, test) yang ada di snapshot sesi, tanpa duplikat, urut menurut SplitTag."""
+    present = {SplitTag(ref.split_tag) for ref in snapshot_cases}
+    return tuple(tag for tag in SplitTag if tag in present)

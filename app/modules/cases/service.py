@@ -321,6 +321,10 @@ def duplicate_case(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -> C
     Riwayat versi dan review tidak ikut (keputusan SA). Isi yang disalin adalah versi yang
     sedang berlaku (approved terakhir, atau draft bila belum pernah disetujui), dan salinan
     masuk ke suite yang sama, yang harus masih aktif.
+
+    Keputusan SA (diagram D8): salinan kasus dev, atau kasus yang sudah was_dev, ikut
+    ditandai was_dev, karena teksnya sudah pernah terlihat Developer AI. Tandanya hanya
+    informasi; penulis tetap boleh memberi tag test (keputusan klien PBI-9 tidak berubah).
     """
     asal = _require_case(db, case_id)
     _require_active_suite(db, asal.suite_id)
@@ -339,6 +343,7 @@ def duplicate_case(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -> C
         origin=CaseOrigin.DUPLICATE,
         source_case_id=asal.id,
         content_fingerprint=content_fingerprint(isi.get("title"), isi.get("question")),
+        was_dev=bool(asal.was_dev) or versi_asal.split_tag == SplitTag.DEV,
         created_by=actor_id,
         updated_by=actor_id,
     )
@@ -354,7 +359,10 @@ def duplicate_case(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -> C
         based_on_version_id=None,
     )
     # Kelengkapan dihitung ulang: salinan kehilangan tag, jadi persentase asal sudah tidak benar.
-    isi["completeness"] = completeness.evaluate(completeness.row_data(case, version, rujukan))
+    # Dihitung dari version yang sudah dibangun, lalu content diganti dengan dict baru secara
+    # eksplisit (bukan mengubah isi lewat referensi bersama).
+    kelengkapan = completeness.evaluate(completeness.row_data(case, version, rujukan))
+    version.content = {**isi, "completeness": kelengkapan}
     legal_refs_service.replace_for_version(db, version_id, rujukan)
     _catat_versi_baru(version)
     try:

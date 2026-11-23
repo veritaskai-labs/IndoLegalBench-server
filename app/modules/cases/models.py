@@ -35,6 +35,11 @@ from sqlalchemy.dialects.postgresql import JSONB
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.shared.database import Base
+from app.shared.text import sql_not_blank
+
+# Target foreign key yang dipakai berulang di modul ini (Sonar S1192).
+_USERS_ID = "users.id"
+_CASES_ID = "cases.id"
 
 
 class SplitTag(StrEnum):
@@ -147,17 +152,17 @@ class Case(Base):
     )
     source_case_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("cases.id", name="fk_cases_source_case_id_cases"),
+        ForeignKey(_CASES_ID, name="fk_cases_source_case_id_cases"),
         nullable=True,
     )
     # fingerprint.content_fingerprint dari versi yang sedang dikerjakan; NULL bila judul dan
     # pertanyaan kosong. Tidak UNIQUE: data lama boleh sudah berisi kasus kembar.
     content_fingerprint: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_by: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey(_USERS_ID), nullable=False
     )
     updated_by: Mapped[uuid.UUID] = mapped_column(
-        Uuid(as_uuid=True), ForeignKey("users.id"), nullable=False
+        Uuid(as_uuid=True), ForeignKey(_USERS_ID), nullable=False
     )
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True), server_default=func.now(), nullable=False
@@ -199,7 +204,7 @@ class CaseVersion(Base):
     case_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
         ForeignKey(
-            "cases.id",
+            _CASES_ID,
             name="fk_case_versions_case_id_cases",
             deferrable=True,
             initially="DEFERRED",
@@ -219,7 +224,7 @@ class CaseVersion(Base):
     content: Mapped[dict] = mapped_column(_JSONB, nullable=False)
     created_by: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("users.id", name="fk_case_versions_created_by_users"),
+        ForeignKey(_USERS_ID, name="fk_case_versions_created_by_users"),
         nullable=False,
     )
     created_at: Mapped[datetime] = mapped_column(
@@ -256,14 +261,14 @@ class ImportBatch(Base):
             "success_count + failed_count + skipped_count <= total_rows",
             name="ck_import_batches_counts_within_total",
         ),
-        CheckConstraint("length(trim(file_name)) > 0", name="ck_import_batches_file_name"),
+        CheckConstraint(sql_not_blank("file_name"), name="ck_import_batches_file_name"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     file_name: Mapped[str] = mapped_column(String(255), nullable=False)
     imported_by: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("users.id", name="fk_import_batches_imported_by_users"),
+        ForeignKey(_USERS_ID, name="fk_import_batches_imported_by_users"),
         nullable=False,
     )
     imported_at: Mapped[datetime] = mapped_column(
@@ -301,7 +306,7 @@ class ImportRowResult(Base):
         ),
         # Baris yang gagal atau dilewati selalu punya alasan untuk ringkasan (AC7).
         CheckConstraint(
-            "status = 'created' OR length(trim(coalesce(reason, ''))) > 0",
+            "status = 'created' OR " + sql_not_blank("coalesce(reason, '')"),
             name="ck_import_row_results_reason_when_not_created",
         ),
     )
@@ -318,7 +323,7 @@ class ImportRowResult(Base):
     )
     case_id: Mapped[uuid.UUID | None] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("cases.id", name="fk_import_row_results_case_id_cases"),
+        ForeignKey(_CASES_ID, name="fk_import_row_results_case_id_cases"),
         nullable=True,
     )
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)

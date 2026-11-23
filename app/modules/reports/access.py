@@ -8,6 +8,8 @@ Aturan D9:
 - Laporan tersimpan (saved) hanya untuk pembuatnya dan Admin (keputusan SA).
 - Laporan terbit dan versi lamanya (superseded) untuk semua pengguna login.
 - Laporan berisi skor dev hanya untuk Admin dan Developer AI, walau milik sendiri.
+- Pemetaan kode ke nama asli produk (PBI-15 AC9) hanya untuk Admin, dan hanya di laporan
+  mode kode. Peran lain tidak menerimanya, dijaga di server.
 - Kode kasus test disamarkan untuk Developer AI (D9 aturan umum 2), sama dengan
   daftar kasus di modul cases. Viewer dan Kontributor tetap melihat kode, tanpa isi.
 """
@@ -18,10 +20,11 @@ from typing import Protocol
 
 from app.modules.cases.models import SplitTag
 from app.modules.cases.service import MASKED_CASE_CODE
-from app.modules.reports.models import ReportStatus
+from app.modules.reports.models import ProductLabelMode, ReportStatus
 from app.shared.security import CurrentUser, Role
 
 DEV_SCORE_ROLES = frozenset({Role.ADMIN, Role.DEVELOPER_AI})
+PRODUCT_MAPPING_ROLES = frozenset({Role.ADMIN})
 
 
 class _ReadableReport(Protocol):
@@ -58,3 +61,8 @@ def visible_case_code(role: Role, case_code: str, split_tag: SplitTag) -> str:
     if role is Role.DEVELOPER_AI and split_tag != SplitTag.DEV:
         return MASKED_CASE_CODE
     return case_code
+
+
+def sees_product_mapping(role: Role, mode: ProductLabelMode) -> bool:
+    """Apakah peran ini menerima pemetaan kode ke nama asli. Tertutup bawaan: hanya Admin."""
+    return mode is ProductLabelMode.CODE and role in PRODUCT_MAPPING_ROLES

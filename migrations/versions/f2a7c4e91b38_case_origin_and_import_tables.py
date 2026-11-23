@@ -22,6 +22,8 @@ import sqlalchemy as sa
 from alembic import op
 from sqlalchemy.dialects import postgresql
 
+from app.shared.text import sql_not_blank
+
 revision = "f2a7c4e91b38"  # pragma: allowlist secret
 down_revision = "d3e8a1f5c927"  # pragma: allowlist secret
 branch_labels = None
@@ -115,7 +117,7 @@ def upgrade() -> None:
             "success_count + failed_count + skipped_count <= total_rows",
             name="ck_import_batches_counts_within_total",
         ),
-        sa.CheckConstraint("length(trim(file_name)) > 0", name="ck_import_batches_file_name"),
+        sa.CheckConstraint(sql_not_blank("file_name"), name="ck_import_batches_file_name"),
     )
 
     op.add_column(
@@ -181,7 +183,7 @@ def upgrade() -> None:
             name="ck_import_row_results_case_only_when_created",
         ),
         sa.CheckConstraint(
-            "status = 'created' OR length(trim(coalesce(reason, ''))) > 0",
+            "status = 'created' OR " + sql_not_blank("coalesce(reason, '')"),
             name="ck_import_row_results_reason_when_not_created",
         ),
     )

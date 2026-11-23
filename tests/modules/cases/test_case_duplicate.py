@@ -16,7 +16,7 @@ from sqlalchemy.exc import IntegrityError
 from app.modules.audit.models import AuditLog
 from app.modules.cases import service
 from app.modules.cases.models import Case, CaseOrigin, CaseStatus
-from app.shared.security import CurrentUser, Role
+from app.shared.security import Role
 from tests.modules.cases.test_cases import AUTHOR_LAIN, _badan, _buat, _ganti, _setujui, _suite
 
 
@@ -30,10 +30,6 @@ def _kasus_approved(client, db_session, **ubah) -> dict:
     dibuat = _buat(client, _suite(client), **ubah).json()
     _setujui(db_session, dibuat["id"])
     return client.get(f"/cases/{dibuat['id']}").json()
-
-
-def _pengguna(peran: Role, user_id: uuid.UUID) -> CurrentUser:
-    return CurrentUser(user_id=user_id, name="Penyalin", email="salin@veritask.test", role=peran)
 
 
 def _salin(client, case_id: str):
@@ -58,19 +54,21 @@ def test_salinan_adalah_kasus_baru_berstatus_draft_tanpa_tag(penulis, db_session
         "draft",
         1,
     )
-    assert (salinan["split_tag"], salinan["was_dev"]) == (None, False)
+    assert salinan["split_tag"] is None
     assert (salinan["origin"], salinan["source_case_id"]) == ("duplicate", asal["id"])
     for bagian in ("suite_id", "identity", "legal_refs", "answer_criteria"):
         assert salinan[bagian] == asal[bagian], bagian
 
 
-def test_penulis_salinan_adalah_penyalin_dan_kasus_asal_tidak_berubah(penulis, db_session):
+def test_penulis_salinan_adalah_penyalin_dan_kasus_asal_tidak_berubah(
+    penulis, db_session, buat_pengguna
+):
     """Positif: keputusan SA D8, salinan ditulis penyalin, bukan penulis asal; kasus asal tetap
     approved dengan tag dan kodenya."""
     # Arrange
     asal = _kasus_approved(penulis, db_session)
     penyalin = uuid.uuid4()
-    _ganti(penulis, _pengguna(Role.CONTRIBUTOR, penyalin))
+    _ganti(penulis, buat_pengguna(Role.CONTRIBUTOR, user_id=penyalin))
 
     # Act
     salinan = _salin(penulis, asal["id"]).json()
@@ -160,6 +158,24 @@ def test_tag_harus_dipilih_ulang_sebelum_salinan_siap_direview(penulis, db_sessi
     assert (sesudah["missing"], sesudah["ready_for_review"]) == ([], True)
 
 
+def test_kelengkapan_tersimpan_salinan_dihitung_ulang_tanpa_tag(penulis, db_session):
+    """Positif: persentase kelengkapan yang disimpan di content salinan dihitung ulang, bukan
+    disalin dari asal; karena tag dikosongkan, angkanya turun dan sama dengan hitungan endpoint
+    /completeness."""
+    # Arrange
+    asal = _kasus_approved(penulis, db_session)
+
+    # Act
+    salinan = _salin(penulis, asal["id"]).json()
+    hitung = penulis.get(f"/cases/{salinan['id']}/completeness").json()
+    tersimpan = db_session.get(Case, uuid.UUID(salinan["id"])).current_version.content
+
+    # Assert
+    assert asal["completeness_pct"] == 100
+    assert salinan["completeness_pct"] == hitung["pct"] < 100
+    assert tersimpan["completeness"]["pct"] == hitung["pct"]
+
+
 def test_admin_boleh_menduplikasi(as_role, db_session):
     """Positif: D9, Admin juga boleh menduplikasi kasus."""
     # Arrange
@@ -174,12 +190,14 @@ def test_admin_boleh_menduplikasi(as_role, db_session):
 
 
 @pytest.mark.parametrize("peran", [Role.VIEWER, Role.DEVELOPER_AI])
-def test_viewer_dan_developer_ai_tidak_boleh_menduplikasi(penulis, db_session, peran):
+def test_viewer_dan_developer_ai_tidak_boleh_menduplikasi(
+    penulis, db_session, peran, buat_pengguna
+):
     """Negatif: D9, hanya Kontributor dan Admin; tidak ada kasus yang ikut terbuat."""
     # Arrange
     asal = _kasus_approved(penulis, db_session)
     jumlah = db_session.query(Case).count()
-    _ganti(penulis, _pengguna(peran, uuid.uuid4()))
+    _ganti(penulis, buat_pengguna(peran, user_id=uuid.uuid4()))
 
     # Act
     respons = _salin(penulis, asal["id"])
@@ -235,12 +253,12 @@ def test_salinan_punya_sidik_jari_dan_jejak_audit_asalnya(penulis, db_session):
     }
 
 
-def test_kasus_draft_milik_orang_lain_bisa_disalin_kontributor(penulis):
+def test_kasus_draft_milik_orang_lain_bisa_disalin_kontributor(penulis, buat_pengguna):
     """Edge: menduplikasi tidak butuh hak menulis kasus asal; Kontributor lain boleh memakai
     kasus siapa pun sebagai contoh (AC2)."""
     # Arrange
     asal = _buat(penulis, _suite(penulis)).json()
-    _ganti(penulis, _pengguna(Role.CONTRIBUTOR, AUTHOR_LAIN))
+    _ganti(penulis, buat_pengguna(Role.CONTRIBUTOR, user_id=AUTHOR_LAIN))
 
     # Act
     respons = _salin(penulis, asal["id"])
@@ -288,3 +306,47 @@ def test_galat_database_lain_tidak_disamarkan_sebagai_bentrok_kode(
     # Act / Assert
     with pytest.raises(IntegrityError, match="fk_lain"):
         _salin(penulis, asal["id"])
+
+
+@pytest.mark.parametrize(
+    ("tag_asal", "pernah_dev", "harapan"),
+    [
+        # Positif: teks kasus dev sudah terlihat Developer AI, jadi salinannya was_dev.
+        ("dev", False, True),
+        # Positif: kasus test yang dulu dev (dipindah Admin) tetap membawa tandanya.
+        ("test", True, True),
+        # Negatif: salinan kasus test yang tidak pernah dev mulai tanpa tanda.
+        ("test", False, False),
+    ],
+)
+def test_salinan_kasus_dev_ditandai_was_dev(penulis, db_session, tag_asal, pernah_dev, harapan):
+    """Positif dan Negatif: keputusan SA (diagram D8), was_dev salinan mengikuti apakah teksnya
+    sudah pernah terlihat Developer AI; tandanya hanya informasi untuk reviewer."""
+    # Arrange
+    asal = _kasus_approved(penulis, db_session, split_tag=tag_asal)
+    if pernah_dev:
+        db_session.get(Case, uuid.UUID(asal["id"])).was_dev = True
+        db_session.commit()
+
+    # Act
+    salinan = _salin(penulis, asal["id"]).json()
+
+    # Assert
+    assert (salinan["was_dev"], salinan["split_tag"]) == (harapan, None)
+
+
+def test_tag_test_tetap_boleh_dipilih_untuk_salinan_kasus_dev(penulis, db_session):
+    """Positif: keputusan SA (diagram D8), was_dev tidak memblokir; penulis salinan boleh
+    memberi tag test, dan tandanya tetap ada."""
+    # Arrange
+    asal = _kasus_approved(penulis, db_session, split_tag="dev")
+    salinan = _salin(penulis, asal["id"]).json()
+
+    # Act
+    respons = penulis.put(
+        f"/cases/{salinan['id']}", json=_badan(case_code=salinan["case_code"], split_tag="test")
+    )
+
+    # Assert
+    assert respons.status_code == 200, respons.text
+    assert (respons.json()["split_tag"], respons.json()["was_dev"]) == ("test", True)
