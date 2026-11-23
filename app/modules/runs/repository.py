@@ -10,7 +10,7 @@ TODO(PBI-11, PBI-12, PBI-13): query lain menyusul sesuai kebutuhan service.
 
 import uuid
 from collections import defaultdict
-from collections.abc import Callable, Sequence
+from collections.abc import Callable, Iterator, Sequence
 from datetime import UTC, datetime
 from decimal import Decimal
 
@@ -60,6 +60,21 @@ _ATTEMPT_SELESAI = (
     AttemptStatus.SUCCEEDED,
     AttemptStatus.TECHNICAL_FAILURE,
 )
+
+
+def search_session_rows(
+    db: Session, *, include_manual: bool
+) -> Iterator[tuple[uuid.UUID, str, SessionType, SessionStatus, datetime | None]]:
+    statement = select(
+        MeasurementSession.id,
+        MeasurementSession.label,
+        MeasurementSession.session_type,
+        MeasurementSession.status,
+        MeasurementSession.archived_at,
+    ).order_by(func.lower(MeasurementSession.label), MeasurementSession.id)
+    if not include_manual:
+        statement = statement.where(MeasurementSession.session_type == SessionType.AUTOMATIC)
+    yield from db.execute(statement.execution_options(yield_per=100)).tuples()
 
 
 def product_has_sessions(db: Session, product_id: uuid.UUID) -> bool:

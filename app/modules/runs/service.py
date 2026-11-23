@@ -25,7 +25,7 @@ from app.modules.runs.call_log import month_start, monthly_limit
 from app.modules.runs.case_progress import case_progress
 from app.modules.runs.cost_estimator import estimate_cost_idr
 from app.modules.runs.exchange_rate import ExchangeRateProvider
-from app.modules.runs.models import SessionStatus
+from app.modules.runs.models import SessionStatus, SessionType
 from app.modules.runs.pricing import PriceCatalog
 from app.modules.runs.progress import compute_progress
 from app.modules.runs.progress_ports import SessionProgressPort
@@ -52,6 +52,7 @@ from app.modules.runs.session_ports import (
     SnapshotSource,
     WaitingSession,
 )
+from app.modules.runs.session_rules import has_ended
 from app.modules.runs.summary_ports import (
     AnswerLengthPort,
     CaseCountPort,
@@ -61,7 +62,9 @@ from app.modules.runs.summary_ports import (
     SpendPort,
 )
 from app.modules.runs.tokenizer import TokenCounter
+from app.modules.search.schemas import SearchDestination, SessionSearchHit
 from app.shared.exceptions import InternalError, NotFoundError, ValidationError
+from app.shared.security import Role
 
 logger = logging.getLogger(__name__)
 
@@ -77,6 +80,48 @@ _SPLITS_FOR_FILTER: Mapping[CaseFilter, tuple[str, ...]] = {
     CaseFilter.TEST: ("test",),
     CaseFilter.BOTH: ("dev", "test"),
 }
+
+
+def search_sessions(
+    db: Session, query: str, role: Role, *, limit: int, has_results: Callable[[uuid.UUID], bool]
+) -> list[SessionSearchHit]:
+    hits = []
+    rows = repository.search_session_rows(db, include_manual=role in {Role.ADMIN, Role.CONTRIBUTOR})
+    for session_id, label, kind, status, archived_at in rows:
+        if query not in label.casefold():
+            continue
+        destination = _search_destination(has_results, role, session_id, kind, status)
+        if destination:
+            hits.append(
+                SessionSearchHit(
+                    id=session_id,
+                    label=label,
+                    archived=archived_at is not None,
+                    session_type=kind,
+                    destination=destination,
+                )
+            )
+            if len(hits) == limit:
+                break
+    return hits
+
+
+def _search_destination(
+    has_results: Callable[[uuid.UUID], bool],
+    role: Role,
+    session_id: uuid.UUID,
+    kind: SessionType,
+    status: SessionStatus,
+) -> SearchDestination | None:
+    if kind == SessionType.MANUAL and role in {Role.ADMIN, Role.CONTRIBUTOR}:
+        return "manual_detail"
+    if kind != SessionType.AUTOMATIC:
+        return None
+    if role in {Role.ADMIN, Role.DEVELOPER_AI}:
+        return "automatic_detail"
+    if role != Role.CONTRIBUTOR or not has_ended(status) or not has_results(session_id):
+        return None
+    return "grading_results"
 
 
 def eligible_case_count(counts: Mapping[str, int], case_filter: CaseFilter) -> int:
