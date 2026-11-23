@@ -189,6 +189,39 @@ def start_case_version(
 
 
 @router.post(
+    "/cases/{case_id}/duplicate",
+    response_model=CaseRead,
+    status_code=status.HTTP_201_CREATED,
+    summary="Duplikasi kasus menjadi kasus baru berstatus draf",
+    responses={
+        403: {"model": ErrorBody, "description": "Bukan Kontributor atau Admin."},
+        404: {"model": ErrorBody, "description": "Kasus tidak ditemukan."},
+        409: {
+            "model": ErrorBody,
+            "description": "Kode salinan baru saja dipakai salinan lain (`CASE_CODE_TAKEN`); "
+            "ulangi permintaan.",
+        },
+        422: {
+            "model": ErrorBody,
+            "description": "Suite kasus asal sudah tidak aktif (`SUITE_NOT_ACTIVE`).",
+        },
+    },
+)
+def duplicate_case(
+    case_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    user: CurrentUser = Depends(_can_write),
+) -> CaseRead:
+    """PBI-4 AC2 (D8, D9): Kontributor dan Admin menyalin kasus sebagai titik awal kasus baru.
+
+    Salinan memakai id dan case_code baru (`<kode asal>-SALIN`, lalu `-SALIN-2`, ...),
+    berstatus draf, tanpa tag dev/test, dengan origin `duplicate` dan source_case_id kasus asal.
+    Salinan kasus dev (atau kasus yang sudah was_dev) ikut ditandai `was_dev`. Tanpa body.
+    """
+    return service.duplicate_case(db, case_id, actor_id=_user_id(user))
+
+
+@router.post(
     "/cases/{case_id}/submit-review",
     response_model=ReviewSubmission,
     summary="Ajukan kasus untuk direview",

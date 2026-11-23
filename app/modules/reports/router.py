@@ -6,7 +6,8 @@ Router hanya menerjemahkan HTTP ke pemanggilan service. Tidak ada
 logika bisnis dan tidak ada query database di file ini.
 
 SCRUM-313: POST /reports membuat laporan dan GET /reports/eligible-sessions mendaftar sesi
-beserta kelayakannya. Rute statis eligible-sessions harus didaftarkan SEBELUM rute
+beserta kelayakannya. SCRUM-362: POST /reports/validate memeriksa pilihan sesi (dry-run) dengan
+aturan yang sama, tanpa menyimpan. Rute statis eligible-sessions harus didaftarkan SEBELUM rute
 /{report_id} (SCRUM-320), kalau tidak FastAPI menganggapnya sebuah report_id. Hal yang sama
 berlaku untuk GET /reports/trend (PBI-17 SCRUM-331) dan GET /reports/trend/pdf (SCRUM-333).
 GET /reports/trend/pdf membuat PDF dari TrendRead yang sama dengan GET /reports/trend; kedua
@@ -50,13 +51,19 @@ from app.modules.reports.dependencies import (
     get_eligible_session_lister,
     get_now,
     get_report_generator,
+    get_report_validator,
     get_score_file_service,
     get_trend_pdf_renderer,
     get_trend_service,
 )
-from app.modules.reports.eligible_sessions import EligibleSessionLister
+from app.modules.reports.eligible_sessions import (
+    EligibleSessionLister,
+    EligibleSessionQuery,
+    SessionValidity,
+)
 from app.modules.reports.models import MeasurementFilter, ReportLanguage, ScoreScope
 from app.modules.reports.report_generation import ReportGenerator
+from app.modules.reports.report_validation import ReportValidator
 from app.modules.reports.schemas import (
     EligibleSessionRead,
     PublicationRead,
@@ -70,6 +77,8 @@ from app.modules.reports.schemas import (
     ReportResultCasesRead,
     ReportSessionNotFoundBody,
     ReportSummary,
+    ReportValidateRequest,
+    ReportValidationRead,
     TrendRead,
 )
 from app.modules.reports.score_files import SessionScoreFileService
@@ -136,6 +145,35 @@ def create_report(
     return ReportCreateResponse.from_generated(generated)
 
 
+@router.post(
+    "/validate",
+    response_model=ReportValidationRead,
+    summary="Periksa pilihan sesi untuk laporan tanpa menyimpan (dry-run)",
+    responses={
+        403: _CREATE_RESPONSES[403],
+        404: _CREATE_RESPONSES[404],
+    },
+)
+def validate_report_selection(
+    payload: ReportValidateRequest,
+    user: CurrentUser = Depends(_create_roles),
+    validator: ReportValidator = Depends(get_report_validator),
+) -> ReportValidationRead:
+    """Semua pelanggaran sekaligus saat sesi dipilih, bukan setelah klik Buat Laporan.
+
+    Aturannya sama dengan POST /reports (PBI-15 AC1, AC4, AC5, AC13, AC14), tetapi tidak
+    menyimpan apa pun dan selalu 200 untuk pilihan yang bisa dibaca. POST /reports tetap
+    memeriksa ulang di server.
+    """
+    validation = validator.validate(
+        role=user.role,
+        session_ids=tuple(payload.session_ids),
+        score_scope=payload.score_scope,
+        measurement_filter=payload.measurement_filter,
+    )
+    return ReportValidationRead.from_validation(validation)
+
+
 @router.get(
     "/eligible-sessions",
     response_model=list[EligibleSessionRead],
@@ -146,15 +184,29 @@ def list_eligible_sessions(
         default=MeasurementFilter.ALL,
         description="Saring sesi otomatis atau manual saja; bawaannya semuanya.",
     ),
+    q: str | None = Query(
+        default=None,
+        max_length=200,
+        description="Cari nama sesi, id sesi, atau nama produk; huruf besar/kecil tidak dibedakan.",
+    ),
+    validity: SessionValidity = Query(
+        default=SessionValidity.ALL,
+        description="valid: hanya sesi layak. invalid: hanya sesi belum layak. all: semuanya.",
+    ),
+    product: uuid.UUID | None = Query(
+        default=None, description="Hanya sesi milik produk dengan id ini."
+    ),
     _user: CurrentUser = Depends(_create_roles),
     lister: EligibleSessionLister = Depends(get_eligible_session_lister),
 ) -> list[EligibleSessionRead]:
     """Semua sesi aktif dengan eligible dan alasannya, supaya halaman tidak menunggu 409.
 
     eligible hanya menilai satu sesi; syarat antar sesi (rubrik, penilai, suite) tetap dicek
-    saat POST /reports (PBI-15 AC2, AC4).
+    saat POST /reports (PBI-15 AC2, AC4). q, validity, dan product menyaring daftar untuk
+    pemilih sesi (SCRUM-361); semuanya digabung dengan AND.
     """
-    items = lister.list(measurement_filter=measurement_filter)
+    query = EligibleSessionQuery(q=q, validity=validity, product_id=product)
+    items = lister.list(measurement_filter=measurement_filter, query=query)
     return [EligibleSessionRead.from_item(item) for item in items]
 
 

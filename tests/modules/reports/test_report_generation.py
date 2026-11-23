@@ -35,10 +35,10 @@ from app.modules.reports.models import (
 )
 from app.modules.reports.report_generation import (
     REPORT_NOT_COMPARABLE,
-    REPORT_SESSION_NOT_FOUND,
     ReportGenerator,
     ReportRequest,
 )
+from app.modules.reports.report_planning import REPORT_SESSION_NOT_FOUND
 from app.modules.reports.report_scoring import CallCounts, GradedCase
 from app.modules.reports.session_record import SessionRecord
 from app.modules.runs.models import SessionPurpose, SessionStatus, SessionType, SplitFilter

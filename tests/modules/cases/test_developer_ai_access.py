@@ -267,6 +267,9 @@ _DIBUKA = {
     # skor dev. Hanya angka agregat yang keluar, bukan isi kasus test; batas jenis nilai dan
     # label diuji di test_creation_policy.py dan test_report_create_api.py.
     ("POST", "/reports"),
+    # PBI-15 (SCRUM-362): dry-run untuk form yang sama. Aturan dan hak jenis nilainya sama
+    # dengan POST /reports, jadi Developer AI ikut boleh; diuji di test_report_validate_api.py.
+    ("POST", "/reports/validate"),
     # Daftar sesi untuk halaman yang sama: hanya nama produk, status, dan alasan kelayakan,
     # tanpa isi kasus. Diuji di test_eligible_sessions_api.py.
     ("GET", "/reports/eligible-sessions"),

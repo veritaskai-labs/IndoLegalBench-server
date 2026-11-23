@@ -303,6 +303,8 @@ def test_daftar_menyaring_tag(as_role):
         "title",
         "split_tag",
         "status",
+        # PBI-4 SCRUM-337: asal kasus untuk label di daftar; bukan isi kasus.
+        "origin",
         "completeness_pct",
         "updated_at",
         "masked",

@@ -1413,6 +1413,80 @@
         }
       }
     },
+    "/cases/{case_id}/duplicate": {
+      "post": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Duplikasi kasus menjadi kasus baru berstatus draf",
+        "description": "PBI-4 AC2 (D8, D9): Kontributor dan Admin menyalin kasus sebagai titik awal kasus baru.\n\nSalinan memakai id dan case_code baru (`<kode asal>-SALIN`, lalu `-SALIN-2`, ...),\nberstatus draf, tanpa tag dev/test, dengan origin `duplicate` dan source_case_id kasus asal.\nSalinan kasus dev (atau kasus yang sudah was_dev) ikut ditandai `was_dev`. Tanpa body.",
+        "operationId": "duplicate_case_cases__case_id__duplicate_post",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Kontributor atau Admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Kode salinan baru saja dipakai salinan lain (`CASE_CODE_TAKEN`); ulangi permintaan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Suite kasus asal sudah tidak aktif (`SUITE_NOT_ACTIVE`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/cases/{case_id}/submit-review": {
       "post": {
         "tags": [
@@ -5437,13 +5511,75 @@
         }
       }
     },
+    "/reports/validate": {
+      "post": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Periksa pilihan sesi untuk laporan tanpa menyimpan (dry-run)",
+        "description": "Semua pelanggaran sekaligus saat sesi dipilih, bukan setelah klik Buat Laporan.\n\nAturannya sama dengan POST /reports (PBI-15 AC1, AC4, AC5, AC13, AC14), tetapi tidak\nmenyimpan apa pun dan selalu 200 untuk pilihan yang bisa dibaca. POST /reports tetap\nmemeriksa ulang di server.",
+        "operationId": "validate_report_selection_reports_validate_post",
+        "requestBody": {
+          "content": {
+            "application/json": {
+              "schema": {
+                "$ref": "#/components/schemas/ReportValidateRequest"
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportValidationRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Jenis nilai atau label di luar hak peran (`REPORT_SCOPE_FORBIDDEN`, `REPORT_LABEL_MODE_FORBIDDEN`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Ada sesi yang dipilih tidak ditemukan (`REPORT_SESSION_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReportSessionNotFoundBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/reports/eligible-sessions": {
       "get": {
         "tags": [
           "reports"
         ],
         "summary": "Daftar sesi beserta kelayakannya untuk laporan",
-        "description": "Semua sesi aktif dengan eligible dan alasannya, supaya halaman tidak menunggu 409.\n\neligible hanya menilai satu sesi; syarat antar sesi (rubrik, penilai, suite) tetap dicek\nsaat POST /reports (PBI-15 AC2, AC4).",
+        "description": "Semua sesi aktif dengan eligible dan alasannya, supaya halaman tidak menunggu 409.\n\neligible hanya menilai satu sesi; syarat antar sesi (rubrik, penilai, suite) tetap dicek\nsaat POST /reports (PBI-15 AC2, AC4). q, validity, dan product menyaring daftar untuk\npemilih sesi (SCRUM-361); semuanya digabung dengan AND.",
         "operationId": "list_eligible_sessions_reports_eligible_sessions_get",
         "parameters": [
           {
@@ -5456,6 +5592,55 @@
               "default": "all"
             },
             "description": "Saring sesi otomatis atau manual saja; bawaannya semuanya."
+          },
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Cari nama sesi, id sesi, atau nama produk; huruf besar/kecil tidak dibedakan.",
+              "title": "Q"
+            },
+            "description": "Cari nama sesi, id sesi, atau nama produk; huruf besar/kecil tidak dibedakan."
+          },
+          {
+            "name": "validity",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/SessionValidity",
+              "description": "valid: hanya sesi layak. invalid: hanya sesi belum layak. all: semuanya.",
+              "default": "all"
+            },
+            "description": "valid: hanya sesi layak. invalid: hanya sesi belum layak. all: semuanya."
+          },
+          {
+            "name": "product",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Hanya sesi milik produk dengan id ini.",
+              "title": "Product"
+            },
+            "description": "Hanya sesi milik produk dengan id ini."
           }
         ],
         "responses": {
@@ -9499,6 +9684,16 @@
         "title": "CaseNotReadyBody",
         "description": "422 CASE_NOT_READY: every section that blocks the submission."
       },
+      "CaseOrigin": {
+        "type": "string",
+        "enum": [
+          "manual",
+          "import",
+          "duplicate"
+        ],
+        "title": "CaseOrigin",
+        "description": "Cara kasus masuk ke platform (D8). Kasus lama sebelum PBI-4 semuanya manual."
+      },
       "CaseRead": {
         "properties": {
           "id": {
@@ -9529,7 +9724,15 @@
             "$ref": "#/components/schemas/AnswerCriteria"
           },
           "split_tag": {
-            "$ref": "#/components/schemas/SplitTag"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SplitTag"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kosong hanya pada draft hasil impor atau duplikasi (PBI-4 AC2, AC8). Wajib dipilih sebelum diajukan review; selama kosong, kasus tertutup untuk Developer AI."
           },
           "status": {
             "$ref": "#/components/schemas/CaseStatus"
@@ -9537,7 +9740,37 @@
           "was_dev": {
             "type": "boolean",
             "title": "Was Dev",
-            "description": "Kasus ini pernah berada di dev set (PBI-9 AC3); tidak pernah kembali false"
+            "description": "Teks kasus ini sudah pernah terlihat Developer AI: kasus pernah berada di dev set (PBI-9 AC3), atau salinan dari kasus seperti itu (PBI-4). Tidak pernah kembali false"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/CaseOrigin",
+            "description": "Cara kasus masuk: manual, import, atau duplicate (D8)"
+          },
+          "source_case_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Case Id",
+            "description": "Kasus asal bila origin = duplicate"
+          },
+          "import_batch_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Import Batch Id",
+            "description": "Batch impor CSV bila origin = import"
           },
           "completeness_pct": {
             "type": "integer",
@@ -9571,6 +9804,7 @@
           "split_tag",
           "status",
           "was_dev",
+          "origin",
           "completeness_pct",
           "version",
           "created_at",
@@ -9710,10 +9944,22 @@
             "title": "Title"
           },
           "split_tag": {
-            "$ref": "#/components/schemas/SplitTag"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SplitTag"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kosong hanya pada draft hasil impor atau duplikasi (PBI-4 AC2, AC8)"
           },
           "status": {
             "$ref": "#/components/schemas/CaseStatus"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/CaseOrigin",
+            "default": "manual"
           },
           "completeness_pct": {
             "type": "integer",
@@ -10198,6 +10444,14 @@
             "title": "Judge Model Version",
             "description": "Versi model penilai yang menilai sesi; kosong bila belum dinilai"
           },
+          "case_kinds": {
+            "items": {
+              "$ref": "#/components/schemas/SplitTag"
+            },
+            "type": "array",
+            "title": "Case Kinds",
+            "description": "Jenis kasus di sesi ini: dev, test, atau keduanya; kosong bila tanpa kasus"
+          },
           "eligible": {
             "type": "boolean",
             "title": "Eligible"
@@ -10222,6 +10476,7 @@
           "purpose",
           "status",
           "judge_model_version",
+          "case_kinds",
           "eligible",
           "reasons"
         ],
@@ -12858,6 +13113,34 @@
         "title": "PendingReview",
         "description": "Satu baris antrean dashboard reviewer (PBI-19 AC6, SCRUM-154).\n\nwaiting_since adalah saat round dibuka; antrean diurutkan dari yang\nterlama. assigned_at bisa lebih baru bila reviewer ini pengganti."
       },
+      "ProductLabelMappingRead": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Kode di laporan, mis. Product A"
+          },
+          "real_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Real Name",
+            "description": "Nama asli produk; kosong bila produknya tidak ada"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "real_name"
+        ],
+        "title": "ProductLabelMappingRead",
+        "description": "Satu kode produk di laporan mode kode beserta nama aslinya (hanya untuk Admin)."
+      },
       "ProductLabelMode": {
         "type": "string",
         "enum": [
@@ -13746,9 +14029,6 @@
           "status": {
             "$ref": "#/components/schemas/ReportStatus"
           },
-          "language": {
-            "$ref": "#/components/schemas/ReportLanguage"
-          },
           "created_by": {
             "type": "string",
             "format": "uuid",
@@ -13758,6 +14038,14 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "products": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Products",
+            "description": "Label produk yang dibandingkan, beku di laporan: nama asli atau kode"
           },
           "measurement_filter": {
             "$ref": "#/components/schemas/MeasurementFilter"
@@ -13805,6 +14093,21 @@
             },
             "type": "array",
             "title": "Case Basis"
+          },
+          "product_mapping": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ProductLabelMappingRead"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Mapping",
+            "description": "Pemetaan kode ke nama asli. Hanya diisi untuk Admin pada laporan mode kode, dijaga di server; selain itu null."
           }
         },
         "type": "object",
@@ -13814,9 +14117,9 @@
           "score_scope",
           "has_dev_scores",
           "status",
-          "language",
           "created_by",
           "created_at",
+          "products",
           "measurement_filter",
           "rubric_version_no",
           "judge_model_name",
@@ -14474,9 +14777,6 @@
           "status": {
             "$ref": "#/components/schemas/ReportStatus"
           },
-          "language": {
-            "$ref": "#/components/schemas/ReportLanguage"
-          },
           "created_by": {
             "type": "string",
             "format": "uuid",
@@ -14486,6 +14786,14 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "products": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Products",
+            "description": "Label produk yang dibandingkan, beku di laporan: nama asli atau kode"
           }
         },
         "type": "object",
@@ -14495,12 +14803,155 @@
           "score_scope",
           "has_dev_scores",
           "status",
-          "language",
           "created_by",
-          "created_at"
+          "created_at",
+          "products"
         ],
         "title": "ReportSummary",
         "description": "Satu baris di daftar laporan tersimpan (GET /reports)."
+      },
+      "ReportValidateRequest": {
+        "properties": {
+          "session_ids": {
+            "items": {
+              "type": "string",
+              "format": "uuid"
+            },
+            "type": "array",
+            "title": "Session Ids",
+            "description": "Sesi yang dipilih sejauh ini. Boleh kosong atau satu sesi: itu dijawab sebagai pelanggaran NEED_AT_LEAST_TWO_PRODUCTS, bukan galat, karena halaman memanggil ini tiap pilihan berubah."
+          },
+          "score_scope": {
+            "$ref": "#/components/schemas/ScoreScope",
+            "description": "Jenis nilai yang ingin dibuat. dev dan dev_test hanya untuk Admin dan Developer AI; peran lain mendapat 403 REPORT_SCOPE_FORBIDDEN.",
+            "default": "test"
+          },
+          "measurement_filter": {
+            "$ref": "#/components/schemas/MeasurementFilter",
+            "description": "Saring sesi otomatis atau manual saja; bawaannya semuanya.",
+            "default": "all"
+          }
+        },
+        "additionalProperties": false,
+        "type": "object",
+        "required": [
+          "session_ids"
+        ],
+        "title": "ReportValidateRequest",
+        "description": "Pilihan sesi yang diperiksa tanpa menyimpan laporan (dry-run)."
+      },
+      "ReportValidationRead": {
+        "properties": {
+          "valid": {
+            "type": "boolean",
+            "title": "Valid",
+            "description": "True bila tidak ada pelanggaran; peringatan tidak dihitung"
+          },
+          "violations": {
+            "items": {
+              "$ref": "#/components/schemas/ReportViolationRead"
+            },
+            "type": "array",
+            "title": "Violations",
+            "description": "Semua pelanggaran sekaligus; POST /reports akan menolak selama ada isinya"
+          },
+          "warnings": {
+            "items": {
+              "$ref": "#/components/schemas/ReportWarningRead"
+            },
+            "type": "array",
+            "title": "Warnings",
+            "description": "Penanda yang tidak memblokir; tetap tampil di laporan"
+          },
+          "available_scopes": {
+            "items": {
+              "$ref": "#/components/schemas/ScoreScope"
+            },
+            "type": "array",
+            "title": "Available Scopes",
+            "description": "Jenis nilai yang boleh dipilih peran ini, dihitung dari jenis kasus (dev, test) pada irisan kasus sesi yang layak. Kosong bila tidak ada irisan."
+          }
+        },
+        "type": "object",
+        "required": [
+          "valid",
+          "violations",
+          "warnings",
+          "available_scopes"
+        ],
+        "title": "ReportValidationRead",
+        "description": "Hasil dry-run. Server tetap memeriksa ulang saat POST /reports (tidak percaya FE)."
+      },
+      "ReportViolationRead": {
+        "properties": {
+          "kind": {
+            "$ref": "#/components/schemas/ViolationKind",
+            "description": "selection (kombinasi sesi), session (satu sesi tidak layak), requirement (rubrik, penilai, suite), atau case_slice (irisan kasus kosong)"
+          },
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "Kode stabil, misalnya SESSION_CANCELLED atau RUBRIC_VERSION"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Pesan siap tampil untuk pengguna"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id",
+            "description": "Sesi yang bermasalah; hanya terisi untuk kind session"
+          }
+        },
+        "type": "object",
+        "required": [
+          "kind",
+          "code",
+          "message"
+        ],
+        "title": "ReportViolationRead"
+      },
+      "ReportWarningRead": {
+        "properties": {
+          "code": {
+            "type": "string",
+            "title": "Code",
+            "description": "REPETITIONS_DIFFER, MANUAL_ANSWER_RANGE_OVER_LIMIT, MODEL_VERSION_DIFFERS, atau TRIAL_SESSION"
+          },
+          "message": {
+            "type": "string",
+            "title": "Message",
+            "description": "Pesan siap tampil untuk pengguna"
+          },
+          "session_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Session Id",
+            "description": "Sesi yang ditandai; kosong bila berlaku untuk seluruh pilihan"
+          }
+        },
+        "type": "object",
+        "required": [
+          "code",
+          "message"
+        ],
+        "title": "ReportWarningRead"
       },
       "ReviewCopy": {
         "properties": {
@@ -16250,6 +16701,15 @@
         "title": "SessionUnarchiveResponse",
         "description": "Hasil unarchive. Sesinya tampil lagi di GET /measurements, status tidak berubah (AC10)."
       },
+      "SessionValidity": {
+        "type": "string",
+        "enum": [
+          "all",
+          "valid",
+          "invalid"
+        ],
+        "title": "SessionValidity"
+      },
       "SplitTag": {
         "type": "string",
         "enum": [
@@ -17092,7 +17552,14 @@
             "title": "Case Code"
           },
           "split_tag": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Split Tag"
           },
           "legal_refs": {
@@ -17187,6 +17654,16 @@
         ],
         "title": "VersionSummary",
         "description": "One row of GET /cases/{id}/versions."
+      },
+      "ViolationKind": {
+        "type": "string",
+        "enum": [
+          "selection",
+          "session",
+          "requirement",
+          "case_slice"
+        ],
+        "title": "ViolationKind"
       }
     }
   }

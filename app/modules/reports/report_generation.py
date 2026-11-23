@@ -17,15 +17,11 @@ from app.modules.reports.comparison_rules import (
     MANUAL_ANSWER_RANGE_OVER_LIMIT,
     MODEL_VERSION_DIFFERS,
     REPETITIONS_DIFFER,
-    SUITE_VERSION,
     ComparisonPlan,
-    Rejection,
-    plan_comparison,
 )
-from app.modules.reports.creation_policy import can_see_case_codes, ensure_can_create
+from app.modules.reports.creation_policy import ensure_can_create
 from app.modules.reports.models import (
     MeasurementFilter,
-    MeasurementKind,
     ProductLabelMode,
     Report,
     ReportCaseBasis,
@@ -37,6 +33,11 @@ from app.modules.reports.models import (
     ScoreSplit,
 )
 from app.modules.reports.product_labels import product_label
+from app.modules.reports.report_planning import (
+    load_records,
+    plan_for_scope,
+    rejection_for_role,
+)
 from app.modules.reports.report_scoring import (
     GradedCase,
     RankEntry,
@@ -50,21 +51,13 @@ from app.modules.reports.session_record import (
     SessionRecord,
     SessionRecordReader,
     calls_for_split,
-    facts_for_scope,
 )
 from app.modules.runs.models import SessionPurpose
 from app.modules.runs.score_aggregation import round_score
-from app.shared.exceptions import ConflictError, NotFoundError
+from app.shared.exceptions import ConflictError
 from app.shared.security import Role
 
-REPORT_SESSION_NOT_FOUND = "REPORT_SESSION_NOT_FOUND"
 REPORT_NOT_COMPARABLE = "REPORT_NOT_COMPARABLE"
-
-KINDS_BY_FILTER = {
-    MeasurementFilter.AUTOMATIC: frozenset({MeasurementKind.AUTOMATIC}),
-    MeasurementFilter.MANUAL: frozenset({MeasurementKind.MANUAL}),
-    MeasurementFilter.ALL: frozenset(MeasurementKind),
-}
 
 # Penanda tingkat perbandingan dan tingkat sesi (SCRUM-301) ke kode D1. Uji Coba sengaja tidak
 # ada: ia hanya disimpan di report_sessions.is_trial (satu sumber).
@@ -111,8 +104,8 @@ class ReportGenerator:
         hasilnya hanya peringatan: tidak ada angka dan tidak ada yang disimpan (AC1).
         """
         ensure_can_create(role, request.score_scope, request.product_label_mode)
-        records = self._load(request)
-        plan = plan_comparison([facts_for_scope(record, request.score_scope) for record in records])
+        records = load_records(self._reader, request.session_ids, request.measurement_filter)
+        plan = plan_for_scope(records, request.score_scope)
         _ensure_comparable(plan, role)
         if plan.warning is not None:
             return GeneratedReport(report=None, sessions=(), results=(), warning=plan.warning)
@@ -123,31 +116,6 @@ class ReportGenerator:
         return GeneratedReport(
             report=report, sessions=tuple(sessions), results=tuple(results), warning=None
         )
-
-    def _load(self, request: ReportRequest) -> list[SessionRecord]:
-        records = self._reader.read(request.session_ids)
-        found = {record.facts.session_id for record in records}
-        missing = [sid for sid in dict.fromkeys(request.session_ids) if sid not in found]
-        if missing:
-            raise NotFoundError(
-                "Ada sesi yang dipilih tidak ditemukan.",
-                code=REPORT_SESSION_NOT_FOUND,
-                details={"missing": [str(sid) for sid in missing]},
-            )
-        kinds = KINDS_BY_FILTER[request.measurement_filter]
-        return [record for record in records if record.measurement_kind in kinds]
-
-
-_SUITE_VERSION_WITHOUT_CODES = (
-    "Kasus pada snapshot suite berbeda versi atau komposisi dalam split yang sama."
-)
-
-
-def _rejection_for_role(rejection: Rejection, role: Role) -> Rejection:
-    """Pesan syarat suite memuat kode kasus; peran yang tidak boleh melihatnya dapat pesan umum."""
-    if rejection.requirement == SUITE_VERSION and not can_see_case_codes(role):
-        return Rejection(rejection.requirement, _SUITE_VERSION_WITHOUT_CODES)
-    return rejection
 
 
 def _ensure_comparable(plan: ComparisonPlan, role: Role) -> None:
@@ -162,7 +130,7 @@ def _ensure_comparable(plan: ComparisonPlan, role: Role) -> None:
             "ineligible": {str(sid): list(codes) for sid, codes in plan.ineligible.items()},
             "rejections": [
                 {"requirement": tolakan.requirement, "message": tolakan.message}
-                for tolakan in (_rejection_for_role(r, role) for r in plan.rejections)
+                for tolakan in (rejection_for_role(r, role) for r in plan.rejections)
             ],
         },
     )
