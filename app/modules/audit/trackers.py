@@ -142,7 +142,12 @@ class CaseTracker(Tracker):
         return row.id
 
     def created(self, row: Any) -> list[AuditEvent]:
-        return [self._event(row, "created", after={"case_code": row.case_code})]
+        # PBI-4 SCRUM-337 (D8): asal kasus ikut tercatat; batch atau kasus asal hanya bila ada.
+        after = {"case_code": row.case_code, "origin": _json(row.origin)}
+        for kolom in ("import_batch_id", "source_case_id"):
+            if getattr(row, kolom) is not None:
+                after[kolom] = _json(getattr(row, kolom))
+        return [self._event(row, "created", after=after)]
 
 
 class CaseVersionTracker(Tracker):

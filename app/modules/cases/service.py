@@ -24,7 +24,8 @@ from app.modules.cases import (
     validation,
 )
 from app.modules.cases.display_text import citation_text
-from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
+from app.modules.cases.fingerprint import content_fingerprint
+from app.modules.cases.models import Case, CaseOrigin, CaseStatus, CaseVersion, SplitTag
 from app.modules.cases.schemas import (
     ActorRead,
     CaseCompleteness,
@@ -305,6 +306,89 @@ def start_new_version(
             code=VERSION_IN_PROGRESS,
         ) from None
     return _to_read(case, version, katalog=katalog)
+
+
+# Batas panjang case_code (cases.case_code varchar 64, pola sementara Klarifikasi #7).
+_PANJANG_KODE = 64
+_AKHIRAN_SALINAN = "-SALIN"
+
+
+def duplicate_case(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -> CaseRead:
+    """Salin kasus lama menjadi kasus baru sebagai titik awal menulis (PBI-4 AC2, diagram D8).
+
+    Salinan adalah kasus baru: id dan case_code baru dari sistem, versi 1 berstatus draft,
+    penulisnya pengguna yang menyalin, dan tag dev/test dikosongkan supaya dipilih ulang.
+    Riwayat versi dan review tidak ikut (keputusan SA). Isi yang disalin adalah versi yang
+    sedang berlaku (approved terakhir, atau draft bila belum pernah disetujui), dan salinan
+    masuk ke suite yang sama, yang harus masih aktif.
+
+    Keputusan SA (diagram D8): salinan kasus dev, atau kasus yang sudah was_dev, ikut
+    ditandai was_dev, karena teksnya sudah pernah terlihat Developer AI. Tandanya hanya
+    informasi; penulis tetap boleh memberi tag test (keputusan klien PBI-9 tidak berubah).
+    """
+    asal = _require_case(db, case_id)
+    _require_active_suite(db, asal.suite_id)
+    versi_asal = _in_effect(asal)
+    katalog = legal_refs_service.load_catalog(db)
+    rujukan = _citations(versi_asal, katalog)
+    kode = free_case_code(db, asal.case_code, _AKHIRAN_SALINAN)
+    isi = copy.deepcopy(versi_asal.content or {})
+    case_id_baru, version_id = uuid.uuid4(), uuid.uuid4()
+    case = Case(
+        id=case_id_baru,
+        suite_id=asal.suite_id,
+        case_code=kode,
+        current_version_id=version_id,
+        latest_approved_version_id=None,
+        origin=CaseOrigin.DUPLICATE,
+        source_case_id=asal.id,
+        content_fingerprint=content_fingerprint(isi.get("title"), isi.get("question")),
+        was_dev=bool(asal.was_dev) or versi_asal.split_tag == SplitTag.DEV,
+        created_by=actor_id,
+        updated_by=actor_id,
+    )
+    version = CaseVersion(
+        id=version_id,
+        case_id=case_id_baru,
+        version_no=1,
+        status=CaseStatus.DRAFT,
+        case_code=kode,
+        split_tag=None,
+        content=isi,
+        created_by=actor_id,
+        based_on_version_id=None,
+    )
+    # Kelengkapan dihitung ulang: salinan kehilangan tag, jadi persentase asal sudah tidak benar.
+    # Dihitung dari version yang sudah dibangun, lalu content diganti dengan dict baru secara
+    # eksplisit (bukan mengubah isi lewat referensi bersama).
+    kelengkapan = completeness.evaluate(completeness.row_data(case, version, rujukan))
+    version.content = {**isi, "completeness": kelengkapan}
+    legal_refs_service.replace_for_version(db, version_id, rujukan)
+    _catat_versi_baru(version)
+    try:
+        tersimpan = repository.create(db, case, version)
+    except IntegrityError as galat:
+        db.rollback()
+        if not _code_clash(galat):
+            raise
+        # Kode yang tadi bebas baru saja dipakai salinan lain; pengguna cukup mengulang.
+        raise _code_taken(db, kode) from None
+    return _to_read(tersimpan, version, katalog=katalog)
+
+
+def free_case_code(db: Session, dasar: str, penanda: str = "") -> str:
+    """case_code buatan sistem yang belum dipakai: dasar+penanda, lalu dengan -2, -3, dan seterusnya.
+
+    Dipakai duplikasi (SCRUM-337, penanda "-SALIN") dan impor CSV (SCRUM-338). Yang dipotong
+    hanya dasar, supaya penanda dan nomornya selalu utuh dan hasilnya muat 64 karakter.
+    """
+    nomor = 1
+    while True:
+        akhiran = penanda + ("" if nomor == 1 else f"-{nomor}")
+        kode = dasar[: _PANJANG_KODE - len(akhiran)] + akhiran
+        if repository.get_by_code(db, kode) is None:
+            return kode
+        nomor += 1
 
 
 def submit_for_review(db: Session, case_id: uuid.UUID, *, actor_id: uuid.UUID) -> ReviewSubmission:
@@ -680,7 +764,7 @@ def _section_values(version: CaseVersion, katalog: legal_refs_service.TypeCatalo
     """
     return sections.sections_from(
         case_code=version.case_code,
-        split_tag=version.split_tag.value,
+        split_tag=version.split_tag.value if version.split_tag else None,
         content=version.content,
         legal_refs=_legal_refs_json(version, katalog),
     )
@@ -712,6 +796,10 @@ def _write_version(
     data = payload.model_dump(mode="json")
     case.case_code = payload.case_code
     case.updated_by = actor_id
+    # PBI-4 D7: kasus kembar saat impor dicari dengan sidik jari versi yang sedang dikerjakan.
+    case.content_fingerprint = content_fingerprint(
+        payload.identity.title, payload.identity.question
+    )
     version.case_code = payload.case_code
     version.split_tag = payload.split_tag
     version.content = {
@@ -753,6 +841,10 @@ def _to_read(
         status=versi.status,
         # None pada objek Case yang belum di-flush; default kolomnya false.
         was_dev=bool(case.was_dev),
+        # Sama: origin None sebelum flush berarti default kolomnya, manual.
+        origin=case.origin or CaseOrigin.MANUAL,
+        source_case_id=case.source_case_id,
+        import_batch_id=case.import_batch_id,
         completeness_pct=_completeness_pct(isi.get("completeness")),
         version=versi.version_no,
         created_at=versi.created_at,
@@ -775,6 +867,7 @@ def _to_summary(
         title=isi.get("title") or "",
         split_tag=version.split_tag,
         status=version.status,
+        origin=case.origin or CaseOrigin.MANUAL,
         completeness_pct=_pct_from_version(case, version, katalog),
         updated_at=version.updated_at,
     )

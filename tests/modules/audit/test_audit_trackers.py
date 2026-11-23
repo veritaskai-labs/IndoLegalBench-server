@@ -15,6 +15,7 @@ import pytest
 
 from app.modules.audit.models import AuditEntityType
 from app.modules.audit.trackers import Change, tracker_for
+from app.modules.cases.models import CaseOrigin
 from app.modules.providers.models import MeasurementType
 
 ROW_ID = uuid.UUID("00000000-0000-0000-0000-0000000000a1")
@@ -147,14 +148,46 @@ def test_tanpa_perubahan_tidak_ada_event():
 # --- Case ---------------------------------------------------------------------
 
 
-def test_kasus_dibuat_mencatat_kode():
+def _kasus(**ubah) -> SimpleNamespace:
+    isi = {
+        "case_code": "KTK-001",
+        "origin": CaseOrigin.MANUAL,
+        "import_batch_id": None,
+        "source_case_id": None,
+    } | ubah
+    return _row(**isi)
+
+
+def test_kasus_dibuat_mencatat_kode_dan_asalnya():
+    """Positif: PBI-4 SCRUM-337, kasus manual mencatat kode dan asal manual saja."""
     # Act
-    event = _satu(tracker_for("cases").created(_row(case_code="KTK-001")))
+    event = _satu(tracker_for("cases").created(_kasus()))
 
     # Assert
     assert event.action == "case.created"
     assert event.case_id == ROW_ID
-    assert event.after == {"case_code": "KTK-001"}
+    assert event.after == {"case_code": "KTK-001", "origin": "manual"}
+
+
+@pytest.mark.parametrize(
+    ("asal", "kolom"),
+    [
+        # Positif: kasus hasil impor menunjuk batch impornya (D8).
+        (CaseOrigin.IMPORT, "import_batch_id"),
+        # Positif: kasus hasil duplikasi menunjuk kasus asalnya (D8).
+        (CaseOrigin.DUPLICATE, "source_case_id"),
+    ],
+)
+def test_kasus_impor_dan_duplikat_mencatat_rujukan_asalnya(asal, kolom):
+    """Positif: PBI-4 SCRUM-337, jejak audit menunjukkan dari mana kasus berasal."""
+    # Arrange
+    rujukan = uuid.uuid4()
+
+    # Act
+    event = _satu(tracker_for("cases").created(_kasus(origin=asal, **{kolom: rujukan})))
+
+    # Assert
+    assert event.after == {"case_code": "KTK-001", "origin": asal.value, kolom: str(rujukan)}
 
 
 def test_versi_baru_mencatat_nomornya():

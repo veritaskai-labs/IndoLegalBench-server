@@ -205,7 +205,7 @@ def test_kasus_dibuat_dan_diubah(as_role, db_session):
     dibuat = next(item for item in baris if item.action == "case.created")
     versi = next(item for item in baris if item.action == "case.version_created")
     diubah = baris[-1]
-    assert dibuat.after == {"case_code": "PHK-001"}
+    assert dibuat.after == {"case_code": "PHK-001", "origin": "manual"}
     assert versi.after == {"version_no": 1}
     assert diubah.action == "case.updated"
     assert (diubah.before, diubah.after) == ({"title": "PHK sepihak"}, {"title": "PHK"})

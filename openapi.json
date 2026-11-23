@@ -1413,6 +1413,80 @@
         }
       }
     },
+    "/cases/{case_id}/duplicate": {
+      "post": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Duplikasi kasus menjadi kasus baru berstatus draf",
+        "description": "PBI-4 AC2 (D8, D9): Kontributor dan Admin menyalin kasus sebagai titik awal kasus baru.\n\nSalinan memakai id dan case_code baru (`<kode asal>-SALIN`, lalu `-SALIN-2`, ...),\nberstatus draf, tanpa tag dev/test, dengan origin `duplicate` dan source_case_id kasus asal.\nSalinan kasus dev (atau kasus yang sudah was_dev) ikut ditandai `was_dev`. Tanpa body.",
+        "operationId": "duplicate_case_cases__case_id__duplicate_post",
+        "parameters": [
+          {
+            "name": "case_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Case Id"
+            }
+          }
+        ],
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CaseRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Kontributor atau Admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Kasus tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Kode salinan baru saja dipakai salinan lain (`CASE_CODE_TAKEN`); ulangi permintaan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Suite kasus asal sudah tidak aktif (`SUITE_NOT_ACTIVE`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/cases/{case_id}/submit-review": {
       "post": {
         "tags": [
@@ -9554,6 +9628,16 @@
         "title": "CaseNotReadyBody",
         "description": "422 CASE_NOT_READY: every section that blocks the submission."
       },
+      "CaseOrigin": {
+        "type": "string",
+        "enum": [
+          "manual",
+          "import",
+          "duplicate"
+        ],
+        "title": "CaseOrigin",
+        "description": "Cara kasus masuk ke platform (D8). Kasus lama sebelum PBI-4 semuanya manual."
+      },
       "CaseRead": {
         "properties": {
           "id": {
@@ -9584,7 +9668,15 @@
             "$ref": "#/components/schemas/AnswerCriteria"
           },
           "split_tag": {
-            "$ref": "#/components/schemas/SplitTag"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SplitTag"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kosong hanya pada draft hasil impor atau duplikasi (PBI-4 AC2, AC8). Wajib dipilih sebelum diajukan review; selama kosong, kasus tertutup untuk Developer AI."
           },
           "status": {
             "$ref": "#/components/schemas/CaseStatus"
@@ -9592,7 +9684,37 @@
           "was_dev": {
             "type": "boolean",
             "title": "Was Dev",
-            "description": "Kasus ini pernah berada di dev set (PBI-9 AC3); tidak pernah kembali false"
+            "description": "Teks kasus ini sudah pernah terlihat Developer AI: kasus pernah berada di dev set (PBI-9 AC3), atau salinan dari kasus seperti itu (PBI-4). Tidak pernah kembali false"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/CaseOrigin",
+            "description": "Cara kasus masuk: manual, import, atau duplicate (D8)"
+          },
+          "source_case_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Source Case Id",
+            "description": "Kasus asal bila origin = duplicate"
+          },
+          "import_batch_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Import Batch Id",
+            "description": "Batch impor CSV bila origin = import"
           },
           "completeness_pct": {
             "type": "integer",
@@ -9626,6 +9748,7 @@
           "split_tag",
           "status",
           "was_dev",
+          "origin",
           "completeness_pct",
           "version",
           "created_at",
@@ -9736,10 +9859,22 @@
             "title": "Title"
           },
           "split_tag": {
-            "$ref": "#/components/schemas/SplitTag"
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SplitTag"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kosong hanya pada draft hasil impor atau duplikasi (PBI-4 AC2, AC8)"
           },
           "status": {
             "$ref": "#/components/schemas/CaseStatus"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/CaseOrigin",
+            "default": "manual"
           },
           "completeness_pct": {
             "type": "integer",
@@ -17233,7 +17368,14 @@
             "title": "Case Code"
           },
           "split_tag": {
-            "type": "string",
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
             "title": "Split Tag"
           },
           "legal_refs": {
