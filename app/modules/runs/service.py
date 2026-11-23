@@ -15,7 +15,7 @@ from collections.abc import Callable, Mapping, Sequence
 from dataclasses import asdict
 from datetime import UTC, datetime
 from decimal import Decimal
-from typing import Literal, Protocol
+from typing import Protocol
 
 from sqlalchemy.orm import Session
 
@@ -62,6 +62,7 @@ from app.modules.runs.summary_ports import (
     SpendPort,
 )
 from app.modules.runs.tokenizer import TokenCounter
+from app.modules.search.schemas import SearchDestination, SessionSearchHit
 from app.shared.exceptions import InternalError, NotFoundError, ValidationError
 from app.shared.security import Role
 
@@ -80,12 +81,10 @@ _SPLITS_FOR_FILTER: Mapping[CaseFilter, tuple[str, ...]] = {
     CaseFilter.BOTH: ("dev", "test"),
 }
 
-SearchDestination = Literal["automatic_detail", "manual_detail", "grading_results"]
-
 
 def search_sessions(
     db: Session, query: str, role: Role, *, limit: int, has_results: Callable[[uuid.UUID], bool]
-) -> list[tuple[uuid.UUID, str, bool, SessionType, SearchDestination]]:
+) -> list[SessionSearchHit]:
     hits = []
     rows = repository.search_session_rows(db, include_manual=role in {Role.ADMIN, Role.CONTRIBUTOR})
     for session_id, label, kind, status, archived_at in rows:
@@ -93,7 +92,15 @@ def search_sessions(
             continue
         destination = _search_destination(has_results, role, session_id, kind, status)
         if destination:
-            hits.append((session_id, label, archived_at is not None, kind, destination))
+            hits.append(
+                SessionSearchHit(
+                    id=session_id,
+                    label=label,
+                    archived=archived_at is not None,
+                    session_type=kind,
+                    destination=destination,
+                )
+            )
             if len(hits) == limit:
                 break
     return hits

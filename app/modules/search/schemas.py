@@ -14,9 +14,12 @@ class CaseSearchHit(SearchHit):
     case_code: str
 
 
+SearchDestination = Literal["automatic_detail", "manual_detail", "grading_results"]
+
+
 class SessionSearchHit(SearchHit):
     session_type: Literal["automatic", "manual"]
-    destination: Literal["automatic_detail", "manual_detail", "grading_results"]
+    destination: SearchDestination
 
 
 class SearchResponse(BaseModel):

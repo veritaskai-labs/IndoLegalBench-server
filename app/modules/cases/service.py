@@ -47,6 +47,7 @@ from app.modules.legal_refs import service as legal_refs_service
 from app.modules.notifications.service import DbNotifier
 from app.modules.reviews import service as reviews_service
 from app.modules.reviews.ports import DeferredNotifier
+from app.modules.search.schemas import CaseSearchHit
 from app.shared.exceptions import ConflictError, ForbiddenError, NotFoundError, ValidationError
 
 CASE_CODE_TAKEN = "CASE_CODE_TAKEN"
@@ -158,7 +159,7 @@ def search_cases(
     *,
     approved_dev_only: bool,
     limit: int,
-) -> list[tuple[uuid.UUID, str, str, bool]]:
+) -> list[CaseSearchHit]:
     catalog = legal_refs_service.load_catalog(db)
     hits = []
     for case, version in repository.search_candidates(db, approved_dev_only=approved_dev_only):
@@ -166,7 +167,14 @@ def search_cases(
             continue
         label = (version.content or {}).get("title") or case.case_code
         if _matches_case(query, case, version, label, catalog):
-            hits.append((case.id, label, case.case_code, suite_archives[case.suite_id]))
+            hits.append(
+                CaseSearchHit(
+                    id=case.id,
+                    label=label,
+                    case_code=case.case_code,
+                    archived=suite_archives[case.suite_id],
+                )
+            )
             if len(hits) == limit:
                 break
     return hits
@@ -199,7 +207,6 @@ def _matches_case(
         ):
             return True
     return False
-
 
 
 def get_case_for_developer_ai(db: Session, case_id: uuid.UUID) -> CaseRead:
