@@ -57,6 +57,7 @@ class TestList:
             "product_id": str(layak.facts.product_id),
             "product_name": "Produk A",
             "judge_model_version": "judge-1",
+            "case_kinds": ["test"],
             "created_at": "2026-11-01T00:00:00Z",
             "session_type": "automatic",
             "purpose": "official",
@@ -85,6 +86,76 @@ class TestList:
         # Assert
         assert respons.status_code == 200
         assert [item["product_name"] for item in respons.json()] == ["Produk C"]
+
+    def test_q_searches_the_label_product_name_and_session_id(self, as_role, campuran):
+        # Arrange
+        layak, _, _ = campuran
+        client = as_role(Role.ADMIN)
+
+        # Act
+        per_produk = client.get(URL, params={"q": "produk b"})
+        per_id = client.get(URL, params={"q": str(layak.facts.session_id)})
+
+        # Assert
+        assert [item["product_name"] for item in per_produk.json()] == ["Produk B"]
+        assert [item["session_id"] for item in per_id.json()] == [str(layak.facts.session_id)]
+
+    @pytest.mark.parametrize(
+        ("validity", "diharapkan"),
+        [("valid", ["Produk A", "Produk C"]), ("invalid", ["Produk B"]), ("all", None)],
+    )
+    def test_validity_keeps_valid_or_invalid_sessions(
+        self, as_role, campuran, validity, diharapkan
+    ):
+        # Act
+        respons = as_role(Role.VIEWER).get(URL, params={"validity": validity})
+
+        # Assert
+        assert respons.status_code == 200
+        nama = [item["product_name"] for item in respons.json()]
+        assert nama == (diharapkan or ["Produk A", "Produk B", "Produk C"])
+
+    def test_product_keeps_only_that_product(self, as_role, campuran):
+        # Arrange
+        _, batal, _ = campuran
+
+        # Act
+        respons = as_role(Role.ADMIN).get(URL, params={"product": str(batal.facts.product_id)})
+
+        # Assert
+        assert [item["product_name"] for item in respons.json()] == ["Produk B"]
+
+    def test_filters_combine_with_the_measurement_filter(self, as_role, campuran):
+        # Act
+        respons = as_role(Role.ADMIN).get(
+            URL, params={"measurement_filter": "manual", "validity": "invalid", "q": "produk"}
+        )
+
+        # Assert
+        assert respons.status_code == 200
+        assert respons.json() == []
+
+    def test_each_session_reports_its_case_kinds(self, as_role, campuran):
+        # Act
+        respons = as_role(Role.ADMIN).get(URL, params={"validity": "invalid"})
+
+        # Assert
+        assert respons.json()[0]["case_kinds"] == ["test"]
+
+    @pytest.mark.parametrize(
+        "params",
+        [
+            {"validity": "layak"},
+            {"product": "bukan-uuid"},
+            {"q": "x" * 201},
+        ],
+    )
+    def test_an_invalid_filter_value_is_422(self, as_role, campuran, params):
+        # Act
+        respons = as_role(Role.ADMIN).get(URL, params=params)
+
+        # Assert
+        assert respons.status_code == 422
 
     def test_an_unknown_filter_is_422(self, as_role, campuran):
         # Act

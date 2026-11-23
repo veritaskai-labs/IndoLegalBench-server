@@ -14,6 +14,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.reports.eligible_sessions import EligibleSessionLister
 from app.modules.reports.report_generation import ReportGenerator
+from app.modules.reports.report_validation import ReportValidator
 from app.modules.reports.score_file_repository import SqlScoreFileStore, SqlScoreSource
 from app.modules.reports.score_files import (
     ScoreFileStore,
@@ -37,6 +38,12 @@ def get_report_generator(
     reader: SessionRecordReader = Depends(get_session_record_reader),
 ) -> ReportGenerator:
     return ReportGenerator(db, reader)
+
+
+def get_report_validator(
+    reader: SessionRecordReader = Depends(get_session_record_reader),
+) -> ReportValidator:
+    return ReportValidator(reader)
 
 
 def get_eligible_session_lister(
