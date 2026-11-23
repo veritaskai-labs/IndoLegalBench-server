@@ -39,7 +39,6 @@ from app.modules.runs.schemas import (
     SummaryRequest,
     SummaryResponse,
 )
-from app.modules.runs.session_grade import DbGradingStore
 from app.modules.runs.session_list import SessionListService
 from app.modules.runs.session_notice import Notifier, notify_session_ended
 from app.modules.runs.session_ports import (
@@ -85,15 +84,14 @@ SearchDestination = Literal["automatic_detail", "manual_detail", "grading_result
 
 
 def search_sessions(
-    db: Session, query: str, role: Role, *, limit: int
+    db: Session, query: str, role: Role, *, limit: int, has_results: Callable[[uuid.UUID], bool]
 ) -> list[tuple[uuid.UUID, str, bool, SessionType, SearchDestination]]:
     hits = []
-    grading = DbGradingStore(db)
     rows = repository.search_session_rows(db, include_manual=role in {Role.ADMIN, Role.CONTRIBUTOR})
     for session_id, label, kind, status, archived_at in rows:
         if query not in label.casefold():
             continue
-        destination = _search_destination(grading, role, session_id, kind, status)
+        destination = _search_destination(has_results, role, session_id, kind, status)
         if destination:
             hits.append((session_id, label, archived_at is not None, kind, destination))
             if len(hits) == limit:
@@ -102,7 +100,7 @@ def search_sessions(
 
 
 def _search_destination(
-    grading: DbGradingStore,
+    has_results: Callable[[uuid.UUID], bool],
     role: Role,
     session_id: uuid.UUID,
     kind: SessionType,
@@ -114,7 +112,7 @@ def _search_destination(
         return None
     if role in {Role.ADMIN, Role.DEVELOPER_AI}:
         return "automatic_detail"
-    if role != Role.CONTRIBUTOR or not has_ended(status) or not grading.has_results(session_id):
+    if role != Role.CONTRIBUTOR or not has_ended(status) or not has_results(session_id):
         return None
     return "grading_results"
 

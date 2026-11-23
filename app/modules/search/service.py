@@ -2,6 +2,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.cases import service as cases
 from app.modules.runs import service as runs
+from app.modules.runs.session_grade import DbGradingStore
 from app.modules.search.schemas import CaseSearchHit, SearchHit, SearchResponse, SessionSearchHit
 from app.modules.suites import service as suites
 from app.shared.security import Role
@@ -42,7 +43,7 @@ def search(db: Session, query: str, *, role: Role) -> SearchResponse:
             destination=destination,
         )
         for session_id, label, archived, kind, destination in runs.search_sessions(
-            db, query, role, limit=_RESULTS_PER_GROUP
+            db, query, role, limit=_RESULTS_PER_GROUP, has_results=DbGradingStore(db).has_results
         )
     ]
     return SearchResponse(suites=suite_hits, cases=case_hits, sessions=session_hits)
