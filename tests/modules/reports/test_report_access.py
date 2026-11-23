@@ -21,8 +21,9 @@ import pytest
 
 from app.modules.cases.models import SplitTag
 from app.modules.cases.service import MASKED_CASE_CODE
+from app.modules.reports import access
 from app.modules.reports.access import ReportVisibility, visibility_for, visible_case_code
-from app.modules.reports.models import ReportStatus
+from app.modules.reports.models import ProductLabelMode, ReportStatus
 from app.shared.security import CurrentUser, Role
 
 PEMBUAT = uuid.UUID("00000000-0000-0000-0000-0000000000b1")
@@ -140,3 +141,26 @@ def test_kode_kasus_dasar_disamarkan_hanya_untuk_developer_ai(role, split_tag, k
 
     # Assert
     assert hasil == kode
+
+
+@pytest.mark.parametrize(
+    ("role", "mode", "boleh"),
+    [
+        # Positif: hanya Admin yang menerima pemetaan kode ke nama asli (AC9).
+        (Role.ADMIN, ProductLabelMode.CODE, True),
+        # Negatif: peran lain tidak pernah menerimanya, termasuk Developer AI.
+        (Role.DEVELOPER_AI, ProductLabelMode.CODE, False),
+        (Role.CONTRIBUTOR, ProductLabelMode.CODE, False),
+        (Role.VIEWER, ProductLabelMode.CODE, False),
+        # Edge: mode nama asli tidak punya kode untuk dipetakan, jadi Admin pun tidak menerimanya.
+        (Role.ADMIN, ProductLabelMode.REAL_NAME, False),
+        (Role.VIEWER, ProductLabelMode.REAL_NAME, False),
+    ],
+)
+def test_pemetaan_produk_hanya_untuk_admin_di_mode_kode(role, mode, boleh):
+    """Positif dan negatif: aturan pemetaan label produk dijaga satu tempat di server."""
+    # Act
+    hasil = access.sees_product_mapping(role, mode)
+
+    # Assert
+    assert hasil is boleh

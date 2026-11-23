@@ -13028,6 +13028,34 @@
         "title": "PendingReview",
         "description": "Satu baris antrean dashboard reviewer (PBI-19 AC6, SCRUM-154).\n\nwaiting_since adalah saat round dibuka; antrean diurutkan dari yang\nterlama. assigned_at bisa lebih baru bila reviewer ini pengganti."
       },
+      "ProductLabelMappingRead": {
+        "properties": {
+          "label": {
+            "type": "string",
+            "title": "Label",
+            "description": "Kode di laporan, mis. Product A"
+          },
+          "real_name": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Real Name",
+            "description": "Nama asli produk; kosong bila produknya tidak ada"
+          }
+        },
+        "type": "object",
+        "required": [
+          "label",
+          "real_name"
+        ],
+        "title": "ProductLabelMappingRead",
+        "description": "Satu kode produk di laporan mode kode beserta nama aslinya (hanya untuk Admin)."
+      },
       "ProductLabelMode": {
         "type": "string",
         "enum": [
@@ -13916,9 +13944,6 @@
           "status": {
             "$ref": "#/components/schemas/ReportStatus"
           },
-          "language": {
-            "$ref": "#/components/schemas/ReportLanguage"
-          },
           "created_by": {
             "type": "string",
             "format": "uuid",
@@ -13928,6 +13953,14 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "products": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Products",
+            "description": "Label produk yang dibandingkan, beku di laporan: nama asli atau kode"
           },
           "measurement_filter": {
             "$ref": "#/components/schemas/MeasurementFilter"
@@ -13975,6 +14008,21 @@
             },
             "type": "array",
             "title": "Case Basis"
+          },
+          "product_mapping": {
+            "anyOf": [
+              {
+                "items": {
+                  "$ref": "#/components/schemas/ProductLabelMappingRead"
+                },
+                "type": "array"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Product Mapping",
+            "description": "Pemetaan kode ke nama asli. Hanya diisi untuk Admin pada laporan mode kode, dijaga di server; selain itu null."
           }
         },
         "type": "object",
@@ -13984,9 +14032,9 @@
           "score_scope",
           "has_dev_scores",
           "status",
-          "language",
           "created_by",
           "created_at",
+          "products",
           "measurement_filter",
           "rubric_version_no",
           "judge_model_name",
@@ -14644,9 +14692,6 @@
           "status": {
             "$ref": "#/components/schemas/ReportStatus"
           },
-          "language": {
-            "$ref": "#/components/schemas/ReportLanguage"
-          },
           "created_by": {
             "type": "string",
             "format": "uuid",
@@ -14656,6 +14701,14 @@
             "type": "string",
             "format": "date-time",
             "title": "Created At"
+          },
+          "products": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Products",
+            "description": "Label produk yang dibandingkan, beku di laporan: nama asli atau kode"
           }
         },
         "type": "object",
@@ -14665,9 +14718,9 @@
           "score_scope",
           "has_dev_scores",
           "status",
-          "language",
           "created_by",
-          "created_at"
+          "created_at",
+          "products"
         ],
         "title": "ReportSummary",
         "description": "Satu baris di daftar laporan tersimpan (GET /reports)."

@@ -97,6 +97,7 @@ def _laporan(**kolom) -> ReportDetail:
         "case_basis_count": 100,
         "created_by": uuid.uuid4(),
         "created_at": DIBUAT,
+        "products": ["Gemini", "DeepSeek", "Justisio"],
         "sessions": [
             _sesi("Gemini", results=[_hasil(rank=1)]),
             _sesi("DeepSeek", results=[_hasil(rank=2, det_score=Decimal("0.70"))]),
