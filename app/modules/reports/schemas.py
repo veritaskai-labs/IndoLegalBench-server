@@ -19,6 +19,7 @@ semua peran dan dibagikan sebagai PDF, jadi tidak membawa id sesi/produk dan tot
 import uuid
 from datetime import date, datetime
 from decimal import Decimal
+from enum import StrEnum
 from typing import Any
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -531,6 +532,36 @@ class ReportAttemptRead(BaseModel):
     )
 
 
+class OtherProductStatus(StrEnum):
+    """Keadaan satu produk lain pada kasus yang sedang ditelusuri (PBI-16 SCRUM-370)."""
+
+    ANSWERED = "answered"
+    NO_ANSWER = "no_answer"
+    NOT_GRADED = "not_graded"
+
+
+class ReportOtherProductRead(BaseModel):
+    """Jawaban satu produk lain di laporan yang sama untuk kasus yang sedang dibuka.
+
+    Tanpa id sesi, dan label produk memakai nilai beku laporan (nama asli atau kode).
+    """
+
+    result_id: uuid.UUID = Field(description="Angka laporan produk ini, jenis skor yang sama")
+    product_label: str = Field(description="Label beku di laporan: nama asli atau kode")
+    measurement_kind: MeasurementKind
+    is_trial: bool = Field(description="Sesi Uji Coba wajib diberi tanda yang jelas")
+    status: OtherProductStatus = Field(
+        description="answered: ada jawaban dinilai; not_graded: semua percobaan gagal teknis "
+        "(tampilkan 'tidak dinilai'); no_answer: produk tidak menjawab kasus ini"
+    )
+    rubric_version: str | None = Field(
+        description="Versi rubrik run penilaian produk ini; kosong bila kasus tidak ada di run-nya"
+    )
+    det_score: Decimal | None
+    llm_score: Decimal | None
+    attempts: list[ReportAttemptRead]
+
+
 class ReportCaseDetailRead(BaseModel):
     """Satu kasus di balik satu angka, dibuka sampai jawaban asli (D6 langkah 5-7).
 
@@ -552,6 +583,10 @@ class ReportCaseDetailRead(BaseModel):
     det_score: Decimal | None
     llm_score: Decimal | None
     attempts: list[ReportAttemptRead]
+    other_products: list[ReportOtherProductRead] = Field(
+        description="Produk lain di laporan yang sama untuk kasus ini, urut label; kosong bila "
+        "laporan hanya memuat satu produk. Hanya dikirim ke peran yang boleh membuka isi kasus."
+    )
 
 
 class TrendPointRead(BaseModel):
