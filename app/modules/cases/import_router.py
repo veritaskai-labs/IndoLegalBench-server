@@ -13,7 +13,6 @@ import uuid
 from fastapi import APIRouter, Depends, Request, Response, status
 from sqlalchemy.orm import Session
 from starlette.concurrency import run_in_threadpool
-from starlette.types import Message
 
 from app.modules.auth.schemas import ErrorBody
 from app.modules.cases import import_service
@@ -22,6 +21,7 @@ from app.modules.cases.import_schemas import ImportSummaryRead
 from app.shared.database import get_db
 from app.shared.exceptions import ValidationError
 from app.shared.security import WRITER_ROLES, CurrentUser, Role, require_roles
+from app.shared.upload_limits import capped_body, reject_oversized
 
 router = APIRouter(tags=["case-imports"])
 
@@ -29,8 +29,6 @@ _can_write = require_roles(*WRITER_ROLES, Role.ADMIN)
 
 IMPORT_FILE_REQUIRED = "IMPORT_FILE_REQUIRED"
 TEMPLATE_FILE_NAME = "template-impor-kasus.csv"
-# Ruang untuk boundary dan header multipart di atas batas berkas.
-_MULTIPART_OVERHEAD = 64 * 1024
 
 _UPLOAD_FORM = {
     "requestBody": {
@@ -62,33 +60,6 @@ def _too_large(limit_bytes: int) -> ImportFileError:
     return ImportFileError(
         f"Berkas melebihi {limit_bytes // (1024 * 1024)} MB.", code=IMPORT_FILE_TOO_LARGE
     )
-
-
-def _reject_oversized(request: Request, limit_bytes: int) -> None:
-    """Starlette menampung seluruh body multipart sebelum handler membaca berkas, jadi unggahan
-    raksasa ditolak dari Content-Length lebih dulu."""
-    try:
-        length = int(request.headers.get("content-length", ""))
-    except ValueError:
-        return
-    if length > limit_bytes + _MULTIPART_OVERHEAD:
-        raise _too_large(limit_bytes)
-
-
-def _capped_body(request: Request, limit_bytes: int) -> Request:
-    """Tanpa Content-Length (chunked), body dihitung saat diterima dan dihentikan lewat batas."""
-    cap = limit_bytes + _MULTIPART_OVERHEAD
-    received = 0
-
-    async def receive() -> Message:
-        nonlocal received
-        message = await request.receive()
-        received += len(message.get("body", b""))
-        if received > cap:
-            raise _too_large(limit_bytes)
-        return message
-
-    return Request(request.scope, receive)
 
 
 @router.get(
@@ -147,8 +118,8 @@ async def import_cases(
     """Baris valid menjadi kasus draft di satu suite sementara, baris gagal dilaporkan dengan
     alasan, baris kembar dilewati. Nomor baris mengikuti spreadsheet."""
     limit = import_service.upload_limit_bytes()
-    _reject_oversized(request, limit)
-    async with _capped_body(request, limit).form(max_files=1, max_fields=1) as form:
+    reject_oversized(request, limit, _too_large)
+    async with capped_body(request, limit, _too_large).form(max_files=1, max_fields=1) as form:
         berkas = form.get("file")
         if berkas is None or isinstance(berkas, str):
             raise ValidationError("Pilih satu berkas CSV untuk diimpor.", code=IMPORT_FILE_REQUIRED)
