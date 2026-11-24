@@ -433,3 +433,101 @@ def test_kata_kunci_terlalu_panjang_ditolak(penulis):
 
     # Assert
     assert response.status_code == 422
+
+
+# --- Siklus 4: halaman ---------------------------------------------------------------------
+
+
+def _tiga_kasus(client, db_session) -> list[str]:
+    """Tiga kasus dengan waktu ubah berbeda; urutan daftar: C, B, A."""
+    suite_id = _suite(client)
+    ids = []
+    for hari, kode in enumerate(("A-1", "B-1", "C-1"), start=1):
+        case_id = _buat(client, suite_id, case_code=kode).json()["id"]
+        _ubah_pada(db_session, case_id, datetime(2026, 11, hari, tzinfo=UTC))
+        ids.append(case_id)
+    return ids
+
+
+def test_halaman_membagi_daftar_tanpa_tumpang_tindih(penulis, db_session):
+    """Positif: AC3, size=2 memberi dua baris di halaman 1 dan sisanya di halaman 2; total tetap
+    jumlah semua baris supaya halaman bisa menampilkan "3 kasus" dan jumlah halaman."""
+    # Arrange
+    _tiga_kasus(penulis, db_session)
+
+    # Act
+    satu = penulis.get("/cases", params={"page": 1, "size": 2}).json()
+    dua = penulis.get("/cases", params={"page": 2, "size": 2}).json()
+
+    # Assert
+    assert [item["case_code"] for item in satu["items"]] == ["C-1", "B-1"]
+    assert [item["case_code"] for item in dua["items"]] == ["A-1"]
+    assert (satu["total"], satu["page"], satu["size"]) == (3, 1, 2)
+    assert (dua["total"], dua["page"], dua["size"]) == (3, 2, 2)
+
+
+def test_total_menghitung_baris_yang_cocok_saja(penulis, db_session):
+    """Positif: total memakai filter yang sama dengan isi halaman, bukan jumlah semua kasus."""
+    # Arrange
+    _tiga_kasus(penulis, db_session)
+
+    # Act
+    body = penulis.get("/cases", params={"q": "b-1", "size": 1}).json()
+
+    # Assert
+    assert ([item["case_code"] for item in body["items"]], body["total"]) == (["B-1"], 1)
+
+
+def test_halaman_lewat_akhir_kosong_dengan_total_benar(penulis, db_session):
+    """Edge: pengguna di halaman 3 lalu mempersempit filter sehingga hanya ada 1 halaman. Server
+    memberi halaman kosong dengan total yang benar (bukan 404), jadi halaman bisa kembali ke
+    halaman 1 sendiri."""
+    # Arrange
+    _tiga_kasus(penulis, db_session)
+
+    # Act
+    body = penulis.get("/cases", params={"page": 3, "size": 2}).json()
+
+    # Assert
+    assert (body["items"], body["total"], body["page"]) == ([], 3, 3)
+
+
+def test_halaman_stabil_saat_waktu_ubah_sama(penulis, db_session):
+    """Edge: lima kasus dari satu impor punya waktu ubah yang sama. Menggabungkan semua halaman
+    size=2 harus memberi kelima kasus tepat sekali; tanpa urutan kedua yang pasti, database
+    boleh mengembalikan urutan berbeda per permintaan."""
+    # Arrange
+    suite_id = _suite(penulis)
+    for kode in ("E-1", "C-1", "A-1", "D-1", "B-1"):
+        case_id = _buat(penulis, suite_id, case_code=kode).json()["id"]
+        _ubah_pada(db_session, case_id, datetime(2026, 11, 1, tzinfo=UTC))
+
+    # Act
+    semua = []
+    for page in (1, 2, 3):
+        body = penulis.get("/cases", params={"page": page, "size": 2}).json()
+        semua += [item["case_code"] for item in body["items"]]
+
+    # Assert
+    assert semua == ["A-1", "B-1", "C-1", "D-1", "E-1"]
+
+
+@pytest.mark.parametrize(
+    ("params", "status"),
+    [
+        ({"size": 100}, 200),
+        ({"size": 101}, 422),
+        ({"size": 0}, 422),
+        ({"page": 0}, 422),
+    ],
+    ids=["size-100", "size-101", "size-0", "page-0"],
+)
+def test_batas_halaman_sama_dengan_daftar_lain(penulis, params, status):
+    """Edge: batas sama dengan daftar audit, notifikasi, dan laporan (page >= 1, size 1..100).
+    100 adalah nilai terbesar yang masih boleh; 101 akan membuat satu permintaan memuat ribuan
+    kasus sekaligus kalau tidak dibatasi."""
+    # Act
+    response = penulis.get("/cases", params=params)
+
+    # Assert
+    assert response.status_code == status
