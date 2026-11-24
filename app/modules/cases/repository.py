@@ -33,6 +33,15 @@ def get_by_code(db: Session, case_code: str) -> Case | None:
     return db.query(Case).filter(Case.case_code == case_code).one_or_none()
 
 
+def _in_effect_version_id():
+    """The version a case shows: the latest approved one, else the current one.
+
+    One definition for the per-suite list, the case directory and the dashboard
+    counts, so they can never disagree about a case's status or title.
+    """
+    return func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
+
+
 def search_candidates(
     db: Session, *, approved_dev_only: bool
 ) -> Iterator[tuple[Case, CaseVersion]]:
@@ -63,7 +72,7 @@ def list_for_suite(
     That version is the latest approved one when it exists, otherwise the
     current version. Newest update of that version comes first.
     """
-    in_effect_id = func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
+    in_effect_id = _in_effect_version_id()
     query = (
         db.query(Case, CaseVersion)
         .join(CaseVersion, CaseVersion.id == in_effect_id)
@@ -95,7 +104,7 @@ def page_in_effect(
     combine with AND. Paging happens in SQL; the case code is the second sort
     key so pages never overlap when update times tie.
     """
-    in_effect_id = func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
+    in_effect_id = _in_effect_version_id()
     query = db.query(Case, CaseVersion).join(CaseVersion, CaseVersion.id == in_effect_id)
     if status is not None:
         query = query.filter(CaseVersion.status == status)
@@ -127,7 +136,7 @@ def count_by_status(db: Session, *, created_by: uuid.UUID | None = None) -> dict
     created_by limits the count to one writer's cases (PBI-24 AC6); None counts
     every case.
     """
-    in_effect_id = func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
+    in_effect_id = _in_effect_version_id()
     query = db.query(CaseVersion.status, func.count(Case.id)).join(
         CaseVersion, CaseVersion.id == in_effect_id
     )
