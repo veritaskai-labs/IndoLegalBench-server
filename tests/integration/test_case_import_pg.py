@@ -7,7 +7,8 @@ enum PostgreSQL, serta seed jenis peraturan dari migrasi untuk rujukan terstrukt
 
 Service dipanggil lewat Session yang menumpang transaksi luar
 (join_transaction_mode="create_savepoint"): commit service menjadi savepoint, dan seluruh baris
-dibatalkan di akhir test. Contoh hukum hanya KTK-001.
+dibatalkan di akhir test. Session memakai autoflush=False seperti get_db, supaya urutan insert
+sama dengan saat dipanggil lewat endpoint. Contoh hukum hanya KTK-001.
 """
 
 import csv
@@ -18,10 +19,12 @@ import uuid
 
 import pytest
 from sqlalchemy import create_engine, text
+from sqlalchemy.exc import OperationalError
 from sqlalchemy.orm import Session
 
 from app.modules.cases import import_service, service
 from app.modules.cases.csv_import import TEMPLATE_COLUMNS
+from app.modules.cases.fingerprint import content_fingerprint
 from app.modules.cases.schemas import CaseWrite
 from app.shared import request_context
 from tests.legal_refs import rujukan_ktk_001
@@ -39,7 +42,7 @@ def db():
     engine = create_engine(POSTGRES_URL)
     with engine.connect() as conn:
         transaksi = conn.begin()
-        sesi = Session(bind=conn, join_transaction_mode="create_savepoint")
+        sesi = Session(bind=conn, join_transaction_mode="create_savepoint", autoflush=False)
         user_id = uuid.uuid4()
         conn.execute(
             text(
@@ -181,3 +184,37 @@ def test_suite_sementara_milik_pengimpor(db):
         {"id": ringkasan.suite_id},
     ).one()
     assert (suite.status, suite.created_by, suite.name) == ("active", user_id, ringkasan.suite_name)
+
+
+def test_baris_yang_sama_menunggu_impor_lain_yang_sedang_menyimpannya():
+    """Dua impor berkas yang sama di waktu bersamaan: cek kembar dan simpan dijaga advisory lock
+    per baris, jadi impor kedua menunggu sampai impor pertama commit. Di sini koneksi lain
+    memegang kunci baris itu, dan impor berhenti karena lock_timeout, bukan menyimpan kembaran."""
+    engine = create_engine(POSTGRES_URL)
+    kunci = import_service.row_lock_key(content_fingerprint("Kunci", "Berapa pesangon PHK?"))
+    with engine.connect() as pemegang, engine.connect() as conn:
+        tahan = pemegang.begin()
+        pemegang.execute(text("SELECT pg_advisory_xact_lock(:k)"), {"k": kunci})
+        transaksi = conn.begin()
+        sesi = Session(bind=conn, join_transaction_mode="create_savepoint", autoflush=False)
+        user_id = uuid.uuid4()
+        conn.execute(
+            text(
+                "INSERT INTO users (id, email, name, role) "
+                "VALUES (:id, 'qa-338-kunci@veritask.test', 'QA 338', 'contributor')"
+            ),
+            {"id": user_id},
+        )
+        request_context.bind(sesi, user_id=user_id, role="contributor")
+        conn.execute(text("SET LOCAL lock_timeout = '300ms'"))
+        try:
+            with pytest.raises(OperationalError) as galat:
+                import_service.import_cases(
+                    sesi, file_name="c.csv", data=_berkas(_lengkap("Kunci")), actor_id=user_id
+                )
+            assert galat.value.orig.sqlstate == "55P03"
+        finally:
+            sesi.close()
+            transaksi.rollback()
+            tahan.rollback()
+    engine.dispose()

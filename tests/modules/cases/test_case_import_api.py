@@ -473,3 +473,32 @@ def test_baris_tanpa_judul_tidak_kembar_dengan_kasus_manual_hanya_karena_kosong(
     baris = _impor(pengimpor, _berkas(_baris(category="ketenagakerjaan"))).json()["rows"][0]
 
     assert baris["status"] == "created"
+
+
+def test_ringkasan_hanya_untuk_pengimpor_dan_admin(as_role):
+    """Nama berkas dan alasan gagal milik pengimpor; Kontributor lain mendapat 404 seolah batch
+    tidak ada, Admin tetap bisa membukanya."""
+    batch_id = _impor(as_role(Role.CONTRIBUTOR), _berkas(_lengkap())).json()["batch_id"]
+
+    lain = as_role(Role.CONTRIBUTOR, user_id=uuid.uuid4(), email="lain@veritask.test")
+    respons = lain.get(f"/case-imports/{batch_id}")
+    assert (respons.status_code, respons.json()["code"]) == (404, "IMPORT_BATCH_NOT_FOUND")
+
+    admin = as_role(Role.ADMIN, user_id=uuid.uuid4(), email="admin@veritask.test")
+    assert admin.get(f"/case-imports/{batch_id}").status_code == 200
+
+
+def test_suite_kosong_diarsipkan_walau_impor_terhenti(pengimpor, db_session, monkeypatch):
+    """Galat tak terduga di baris pertama: suite sementara tidak tertinggal sebagai suite aktif
+    yang kosong."""
+
+    def putus(db, dasar):
+        raise RuntimeError("putus")
+
+    monkeypatch.setattr(import_service, "free_case_code", putus)
+
+    with pytest.raises(RuntimeError):
+        _impor(pengimpor, _berkas(_lengkap()))
+
+    db_session.expire_all()
+    assert db_session.query(Suite).one().status == "archived"
