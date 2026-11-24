@@ -5,8 +5,10 @@ service. Tidak ada logika bisnis dan tidak ada query database di sini.
 """
 
 import uuid
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
+from pydantic import BeforeValidator
 from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
@@ -15,6 +17,7 @@ from app.modules.cases.models import CaseStatus, SplitTag
 from app.modules.cases.schemas import (
     CaseCompleteness,
     CaseNotReadyBody,
+    CasePage,
     CaseRead,
     CaseSummary,
     CaseWrite,
@@ -26,12 +29,15 @@ from app.modules.cases.schemas import (
 )
 from app.shared.database import get_db
 from app.shared.security import REVIEWER_ROLES, WRITER_ROLES, CurrentUser, Role, require_roles
+from app.shared.text import strip_blank
 
 router = APIRouter(tags=["cases"])
 
 _can_write = require_roles(*WRITER_ROLES, Role.ADMIN)
 # SCRUM-183: Developer AI reads the case list and dev case detail, masked by the service.
 _can_read = require_roles(*WRITER_ROLES, Role.ADMIN, Role.DEVELOPER_AI)
+# SCRUM-339: the case directory shows unmasked rows, so only writers and Admin.
+_can_search = require_roles(*WRITER_ROLES, Role.ADMIN)
 # D5a / PBI-24: only the writer submits, and only their own case (checked in the service).
 _can_submit = require_roles(*WRITER_ROLES)
 # D5a / PBI-9 AC3: after approval only the Admin changes the dev/test tag.
@@ -112,6 +118,45 @@ def list_cases(
             db, suite_id, status=status_filter, split_tag=split_tag
         )
     return service.list_cases(db, suite_id, status=status_filter, split_tag=split_tag)
+
+
+@router.get(
+    "/cases",
+    response_model=CasePage,
+    summary="Daftar kasus lintas suite dengan pencarian dan filter",
+    responses={403: {"model": ErrorBody, "description": "Hanya Kontributor dan Admin."}},
+)
+def list_all_cases(
+    q: Annotated[
+        str | None,
+        Query(
+            max_length=200,
+            description=(
+                "Sebagian kode kasus atau judul, huruf besar/kecil tidak dibedakan. "
+                "Kosong atau hanya spasi berarti tanpa kata kunci."
+            ),
+        ),
+        BeforeValidator(strip_blank),
+    ] = None,
+    status_filter: CaseStatus | None = Query(
+        default=None, alias="status", description="Status versi yang berlaku"
+    ),
+    suite_id: uuid.UUID | None = Query(
+        default=None, description="Satu suite. Suite yang tidak ada memberi daftar kosong."
+    ),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(_can_search),
+) -> CasePage:
+    """List the cases of every suite, newest update first (PBI-4 AC3, SCRUM-339).
+
+    Contributor and Admin only: rows are not masked, so Developer AI keeps the
+    per-suite list that hides test cases.
+    """
+    return service.list_all_cases(
+        db, keyword=q, status=status_filter, suite_id=suite_id, page=page, size=size
+    )
 
 
 @router.get(
