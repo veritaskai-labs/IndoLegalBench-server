@@ -178,3 +178,20 @@ def test_urutan_terbaru_diubah_lebih_dulu(penulis, db_session):
 
     # Assert
     assert [item["id"] for item in items] == [baru, lama]
+
+
+def test_waktu_ubah_sama_diurutkan_menurut_kode(penulis, db_session):
+    """Edge: kasus dari satu impor CSV punya waktu ubah yang sama (now() satu transaksi). Tanpa
+    urutan kedua yang pasti, halaman 1 dan 2 bisa menampilkan baris yang sama dua kali atau
+    melewatkan satu baris."""
+    # Arrange
+    suite_id = _suite(penulis)
+    ids = [_buat(penulis, suite_id, case_code=kode).json()["id"] for kode in ("C-1", "A-1", "B-1")]
+    for case_id in ids:
+        _ubah_pada(db_session, case_id, datetime(2026, 11, 1, tzinfo=UTC))
+
+    # Act
+    items = penulis.get("/cases").json()["items"]
+
+    # Assert
+    assert [item["case_code"] for item in items] == ["A-1", "B-1", "C-1"]
