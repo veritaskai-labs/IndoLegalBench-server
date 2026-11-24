@@ -149,3 +149,25 @@ def test_baris_login_benar_benar_sampai_ke_stdout_container(tmp_path):
     # Assert
     assert hasil.returncode == 0, hasil.stderr
     assert "login outcome=ok" in hasil.stdout
+
+
+def test_worker_dengan_basic_config_tidak_mencetak_baris_dua_kali():
+    """Edge: kedua worker mengimpor app.main lalu memanggil logging.basicConfig() di root.
+    Kalau handler stdout milik app tetap menulis, setiap baris app.* di worker keluar dua
+    kali (sekali lewat root, sekali lewat handler app), dan hitungan di tool log ikut ganda."""
+    # Arrange
+    program = (
+        "import logging, app.main\n"
+        "logging.basicConfig(level=logging.INFO)\n"
+        "logging.getLogger('app.auth.login').info('login outcome=ok')\n"
+    )
+    env = {**os.environ, "DATABASE_URL": "sqlite://", "AUTH_OIDC_MODE": "fake", "APP_ENV": "local"}
+
+    # Act
+    hasil = subprocess.run(
+        [sys.executable, "-c", program], cwd=ROOT, env=env, capture_output=True, text=True
+    )
+
+    # Assert
+    assert hasil.returncode == 0, hasil.stderr
+    assert (hasil.stdout + hasil.stderr).count("login outcome=ok") == 1
