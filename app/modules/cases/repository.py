@@ -100,7 +100,7 @@ def page_in_effect(
     per-suite list never disagree. status filters on the in-effect version, so
     an approved case with an open revision counts as approved (like
     count_by_status). keyword matches part of the case code or of the in-effect
-    title, ignoring letter case, with % _ and \ taken literally. Filters
+    title, ignoring letter case, with % _ and \\ taken literally. Filters
     combine with AND. Paging happens in SQL; the case code is the second sort
     key so pages never overlap when update times tie.
     """
