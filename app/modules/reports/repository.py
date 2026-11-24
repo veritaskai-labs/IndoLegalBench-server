@@ -307,6 +307,21 @@ def product_ids(db: Session, report_id: uuid.UUID) -> frozenset[uuid.UUID]:
     return frozenset(rows)
 
 
+def current_publication_of(db: Session, report_id: uuid.UUID) -> PublishedReport | None:
+    """Versi terbit laporan ini kalau laporannya masih published, selain itu None."""
+    raise NotImplementedError
+
+
+def replace_candidates_for_saved(db: Session, report_id: uuid.UUID) -> list[CurrentPublication]:
+    """Versi yang sedang terbit dengan himpunan produk sama, untuk laporan tersimpan ini."""
+    raise NotImplementedError
+
+
+def replace_candidates_for_published(db: Session, report_id: uuid.UUID) -> list[Report]:
+    """Laporan tersimpan tanpa skor dev dengan himpunan produk sama, untuk laporan terbit ini."""
+    raise NotImplementedError
+
+
 def add_publication(db: Session, row: PublishedReport) -> None:
     """Tambah satu versi terbit dan flush, sebelum status laporannya diubah."""
     db.add(row)
