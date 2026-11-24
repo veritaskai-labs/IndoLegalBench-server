@@ -263,8 +263,10 @@ class SqlGradingReader:
     def __init__(self, db: Session) -> None:
         self._db = db
 
-    def latest(self, session_id: uuid.UUID):
-        stored = grading_service.read_latest_grades(self._db, session_id)
+    def latest(self, session_id: uuid.UUID, *, round_judge_scores: bool = True):
+        stored = grading_service.read_latest_grades(
+            self._db, session_id, round_judge_scores=round_judge_scores
+        )
 
         return GradeScoreSnapshot(
             run_id=stored.run_id,

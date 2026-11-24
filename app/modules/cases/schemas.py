@@ -17,7 +17,7 @@ from pydantic import BaseModel, ConfigDict, Field, field_validator, model_valida
 from pydantic.json_schema import SkipJsonSchema
 
 from app.modules.auth.schemas import ErrorBody
-from app.modules.cases.models import CaseStatus, SplitTag
+from app.modules.cases.models import CaseOrigin, CaseStatus, SplitTag
 from app.modules.cases.validation import (
     ANGKA_PATTERN,
     PASAL_PATTERN,
@@ -275,10 +275,25 @@ class CaseRead(BaseModel):
     identity: CaseIdentity
     legal_refs: list[LegalRefRead]
     answer_criteria: AnswerCriteria
-    split_tag: SplitTag
+    split_tag: SplitTag | None = Field(
+        description=(
+            "Kosong hanya pada draft hasil impor atau duplikasi (PBI-4 AC2, AC8). Wajib dipilih "
+            "sebelum diajukan review; selama kosong, kasus tertutup untuk Developer AI."
+        ),
+    )
     status: CaseStatus
     was_dev: bool = Field(
-        description="Kasus ini pernah berada di dev set (PBI-9 AC3); tidak pernah kembali false",
+        description=(
+            "Teks kasus ini sudah pernah terlihat Developer AI: kasus pernah berada di dev set "
+            "(PBI-9 AC3), atau salinan dari kasus seperti itu (PBI-4). Tidak pernah kembali false"
+        ),
+    )
+    origin: CaseOrigin = Field(description="Cara kasus masuk: manual, import, atau duplicate (D8)")
+    source_case_id: uuid.UUID | None = Field(
+        default=None, description="Kasus asal bila origin = duplicate"
+    )
+    import_batch_id: uuid.UUID | None = Field(
+        default=None, description="Batch impor CSV bila origin = import"
     )
     completeness_pct: int = Field(ge=0, le=100)
     version: int
@@ -292,8 +307,11 @@ class CaseSummary(BaseModel):
     id: uuid.UUID
     case_code: str
     title: str
-    split_tag: SplitTag
+    split_tag: SplitTag | None = Field(
+        description="Kosong hanya pada draft hasil impor atau duplikasi (PBI-4 AC2, AC8)"
+    )
     status: CaseStatus
+    origin: CaseOrigin = CaseOrigin.MANUAL
     completeness_pct: int = Field(ge=0, le=100)
     updated_at: datetime
     masked: bool = Field(
@@ -351,7 +369,8 @@ class VersionSections(BaseModel):
     identity_question: str = Field(alias="identity.question")
     category: str | None = None
     case_code: str
-    split_tag: str
+    # Kosong pada draft hasil impor atau duplikasi yang belum diberi tag (PBI-4 AC8).
+    split_tag: str | None
     legal_refs: list[LegalRefRead]
     answer_criteria: dict[str, Any]
 

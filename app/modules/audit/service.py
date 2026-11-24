@@ -28,6 +28,7 @@ from app.modules.cases import service as cases_service
 from app.modules.grading import service as grading_service
 from app.modules.providers import judge_service
 from app.modules.providers import service as providers_service
+from app.modules.reports import service as reports_service
 from app.modules.reviews import service as review_service
 from app.modules.runs import service as runs_service
 from app.modules.suites import service as suites_service
@@ -268,6 +269,9 @@ def _label_objek(
         ),
         AuditEntityType.JUDGE_PROVIDER: judge_service.judge_names(
             db, _ids(kunci, AuditEntityType.JUDGE_PROVIDER)
+        ),
+        AuditEntityType.REPORT: reports_service.report_titles(
+            db, _ids(kunci, AuditEntityType.REPORT)
         ),
     }
 

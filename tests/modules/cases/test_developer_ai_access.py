@@ -263,6 +263,16 @@ _DIBUKA = {
     # PBI-14 (SCRUM-258): dropdown penilai di form pengukuran yang sama (klien No. 35).
     # Registri lengkap /admin/judge-providers tetap 403, diuji di test_judge_providers_api.py.
     ("GET", "/judge-providers"),
+    # PBI-15 AC14 (SCRUM-313): Developer AI membuat laporan perbandingan, termasuk yang memuat
+    # skor dev. Hanya angka agregat yang keluar, bukan isi kasus test; batas jenis nilai dan
+    # label diuji di test_creation_policy.py dan test_report_create_api.py.
+    ("POST", "/reports"),
+    # PBI-15 (SCRUM-362): dry-run untuk form yang sama. Aturan dan hak jenis nilainya sama
+    # dengan POST /reports, jadi Developer AI ikut boleh; diuji di test_report_validate_api.py.
+    ("POST", "/reports/validate"),
+    # Daftar sesi untuk halaman yang sama: hanya nama produk, status, dan alasan kelayakan,
+    # tanpa isi kasus. Diuji di test_eligible_sessions_api.py.
+    ("GET", "/reports/eligible-sessions"),
     # PBI-11 AC8, AC10 (SCRUM-210): Developer AI memantau, membuka, dan mengarsipkan sesi.
     # Isi kasus test tetap disamarkan, diuji di test_session_detail_endpoint.py.
     ("GET", "/measurements"),
@@ -278,6 +288,34 @@ _DIBUKA = {
     # PBI-14 AC8, D10 (SCRUM-226): Developer AI melihat hasil penilaian sesi selesai.
     # Isi kasus test disamarkan, diuji di test_session_grade.py.
     ("GET", "/measurements/{session_id}/results"),
+    # PBI-15 (SCRUM-320), D9: Developer AI membaca laporan miliknya, laporan terbit, dan
+    # laporan skor dev. Kode kasus test disamarkan, diuji di test_report_history_service.py.
+    ("GET", "/reports"),
+    ("GET", "/reports/{report_id}"),
+    ("GET", "/reports/{report_id}/pdf"),
+    # PBI-16 AC1 (SCRUM-326): daftar kasus di balik angka laporan. Kode kasus test disamarkan
+    # dan isinya tidak dikirim, diuji di test_drilldown_service.py.
+    ("GET", "/reports/{report_id}/results/{result_id}/cases"),
+    # PBI-16 AC2 (SCRUM-326): Developer AI membuka isi kasus dev; kasus test dijawab 403
+    # CASE_CONTENT_FORBIDDEN, diuji di test_drilldown_service.py.
+    ("GET", "/reports/{report_id}/results/{result_id}/cases/{case_id}"),
+    # PBI-16 AC5 (SCRUM-327): berkas CSV dari hasil penilaian sesi yang sama dengan
+    # /measurements/{session_id}/results. Kode kasus test disamarkan, diuji di
+    # test_score_files.py.
+    ("GET", "/reports/sessions/{session_id}/csv"),
+    # PBI-17 AC12 (SCRUM-331): Developer AI melihat tren skor, termasuk skor dev. Hanya angka
+    # agregat per bulan yang keluar; hak atas jenis kasus diuji di test_trend_policy.py dan
+    # test_trend_api.py.
+    ("GET", "/reports/trend"),
+    # PBI-17 AC8 (SCRUM-333): PDF dari tren yang sama, lewat service yang sama, jadi isinya
+    # tetap angka agregat per bulan; diuji di test_trend_pdf_api.py.
+    ("GET", "/reports/trend/pdf"),
+    # PBI-17 AC9 (SCRUM-332, diagram D9): daftar terbit terbuka untuk setiap
+    # peran yang login. POST /reports/{report_id}/publish tetap tertutup.
+    ("GET", "/published-reports"),
+    # PBI-20 (SCRUM-351): pencarian hanya mencocokkan kasus dev yang disetujui
+    # untuk Developer AI, diuji di tests/modules/search/test_search.py.
+    ("GET", "/search"),
 }
 # Jalur tanpa penjaga peran: login, profil sendiri, dan lonceng notifikasi.
 _TANPA_PERAN = ("/health", "/auth/", "/notifications")

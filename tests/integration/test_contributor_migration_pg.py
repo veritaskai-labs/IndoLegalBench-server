@@ -21,7 +21,7 @@ from alembic.config import Config
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker
 
-from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
+from app.modules.cases.models import CaseStatus, CaseVersion, SplitTag
 from app.modules.reviews.models import (
     ReviewAssignment,
     ReviewRound,
@@ -93,15 +93,21 @@ def _kasus_dengan_review(engine, penulis, reviewer_a, reviewer_b) -> uuid.UUID:
         db.flush()
         case_id, version_id = uuid.uuid4(), uuid.uuid4()
         kode = f"M195-{uuid.uuid4().hex[:8]}"
-        db.add(
-            Case(
-                id=case_id,
-                case_code=kode,
-                suite_id=suite.id,
-                current_version_id=version_id,
-                created_by=penulis,
-                updated_by=penulis,
-            )
+        # Lewat SQL, bukan model Case: tes ini berjalan di skema revisi SEBELUM, sedangkan model
+        # Case sudah punya kolom yang lebih baru (SCRUM-337: origin dan sidik jari). Kolom yang
+        # ditulis di sini ada di kedua skema; FK current_version_id deferred sampai commit.
+        db.execute(
+            text(
+                "INSERT INTO cases (id, case_code, suite_id, current_version_id, created_by, "
+                "updated_by) VALUES (:id, :kode, :suite, :versi, :penulis, :penulis)"
+            ),
+            {
+                "id": case_id,
+                "kode": kode,
+                "suite": suite.id,
+                "versi": version_id,
+                "penulis": penulis,
+            },
         )
         db.add(
             CaseVersion(

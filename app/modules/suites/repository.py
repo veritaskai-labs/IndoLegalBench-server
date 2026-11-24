@@ -8,7 +8,7 @@ Isi file ini murni query, tanpa logika bisnis dan tanpa HTTP.
 
 import uuid
 
-from sqlalchemy import func
+from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
 from app.modules.suites.models import Suite, SuiteStatus
@@ -51,6 +51,15 @@ def list_by_status(
 
 def count_by_status(db: Session, status: SuiteStatus) -> int:
     return db.query(Suite).filter(Suite.deleted_at.is_(None), Suite.status == status).count()
+
+
+def search_catalog(db: Session) -> list[tuple[uuid.UUID, str, SuiteStatus]]:
+    rows = db.execute(
+        select(Suite.id, Suite.name, Suite.status)
+        .where(Suite.deleted_at.is_(None))
+        .order_by(func.lower(Suite.name), Suite.id)
+    )
+    return [(suite_id, name, status) for suite_id, name, status in rows]
 
 
 def create(db: Session, suite: Suite) -> Suite:

@@ -290,7 +290,10 @@ def test_kontrak_openapi_memuat_mulai_sesi_tanpa_duplikasi(client):
     assert post["tags"] == ["measurements"]
     assert "201" in post["responses"]
     assert "StartRequest" in spec["components"]["schemas"]
-    assert not any("duplicate" in path or "duplikat" in path for path in spec["paths"])
+    # Hanya rute sesi: duplikasi KASUS (POST /cases/{id}/duplicate, PBI-4 AC2) memang ada.
+    rute_sesi = [path for path in spec["paths"] if path.startswith(("/measurements", "/manual"))]
+    assert rute_sesi, "rute sesi harus ada supaya pengecekan ini bermakna"
+    assert not any("duplicate" in path or "duplikat" in path for path in rute_sesi)
 
 
 def test_sesi_dari_tombol_mulai_dijalankan_runner_dengan_kasus_yang_dibekukan(siap):

@@ -66,6 +66,26 @@ PENGECUALIAN = {
         "SCRUM-284: penghitung progres worker penilaian, bukan aksi pengguna; pemicuan "
         "penilaiannya sendiri dicatat sebagai measurement_session.graded/regraded"
     ),
+    "report_sessions": "SCRUM-300: isi laporan beku, hanya INSERT; diwakili report.created",
+    "report_results": "SCRUM-300: angka laporan beku, hanya INSERT; diwakili report.created",
+    "report_case_basis": "SCRUM-300: dasar kasus laporan beku, hanya INSERT; diwakili report.created",
+    "published_reports": (
+        "SCRUM-300: versi terbit hanya INSERT; diwakili report.published dan report.superseded "
+        "dari perubahan status laporan"
+    ),
+    "import_batches": (
+        "SCRUM-337: tabel baru untuk impor CSV; penulisnya service impor SCRUM-338, yang "
+        "menentukan event-nya. Setiap kasus hasil impor sudah dicatat case.created beserta "
+        "import_batch_id-nya"
+    ),
+    "import_row_results": (
+        "SCRUM-337: hasil per baris, hanya ditulis bersama batchnya; baris yang menjadi kasus "
+        "sudah dicatat case.created, baris gagal dan dilewati tidak mengubah data kasus"
+    ),
+    "session_score_files": (
+        "SCRUM-327: hanya INSERT (trigger); setiap baris sudah mencatat siapa mengunduh "
+        "(created_by), kapan (created_at), dan isi persis berkas yang diserahkan"
+    ),
 }
 
 

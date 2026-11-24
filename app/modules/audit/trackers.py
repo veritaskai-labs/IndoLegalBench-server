@@ -142,7 +142,12 @@ class CaseTracker(Tracker):
         return row.id
 
     def created(self, row: Any) -> list[AuditEvent]:
-        return [self._event(row, "created", after={"case_code": row.case_code})]
+        # PBI-4 SCRUM-337 (D8): asal kasus ikut tercatat; batch atau kasus asal hanya bila ada.
+        after = {"case_code": row.case_code, "origin": _json(row.origin)}
+        for kolom in ("import_batch_id", "source_case_id"):
+            if getattr(row, kolom) is not None:
+                after[kolom] = _json(getattr(row, kolom))
+        return [self._event(row, "created", after=after)]
 
 
 class CaseVersionTracker(Tracker):
@@ -600,6 +605,34 @@ class AttemptTracker(Tracker):
         ]
 
 
+class ReportTracker(Tracker):
+    """Laporan perbandingan (PBI-15 SCRUM-300) dan penerbitannya (PBI-17 AC9, SCRUM-332).
+
+    Isi laporan beku (trigger menolak perubahan selain status), jadi yang dipantau hanya
+    status: saved ke published menjadi report.published, published ke superseded menjadi
+    report.superseded. Baris anak (sesi, hasil, dasar kasus, versi terbit) dikecualikan
+    dan diwakili event ini (test_audit_catalog_guard.py).
+    """
+
+    entity_type = AuditEntityType.REPORT
+    prefix = "report"
+    created_fields = (
+        "title",
+        "score_scope",
+        "has_dev_scores",
+        "measurement_filter",
+        "product_label_mode",
+        "language",
+        "rubric_version_id",
+        "case_basis_count",
+    )
+    fields = ("status",)
+    special = frozenset(fields)
+
+    def _special_event(self, row: Any, field: str, change: Change) -> AuditEvent:
+        return self._field_event(row, _json(change.new), field, change)
+
+
 TRACKERS: dict[str, Tracker] = {
     "suites": SuiteTracker(),
     "suite_snapshots": SuiteSnapshotTracker(),
@@ -616,6 +649,7 @@ TRACKERS: dict[str, Tracker] = {
     "attempts": AttemptTracker(),
     "rubric_versions": RubricVersionTracker(),
     "judge_providers": JudgeProviderTracker(),
+    "reports": ReportTracker(),
 }
 
 

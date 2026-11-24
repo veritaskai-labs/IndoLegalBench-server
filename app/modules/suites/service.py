@@ -24,6 +24,13 @@ HAS_APPROVED_CASES = "SUITE_HAS_APPROVED_CASES"
 SUITE_ARCHIVED = "SUITE_ARCHIVED"
 
 
+def search_catalog(db: Session) -> list[tuple[uuid.UUID, str, bool]]:
+    return [
+        (suite_id, name, status == SuiteStatus.ARCHIVED)
+        for suite_id, name, status in repository.search_catalog(db)
+    ]
+
+
 def create_suite(db: Session, payload: SuiteCreate, *, created_by: uuid.UUID) -> SuiteRead:
     """AC2: nama suite yang sudah dipakai tidak bisa dipakai ulang."""
     _pastikan_nama_bebas(db, payload.name)
