@@ -76,21 +76,24 @@ def list_for_suite(
     return query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc()).all()
 
 
-def list_in_effect(
+def page_in_effect(
     db: Session,
     *,
     keyword: str | None = None,
     status: CaseStatus | None = None,
     suite_id: uuid.UUID | None = None,
-) -> list[tuple[Case, CaseVersion]]:
-    """Cases with the version in effect, across suites (SCRUM-339).
+    offset: int = 0,
+    limit: int = 20,
+) -> tuple[list[tuple[Case, CaseVersion]], int]:
+    """One page of cases with the version in effect, across suites, and the total (SCRUM-339).
 
     Same in-effect rule and order as list_for_suite, so the directory and the
     per-suite list never disagree. status filters on the in-effect version, so
     an approved case with an open revision counts as approved (like
     count_by_status). keyword matches part of the case code or of the in-effect
     title, ignoring letter case, with % _ and \ taken literally. Filters
-    combine with AND.
+    combine with AND. Paging happens in SQL; the case code is the second sort
+    key so pages never overlap when update times tie.
     """
     in_effect_id = func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
     query = db.query(Case, CaseVersion).join(CaseVersion, CaseVersion.id == in_effect_id)
@@ -107,7 +110,14 @@ def list_in_effect(
                 func.lower(judul).like(pola, escape="\\"),
             )
         )
-    return query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc()).all()
+    total = query.count()
+    rows = (
+        query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return rows, total
 
 
 def count_by_status(db: Session, *, created_by: uuid.UUID | None = None) -> dict[CaseStatus, int]:

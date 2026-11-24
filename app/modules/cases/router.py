@@ -144,6 +144,8 @@ def list_all_cases(
     suite_id: uuid.UUID | None = Query(
         default=None, description="Satu suite. Suite yang tidak ada memberi daftar kosong."
     ),
+    page: int = Query(default=1, ge=1),
+    size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(_can_search),
 ) -> CasePage:
@@ -152,7 +154,9 @@ def list_all_cases(
     Contributor and Admin only: rows are not masked, so Developer AI keeps the
     per-suite list that hides test cases.
     """
-    return service.list_all_cases(db, keyword=q, status=status_filter, suite_id=suite_id)
+    return service.list_all_cases(
+        db, keyword=q, status=status_filter, suite_id=suite_id, page=page, size=size
+    )
 
 
 @router.get(
