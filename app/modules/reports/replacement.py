@@ -14,14 +14,20 @@ pelan-pelan berbeda.
 import uuid
 from collections.abc import Iterable
 
+from app.shared.exceptions import ConflictError
+
 REPORT_PRODUCTS_MISMATCH = "REPORT_PRODUCTS_MISMATCH"
 
 
 def same_product_set(first: Iterable[uuid.UUID], second: Iterable[uuid.UUID]) -> bool:
     """Apakah dua laporan membandingkan himpunan produk yang persis sama."""
-    raise NotImplementedError
+    return set(first) == set(second)
 
 
 def ensure_same_products(replacement: Iterable[uuid.UUID], replaced: Iterable[uuid.UUID]) -> None:
     """Tolak (409) penggantian oleh laporan yang membandingkan produk lain."""
-    raise NotImplementedError
+    if not same_product_set(replacement, replaced):
+        raise ConflictError(
+            "Laporan pengganti harus membandingkan produk yang sama dengan versi yang diganti.",
+            code=REPORT_PRODUCTS_MISMATCH,
+        )
