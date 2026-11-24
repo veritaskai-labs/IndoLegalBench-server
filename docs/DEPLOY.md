@@ -554,4 +554,11 @@ already has the script, which is any `staging` deployed after it was merged.
 - `/docs` and `/openapi.json` are public on both stacks. Worth closing on prod.
 - Sessions that simply expire in the browser are never deleted from the
   database. Harmless for now, needs a periodic cleanup later.
-- Monitoring. Veritask's own Tencent-based infra is the plan for that.
+- Monitoring dashboards and alerts. Veritask's own monitoring ecosystem is the
+  plan for that; no third-party monitoring is installed (Veritask, 24 Nov 2026).
+  The app already writes signals any log tool can collect from the containers'
+  stdout: one line per login result, `login outcome=ok` or
+  `login outcome=<CODE> kind=<system|flow|account>` (logger `app.auth.login`;
+  `OIDC_EXCHANGE_FAILED` is the only ERROR and means nobody can log in). Read it
+  with `docker compose logs api | grep "login outcome"`. A deploy whose API never
+  turns healthy fails `deploy.sh` (section 4).
