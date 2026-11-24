@@ -9,7 +9,7 @@ Isi file ini murni query, tanpa logika bisnis.
 import uuid
 from collections.abc import Iterator
 
-from sqlalchemy import func, or_, select, union
+from sqlalchemy import func, literal, or_, select, union
 from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
@@ -133,8 +133,13 @@ def _keyword_filters(keyword: str) -> tuple:
     A single OR across the two joined tables cannot use either index (measured:
     two sequential scans over every row). The subqueries use aliases so they are
     not correlated with the outer query.
+
+    The pattern is lowercased by the database's own lower(), the same function
+    as the columns and the indexes. Python's str.lower() can disagree with it
+    ("İ" becomes "i" plus a combining dot), so a keyword copied from a title
+    would miss. Lowercasing never touches the % _ and \\ escapes.
     """
-    pola = "%" + _escape_like(keyword.lower()) + "%"
+    pola = func.lower(literal("%" + _escape_like(keyword) + "%"))
     kasus, versi = aliased(Case), aliased(CaseVersion)
     calon = union(
         select(kasus.id).where(func.lower(kasus.case_code).like(pola, escape="\\")),
