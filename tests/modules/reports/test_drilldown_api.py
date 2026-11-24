@@ -20,17 +20,24 @@ from app.modules.auth.seeds import ADMIN_SUB, AUTHOR_SUB, VIEWER_SUB, seed_users
 from app.modules.cases.models import CaseStatus, CaseVersion, SplitTag
 from app.modules.grading.models import GradingRun, GradingRunKind, GradingRunStatus
 from app.modules.reports import drilldown, repository
-from app.modules.reports.models import ReportCaseBasis
+from app.modules.reports.models import MeasurementKind, ReportCaseBasis
 from app.modules.runs.models import (
     Attempt,
     AttemptEvidence,
     AttemptSource,
+    AttemptStatus,
     CaseSnapshot,
     CaseSnapshotItem,
     EvidenceFile,
     EvidenceKind,
 )
-from app.modules.runs.schemas import CaseGradeResult, ScorePair, SessionGradingResponse, ThreeScores
+from app.modules.runs.schemas import (
+    AttemptGradeResult,
+    CaseGradeResult,
+    ScorePair,
+    SessionGradingResponse,
+    ThreeScores,
+)
 from app.modules.runs.session_grade import MemoryGradingStore
 from tests import reports_factory as pabrik
 from tests.login import complete_login
@@ -309,3 +316,128 @@ def test_viewer_tidak_bisa_membuka_bukti(client, db_session, berkas_bukti):
 
     # Assert
     assert (daftar.status_code, unduh.status_code) == (403, 403)
+
+
+# --- Jawaban produk lain pada kasus yang sama (PBI-16 SCRUM-370) -----------------
+
+
+@pytest.fixture
+def dua_produk(db_session, angka):
+    """Laporan `angka` ditambah produk Kompetitor yang menjawab kasus yang sama (AC1 SCRUM-370)."""
+    report, hasil = angka
+    run_utama = db_session.scalar(select(GradingRun))
+    admin = db_session.get(User, run_utama.triggered_by)
+    sesi = pabrik.buat_sesi(db_session, admin, "Kompetitor")
+    hasil_lain = pabrik.hasil(report, sesi, rank=2)
+    db_session.add_all(
+        [
+            pabrik.sesi_laporan(
+                report,
+                sesi,
+                product_label="Kompetitor",
+                measurement_kind=MeasurementKind.AUTOMATIC,
+            ),
+            hasil_lain,
+        ]
+    )
+    run = GradingRun(
+        session_id=sesi.id,
+        rubric_version_id=run_utama.rubric_version_id,
+        kind=GradingRunKind.INITIAL,
+        status=GradingRunStatus.FINISHED,
+        is_latest=True,
+        triggered_by=admin.id,
+        triggered_at=DIBUAT - timedelta(hours=2),
+        finished_at=DIBUAT - timedelta(hours=1),
+    )
+    db_session.add(run)
+    db_session.commit()
+    case_id = db_session.scalar(
+        select(ReportCaseBasis.case_id).where(ReportCaseBasis.report_id == report.id)
+    )
+    kosong = ScorePair()
+    drilldown.DbGradingStore(db_session).save_grading_run(
+        SessionGradingResponse(
+            grading_run_id=run.id,
+            session_id=sesi.id,
+            rubric_version="v2",
+            kind="initial",
+            status="completed",
+            triggered_by=admin.id,
+            triggered_at=run.triggered_at,
+            scores=ThreeScores(dev=kosong, test=kosong, combined=kosong),
+            cases=[
+                CaseGradeResult(
+                    snapshot_item_id=uuid.uuid4(),
+                    case_id=case_id,
+                    case_code="UAT-PHK-001",
+                    title="PHK sepihak",
+                    split_tag=SplitTag.TEST,
+                    scores=ScorePair(deterministic=Decimal("0.55"), quality=Decimal("0.45")),
+                    attempts=[
+                        AttemptGradeResult(
+                            attempt_id=uuid.uuid4(),
+                            repetition_no=1,
+                            status=AttemptStatus.SUCCEEDED,
+                            is_technical_disruption=False,
+                            score=ScorePair(deterministic=Decimal("0.55"), quality=Decimal("0.45")),
+                            answer_text="Jawaban Kompetitor tentang PHK.",
+                            reasons=["CITATION_OK"],
+                        )
+                    ],
+                )
+            ],
+        )
+    )
+    return report, hasil, case_id, hasil_lain
+
+
+def test_admin_melihat_jawaban_produk_lain_pada_kasus_yang_sama(client, db_session, dua_produk):
+    """Positif: detail kasus membawa produk lain beserta jawaban asli, skor, dan rubriknya."""
+    # Arrange
+    report, hasil, case_id, hasil_lain = dua_produk
+    complete_login(client, db_session, ADMIN_SUB)
+
+    # Act
+    respons = client.get(_url_kasus(report.id, hasil.id, case_id))
+
+    # Assert
+    assert respons.status_code == 200
+    (lain,) = respons.json()["other_products"]
+    assert (lain["result_id"], lain["product_label"], lain["status"], lain["rubric_version"]) == (
+        str(hasil_lain.id),
+        "Kompetitor",
+        "answered",
+        "v2",
+    )
+    assert (lain["det_score"], lain["llm_score"]) == ("0.55", "0.45")
+    assert lain["attempts"][0]["answer_text"] == "Jawaban Kompetitor tentang PHK."
+
+
+def test_perbandingan_tidak_membawa_id_sesi_produk_lain(client, db_session, dua_produk):
+    """Negatif: id sesi produk lain tidak keluar, sama seperti produk utama (review #145)."""
+    # Arrange
+    report, hasil, case_id, _ = dua_produk
+    complete_login(client, db_session, ADMIN_SUB)
+
+    # Act
+    respons = client.get(_url_kasus(report.id, hasil.id, case_id))
+
+    # Assert
+    (lain,) = respons.json()["other_products"]
+    assert "session_id" not in lain
+
+
+def test_viewer_tidak_menerima_jawaban_produk_lain(client, db_session, dua_produk):
+    """Negatif: Viewer murni ditolak 403 di server dan tidak ada jawaban produk lain di badan."""
+    # Arrange
+    report, hasil, case_id, _ = dua_produk
+    complete_login(client, db_session, VIEWER_SUB)
+
+    # Act
+    respons = client.get(_url_kasus(report.id, hasil.id, case_id))
+
+    # Assert
+    assert respons.status_code == 403
+    assert "Jawaban Kompetitor" not in respons.text
+    assert "other_products" not in respons.json()
