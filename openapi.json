@@ -1137,6 +1137,28 @@
         }
       }
     },
+    "/cases": {
+      "get": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Daftar kasus lintas suite dengan pencarian dan filter",
+        "description": "PBI-4 AC3, SCRUM-339. Skeleton for the red tests: no rows yet.",
+        "operationId": "list_all_cases_cases_get",
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CasePage"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/cases/{case_id}": {
       "get": {
         "tags": [
@@ -9654,6 +9676,87 @@
         "title": "CaseIdentity",
         "description": "Title, question, and optional category for one case."
       },
+      "CaseListItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "split_tag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SplitTag"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kosong hanya pada draft hasil impor atau duplikasi (PBI-4 AC2, AC8)"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaseStatus"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/CaseOrigin",
+            "default": "manual"
+          },
+          "completeness_pct": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Completeness Pct"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "masked": {
+            "type": "boolean",
+            "title": "Masked",
+            "description": "True for a test case shown to Developer AI: case_code and title are server placeholders and the case cannot be opened (SCRUM-183).",
+            "default": false
+          },
+          "suite_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Suite Id"
+          },
+          "suite_name": {
+            "type": "string",
+            "title": "Suite Name"
+          },
+          "suite_archived": {
+            "type": "boolean",
+            "title": "Suite Archived",
+            "description": "True when the suite is archived; its cases stay listed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "case_code",
+          "title",
+          "split_tag",
+          "status",
+          "completeness_pct",
+          "updated_at",
+          "suite_id",
+          "suite_name",
+          "suite_archived"
+        ],
+        "title": "CaseListItem",
+        "description": "One row of GET /cases: the suite summary plus the suite it belongs to (SCRUM-339)."
+      },
       "CaseNotReadyBody": {
         "properties": {
           "code": {
@@ -9693,6 +9796,43 @@
         ],
         "title": "CaseOrigin",
         "description": "Cara kasus masuk ke platform (D8). Kasus lama sebelum PBI-4 semuanya manual."
+      },
+      "CasePage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CaseListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Rows matching the filters, over every page"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page"
+          },
+          "size": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "CasePage",
+        "description": "One page of GET /cases, newest update first (PBI-4 AC3, SCRUM-339)."
       },
       "CaseRead": {
         "properties": {

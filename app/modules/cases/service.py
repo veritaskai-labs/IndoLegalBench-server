@@ -30,6 +30,7 @@ from app.modules.cases.models import Case, CaseOrigin, CaseStatus, CaseVersion, 
 from app.modules.cases.schemas import (
     ActorRead,
     CaseCompleteness,
+    CasePage,
     CaseRead,
     CaseSummary,
     CaseWrite,
@@ -252,6 +253,11 @@ def list_cases(
     baris = repository.list_for_suite(db, suite_id, status=status, split_tag=split_tag)
     katalog = legal_refs_service.load_catalog(db)
     return [_to_summary(case, version, katalog) for case, version in baris]
+
+
+def list_all_cases(db: Session) -> CasePage:
+    """Cases of every suite for the case directory (PBI-4 AC3, SCRUM-339). Skeleton: empty."""
+    return CasePage(items=[], total=0, page=1, size=20)
 
 
 def list_cases_for_developer_ai(

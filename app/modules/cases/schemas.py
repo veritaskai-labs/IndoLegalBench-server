@@ -323,6 +323,25 @@ class CaseSummary(BaseModel):
     )
 
 
+class CaseListItem(CaseSummary):
+    """One row of GET /cases: the suite summary plus the suite it belongs to (SCRUM-339)."""
+
+    suite_id: uuid.UUID
+    suite_name: str
+    suite_archived: bool = Field(
+        description="True when the suite is archived; its cases stay listed"
+    )
+
+
+class CasePage(BaseModel):
+    """One page of GET /cases, newest update first (PBI-4 AC3, SCRUM-339)."""
+
+    items: list[CaseListItem]
+    total: int = Field(ge=0, description="Rows matching the filters, over every page")
+    page: int = Field(ge=1)
+    size: int = Field(ge=1, le=100)
+
+
 class CompletenessIssue(BaseModel):
     """Satu bagian yang belum terisi, dengan pesan untuk ditampilkan editor."""
 

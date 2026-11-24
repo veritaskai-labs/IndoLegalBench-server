@@ -15,6 +15,7 @@ from app.modules.cases.models import CaseStatus, SplitTag
 from app.modules.cases.schemas import (
     CaseCompleteness,
     CaseNotReadyBody,
+    CasePage,
     CaseRead,
     CaseSummary,
     CaseWrite,
@@ -112,6 +113,16 @@ def list_cases(
             db, suite_id, status=status_filter, split_tag=split_tag
         )
     return service.list_cases(db, suite_id, status=status_filter, split_tag=split_tag)
+
+
+@router.get(
+    "/cases",
+    response_model=CasePage,
+    summary="Daftar kasus lintas suite dengan pencarian dan filter",
+)
+def list_all_cases(db: Session = Depends(get_db)) -> CasePage:
+    """PBI-4 AC3, SCRUM-339. Skeleton for the red tests: no rows yet."""
+    return service.list_all_cases(db)
 
 
 @router.get(
