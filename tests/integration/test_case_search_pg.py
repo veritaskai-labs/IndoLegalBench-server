@@ -13,7 +13,7 @@ import os
 import uuid
 
 import pytest
-from sqlalchemy import create_engine
+from sqlalchemy import create_engine, event, text
 from sqlalchemy.orm import Session, sessionmaker
 
 from app.modules.auth.models import User
@@ -108,3 +108,36 @@ def test_persen_di_postgresql_dicari_apa_adanya(db, suite_id):
     # Act / Assert
     assert _kode(db, suite_id, "2%") == ["PJK-010"]
     assert _kode(db, suite_id, "%") == ["PJK-010"]
+
+
+def test_kata_kunci_bisa_memakai_index_trigram(db, suite_id):
+    """Positif (E5): kata kunci dicari di tengah kode atau judul ("%kata%"). Index btree biasa
+    tidak bisa membantu pola seperti itu, jadi tanpa index trigram setiap pencarian membaca dan
+    mengecilkan semua baris kedua tabel. Dengan seq scan dimatikan, rencana query endpoint harus
+    memakai kedua index trigram (kode di cases, judul di case_versions)."""
+    # Arrange
+    sql: list[tuple[str, object]] = []
+
+    def catat(conn, cursor, statement, parameters, context, executemany):  # noqa: ARG001
+        if not statement.startswith("EXPLAIN"):
+            sql.append((statement, parameters))
+
+    db.execute(text("SET LOCAL enable_seqscan = off"))
+    engine = db.get_bind()
+    event.listen(engine, "before_cursor_execute", catat)
+    try:
+        service.list_all_cases(db, keyword="pemberatan", suite_id=suite_id)
+    finally:
+        event.remove(engine, "before_cursor_execute", catat)
+
+    # Act
+    rencana = "\n".join(
+        baris
+        for statement, parameters in sql
+        if "case_versions" in statement and "count(*)" in statement.lower()
+        for (baris,) in db.connection().exec_driver_sql("EXPLAIN " + statement, parameters)
+    )
+
+    # Assert
+    assert "ix_cases_case_code_trgm" in rencana, rencana
+    assert "ix_case_versions_title_trgm" in rencana, rencana
