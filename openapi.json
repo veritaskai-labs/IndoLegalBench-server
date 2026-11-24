@@ -14422,7 +14422,7 @@
           "product_label": {
             "type": "string",
             "title": "Product Label",
-            "description": "Label beku di laporan: nama asli atau kode"
+            "description": "Label produk yang dibekukan di laporan (nama asli atau kode)"
           },
           "measurement_kind": {
             "$ref": "#/components/schemas/MeasurementKind"

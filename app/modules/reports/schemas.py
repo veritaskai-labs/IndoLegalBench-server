@@ -547,7 +547,9 @@ class ReportOtherProductRead(BaseModel):
     """
 
     result_id: uuid.UUID = Field(description="Angka laporan produk ini, jenis skor yang sama")
-    product_label: str = Field(description="Label beku di laporan: nama asli atau kode")
+    product_label: str = Field(
+        description="Label produk yang dibekukan di laporan (nama asli atau kode)"
+    )
     measurement_kind: MeasurementKind
     is_trial: bool = Field(description="Sesi Uji Coba wajib diberi tanda yang jelas")
     status: OtherProductStatus = Field(
