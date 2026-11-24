@@ -9,8 +9,8 @@ Isi file ini murni query, tanpa logika bisnis.
 import uuid
 from collections.abc import Iterator
 
-from sqlalchemy import func, or_, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import func, or_, select, union
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
 
@@ -111,14 +111,7 @@ def page_in_effect(
     if suite_id is not None:
         query = query.filter(Case.suite_id == suite_id)
     if keyword is not None:
-        pola = "%" + _escape_like(keyword.lower()) + "%"
-        judul = CaseVersion.content["title"].as_string()
-        query = query.filter(
-            or_(
-                func.lower(Case.case_code).like(pola, escape="\\"),
-                func.lower(judul).like(pola, escape="\\"),
-            )
-        )
+        query = query.filter(*_keyword_filters(keyword))
     total = query.count()
     rows = (
         query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc())
@@ -127,6 +120,36 @@ def page_in_effect(
         .all()
     )
     return rows, total
+
+
+def _keyword_filters(keyword: str) -> tuple:
+    """Filters for part of the case code or of the in-effect title (SCRUM-339).
+
+    Two steps, so PostgreSQL can use the trigram indexes (migration ff8f38c22a8e):
+    1. candidate case ids from each index on its own: codes that match, plus cases
+       with any version whose title matches;
+    2. the exact rule on the joined in-effect row, so a draft revision's title
+       never makes an approved case match.
+    A single OR across the two joined tables cannot use either index (measured:
+    two sequential scans over every row). The subqueries use aliases so they are
+    not correlated with the outer query.
+    """
+    pola = "%" + _escape_like(keyword.lower()) + "%"
+    kasus, versi = aliased(Case), aliased(CaseVersion)
+    calon = union(
+        select(kasus.id).where(func.lower(kasus.case_code).like(pola, escape="\\")),
+        select(versi.case_id).where(
+            func.lower(versi.content["title"].as_string()).like(pola, escape="\\")
+        ),
+    )
+    judul = CaseVersion.content["title"].as_string()
+    return (
+        Case.id.in_(calon),
+        or_(
+            func.lower(Case.case_code).like(pola, escape="\\"),
+            func.lower(judul).like(pola, escape="\\"),
+        ),
+    )
 
 
 def count_by_status(db: Session, *, created_by: uuid.UUID | None = None) -> dict[CaseStatus, int]:
