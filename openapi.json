@@ -1964,6 +1964,164 @@
         }
       }
     },
+    "/case-imports/template": {
+      "get": {
+        "tags": [
+          "case-imports"
+        ],
+        "summary": "Unduh template CSV impor kasus",
+        "description": "Template CSV dari sistem. case_code tidak ada karena dibuat sistem.",
+        "operationId": "download_import_template_case_imports_template_get",
+        "responses": {
+          "200": {
+            "description": "Header delapan kolom (title, question, category, split_tag, legal_refs, must_contain, must_not_contain, expected_conclusion), UTF-8 dengan BOM, pemisah koma. Kolom legal_refs, must_contain, must_not_contain berisi list JSON, misalnya [\"Pasal 1 KUHPerdata\"]; dari Google Sheets tulis apa adanya, kutip ganda di-escape otomatis saat diekspor.",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Kontributor atau Admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/case-imports": {
+      "post": {
+        "tags": [
+          "case-imports"
+        ],
+        "summary": "Impor kasus dari satu berkas CSV",
+        "description": "Baris valid menjadi kasus draft di satu suite sementara, baris gagal dilaporkan dengan\nalasan, baris kembar dilewati. Nomor baris mengikuti spreadsheet.",
+        "operationId": "import_cases_case_imports_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Berkas .csv dari template, UTF-8, pemisah koma"
+                  }
+                },
+                "type": "object",
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportSummaryRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Kontributor atau Admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Seluruh berkas ditolak, tidak ada yang disimpan: tanpa berkas (`IMPORT_FILE_REQUIRED`), bukan .csv (`IMPORT_FILE_NOT_CSV`), bukan UTF-8 (`IMPORT_FILE_NOT_UTF8`), terlalu besar (`IMPORT_FILE_TOO_LARGE`), rusak (`IMPORT_FILE_UNREADABLE`), header beda dari template (`IMPORT_HEADER_MISMATCH`, `expected` berisi header yang benar), tanpa baris kasus (`IMPORT_FILE_EMPTY`), atau lebih dari 500 baris (`IMPORT_TOO_MANY_ROWS`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/case-imports/{batch_id}": {
+      "get": {
+        "tags": [
+          "case-imports"
+        ],
+        "summary": "Buka lagi ringkasan satu impor CSV",
+        "description": "Ringkasan yang sama dengan respons impor, dibaca dari tabel impor. Hanya untuk pengimpor\nbatch itu dan Admin; pengguna lain mendapat 404.",
+        "operationId": "read_import_summary_case_imports__batch_id__get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportSummaryRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Kontributor atau Admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Batch tidak ada, atau bukan milik pengguna ini dan bukan Admin (`IMPORT_BATCH_NOT_FOUND`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/admin/providers": {
       "post": {
         "tags": [
@@ -9777,6 +9935,41 @@
         "title": "CaseIdentity",
         "description": "Title, question, and optional category for one case."
       },
+      "CaseIdentityRead": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Title",
+            "description": "Judul pertanyaan; kosong hanya pada draft impor"
+          },
+          "question": {
+            "type": "string",
+            "maxLength": 20000,
+            "title": "Question",
+            "description": "Pertanyaan hukum; kosong hanya pada draft impor"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "question"
+        ],
+        "title": "CaseIdentityRead",
+        "description": "Identitas kasus saat dibaca. Judul dan pertanyaan boleh kosong hanya pada draft hasil impor\nCSV: kasus lama masuk dengan field lebih sedikit lalu dilengkapi. Menyimpan lewat editor tetap\nmemakai CaseIdentity, yang mewajibkan keduanya."
+      },
       "CaseListItem": {
         "properties": {
           "id": {
@@ -9952,7 +10145,7 @@
             "title": "Case Code"
           },
           "identity": {
-            "$ref": "#/components/schemas/CaseIdentity"
+            "$ref": "#/components/schemas/CaseIdentityRead"
           },
           "legal_refs": {
             "items": {
@@ -11424,6 +11617,146 @@
           "database"
         ],
         "title": "HealthResponse"
+      },
+      "ImportRowRead": {
+        "properties": {
+          "row_no": {
+            "type": "integer",
+            "minimum": 2.0,
+            "title": "Row No",
+            "description": "Nomor baris di spreadsheet; header adalah baris 1"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ImportRowStatus"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id",
+            "description": "Hanya untuk status created"
+          },
+          "case_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Code",
+            "description": "Kode buatan sistem, hanya created"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "Alasan gagal atau dilewati"
+          }
+        },
+        "type": "object",
+        "required": [
+          "row_no",
+          "status"
+        ],
+        "title": "ImportRowRead",
+        "description": "Hasil satu baris. Nomor baris mengikuti spreadsheet (header = baris 1)."
+      },
+      "ImportRowStatus": {
+        "type": "string",
+        "enum": [
+          "created",
+          "failed",
+          "skipped"
+        ],
+        "title": "ImportRowStatus",
+        "description": "Hasil satu baris CSV impor (D7): jadi kasus, gagal validasi, atau dilewati kembar."
+      },
+      "ImportSummaryRead": {
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Batch Id"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "imported_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Imported By"
+          },
+          "imported_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Imported At"
+          },
+          "suite_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Suite Id",
+            "description": "Suite sementara tempat semua kasus berkas ini"
+          },
+          "suite_name": {
+            "type": "string",
+            "title": "Suite Name"
+          },
+          "total_rows": {
+            "type": "integer",
+            "title": "Total Rows",
+            "description": "Baris kasus yang dibaca; baris kosong tidak dihitung"
+          },
+          "success_count": {
+            "type": "integer",
+            "title": "Success Count"
+          },
+          "failed_count": {
+            "type": "integer",
+            "title": "Failed Count"
+          },
+          "skipped_count": {
+            "type": "integer",
+            "title": "Skipped Count"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ImportRowRead"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch_id",
+          "file_name",
+          "imported_by",
+          "imported_at",
+          "suite_id",
+          "suite_name",
+          "total_rows",
+          "success_count",
+          "failed_count",
+          "skipped_count",
+          "rows"
+        ],
+        "title": "ImportSummaryRead",
+        "description": "Ringkasan impor (AC7): berhasil, gagal beserta alasannya, dan dilewati."
       },
       "InReviewCase": {
         "properties": {
