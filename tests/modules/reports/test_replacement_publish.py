@@ -24,8 +24,8 @@ from app.modules.reports.replacement import REPORT_PRODUCTS_MISMATCH
 from app.modules.reports.service import REPORT_HAS_DEV_SCORES
 from app.shared.exceptions import ConflictError, NotFoundError
 from app.shared.pagination import PageParams
-from tests import reports_factory as pabrik
 from tests import replacement_world as dunia
+from tests import reports_factory as pabrik
 
 
 @pytest.fixture

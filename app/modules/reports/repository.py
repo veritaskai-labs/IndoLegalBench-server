@@ -301,7 +301,10 @@ def lock_publication(db: Session, publication_id: uuid.UUID) -> PublishedReport 
 
 def product_ids(db: Session, report_id: uuid.UUID) -> frozenset[uuid.UUID]:
     """Himpunan produk satu laporan menurut report_sessions (beku, SCRUM-371)."""
-    raise NotImplementedError
+    rows = db.scalars(
+        sa.select(ReportSession.product_id).where(ReportSession.report_id == report_id)
+    )
+    return frozenset(rows)
 
 
 def add_publication(db: Session, row: PublishedReport) -> None:

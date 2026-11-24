@@ -8,7 +8,9 @@ Yang dijaga di service, bukan hanya oleh trigger Postgres (AC12):
 - skor dev ditolak (ensure_publishable);
 - hanya status saved yang bisa terbit;
 - pengganti menunjuk satu baris published_reports yang laporannya masih
-  published, dan version_no adalah version_no lama ditambah satu.
+  published, dan version_no adalah version_no lama ditambah satu;
+- pengganti membandingkan himpunan produk yang sama dengan versi yang diganti
+  (SCRUM-371, 409 REPORT_PRODUCTS_MISMATCH).
 
 Satu commit mencakup baris terbit baru dan kedua perubahan status, sama
 seperti urutan yang ditunggu trigger deferred: baris terbit ada dulu, baru
@@ -24,6 +26,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.reports import repository
 from app.modules.reports.models import PublishedReport, Report, ReportStatus
+from app.modules.reports.replacement import ensure_same_products
 from app.modules.reports.schemas import PublicationRead, PublishedReportListItem
 from app.modules.reports.service import ensure_publishable
 from app.shared.exceptions import ConflictError, NotFoundError
@@ -61,6 +64,13 @@ def publish(
     """Terbitkan satu laporan tersimpan, atau ganti satu versi yang masih berlaku."""
     report = _saved_report(db, report_id)
     replaced = _replaced_version(db, supersedes_id)
+    if replaced is not None:
+        # Setelah kedua laporan dikunci (SCRUM-371). Produknya beku (report_sessions
+        # insert-only), jadi kunci menjaga status, dan cek ini memakai baris yang dipegang.
+        ensure_same_products(
+            repository.product_ids(db, report.id),
+            repository.product_ids(db, replaced.report.id),
+        )
     row = PublishedReport(
         report_id=report.id,
         version_no=1 if replaced is None else replaced.publication.version_no + 1,
