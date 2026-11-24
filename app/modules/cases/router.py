@@ -124,6 +124,12 @@ def list_cases(
     responses={403: {"model": ErrorBody, "description": "Hanya Kontributor dan Admin."}},
 )
 def list_all_cases(
+    status_filter: CaseStatus | None = Query(
+        default=None, alias="status", description="Status versi yang berlaku"
+    ),
+    suite_id: uuid.UUID | None = Query(
+        default=None, description="Satu suite. Suite yang tidak ada memberi daftar kosong."
+    ),
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(_can_search),
 ) -> CasePage:
@@ -132,7 +138,7 @@ def list_all_cases(
     Contributor and Admin only: rows are not masked, so Developer AI keeps the
     per-suite list that hides test cases.
     """
-    return service.list_all_cases(db)
+    return service.list_all_cases(db, status=status_filter, suite_id=suite_id)
 
 
 @router.get(

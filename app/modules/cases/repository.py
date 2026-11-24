@@ -76,14 +76,25 @@ def list_for_suite(
     return query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc()).all()
 
 
-def list_in_effect(db: Session) -> list[tuple[Case, CaseVersion]]:
-    """Every case with the version in effect, across suites (SCRUM-339).
+def list_in_effect(
+    db: Session,
+    *,
+    status: CaseStatus | None = None,
+    suite_id: uuid.UUID | None = None,
+) -> list[tuple[Case, CaseVersion]]:
+    """Cases with the version in effect, across suites (SCRUM-339).
 
     Same in-effect rule and order as list_for_suite, so the directory and the
-    per-suite list never disagree.
+    per-suite list never disagree. status filters on the in-effect version, so
+    an approved case with an open revision counts as approved (like
+    count_by_status). Filters combine with AND.
     """
     in_effect_id = func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
     query = db.query(Case, CaseVersion).join(CaseVersion, CaseVersion.id == in_effect_id)
+    if status is not None:
+        query = query.filter(CaseVersion.status == status)
+    if suite_id is not None:
+        query = query.filter(Case.suite_id == suite_id)
     return query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc()).all()
 
 

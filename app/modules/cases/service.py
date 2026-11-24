@@ -256,7 +256,12 @@ def list_cases(
     return [_to_summary(case, version, katalog) for case, version in baris]
 
 
-def list_all_cases(db: Session) -> CasePage:
+def list_all_cases(
+    db: Session,
+    *,
+    status: CaseStatus | None = None,
+    suite_id: uuid.UUID | None = None,
+) -> CasePage:
     """Cases of every suite for the case directory (PBI-4 AC3, SCRUM-339).
 
     Each row is the per-suite summary plus its suite, read through suites.service
@@ -275,7 +280,7 @@ def list_all_cases(db: Session) -> CasePage:
             suite_name=suites[case.suite_id][0],
             suite_archived=suites[case.suite_id][1],
         )
-        for case, version in repository.list_in_effect(db)
+        for case, version in repository.list_in_effect(db, status=status, suite_id=suite_id)
     ]
     return CasePage(items=items, total=len(items), page=1, size=20)
 

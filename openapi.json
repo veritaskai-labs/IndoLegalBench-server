@@ -1145,6 +1145,45 @@
         "summary": "Daftar kasus lintas suite dengan pencarian dan filter",
         "description": "List the cases of every suite, newest update first (PBI-4 AC3, SCRUM-339).\n\nContributor and Admin only: rows are not masked, so Developer AI keeps the\nper-suite list that hides test cases.",
         "operationId": "list_all_cases_cases_get",
+        "parameters": [
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CaseStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Status versi yang berlaku",
+              "title": "Status"
+            },
+            "description": "Status versi yang berlaku"
+          },
+          {
+            "name": "suite_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Satu suite. Suite yang tidak ada memberi daftar kosong.",
+              "title": "Suite Id"
+            },
+            "description": "Satu suite. Suite yang tidak ada memberi daftar kosong."
+          }
+        ],
         "responses": {
           "200": {
             "description": "Successful Response",
@@ -1162,6 +1201,16 @@
               "application/json": {
                 "schema": {
                   "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
                 }
               }
             }
