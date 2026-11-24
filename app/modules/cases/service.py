@@ -30,6 +30,7 @@ from app.modules.cases.models import Case, CaseOrigin, CaseStatus, CaseVersion, 
 from app.modules.cases.schemas import (
     ActorRead,
     CaseCompleteness,
+    CaseListItem,
     CasePage,
     CaseRead,
     CaseSummary,
@@ -256,8 +257,27 @@ def list_cases(
 
 
 def list_all_cases(db: Session) -> CasePage:
-    """Cases of every suite for the case directory (PBI-4 AC3, SCRUM-339). Skeleton: empty."""
-    return CasePage(items=[], total=0, page=1, size=20)
+    """Cases of every suite for the case directory (PBI-4 AC3, SCRUM-339).
+
+    Each row is the per-suite summary plus its suite, read through suites.service
+    (import inside the function, see _require_suite).
+    """
+    from app.modules.suites import service as suites_service
+
+    suites = {
+        suite_id: (name, archived) for suite_id, name, archived in suites_service.search_catalog(db)
+    }
+    katalog = legal_refs_service.load_catalog(db)
+    items = [
+        CaseListItem(
+            **_to_summary(case, version, katalog).model_dump(),
+            suite_id=case.suite_id,
+            suite_name=suites[case.suite_id][0],
+            suite_archived=suites[case.suite_id][1],
+        )
+        for case, version in repository.list_in_effect(db)
+    ]
+    return CasePage(items=items, total=len(items), page=1, size=20)
 
 
 def list_cases_for_developer_ai(

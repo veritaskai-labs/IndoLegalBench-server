@@ -76,6 +76,17 @@ def list_for_suite(
     return query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc()).all()
 
 
+def list_in_effect(db: Session) -> list[tuple[Case, CaseVersion]]:
+    """Every case with the version in effect, across suites (SCRUM-339).
+
+    Same in-effect rule and order as list_for_suite, so the directory and the
+    per-suite list never disagree.
+    """
+    in_effect_id = func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
+    query = db.query(Case, CaseVersion).join(CaseVersion, CaseVersion.id == in_effect_id)
+    return query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc()).all()
+
+
 def count_by_status(db: Session, *, created_by: uuid.UUID | None = None) -> dict[CaseStatus, int]:
     """Count cases by the status of their in-effect version, in one GROUP BY.
 

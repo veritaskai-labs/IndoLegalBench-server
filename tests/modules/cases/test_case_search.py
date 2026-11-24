@@ -9,6 +9,7 @@ Label: Positif = jalur normal, Negatif = harus ditolak, Edge = data batas (alasa
 """
 
 import uuid
+from datetime import UTC, datetime
 
 import pytest
 
@@ -157,12 +158,20 @@ def test_kasus_dengan_revisi_terbuka_tampil_sekali_dengan_versi_yang_berlaku(pen
     ]
 
 
-def test_urutan_terbaru_diubah_lebih_dulu(penulis):
-    """Positif: urutan sama dengan daftar per suite (terakhir diubah di atas), dan stabil untuk halaman."""
+def _ubah_pada(db_session, case_id: str, waktu: datetime) -> None:
+    """Set when the in-effect version was last changed. now() has a 1 s step in SQLite."""
+    db_session.get(Case, uuid.UUID(case_id)).current_version.updated_at = waktu
+    db_session.commit()
+
+
+def test_urutan_terbaru_diubah_lebih_dulu(penulis, db_session):
+    """Positif: urutan sama dengan daftar per suite, yang terakhir diubah di atas."""
     # Arrange
     suite_id = _suite(penulis)
     lama = _buat(penulis, suite_id, case_code="A-001").json()["id"]
     baru = _buat(penulis, suite_id, case_code="B-001").json()["id"]
+    _ubah_pada(db_session, lama, datetime(2026, 11, 1, tzinfo=UTC))
+    _ubah_pada(db_session, baru, datetime(2026, 11, 2, tzinfo=UTC))
 
     # Act
     items = penulis.get("/cases").json()["items"]

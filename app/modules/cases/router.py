@@ -33,6 +33,8 @@ router = APIRouter(tags=["cases"])
 _can_write = require_roles(*WRITER_ROLES, Role.ADMIN)
 # SCRUM-183: Developer AI reads the case list and dev case detail, masked by the service.
 _can_read = require_roles(*WRITER_ROLES, Role.ADMIN, Role.DEVELOPER_AI)
+# SCRUM-339: the case directory shows unmasked rows, so only writers and Admin.
+_can_search = require_roles(*WRITER_ROLES, Role.ADMIN)
 # D5a / PBI-24: only the writer submits, and only their own case (checked in the service).
 _can_submit = require_roles(*WRITER_ROLES)
 # D5a / PBI-9 AC3: after approval only the Admin changes the dev/test tag.
@@ -119,9 +121,17 @@ def list_cases(
     "/cases",
     response_model=CasePage,
     summary="Daftar kasus lintas suite dengan pencarian dan filter",
+    responses={403: {"model": ErrorBody, "description": "Hanya Kontributor dan Admin."}},
 )
-def list_all_cases(db: Session = Depends(get_db)) -> CasePage:
-    """PBI-4 AC3, SCRUM-339. Skeleton for the red tests: no rows yet."""
+def list_all_cases(
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(_can_search),
+) -> CasePage:
+    """List the cases of every suite, newest update first (PBI-4 AC3, SCRUM-339).
+
+    Contributor and Admin only: rows are not masked, so Developer AI keeps the
+    per-suite list that hides test cases.
+    """
     return service.list_all_cases(db)
 
 
