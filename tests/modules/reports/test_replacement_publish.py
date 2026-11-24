@@ -11,6 +11,7 @@ import uuid
 
 import pytest
 from sqlalchemy import func, select
+from sqlalchemy.exc import IntegrityError
 
 from app.modules.reports import publication, repository
 from app.modules.reports.models import (
@@ -254,3 +255,24 @@ class TestOrderOfChecks:
             ("product_ids", baru.id),
             ("product_ids", lama.id),
         ]
+
+
+class TestOtherIntegrityErrors:
+    def test_an_integrity_error_that_is_not_a_taken_version_is_raised_and_rolled_back(
+        self, db_session, produk, monkeypatch
+    ):
+        # Perilaku lama #151 tanpa tes: hanya unique versi yang jadi 409. Kerusakan data lain
+        # (mis. FK) tidak boleh tersamar jadi 409; monkeypatch memalsukan galat FK itu.
+        admin, rubrik, sesi = produk
+        report = dunia.simpan(db_session, admin, rubrik, [sesi["A"], sesi["B"]])
+
+        def gagal_fk(db, row):
+            raise IntegrityError("INSERT", {}, Exception("FOREIGN KEY constraint failed"))
+
+        monkeypatch.setattr(repository, "add_publication", gagal_fk)
+
+        with pytest.raises(IntegrityError):
+            publication.publish(db_session, report_id=report.id, actor_id=admin.id)
+
+        assert db_session.get(Report, report.id).status == ReportStatus.SAVED
+        assert _jumlah_terbit(db_session) == 0
