@@ -290,3 +290,146 @@ def test_nilai_filter_yang_tidak_dikenal_ditolak(penulis, params):
 
     # Assert
     assert response.status_code == 422
+
+
+# --- Siklus 3: kata kunci (kode kasus dan judul) -------------------------------------------
+
+
+def _cari(client, q: str, **params) -> list[str]:
+    """Case codes on the first page for keyword q."""
+    body = client.get("/cases", params={"q": q, **params}).json()
+    return [item["case_code"] for item in body["items"]]
+
+
+def _dua_kasus(client) -> str:
+    suite_id = _suite(client)
+    _buat(client, suite_id, case_code="PHK-001")
+    badan = _badan(case_code="CURI-007")
+    badan["identity"]["title"] = "Pencurian dengan pemberatan"
+    assert client.post(f"/suites/{suite_id}/cases", json=badan).status_code == 201
+    return suite_id
+
+
+def test_kata_kunci_mencocokkan_kode_kasus(penulis):
+    """Positif: AC3, kode kasus dicari sebagian ("curi-0" menemukan CURI-007)."""
+    # Arrange
+    _dua_kasus(penulis)
+
+    # Act / Assert
+    assert _cari(penulis, "curi-0") == ["CURI-007"]
+
+
+def test_kata_kunci_mencocokkan_judul(penulis):
+    """Positif: AC3, judul dicari sebagian, di tengah kata pun ketemu."""
+    # Arrange
+    _dua_kasus(penulis)
+
+    # Act / Assert
+    assert _cari(penulis, "pemberat") == ["CURI-007"]
+
+
+def test_kata_kunci_tidak_peka_huruf_besar_kecil(penulis):
+    """Positif: pengguna mengetik huruf kecil, kode disimpan huruf besar; keduanya harus cocok."""
+    # Arrange
+    _dua_kasus(penulis)
+
+    # Act / Assert
+    assert _cari(penulis, "phk-001") == ["PHK-001"]
+    assert _cari(penulis, "PENCURIAN") == ["CURI-007"]
+
+
+def test_kata_kunci_tanpa_hasil_memberi_daftar_kosong(penulis):
+    """Negatif: kata yang tidak ada di kode maupun judul tidak memuat apa pun, total 0."""
+    # Arrange
+    _dua_kasus(penulis)
+
+    # Act
+    body = penulis.get("/cases", params={"q": "warisan"}).json()
+
+    # Assert
+    assert (body["items"], body["total"]) == ([], 0)
+
+
+def test_kata_kunci_tidak_mencari_isi_pertanyaan(penulis):
+    """Negatif: keputusan 24 Nov, kata kunci hanya kode dan judul. Isi pertanyaan dicari lewat
+    pencarian global (#158); kalau ikut di sini, hasil daftar berbeda dari kotak "Cari ID atau
+    judul kasus" di halaman."""
+    # Arrange
+    _dua_kasus(penulis)  # pertanyaan PHK-001: "Apakah PHK tanpa surat sah?"
+
+    # Act / Assert
+    assert _cari(penulis, "tanpa surat") == []
+
+
+@pytest.mark.parametrize("q", ["%", "_", "\\"])
+def test_karakter_khusus_like_dicari_apa_adanya(penulis, q):
+    """Edge (A03): di SQL LIKE, % berarti "apa saja" dan _ berarti "satu huruf apa saja". Tanpa
+    escape, q="%" memuat SEMUA kasus seolah-olah semuanya cocok. Di sini tidak ada kasus yang
+    memuat karakter itu, jadi hasilnya harus kosong."""
+    # Arrange
+    _dua_kasus(penulis)
+
+    # Act / Assert
+    assert _cari(penulis, q) == []
+
+
+def test_persen_di_judul_ditemukan_sebagai_huruf_biasa(penulis):
+    """Edge: kebalikan tes di atas; judul yang memang memuat "%" tetap bisa dicari dengan "%"."""
+    # Arrange
+    suite_id = _suite(penulis)
+    badan = _badan(case_code="PJK-010")
+    badan["identity"]["title"] = "Denda 2% per bulan"
+    assert penulis.post(f"/suites/{suite_id}/cases", json=badan).status_code == 201
+    _buat(penulis, suite_id, case_code="PHK-001")
+
+    # Act / Assert
+    assert _cari(penulis, "2%") == ["PJK-010"]
+
+
+@pytest.mark.parametrize("q", ["   ", "​​", "\t "])
+def test_kata_kunci_kosong_atau_tak_terlihat_berarti_tanpa_filter(penulis, q):
+    """Edge: kotak cari yang berisi spasi, tab, atau karakter tak terlihat (zero-width, NBSP)
+    tampak kosong bagi pengguna. Server memakai aturan kosong bersama (strip_blank, #104), jadi
+    ini berarti "tanpa kata kunci", bukan "cari spasi" (yang memberi daftar kosong) atau 422."""
+    # Arrange
+    _dua_kasus(penulis)
+
+    # Act / Assert
+    assert sorted(_cari(penulis, q)) == ["CURI-007", "PHK-001"]
+
+
+def test_kata_kunci_mencari_judul_versi_yang_berlaku(penulis, db_session):
+    """Edge: kasus approved yang sedang direvisi. Daftar menampilkan judul approved; kalau kata
+    kunci mencari judul draf, baris muncul dengan judul yang tidak memuat kata yang dicari."""
+    # Arrange
+    case_id = _buat(penulis, _suite(penulis)).json()["id"]
+    _setujui(db_session, case_id)
+    assert penulis.post(f"/cases/{case_id}/versions").status_code == 201
+    badan = _badan()
+    badan["identity"]["title"] = "Judul revisi warisan"
+    assert penulis.put(f"/cases/{case_id}", json=badan).status_code == 200
+
+    # Act / Assert
+    assert _cari(penulis, "warisan") == []
+    assert _cari(penulis, "sepihak") == ["PHK-001"]
+
+
+def test_kata_kunci_digabung_dengan_filter_lain(penulis, db_session):
+    """Positif: AC3, kata kunci + status + suite berlaku bersamaan (DAN)."""
+    # Arrange
+    suite_id = _dua_kasus(penulis)
+    lain = _suite(penulis, "Pidana")
+    _buat(penulis, lain, case_code="PHK-900")
+
+    # Act / Assert
+    assert _cari(penulis, "phk", suite_id=suite_id, status="draft") == ["PHK-001"]
+
+
+def test_kata_kunci_terlalu_panjang_ditolak(penulis):
+    """Negatif: batas 200 karakter sama dengan pencarian global; teks lebih panjang bukan kata
+    kunci dan hanya membebani database."""
+    # Act
+    response = penulis.get("/cases", params={"q": "a" * 201})
+
+    # Assert
+    assert response.status_code == 422
