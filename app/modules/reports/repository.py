@@ -270,10 +270,6 @@ class CurrentPublication:
     report: Report
 
 
-def get_publication(db: Session, publication_id: uuid.UUID) -> PublishedReport | None:
-    return db.get(PublishedReport, publication_id)
-
-
 def lock_report(db: Session, report_id: uuid.UUID) -> Report | None:
     """Kunci baris laporan sampai transaksi ini selesai.
 
