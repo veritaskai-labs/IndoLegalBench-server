@@ -338,6 +338,23 @@ def test_kata_kunci_tidak_peka_huruf_besar_kecil(penulis):
     assert _cari(penulis, "PENCURIAN") == ["CURI-007"]
 
 
+def test_kata_kunci_huruf_turki_dikecilkan_sama_dengan_judul(penulis):
+    """Edge (review Adra di #164): huruf "İ" (I bertitik, nama orang/perusahaan) dikecilkan
+    Python menjadi dua karakter ("i" + titik gabung), sedangkan database mengecilkannya dengan
+    aturannya sendiri. Kalau kata kunci dikecilkan di Python dan judul di database, pengguna yang
+    menyalin "İpek" persis dari judul tidak menemukan kasusnya. Kedua sisi harus dikecilkan oleh
+    database."""
+    # Arrange
+    suite_id = _suite(penulis)
+    badan = _badan(case_code="PT-021")
+    badan["identity"]["title"] = "Sengketa PT İpek"
+    assert penulis.post(f"/suites/{suite_id}/cases", json=badan).status_code == 201
+    _buat(penulis, suite_id, case_code="PHK-001")
+
+    # Act / Assert
+    assert _cari(penulis, "İpek") == ["PT-021"]
+
+
 def test_kata_kunci_tanpa_hasil_memberi_daftar_kosong(penulis):
     """Negatif: kata yang tidak ada di kode maupun judul tidak memuat apa pun, total 0."""
     # Arrange

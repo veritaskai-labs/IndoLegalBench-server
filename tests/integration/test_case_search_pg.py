@@ -53,6 +53,7 @@ def suite_id(db: Session) -> uuid.UUID:
         ("PHK-001", "PHK Sepihak"),
         ("CURI-007", "Pencurian dengan Pemberatan"),
         ("PJK-010", "Denda 2% per bulan"),
+        ("PT-021", "Sengketa PT İpek"),
     ):
         case_id, version_id = uuid.uuid4(), uuid.uuid4()
         kode_unik = f"{kode}-{uuid.uuid4().hex[:6]}"
@@ -101,6 +102,16 @@ def test_kata_kunci_tidak_peka_huruf_di_postgresql(db, suite_id, keyword, kode):
     huruf apa pun tetap cocok. Di PostgreSQL ini hanya benar kalau kedua sisi dikecilkan."""
     # Act / Assert
     assert _kode(db, suite_id, keyword) == kode
+
+
+@pytest.mark.parametrize("keyword", ["İpek", "ipek"])
+def test_huruf_turki_di_postgresql_cocok_seperti_tertulis(db, suite_id, keyword):
+    """Edge (review Adra di #164): Python mengecilkan "İ" menjadi "i" + titik gabung (dua
+    karakter), PostgreSQL menjadi "i". Kalau pola dikecilkan Python, "İpek" yang disalin persis
+    dari judul memberi 0 hasil, sementara "ipek" ketemu. Pola harus dikecilkan oleh lower()
+    PostgreSQL yang sama dengan kolom, jadi kedua ketikan cocok."""
+    # Act / Assert
+    assert _kode(db, suite_id, keyword) == ["PT-021"]
 
 
 def test_persen_di_postgresql_dicari_apa_adanya(db, suite_id):
