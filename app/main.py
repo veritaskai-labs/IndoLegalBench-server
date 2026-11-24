@@ -25,6 +25,7 @@ from app.modules.audit.router import router as audit_router
 from app.modules.auth.cookies import clear_session_cookie
 from app.modules.auth.oidc import ensure_fake_oidc_allowed
 from app.modules.auth.router import router as auth_router
+from app.modules.cases.import_router import router as case_imports_router
 from app.modules.cases.router import router as cases_router
 from app.modules.cases.validation import response_from_pydantic
 from app.modules.dashboard.router import router as dashboard_router
@@ -194,6 +195,7 @@ if settings.auth_oidc_mode == "fake":
     app.include_router(fake_router)
 app.include_router(suites_router)  # PBI-2
 app.include_router(cases_router)  # PBI-3
+app.include_router(case_imports_router)
 app.include_router(providers_router)  # PBI-10
 app.include_router(product_options_router)  # PBI-23 SCRUM-201
 app.include_router(reviews_router)  # PBI-6

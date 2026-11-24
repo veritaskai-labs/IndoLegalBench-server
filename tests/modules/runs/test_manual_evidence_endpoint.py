@@ -391,8 +391,9 @@ def test_body_tanpa_content_length_dipotong_begitu_melewati_batas():
     import anyio
     from starlette.requests import Request
 
-    from app.modules.runs.manual_router import _capped_body
+    from app.modules.runs import manual_evidence_rules as evidence_rules
     from app.shared.exceptions import PayloadTooLargeError
+    from app.shared.upload_limits import capped_body
 
     ditarik = []
 
@@ -400,7 +401,9 @@ def test_body_tanpa_content_length_dipotong_begitu_melewati_batas():
         ditarik.append(1)
         return {"type": "http.request", "body": b"\x00" * 64 * 1024, "more_body": True}
 
-    capped = _capped_body(Request({"type": "http", "headers": []}, receive), 1024)
+    capped = capped_body(
+        Request({"type": "http", "headers": []}, receive), 1024, evidence_rules.too_large
+    )
 
     async def baca_semua():
         async for _ in capped.stream():

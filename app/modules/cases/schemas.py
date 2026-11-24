@@ -77,6 +77,20 @@ class CaseIdentity(BaseModel):
         return bersih or None
 
 
+class CaseIdentityRead(BaseModel):
+    """Identitas kasus saat dibaca. Judul dan pertanyaan boleh kosong hanya pada draft hasil impor
+    CSV: kasus lama masuk dengan field lebih sedikit lalu dilengkapi. Menyimpan lewat editor tetap
+    memakai CaseIdentity, yang mewajibkan keduanya."""
+
+    title: str = Field(
+        max_length=300, description="Judul pertanyaan; kosong hanya pada draft impor"
+    )
+    question: str = Field(
+        max_length=20000, description="Pertanyaan hukum; kosong hanya pada draft impor"
+    )
+    category: str | None = Field(default=None, max_length=120)
+
+
 class _LegalRefLinkBase(BaseModel):
     """Fields shared by the write and read shape of one regulation in a citation (PBI-21)."""
 
@@ -272,7 +286,7 @@ class CaseRead(BaseModel):
     id: uuid.UUID
     suite_id: uuid.UUID
     case_code: str
-    identity: CaseIdentity
+    identity: CaseIdentityRead
     legal_refs: list[LegalRefRead]
     answer_criteria: AnswerCriteria
     split_tag: SplitTag | None = Field(
