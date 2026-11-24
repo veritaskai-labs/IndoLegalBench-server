@@ -466,7 +466,12 @@ def get_result_case(
     db: Session = Depends(get_db),
     user: CurrentUser = Depends(get_current_user),
 ) -> ReportCaseDetailRead:
-    """PBI-16 AC2 dan AC3: jawaban asli, skor, alasan, versi rubrik, dan data jawaban manual."""
+    """PBI-16 AC2 dan AC3: jawaban asli, skor, alasan, versi rubrik, dan data jawaban manual.
+
+    `other_products` memuat jawaban produk lain di laporan yang sama untuk kasus ini, dengan
+    status `answered`, `not_graded` (tampilkan "tidak dinilai"), atau `no_answer`. Aturan akses
+    sama dengan isi kasus, jadi peran tanpa hak mendapat 403 tanpa jawaban produk mana pun.
+    """
     return drilldown.case_detail(db, report_id, result_id, case_id, user)
 
 
