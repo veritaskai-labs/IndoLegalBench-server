@@ -243,13 +243,16 @@ class TestNoNPlusOne:
                 if terbit:
                     _terbitkan(db_session, admin, report)
 
+        # Id dibaca sebelum menghitung: membaca atribut objek yang kedaluwarsa setelah commit
+        # memicu SELECT refresh yang bukan bagian dari query kandidat.
+        dibuka_id = dibuka.id
         tambah(1)
         with hitung_statement() as satu:
-            hasil_satu = fungsi(db_session, dibuka.id)
+            hasil_satu = fungsi(db_session, dibuka_id)
         tambah(49)
         mulai = time.perf_counter()
         with hitung_statement() as lima_puluh:
-            hasil_lima_puluh = fungsi(db_session, dibuka.id)
+            hasil_lima_puluh = fungsi(db_session, dibuka_id)
         durasi_ms = (time.perf_counter() - mulai) * 1000
 
         # Assert
