@@ -166,13 +166,20 @@ async def import_cases(
     summary="Buka lagi ringkasan satu impor CSV",
     responses={
         403: {"model": ErrorBody, "description": "Bukan Kontributor atau Admin."},
-        404: {"model": ErrorBody, "description": "Batch tidak ada (`IMPORT_BATCH_NOT_FOUND`)."},
+        404: {
+            "model": ErrorBody,
+            "description": "Batch tidak ada, atau bukan milik pengguna ini dan bukan Admin "
+            "(`IMPORT_BATCH_NOT_FOUND`).",
+        },
     },
 )
 def read_import_summary(
     batch_id: uuid.UUID,
     db: Session = Depends(get_db),
-    _: CurrentUser = Depends(_can_write),
+    user: CurrentUser = Depends(_can_write),
 ) -> ImportSummaryRead:
-    """Ringkasan yang sama dengan respons impor, dibaca dari tabel impor."""
-    return import_service.read_summary(db, batch_id)
+    """Ringkasan yang sama dengan respons impor, dibaca dari tabel impor. Hanya untuk pengimpor
+    batch itu dan Admin; pengguna lain mendapat 404."""
+    return import_service.read_summary(
+        db, batch_id, user_id=_user_id(user), is_admin=user.role == Role.ADMIN
+    )

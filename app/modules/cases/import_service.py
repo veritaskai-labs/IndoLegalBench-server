@@ -9,8 +9,12 @@ Alur:
    valid tetap tersimpan walau baris lain gagal (tidak ada rollback satu berkas).
 5. Jumlah berhasil, gagal, dan dilewati ditambah di batch dalam commit yang sama dengan hasil
    barisnya, jadi batch tetap benar walau impor terhenti di tengah.
-6. Suite sementara yang tidak mendapat satu kasus pun diarsipkan, supaya tidak menumpuk suite
-   kosong yang aktif.
+6. Suite sementara yang tidak mendapat satu kasus pun diarsipkan, juga saat impor terhenti karena
+   galat, supaya tidak menumpuk suite kosong yang aktif.
+
+Cek kembar lalu simpan untuk satu baris dijaga advisory lock PostgreSQL per identitas baris, jadi
+dua impor berkas yang sama di waktu bersamaan tidak sama-sama lolos cek kembar: impor kedua
+menunggu impor pertama commit, lalu melihat barisnya dan melewatinya.
 
 Kasus hasil impor berstatus draft dengan created_by pengimpor, jadi alur review yang sudah ada
 (dua reviewer, penulis tidak boleh mereview kasusnya sendiri) berlaku tanpa perubahan.
@@ -19,7 +23,7 @@ Kasus hasil impor berstatus draft dengan created_by pengimpor, jadi alur review 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import select, update
+from sqlalchemy import select, text, update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
@@ -66,40 +70,69 @@ def import_cases(
     katalog = legal_refs_service.load_catalog(db)
     tahun = validation.current_year_wib()
     batch = _buat_batch(db, file_name, actor_id, total=len(baris))
-    di_berkas: dict[str, int] = {}
-    for mentah in baris:
-        hasil = csv_import.parse_row(mentah, regulation_types=katalog.active, current_year=tahun)
-        if isinstance(hasil, RowFailure):
-            _catat(db, batch.id, hasil.row_no, ImportRowStatus.FAILED, reason=hasil.reason)
-            continue
-        kembar = _alasan_kembar(db, hasil, di_berkas)
-        if kembar is not None:
-            _catat(db, batch.id, hasil.row_no, ImportRowStatus.SKIPPED, kembar, hasil.row_identity)
-            continue
-        try:
-            _simpan_kasus(db, batch, hasil, actor_id)
-        except IntegrityError as galat:
-            db.rollback()
-            if not any(tanda in str(galat.orig) for tanda in _BENTROK_KODE):
-                raise
-            _catat(
-                db,
-                batch.id,
-                hasil.row_no,
-                ImportRowStatus.FAILED,
-                _ALASAN_BENTROK,
-                hasil.row_identity,
+    try:
+        di_berkas: dict[str, int] = {}
+        for mentah in baris:
+            hasil = csv_import.parse_row(
+                mentah, regulation_types=katalog.active, current_year=tahun
             )
-            continue
-        di_berkas.setdefault(hasil.row_identity, hasil.row_no)
+            if isinstance(hasil, RowFailure):
+                _catat(db, batch.id, hasil.row_no, ImportRowStatus.FAILED, reason=hasil.reason)
+                continue
+            _impor_baris(db, batch, hasil, actor_id, di_berkas)
+    except BaseException:
+        db.rollback()
+        _arsipkan_suite_kosong(db, batch.id)
+        raise
     _arsipkan_suite_kosong(db, batch.id)
-    return read_summary(db, batch.id)
+    return read_summary(db, batch.id, user_id=actor_id, is_admin=False)
 
 
-def read_summary(db: Session, batch_id: uuid.UUID) -> ImportSummaryRead:
-    """Ringkasan satu batch dari tabel impor, sama dengan yang dikembalikan saat impor."""
+def row_lock_key(row_identity: str) -> int:
+    """Kunci advisory lock (bigint bertanda) dari identitas baris yang berupa hex SHA-256."""
+    return int(row_identity[:16], 16) - 2**63
+
+
+def _impor_baris(
+    db: Session,
+    batch: ImportBatch,
+    kasus: ImportedCase,
+    actor_id: uuid.UUID,
+    di_berkas: dict[str, int],
+) -> None:
+    """Cek kembar lalu simpan satu baris valid dalam satu transaksi yang memegang kunci barisnya."""
+    if db.get_bind().dialect.name == "postgresql":
+        db.execute(
+            text("SELECT pg_advisory_xact_lock(:kunci)"),
+            {"kunci": row_lock_key(kasus.row_identity)},
+        )
+    kembar = _alasan_kembar(db, kasus, di_berkas)
+    if kembar is not None:
+        _catat(db, batch.id, kasus.row_no, ImportRowStatus.SKIPPED, kembar, kasus.row_identity)
+        return
+    try:
+        _simpan_kasus(db, batch, kasus, actor_id)
+    except IntegrityError as galat:
+        db.rollback()
+        if not any(tanda in str(galat.orig) for tanda in _BENTROK_KODE):
+            raise
+        _catat(
+            db, batch.id, kasus.row_no, ImportRowStatus.FAILED, _ALASAN_BENTROK, kasus.row_identity
+        )
+        return
+    di_berkas.setdefault(kasus.row_identity, kasus.row_no)
+
+
+def read_summary(
+    db: Session, batch_id: uuid.UUID, *, user_id: uuid.UUID, is_admin: bool
+) -> ImportSummaryRead:
+    """Ringkasan satu batch dari tabel impor, sama dengan yang dikembalikan saat impor.
+
+    Hanya pengimpor dan Admin yang boleh membacanya, karena isinya nama berkas dan alasan gagal
+    milik pengimpor. Pengguna lain mendapat 404 seolah batch itu tidak ada.
+    """
     batch = db.get(ImportBatch, batch_id)
-    if batch is None:
+    if batch is None or (not is_admin and batch.imported_by != user_id):
         raise NotFoundError("Batch impor tidak ditemukan", code=IMPORT_BATCH_NOT_FOUND)
     suite = db.get(Suite, batch.suite_id)
     hasil = db.execute(
@@ -241,6 +274,9 @@ def _simpan_kasus(
     db.add(case)
     db.add(version)
     legal_refs_service.replace_for_version(db, version_id, kasus.legal_refs)
+    # ImportRowResult tidak punya relationship ke Case, jadi unit of work tidak menjamin kasusnya
+    # di-insert lebih dulu. Dengan autoflush=False (get_db), flush ini yang menjaga urutannya.
+    db.flush()
     db.add(
         ImportRowResult(
             batch_id=batch.id,

@@ -1941,7 +1941,7 @@
           "case-imports"
         ],
         "summary": "Buka lagi ringkasan satu impor CSV",
-        "description": "Ringkasan yang sama dengan respons impor, dibaca dari tabel impor.",
+        "description": "Ringkasan yang sama dengan respons impor, dibaca dari tabel impor. Hanya untuk pengimpor\nbatch itu dan Admin; pengguna lain mendapat 404.",
         "operationId": "read_import_summary_case_imports__batch_id__get",
         "parameters": [
           {
@@ -1977,7 +1977,7 @@
             }
           },
           "404": {
-            "description": "Batch tidak ada (`IMPORT_BATCH_NOT_FOUND`).",
+            "description": "Batch tidak ada, atau bukan milik pengguna ini dan bukan Admin (`IMPORT_BATCH_NOT_FOUND`).",
             "content": {
               "application/json": {
                 "schema": {
