@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from datetime import datetime
 
 import sqlalchemy as sa
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, aliased
 
 # Kode dan nomor versi kasus serta nomor rubrik dibaca lewat join, bukan disalin ke tabel
 # laporan (keputusan review SCRUM-300). Pola impor model lintas modul ini sudah dipakai runs.
@@ -270,10 +270,6 @@ class CurrentPublication:
     report: Report
 
 
-def get_publication(db: Session, publication_id: uuid.UUID) -> PublishedReport | None:
-    return db.get(PublishedReport, publication_id)
-
-
 def lock_report(db: Session, report_id: uuid.UUID) -> Report | None:
     """Kunci baris laporan sampai transaksi ini selesai.
 
@@ -296,6 +292,73 @@ def lock_publication(db: Session, publication_id: uuid.UUID) -> PublishedReport 
         .where(PublishedReport.id == publication_id)
         .with_for_update()
         .execution_options(populate_existing=True)
+    )
+
+
+def product_ids(db: Session, report_id: uuid.UUID) -> frozenset[uuid.UUID]:
+    """Himpunan produk satu laporan menurut report_sessions (beku, SCRUM-371)."""
+    rows = db.scalars(
+        sa.select(ReportSession.product_id).where(ReportSession.report_id == report_id)
+    )
+    return frozenset(rows)
+
+
+def current_publication_of(db: Session, report_id: uuid.UUID) -> PublishedReport | None:
+    """Versi terbit laporan ini kalau laporannya masih published, selain itu None."""
+    return db.scalar(
+        sa.select(PublishedReport)
+        .join(Report, Report.id == PublishedReport.report_id)
+        .where(PublishedReport.report_id == report_id, Report.status == ReportStatus.PUBLISHED)
+    )
+
+
+def _same_products_as(report_id: uuid.UUID) -> sa.Select:
+    """Id laporan lain yang himpunan product_id-nya persis sama dengan laporan ini.
+
+    Satu subquery, bukan produk per laporan (tanpa N+1). Sama persis = jumlah produknya
+    sama dan setiap produknya ada di laporan ini; product_id unik per laporan
+    (uq_report_sessions_product), jadi tidak ada produk yang terhitung dua kali.
+    """
+    target = aliased(ReportSession)
+    target_ids = sa.select(target.product_id).where(target.report_id == report_id)
+    target_count = (
+        sa.select(sa.func.count()).select_from(target).where(target.report_id == report_id)
+    ).scalar_subquery()
+    in_target = sa.case((ReportSession.product_id.in_(target_ids), 1), else_=0)
+    return (
+        sa.select(ReportSession.report_id)
+        .where(ReportSession.report_id != report_id)
+        .group_by(ReportSession.report_id)
+        .having(sa.func.count() == target_count, sa.func.sum(in_target) == target_count)
+    )
+
+
+def replace_candidates_for_saved(db: Session, report_id: uuid.UUID) -> list[CurrentPublication]:
+    """Versi yang sedang terbit dengan himpunan produk sama, untuk laporan tersimpan ini."""
+    rows = db.execute(
+        sa.select(PublishedReport, Report)
+        .join(Report, Report.id == PublishedReport.report_id)
+        .where(
+            Report.status == ReportStatus.PUBLISHED,
+            Report.id.in_(_same_products_as(report_id)),
+        )
+        .order_by(PublishedReport.published_at.desc(), PublishedReport.id.desc())
+    ).all()
+    return [CurrentPublication(publication, report) for publication, report in rows]
+
+
+def replace_candidates_for_published(db: Session, report_id: uuid.UUID) -> list[Report]:
+    """Laporan tersimpan tanpa skor dev dengan himpunan produk sama, untuk laporan terbit ini."""
+    return list(
+        db.scalars(
+            sa.select(Report)
+            .where(
+                Report.status == ReportStatus.SAVED,
+                Report.has_dev_scores.is_(False),
+                Report.id.in_(_same_products_as(report_id)),
+            )
+            .order_by(Report.created_at.desc(), Report.id)
+        )
     )
 
 

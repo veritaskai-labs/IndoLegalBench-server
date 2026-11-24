@@ -16,6 +16,7 @@ rute membaca parameter lewat satu dependency (TrendQuery), jadi pilihan dan vali
 SCRUM-332 (penerbitan, diagram D1 dan D9):
 - POST /reports/{id}/publish: Admin menerbitkan laporan tersimpan, atau mengganti satu versi
 - GET /published-reports: daftar versi yang masih berlaku, untuk setiap peran yang login
+- GET /reports/{id}/replace-candidates: pilihan ganti versi dengan produk sama (SCRUM-371, Admin)
 
 SCRUM-320 (riwayat laporan dan PDF, diagram D3 langkah 10-15):
 - GET /reports: daftar laporan tersimpan dan terbit yang boleh dilihat (D9)
@@ -69,6 +70,7 @@ from app.modules.reports.schemas import (
     PublicationRead,
     PublishedReportListItem,
     PublishReport,
+    ReplaceCandidates,
     ReportCaseDetailRead,
     ReportCreate,
     ReportCreateResponse,
@@ -379,7 +381,12 @@ def download_report_pdf(
     responses={
         403: {"model": ErrorBody, "description": "Bukan Admin"},
         404: {"model": ErrorBody, "description": "Laporan atau versi yang diganti tidak ada"},
-        409: {"model": ErrorBody, "description": "Tidak bisa diterbitkan"},
+        409: {
+            "model": ErrorBody,
+            "description": "Tidak bisa diterbitkan (`REPORT_NOT_PUBLISHABLE`, "
+            "`REPORT_HAS_DEV_SCORES`), atau pengganti membandingkan produk lain "
+            "(`REPORT_PRODUCTS_MISMATCH`)",
+        },
     },
 )
 def publish_saved_report(
@@ -395,6 +402,29 @@ def publish_saved_report(
         actor_id=user.user_id,
         supersedes_id=None if payload is None else payload.supersedes_id,
     )
+
+
+@router.get(
+    "/{report_id}/replace-candidates",
+    response_model=ReplaceCandidates,
+    summary="Pilihan ganti versi: hanya laporan dengan produk yang sama",
+    responses={
+        403: {"model": ErrorBody, "description": "Bukan Admin"},
+        404: {"model": ErrorBody, "description": "Laporan tidak ada (`REPORT_NOT_FOUND`)"},
+        409: {
+            "model": ErrorBody,
+            "description": "Laporan berisi skor dev (`REPORT_HAS_DEV_SCORES`) atau sudah "
+            "digantikan (`REPORT_NOT_PUBLISHABLE`)",
+        },
+    },
+)
+def list_replace_candidates(
+    report_id: uuid.UUID,
+    db: Session = Depends(get_db),
+    _: CurrentUser = Depends(require_roles(Role.ADMIN)),
+) -> ReplaceCandidates:
+    """Admin saja, sama dengan POST publish. Kedua jalur FE memakai rute ini (SCRUM-371)."""
+    return publication.replace_candidates(db, report_id)
 
 
 published_router = APIRouter(prefix="/published-reports", tags=["reports"])
