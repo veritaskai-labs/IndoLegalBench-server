@@ -6328,7 +6328,81 @@
             }
           },
           "409": {
-            "description": "Tidak bisa diterbitkan",
+            "description": "Tidak bisa diterbitkan (`REPORT_NOT_PUBLISHABLE`, `REPORT_HAS_DEV_SCORES`), atau pengganti membandingkan produk lain (`REPORT_PRODUCTS_MISMATCH`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/{report_id}/replace-candidates": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Pilihan ganti versi: hanya laporan dengan produk yang sama",
+        "description": "Admin saja, sama dengan POST publish. Kedua jalur FE memakai rute ini (SCRUM-371).",
+        "operationId": "list_replace_candidates_reports__report_id__replace_candidates_get",
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplaceCandidates"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Laporan tidak ada (`REPORT_NOT_FOUND`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Laporan berisi skor dev (`REPORT_HAS_DEV_SCORES`) atau sudah digantikan (`REPORT_NOT_PUBLISHABLE`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -14086,6 +14160,113 @@
         ],
         "title": "RegulationTypeRead",
         "description": "Satu jenis peraturan untuk dropdown editor (AC2)."
+      },
+      "ReplaceCandidateRead": {
+        "properties": {
+          "report_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Report Id"
+          },
+          "publication_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Id",
+            "description": "replace_published: kirim sebagai supersedes_id. replace_with_saved: null"
+          },
+          "version_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version No",
+            "description": "Nomor versi yang sedang terbit; null di replace_with_saved"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "product_labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Product Labels",
+            "description": "Label produk beku, urut abjad"
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Date",
+            "description": "replace_published: published_at. replace_with_saved: created_at"
+          }
+        },
+        "type": "object",
+        "required": [
+          "report_id",
+          "publication_id",
+          "version_no",
+          "title",
+          "product_labels",
+          "date"
+        ],
+        "title": "ReplaceCandidateRead",
+        "description": "Satu pilihan di dropdown ganti versi."
+      },
+      "ReplaceCandidates": {
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/ReplaceMode"
+          },
+          "replaces_publication_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replaces Publication Id",
+            "description": "replace_with_saved: versi laporan ini, kirim sebagai supersedes_id saat menerbitkan item yang dipilih. replace_published: null"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReplaceCandidateRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode",
+          "replaces_publication_id",
+          "items"
+        ],
+        "title": "ReplaceCandidates",
+        "description": "GET /reports/{id}/replace-candidates: hanya laporan dengan himpunan produk yang sama."
+      },
+      "ReplaceMode": {
+        "type": "string",
+        "enum": [
+          "replace_published",
+          "replace_with_saved"
+        ],
+        "title": "ReplaceMode",
+        "description": "Arah ganti versi menurut status laporan yang sedang dibuka (SCRUM-371)."
       },
       "ReplaceReviewerRequest": {
         "properties": {

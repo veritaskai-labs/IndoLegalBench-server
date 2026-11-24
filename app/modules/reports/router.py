@@ -381,7 +381,12 @@ def download_report_pdf(
     responses={
         403: {"model": ErrorBody, "description": "Bukan Admin"},
         404: {"model": ErrorBody, "description": "Laporan atau versi yang diganti tidak ada"},
-        409: {"model": ErrorBody, "description": "Tidak bisa diterbitkan"},
+        409: {
+            "model": ErrorBody,
+            "description": "Tidak bisa diterbitkan (`REPORT_NOT_PUBLISHABLE`, "
+            "`REPORT_HAS_DEV_SCORES`), atau pengganti membandingkan produk lain "
+            "(`REPORT_PRODUCTS_MISMATCH`)",
+        },
     },
 )
 def publish_saved_report(
