@@ -23,6 +23,7 @@ from app.modules.grading.models import GradingRun, GradingRunStatus, RubricVersi
 from app.modules.providers.models import AiProduct
 from app.modules.reports.access import ReportVisibility
 from app.modules.reports.models import (
+    MeasurementKind,
     PublishedReport,
     Report,
     ReportCaseBasis,
@@ -48,6 +49,17 @@ class ManualAnswerFacts:
 
     filled_by: uuid.UUID | None
     answered_at: datetime | None
+
+
+@dataclass(frozen=True)
+class OtherProductRow:
+    """Angka produk lain di laporan yang sama untuk jenis skor yang sama (PBI-16 SCRUM-370)."""
+
+    result_id: uuid.UUID
+    session_id: uuid.UUID
+    product_label: str
+    measurement_kind: MeasurementKind
+    is_trial: bool
 
 
 @dataclass(frozen=True)
@@ -156,6 +168,39 @@ def get_report_session(
     db: Session, report_id: uuid.UUID, session_id: uuid.UUID
 ) -> ReportSession | None:
     return db.get(ReportSession, (report_id, session_id))
+
+
+def other_product_results(
+    db: Session, report_id: uuid.UUID, result: ReportResult
+) -> list[OtherProductRow]:
+    """Angka produk lain di laporan ini dengan jenis skor yang sama, selain `result`.
+
+    Label dan jenis pengukuran dibaca dari report_sessions (nilai beku di laporan), jadi mode
+    kode produk tidak membuka nama aslinya. Urutan tetap: label, lalu id sesi.
+    """
+    rows = db.execute(
+        sa.select(
+            ReportResult.id,
+            ReportResult.session_id,
+            ReportSession.product_label,
+            ReportSession.measurement_kind,
+            ReportSession.is_trial,
+        )
+        .join(
+            ReportSession,
+            sa.and_(
+                ReportSession.report_id == ReportResult.report_id,
+                ReportSession.session_id == ReportResult.session_id,
+            ),
+        )
+        .where(
+            ReportResult.report_id == report_id,
+            ReportResult.score_split == result.score_split,
+            ReportResult.id != result.id,
+        )
+        .order_by(ReportSession.product_label, ReportResult.session_id)
+    )
+    return [OtherProductRow(*row) for row in rows]
 
 
 def grading_run_at(db: Session, session_id: uuid.UUID, at: datetime) -> uuid.UUID | None:

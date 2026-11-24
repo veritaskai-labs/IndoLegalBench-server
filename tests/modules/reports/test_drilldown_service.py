@@ -673,3 +673,358 @@ def test_unduh_bukti_kasus_lain_dijawab_404(repo, bukti, pemilik):
         drilldown.evidence_file(DB, report.id, angka.id, KASUS_TEST, BUKTI, _pengguna(), bukti)
     assert galat.value.code == drilldown.REPORT_EVIDENCE_NOT_FOUND
     bukti.download.assert_not_called()
+
+
+# --- Produk lain pada kasus yang sama (PBI-16 SCRUM-370) -------------------------
+
+SESI_B = uuid.UUID("00000000-0000-0000-0000-00000000005b")
+SESI_C = uuid.UUID("00000000-0000-0000-0000-00000000005c")
+RUN_B = uuid.UUID("00000000-0000-0000-0000-0000000000c2")
+RUN_C = uuid.UUID("00000000-0000-0000-0000-0000000000c3")
+HASIL_B = uuid.UUID("00000000-0000-0000-0000-0000000000a2")
+HASIL_C = uuid.UUID("00000000-0000-0000-0000-0000000000a3")
+PERCOBAAN_B = uuid.UUID("00000000-0000-0000-0000-0000000000e3")
+PERCOBAAN_B2 = uuid.UUID("00000000-0000-0000-0000-0000000000e4")
+PERCOBAAN_C = uuid.UUID("00000000-0000-0000-0000-0000000000e5")
+
+
+def _baris_lain(session_id, result_id, label, *, kind=MeasurementKind.AUTOMATIC, uji_coba=False):
+    return repository.OtherProductRow(result_id, session_id, label, kind, uji_coba)
+
+
+def _percobaan_lain(
+    attempt_id,
+    nomor,
+    *,
+    status=AttemptStatus.SUCCEEDED,
+    gagal=False,
+    source=AttemptSource.AUTOMATIC,
+) -> AttemptGradeResult:
+    """Percobaan produk lain; yang gagal atau belum jalan tidak punya skor dan jawaban."""
+    dinilai = status is AttemptStatus.SUCCEEDED and not gagal
+    return AttemptGradeResult(
+        attempt_id=attempt_id,
+        repetition_no=nomor,
+        status=AttemptStatus.TECHNICAL_FAILURE if gagal else status,
+        source=source,
+        is_technical_disruption=gagal,
+        score=ScorePair(deterministic=Decimal("0.60"), quality=Decimal("0.50"))
+        if dinilai
+        else None,
+        answer_text="Jawaban produk lain." if dinilai else None,
+        explanation="Pasal 151 disebut sebagian." if dinilai else None,
+        reasons=["CITATION_OK"] if dinilai else [],
+    )
+
+
+def _kasus_lain(*attempts, det="0.60", llm="0.50") -> CaseGradeResult:
+    return _kasus_dinilai(KASUS_TEST, "UAT-PHK-001", SplitTag.TEST, det, llm, attempts=attempts)
+
+
+def _tambah_run(store, session_id, run_id, rubrik, *cases) -> None:
+    kosong = ScorePair()
+    store.save_grading_run(
+        SessionGradingResponse(
+            grading_run_id=run_id,
+            session_id=session_id,
+            rubric_version=rubrik,
+            kind="initial",
+            status="completed",
+            triggered_by=PEMBUAT,
+            triggered_at=datetime(2026, 11, 30, tzinfo=UTC),
+            scores=ThreeScores(dev=kosong, test=kosong, combined=kosong),
+            cases=list(cases),
+        )
+    )
+
+
+def _perbandingan(repo, report, angka, lain, isi) -> MemoryGradingStore:
+    """Produk utama dengan kasus dan percobaan manual, ditambah produk lain.
+
+    `isi` memetakan session_id produk lain ke (run_id, versi rubrik, kasus yang dinilai).
+    Sesi tanpa entri tidak punya run beku sama sekali.
+    """
+    store = _siapkan_kasus(repo, report, angka)
+    repo.other_product_results.return_value = lain
+    run_beku = {SESI: RUN}
+    for session_id, (run_id, rubrik, kasus) in isi.items():
+        run_beku[session_id] = run_id
+        _tambah_run(store, session_id, run_id, rubrik, *kasus)
+    repo.grading_run_at.side_effect = lambda db, session_id, at: run_beku.get(session_id)
+    return store
+
+
+def _produk_b(*kasus, rubrik="v5") -> tuple[list, dict]:
+    return [_baris_lain(SESI_B, HASIL_B, "Produk B")], {SESI_B: (RUN_B, rubrik, list(kasus))}
+
+
+def _detail_lain(repo, nama, lain, isi, role=Role.ADMIN, **laporan):
+    report = _laporan(**laporan)
+    angka = _angka(report, ScoreSplit.TEST if laporan else ScoreSplit.COMBINED)
+    store = _perbandingan(repo, report, angka, lain, isi)
+    return drilldown.case_detail(DB, report.id, angka.id, KASUS_TEST, _pengguna(role), runs=store)
+
+
+def test_produk_lain_tampil_dengan_jawaban_skor_alasan_dan_rubriknya(repo, nama):
+    """Positif: tiap produk lain membawa jawaban asli, skor, alasan, dan versi rubrik sendiri."""
+    # Arrange
+    lain = [
+        _baris_lain(SESI_B, HASIL_B, "Produk B"),
+        _baris_lain(SESI_C, HASIL_C, "Produk C", kind=MeasurementKind.MANUAL, uji_coba=True),
+    ]
+    isi = {
+        SESI_B: (RUN_B, "v5", [_kasus_lain(_percobaan_lain(PERCOBAAN_B, 1))]),
+        SESI_C: (
+            RUN_C,
+            "v3",
+            [_kasus_lain(_percobaan_lain(PERCOBAAN_C, 1), det="0.90", llm="0.85")],
+        ),
+    }
+
+    # Act
+    kasus = _detail_lain(repo, nama, lain, isi)
+
+    # Assert
+    b, c = kasus.other_products
+    assert (b.result_id, b.product_label, b.status, b.rubric_version) == (
+        HASIL_B,
+        "Produk B",
+        "answered",
+        "v5",
+    )
+    assert (b.det_score, b.llm_score) == (Decimal("0.60"), Decimal("0.50"))
+    assert (b.attempts[0].answer_text, b.attempts[0].reasons, b.attempts[0].explanation) == (
+        "Jawaban produk lain.",
+        ["CITATION_OK"],
+        "Pasal 151 disebut sebagian.",
+    )
+    assert (c.product_label, c.measurement_kind, c.is_trial, c.rubric_version) == (
+        "Produk C",
+        MeasurementKind.MANUAL,
+        True,
+        "v3",
+    )
+    assert (c.det_score, c.llm_score) == (Decimal("0.90"), Decimal("0.85"))
+
+
+def test_produk_utama_tetap_terbaca_bersama_perbandingan(repo, nama):
+    """Positif: menambah perbandingan tidak mengubah isi kasus produk yang sedang dibuka."""
+    # Arrange
+    lain, isi = _produk_b(_kasus_lain(_percobaan_lain(PERCOBAAN_B, 1)))
+
+    # Act
+    kasus = _detail_lain(repo, nama, lain, isi)
+
+    # Assert
+    assert (kasus.product_label, kasus.rubric_version, kasus.det_score) == (
+        "Justisio",
+        "v4",
+        Decimal("0.80"),
+    )
+    assert [a.answer_text for a in kasus.attempts][0] == "Jawaban asli produk tentang PHK."
+
+
+def test_produk_yang_tidak_punya_kasus_itu_ditandai_tidak_ada_jawaban(repo, nama):
+    """Edge: produk B tidak punya kasus ini di run-nya, jadi bukan "tidak dinilai" dan bukan 404."""
+    # Arrange
+    lain, isi = _produk_b(
+        _kasus_dinilai(KASUS_DEV, "DEV-PHK-009", SplitTag.DEV, "0.40", "0.55"),
+    )
+
+    # Act
+    kasus = _detail_lain(repo, nama, lain, isi)
+
+    # Assert
+    (b,) = kasus.other_products
+    assert (b.status, b.rubric_version, b.det_score, b.llm_score, b.attempts) == (
+        "no_answer",
+        None,
+        None,
+        None,
+        [],
+    )
+
+
+@pytest.mark.parametrize(
+    "percobaan",
+    [
+        # Edge: kasus ada di run tetapi tidak ada percobaan sama sekali.
+        [],
+        # Edge: percobaan ada tetapi belum jalan, jadi produk belum menjawab.
+        [(AttemptStatus.PENDING, False)],
+        [(AttemptStatus.RUNNING, False), (AttemptStatus.PENDING, False)],
+    ],
+)
+def test_produk_tanpa_percobaan_yang_selesai_ditandai_tidak_ada_jawaban(repo, nama, percobaan):
+    """Edge: tanpa percobaan yang selesai, produk itu tidak menjawab (bukan "tidak dinilai")."""
+    # Arrange
+    attempts = [
+        _percobaan_lain(uuid.uuid4(), nomor, status=status, gagal=gagal)
+        for nomor, (status, gagal) in enumerate(percobaan, start=1)
+    ]
+    lain, isi = _produk_b(_kasus_lain(*attempts))
+
+    # Act
+    kasus = _detail_lain(repo, nama, lain, isi)
+
+    # Assert
+    (b,) = kasus.other_products
+    assert (b.status, b.rubric_version, len(b.attempts)) == ("no_answer", "v5", len(attempts))
+
+
+def test_semua_percobaan_gagal_teknis_ditandai_tidak_dinilai(repo, nama):
+    """Positif: percobaan gagal teknis tidak diberi skor 0, produknya ditandai "tidak dinilai"."""
+    # Arrange
+    lain, isi = _produk_b(
+        _kasus_lain(
+            _percobaan_lain(PERCOBAAN_B, 1, gagal=True),
+            _percobaan_lain(PERCOBAAN_B2, 2, gagal=True),
+        )
+    )
+
+    # Act
+    kasus = _detail_lain(repo, nama, lain, isi)
+
+    # Assert
+    (b,) = kasus.other_products
+    assert b.status == "not_graded"
+    assert [(a.graded, a.det_score, a.answer_text) for a in b.attempts] == [
+        (False, None, None),
+        (False, None, None),
+    ]
+
+
+def test_percobaan_campuran_tetap_dinilai_dengan_percobaan_gagal_terlihat(repo, nama):
+    """Edge: satu percobaan gagal dan satu dinilai, produk tetap dinilai dan keduanya terbaca."""
+    # Arrange
+    lain, isi = _produk_b(
+        _kasus_lain(
+            _percobaan_lain(PERCOBAAN_B, 1, gagal=True),
+            _percobaan_lain(PERCOBAAN_B2, 2),
+        )
+    )
+
+    # Act
+    kasus = _detail_lain(repo, nama, lain, isi)
+
+    # Assert
+    (b,) = kasus.other_products
+    assert b.status == "answered"
+    assert [a.graded for a in b.attempts] == [False, True]
+
+
+def test_jawaban_manual_produk_lain_membawa_label_pengisi_dan_tanggal(repo, nama):
+    """Positif: jawaban manual produk lain diperlakukan sama seperti produk utama (AC2 PBI-16)."""
+    # Arrange
+    report = _laporan()
+    angka = _angka(report)
+    lain, isi = _produk_b(
+        _kasus_lain(_percobaan_lain(PERCOBAAN_B, 1, source=AttemptSource.MANUAL)),
+    )
+    store = _perbandingan(repo, report, angka, lain, isi)
+    repo.manual_answer_facts.return_value = {PERCOBAAN_B: ManualAnswerFacts(PENGISI, DIJAWAB)}
+
+    # Act
+    kasus = drilldown.case_detail(DB, report.id, angka.id, KASUS_TEST, _pengguna(), runs=store)
+
+    # Assert
+    (percobaan,) = kasus.other_products[0].attempts
+    assert (percobaan.source, percobaan.filled_by_name, percobaan.answered_at) == (
+        AttemptSource.MANUAL,
+        "Kontributor Satu",
+        DIJAWAB,
+    )
+
+
+def test_laporan_satu_produk_tidak_punya_produk_lain(repo, nama):
+    """Edge: tanpa produk lain daftar perbandingan kosong, dan detail kasus tetap terbaca."""
+    # Act
+    kasus = _detail_lain(repo, nama, [], {})
+
+    # Assert
+    assert kasus.other_products == []
+    assert kasus.case_code == "UAT-PHK-001"
+
+
+def test_tiap_produk_lain_dibaca_dari_run_beku_sesinya_sendiri(repo, nama):
+    """Positif: run yang dipakai tiap produk adalah run pada waktu laporan dibuat (D1)."""
+    # Arrange
+    report = _laporan()
+    angka = _angka(report)
+    lain = [_baris_lain(SESI_B, HASIL_B, "Produk B"), _baris_lain(SESI_C, HASIL_C, "Produk C")]
+    isi = {
+        SESI_B: (RUN_B, "v5", [_kasus_lain(_percobaan_lain(PERCOBAAN_B, 1))]),
+        SESI_C: (RUN_C, "v3", [_kasus_lain(_percobaan_lain(PERCOBAAN_C, 1))]),
+    }
+    store = _perbandingan(repo, report, angka, lain, isi)
+
+    # Act
+    drilldown.case_detail(DB, report.id, angka.id, KASUS_TEST, _pengguna(), runs=store)
+
+    # Assert
+    repo.grading_run_at.assert_any_call(DB, SESI_B, report.created_at)
+    repo.grading_run_at.assert_any_call(DB, SESI_C, report.created_at)
+    repo.other_product_results.assert_called_once_with(DB, report.id, angka)
+
+
+def test_produk_lain_tanpa_run_beku_dilewati_tanpa_menggagalkan_detail(repo, nama):
+    """Edge: data rusak pada satu produk lain tidak membuat detail kasus utama menjadi 404."""
+    # Arrange
+    lain = [_baris_lain(SESI_B, HASIL_B, "Produk B"), _baris_lain(SESI_C, HASIL_C, "Produk C")]
+    isi = {SESI_B: (RUN_B, "v5", [_kasus_lain(_percobaan_lain(PERCOBAAN_B, 1))])}
+
+    # Act
+    kasus = _detail_lain(repo, nama, lain, isi)
+
+    # Assert
+    assert [p.product_label for p in kasus.other_products] == ["Produk B"]
+    assert kasus.case_code == "UAT-PHK-001"
+
+
+@pytest.mark.parametrize(
+    ("role", "laporan"),
+    [
+        # Positif: Admin boleh membuka isi kasus dan jawaban asli (AC3 PBI-16).
+        (Role.ADMIN, {}),
+        # Positif: Kontributor boleh untuk kasus test.
+        (Role.CONTRIBUTOR, _LAPORAN_TEST),
+    ],
+)
+def test_admin_dan_kontributor_menerima_jawaban_produk_lain(repo, nama, role, laporan):
+    """Positif: peran yang boleh membuka isi kasus juga menerima jawaban produk lain."""
+    # Arrange
+    lain, isi = _produk_b(_kasus_lain(_percobaan_lain(PERCOBAAN_B, 1)))
+
+    # Act
+    kasus = _detail_lain(repo, nama, lain, isi, role=role, **laporan)
+
+    # Assert
+    assert [p.attempts[0].answer_text for p in kasus.other_products] == ["Jawaban produk lain."]
+
+
+@pytest.mark.parametrize(
+    ("role", "laporan", "split"),
+    [
+        # Negatif: Viewer murni tidak melihat jawaban produk mana pun (AC3 PBI-16).
+        (Role.VIEWER, _LAPORAN_TEST, ScoreSplit.TEST),
+        # Negatif: Developer AI tidak membuka isi kasus test.
+        (Role.DEVELOPER_AI, {}, ScoreSplit.COMBINED),
+    ],
+)
+def test_peran_tanpa_hak_ditolak_sebelum_jawaban_produk_lain_dibaca(
+    repo, nama, role, laporan, split
+):
+    """Negatif: 403 dijatuhkan sebelum produk lain dicari, jadi jawaban mereka tidak dibaca."""
+    # Arrange
+    report = _laporan(**laporan)
+    angka = _angka(report, split)
+    lain, isi = _produk_b(_kasus_lain(_percobaan_lain(PERCOBAAN_B, 1)))
+    _perbandingan(repo, report, angka, lain, isi)
+    runs = create_autospec(DbGradingStore, instance=True)
+
+    # Act / Assert
+    with pytest.raises(ForbiddenError) as galat:
+        drilldown.case_detail(DB, report.id, angka.id, KASUS_TEST, _pengguna(role), runs=runs)
+    assert galat.value.code == drilldown.CASE_CONTENT_FORBIDDEN
+    repo.other_product_results.assert_not_called()
+    runs.get_grading_case.assert_not_called()
