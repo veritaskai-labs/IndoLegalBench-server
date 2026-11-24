@@ -9,7 +9,7 @@ Isi file ini murni query, tanpa logika bisnis.
 import uuid
 from collections.abc import Iterator
 
-from sqlalchemy import func, select
+from sqlalchemy import func, or_, select
 from sqlalchemy.orm import Session, selectinload
 
 from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
@@ -79,6 +79,7 @@ def list_for_suite(
 def list_in_effect(
     db: Session,
     *,
+    keyword: str | None = None,
     status: CaseStatus | None = None,
     suite_id: uuid.UUID | None = None,
 ) -> list[tuple[Case, CaseVersion]]:
@@ -87,7 +88,9 @@ def list_in_effect(
     Same in-effect rule and order as list_for_suite, so the directory and the
     per-suite list never disagree. status filters on the in-effect version, so
     an approved case with an open revision counts as approved (like
-    count_by_status). Filters combine with AND.
+    count_by_status). keyword matches part of the case code or of the in-effect
+    title, ignoring letter case, with % _ and \ taken literally. Filters
+    combine with AND.
     """
     in_effect_id = func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
     query = db.query(Case, CaseVersion).join(CaseVersion, CaseVersion.id == in_effect_id)
@@ -95,6 +98,15 @@ def list_in_effect(
         query = query.filter(CaseVersion.status == status)
     if suite_id is not None:
         query = query.filter(Case.suite_id == suite_id)
+    if keyword is not None:
+        pola = "%" + _escape_like(keyword.lower()) + "%"
+        judul = CaseVersion.content["title"].as_string()
+        query = query.filter(
+            or_(
+                func.lower(Case.case_code).like(pola, escape="\\"),
+                func.lower(judul).like(pola, escape="\\"),
+            )
+        )
     return query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc()).all()
 
 

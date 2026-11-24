@@ -259,6 +259,7 @@ def list_cases(
 def list_all_cases(
     db: Session,
     *,
+    keyword: str | None = None,
     status: CaseStatus | None = None,
     suite_id: uuid.UUID | None = None,
 ) -> CasePage:
@@ -280,7 +281,9 @@ def list_all_cases(
             suite_name=suites[case.suite_id][0],
             suite_archived=suites[case.suite_id][1],
         )
-        for case, version in repository.list_in_effect(db, status=status, suite_id=suite_id)
+        for case, version in repository.list_in_effect(
+            db, keyword=keyword or None, status=status, suite_id=suite_id
+        )
     ]
     return CasePage(items=items, total=len(items), page=1, size=20)
 

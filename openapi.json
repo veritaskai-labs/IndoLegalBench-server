@@ -1147,6 +1147,25 @@
         "operationId": "list_all_cases_cases_get",
         "parameters": [
           {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sebagian kode kasus atau judul, huruf besar/kecil tidak dibedakan. Kosong atau hanya spasi berarti tanpa kata kunci.",
+              "title": "Q"
+            },
+            "description": "Sebagian kode kasus atau judul, huruf besar/kecil tidak dibedakan. Kosong atau hanya spasi berarti tanpa kata kunci."
+          },
+          {
             "name": "status",
             "in": "query",
             "required": false,

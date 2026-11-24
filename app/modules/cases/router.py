@@ -5,8 +5,10 @@ service. Tidak ada logika bisnis dan tidak ada query database di sini.
 """
 
 import uuid
+from typing import Annotated
 
 from fastapi import APIRouter, Depends, Query, status
+from pydantic import BeforeValidator
 from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
@@ -27,6 +29,7 @@ from app.modules.cases.schemas import (
 )
 from app.shared.database import get_db
 from app.shared.security import REVIEWER_ROLES, WRITER_ROLES, CurrentUser, Role, require_roles
+from app.shared.text import strip_blank
 
 router = APIRouter(tags=["cases"])
 
@@ -124,6 +127,17 @@ def list_cases(
     responses={403: {"model": ErrorBody, "description": "Hanya Kontributor dan Admin."}},
 )
 def list_all_cases(
+    q: Annotated[
+        str | None,
+        Query(
+            max_length=200,
+            description=(
+                "Sebagian kode kasus atau judul, huruf besar/kecil tidak dibedakan. "
+                "Kosong atau hanya spasi berarti tanpa kata kunci."
+            ),
+        ),
+        BeforeValidator(strip_blank),
+    ] = None,
     status_filter: CaseStatus | None = Query(
         default=None, alias="status", description="Status versi yang berlaku"
     ),
@@ -138,7 +152,7 @@ def list_all_cases(
     Contributor and Admin only: rows are not masked, so Developer AI keeps the
     per-suite list that hides test cases.
     """
-    return service.list_all_cases(db, status=status_filter, suite_id=suite_id)
+    return service.list_all_cases(db, keyword=q, status=status_filter, suite_id=suite_id)
 
 
 @router.get(
