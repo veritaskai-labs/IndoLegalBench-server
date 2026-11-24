@@ -205,6 +205,10 @@ starts the database, runs `alembic upgrade head`, then starts everything. The
 first build takes a few minutes, most of it the web app. Run the same command
 for every later update. Only one deploy runs at a time on the VM; a second one
 waits for the first.
+It ends by waiting up to 3 minutes for the new API to pass its healthcheck
+(`/health`, which also checks the database). If it does not, it prints the API's
+last 40 log lines and exits 1, so a CD run that broke the API turns red and
+GitHub emails whoever merged, instead of a UAT tester finding the 502.
 
 dev is redeployed automatically after every merge to `staging` (section 9).
 prod is deployed by hand after a release (section 10).
