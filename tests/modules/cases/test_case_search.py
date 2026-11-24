@@ -195,3 +195,98 @@ def test_waktu_ubah_sama_diurutkan_menurut_kode(penulis, db_session):
 
     # Assert
     assert [item["case_code"] for item in items] == ["A-1", "B-1", "C-1"]
+
+
+# --- Siklus 2: filter status dan suite -----------------------------------------------------
+
+
+def test_filter_status_memakai_status_versi_yang_berlaku(penulis, db_session):
+    """Positif: AC3, filter status hanya memuat kasus dengan status itu, dan total ikut terfilter."""
+    # Arrange
+    suite_id = _suite(penulis)
+    draf = _buat(penulis, suite_id, case_code="DRAF-001").json()["id"]
+    setuju = _buat(penulis, suite_id, case_code="SETUJU-001").json()["id"]
+    _setujui(db_session, setuju)
+
+    # Act
+    body = penulis.get("/cases", params={"status": "draft"}).json()
+
+    # Assert
+    assert ([item["id"] for item in body["items"]], body["total"]) == ([draf], 1)
+
+
+def test_filter_suite_hanya_memuat_kasus_suite_itu(penulis):
+    """Positif: AC3, filter suite memuat kasus satu suite saja."""
+    # Arrange
+    kerja = _suite(penulis, "Ketenagakerjaan")
+    pidana = _suite(penulis, "Pidana")
+    phk = _buat(penulis, kerja, case_code="PHK-001").json()["id"]
+    _buat(penulis, pidana, case_code="CURI-001")
+
+    # Act
+    body = penulis.get("/cases", params={"suite_id": kerja}).json()
+
+    # Assert
+    assert ([item["id"] for item in body["items"]], body["total"]) == ([phk], 1)
+
+
+def test_filter_status_dan_suite_digabung_dengan_dan(penulis, db_session):
+    """Positif: AC3, dua filter sekaligus berarti kasus harus memenuhi keduanya."""
+    # Arrange
+    kerja = _suite(penulis, "Ketenagakerjaan")
+    pidana = _suite(penulis, "Pidana")
+    cocok = _buat(penulis, kerja, case_code="PHK-001").json()["id"]
+    _setujui(db_session, _buat(penulis, kerja, case_code="PHK-002").json()["id"])
+    _buat(penulis, pidana, case_code="CURI-001")
+
+    # Act
+    body = penulis.get("/cases", params={"status": "draft", "suite_id": kerja}).json()
+
+    # Assert
+    assert [item["id"] for item in body["items"]] == [cocok]
+
+
+@pytest.mark.parametrize(("status", "terlihat"), [("approved", True), ("draft", False)])
+def test_kasus_yang_sedang_direvisi_difilter_menurut_versi_approved(
+    penulis, db_session, status, terlihat
+):
+    """Edge: kasus approved dengan draf revisi punya dua status sekaligus. Filter harus memakai
+    versi yang berlaku (approved), sama dengan hitungan dashboard; kalau memakai draf, kasus ini
+    hilang dari filter Disetujui padahal dashboard menghitungnya di sana."""
+    # Arrange
+    case_id = _buat(penulis, _suite(penulis)).json()["id"]
+    _setujui(db_session, case_id)
+    assert penulis.post(f"/cases/{case_id}/versions").status_code == 201
+
+    # Act
+    items = penulis.get("/cases", params={"status": status}).json()["items"]
+
+    # Assert
+    assert ([item["id"] for item in items] == [case_id]) is terlihat
+
+
+def test_suite_yang_tidak_ada_memberi_daftar_kosong(penulis):
+    """Edge: halaman bisa masih menyimpan suite yang baru dihapus di filternya. Daftar kosong
+    (bukan 404) membuat halaman tetap jalan dan cukup menampilkan "tidak ada kasus"."""
+    # Arrange
+    _buat(penulis, _suite(penulis))
+
+    # Act
+    response = penulis.get("/cases", params={"suite_id": str(uuid.uuid4())})
+
+    # Assert
+    assert response.status_code == 200
+    assert (response.json()["items"], response.json()["total"]) == ([], 0)
+
+
+@pytest.mark.parametrize(
+    "params", [{"status": "selesai"}, {"suite_id": "bukan-uuid"}], ids=["status", "suite_id"]
+)
+def test_nilai_filter_yang_tidak_dikenal_ditolak(penulis, params):
+    """Negatif: nilai filter di luar daftar ditolak 422, bukan diam-diam diabaikan, supaya salah
+    ketik di client terlihat dan tidak menampilkan semua kasus seolah-olah sudah terfilter."""
+    # Act
+    response = penulis.get("/cases", params=params)
+
+    # Assert
+    assert response.status_code == 422
