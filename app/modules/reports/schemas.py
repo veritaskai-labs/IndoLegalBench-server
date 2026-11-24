@@ -697,3 +697,40 @@ class PublishedReportListItem(BaseModel):
             published_by=publication.published_by,
             product_labels=product_labels,
         )
+
+
+class ReplaceMode(StrEnum):
+    """Arah ganti versi menurut status laporan yang sedang dibuka (SCRUM-371)."""
+
+    # Laporan tersimpan dibuka: pilih versi terbit yang diganti (publication_id = supersedes_id).
+    REPLACE_PUBLISHED = "replace_published"
+    # Laporan terbit dibuka: pilih laporan tersimpan pengganti (supersedes_id dari atas).
+    REPLACE_WITH_SAVED = "replace_with_saved"
+
+
+class ReplaceCandidateRead(BaseModel):
+    """Satu pilihan di dropdown ganti versi."""
+
+    report_id: uuid.UUID
+    publication_id: uuid.UUID | None = Field(
+        description="replace_published: kirim sebagai supersedes_id. replace_with_saved: null"
+    )
+    version_no: int | None = Field(
+        description="Nomor versi yang sedang terbit; null di replace_with_saved"
+    )
+    title: str
+    product_labels: list[str] = Field(description="Label produk beku, urut abjad")
+    date: datetime = Field(
+        description="replace_published: published_at. replace_with_saved: created_at"
+    )
+
+
+class ReplaceCandidates(BaseModel):
+    """GET /reports/{id}/replace-candidates: hanya laporan dengan himpunan produk yang sama."""
+
+    mode: ReplaceMode
+    replaces_publication_id: uuid.UUID | None = Field(
+        description="replace_with_saved: versi laporan ini, kirim sebagai supersedes_id saat "
+        "menerbitkan item yang dipilih. replace_published: null"
+    )
+    items: list[ReplaceCandidateRead]

@@ -27,7 +27,11 @@ from sqlalchemy.orm import Session
 from app.modules.reports import repository
 from app.modules.reports.models import PublishedReport, Report, ReportStatus
 from app.modules.reports.replacement import ensure_same_products
-from app.modules.reports.schemas import PublicationRead, PublishedReportListItem
+from app.modules.reports.schemas import (
+    PublicationRead,
+    PublishedReportListItem,
+    ReplaceCandidates,
+)
 from app.modules.reports.service import ensure_publishable
 from app.shared.exceptions import ConflictError, NotFoundError
 from app.shared.pagination import Page, PageParams
@@ -111,6 +115,11 @@ def list_published(db: Session, params: PageParams) -> Page[PublishedReportListI
         for row in rows
     ]
     return Page(items=items, total=total, page=params.page, size=params.size)
+
+
+def replace_candidates(db: Session, report_id: uuid.UUID) -> ReplaceCandidates:
+    """Pilihan ganti versi untuk laporan yang sedang dibuka: hanya yang produknya sama."""
+    raise NotImplementedError
 
 
 def _saved_report(db: Session, report_id: uuid.UUID) -> Report:
