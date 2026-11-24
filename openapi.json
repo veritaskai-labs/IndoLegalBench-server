@@ -6262,7 +6262,7 @@
           "reports"
         ],
         "summary": "Satu kasus di balik angka laporan, sampai jawaban asli tiap percobaan",
-        "description": "PBI-16 AC2 dan AC3: jawaban asli, skor, alasan, versi rubrik, dan data jawaban manual.",
+        "description": "PBI-16 AC2 dan AC3: jawaban asli, skor, alasan, versi rubrik, dan data jawaban manual.\n\n`other_products` memuat jawaban produk lain di laporan yang sama untuk kasus ini, dengan\nstatus `answered`, `not_graded` (tampilkan \"tidak dinilai\"), atau `no_answer`. Aturan akses\nsama dengan isi kasus, jadi peran tanpa hak mendapat 403 tanpa jawaban produk mana pun.",
         "operationId": "get_result_case_reports__report_id__results__result_id__cases__case_id__get",
         "parameters": [
           {
@@ -13133,6 +13133,16 @@
         ],
         "title": "NotificationRead"
       },
+      "OtherProductStatus": {
+        "type": "string",
+        "enum": [
+          "answered",
+          "no_answer",
+          "not_graded"
+        ],
+        "title": "OtherProductStatus",
+        "description": "Keadaan satu produk lain pada kasus yang sedang ditelusuri (PBI-16 SCRUM-370)."
+      },
       "OwnCaseSummary": {
         "properties": {
           "case_counts": {
@@ -14080,6 +14090,14 @@
             },
             "type": "array",
             "title": "Attempts"
+          },
+          "other_products": {
+            "items": {
+              "$ref": "#/components/schemas/ReportOtherProductRead"
+            },
+            "type": "array",
+            "title": "Other Products",
+            "description": "Produk lain di laporan yang sama untuk kasus ini, urut label; kosong bila laporan hanya memuat satu produk. Hanya dikirim ke peran yang boleh membuka isi kasus."
           }
         },
         "type": "object",
@@ -14098,7 +14116,8 @@
           "rubric_version",
           "det_score",
           "llm_score",
-          "attempts"
+          "attempts",
+          "other_products"
         ],
         "title": "ReportCaseDetailRead",
         "description": "Satu kasus di balik satu angka, dibuka sampai jawaban asli (D6 langkah 5-7).\n\nHanya dikirim ke peran yang boleh melihat isi kasus (AC3); peran lain mendapat 403."
@@ -14632,6 +14651,90 @@
         ],
         "title": "ReportNotComparableBody",
         "description": "409 REPORT_NOT_COMPARABLE: semua alasan sekaligus, bukan hanya yang pertama."
+      },
+      "ReportOtherProductRead": {
+        "properties": {
+          "result_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Result Id",
+            "description": "Angka laporan produk ini, jenis skor yang sama"
+          },
+          "product_label": {
+            "type": "string",
+            "title": "Product Label",
+            "description": "Label produk yang dibekukan di laporan (nama asli atau kode)"
+          },
+          "measurement_kind": {
+            "$ref": "#/components/schemas/MeasurementKind"
+          },
+          "is_trial": {
+            "type": "boolean",
+            "title": "Is Trial",
+            "description": "Sesi Uji Coba wajib diberi tanda yang jelas"
+          },
+          "status": {
+            "$ref": "#/components/schemas/OtherProductStatus",
+            "description": "answered: ada jawaban dinilai; not_graded: semua percobaan gagal teknis (tampilkan 'tidak dinilai'); no_answer: produk tidak menjawab kasus ini"
+          },
+          "rubric_version": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Rubric Version",
+            "description": "Versi rubrik run penilaian produk ini; kosong bila kasus tidak ada di run-nya"
+          },
+          "det_score": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Det Score"
+          },
+          "llm_score": {
+            "anyOf": [
+              {
+                "type": "string",
+                "pattern": "^(?!^[-+.]*$)[+-]?0*\\d*\\.?\\d*$"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Llm Score"
+          },
+          "attempts": {
+            "items": {
+              "$ref": "#/components/schemas/ReportAttemptRead"
+            },
+            "type": "array",
+            "title": "Attempts"
+          }
+        },
+        "type": "object",
+        "required": [
+          "result_id",
+          "product_label",
+          "measurement_kind",
+          "is_trial",
+          "status",
+          "rubric_version",
+          "det_score",
+          "llm_score",
+          "attempts"
+        ],
+        "title": "ReportOtherProductRead",
+        "description": "Jawaban satu produk lain di laporan yang sama untuk kasus yang sedang dibuka.\n\nTanpa id sesi, dan label produk memakai nilai beku laporan (nama asli atau kode)."
       },
       "ReportRead": {
         "properties": {

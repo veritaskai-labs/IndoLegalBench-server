@@ -27,16 +27,18 @@ from app.modules.reports.access import visible_case_code
 from app.modules.reports.models import Report, ReportResult
 from app.modules.reports.pdf_common import CONTACT_EMAIL
 from app.modules.reports.report_scoring import tags_for_split
-from app.modules.reports.repository import CaseBasisRow, ManualAnswerFacts
+from app.modules.reports.repository import CaseBasisRow, ManualAnswerFacts, OtherProductRow
 from app.modules.reports.schemas import (
+    OtherProductStatus,
     ReportAttemptRead,
     ReportCaseDetailRead,
     ReportCaseScoreRead,
+    ReportOtherProductRead,
     ReportResultCasesRead,
 )
 from app.modules.runs.case_visibility import can_view_drilldown_content
 from app.modules.runs.manual_evidence import EvidenceDownload
-from app.modules.runs.models import AttemptSource
+from app.modules.runs.models import AttemptSource, AttemptStatus
 from app.modules.runs.schemas import AttemptGradeResult, EvidenceRead, ScorePair
 from app.modules.runs.session_grade import DbGradingStore, RunCase, RunCaseScores
 from app.shared.exceptions import ForbiddenError, NotFoundError
@@ -123,6 +125,9 @@ def case_detail(
     Hak melihat isi dicek sebelum run penilaian dibaca (D6 langkah 6), jadi peran yang
     tidak berhak tidak pernah memicu pembacaan jawaban asli: Viewer, Kontributor untuk
     kasus dev, dan Developer AI untuk kasus test (AC3, D9). Yang dibaca hanya kasus ini.
+
+    Jawaban produk lain untuk kasus yang sama (SCRUM-370) dibaca setelah gerbang yang sama,
+    jadi aturan aksesnya tidak punya jalur kedua.
     """
     report, result, basis = _openable_case(db, report_id, result_id, case_id, user)
     reader = runs or DbGradingStore(db)
@@ -150,6 +155,7 @@ def case_detail(
         det_score=scores.deterministic if scores else None,
         llm_score=scores.quality if scores else None,
         attempts=[_attempt(attempt, manual) for attempt in graded.attempts],
+        other_products=_other_products(db, report, result, case_id, reader),
     )
 
 
@@ -229,6 +235,60 @@ def _basis_case(
     if basis is None:
         raise NotFoundError("Kasus tidak ada di balik angka ini.", code=REPORT_CASE_NOT_FOUND)
     return basis
+
+
+def _other_products(
+    db: Session,
+    report: Report,
+    result: ReportResult,
+    case_id: uuid.UUID,
+    reader: GradingRunReader,
+) -> list[ReportOtherProductRead]:
+    """Jawaban produk lain untuk kasus ini, tiap produk dari run beku sesinya (SCRUM-370).
+
+    Produk tanpa run beku adalah data rusak (laporan tidak menyimpan sesi tanpa run selesai),
+    jadi dilewati: itu tidak boleh menggagalkan detail kasus produk yang sedang dibuka.
+    """
+    comparison = []
+    for row in repository.other_product_results(db, report.id, result):
+        run_id = repository.grading_run_at(db, row.session_id, report.created_at)
+        if run_id is None:
+            continue
+        run = reader.get_grading_case(row.session_id, run_id, case_id)
+        comparison.append(_other_product(db, row, run))
+    return comparison
+
+
+def _other_product(
+    db: Session, row: OtherProductRow, run: RunCase | None
+) -> ReportOtherProductRead:
+    # Kasus yang tidak ada di run produk ini sama artinya dengan produk tidak menjawabnya.
+    graded = run.case if run else None
+    attempts = graded.attempts if graded else []
+    manual = _manual_facts(db, attempts)
+    scores = graded.scores if graded else None
+    return ReportOtherProductRead(
+        result_id=row.result_id,
+        product_label=row.product_label,
+        measurement_kind=row.measurement_kind,
+        is_trial=row.is_trial,
+        status=_comparison_status(attempts),
+        rubric_version=run.rubric_version if run else None,
+        det_score=scores.deterministic if scores else None,
+        llm_score=scores.quality if scores else None,
+        attempts=[_attempt(attempt, manual) for attempt in attempts],
+    )
+
+
+def _comparison_status(attempts: list[AttemptGradeResult]) -> OtherProductStatus:
+    """Dinilai bila ada percobaan bernilai; "tidak dinilai" bila percobaan selesai tetapi semuanya
+    gagal teknis; selain itu produk belum atau tidak menjawab (AC2 SCRUM-370)."""
+    if any(a.score is not None and not a.is_technical_disruption for a in attempts):
+        return OtherProductStatus.ANSWERED
+    finished = (AttemptStatus.SUCCEEDED, AttemptStatus.TECHNICAL_FAILURE)
+    if any(a.status in finished for a in attempts):
+        return OtherProductStatus.NOT_GRADED
+    return OtherProductStatus.NO_ANSWER
 
 
 def _manual_facts(
