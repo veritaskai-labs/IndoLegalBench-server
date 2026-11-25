@@ -12,6 +12,10 @@ import os
 os.environ["AUTH_OIDC_MODE"] = "fake"
 os.environ["APP_ENV"] = "local"
 os.environ["AUTH_DONE_URL_OVERRIDE"] = ""
+# The app lifespan runs session recovery against this URL on every TestClient
+# start. Without the pin it is .env's or the default Postgres, so unit tests
+# would connect to a real database (tests/test_unit_tests_use_sqlite.py).
+os.environ["DATABASE_URL"] = "sqlite://"
 
 import pytest
 from fastapi.testclient import TestClient
