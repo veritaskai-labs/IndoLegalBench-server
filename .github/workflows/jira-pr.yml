@@ -1,0 +1,35 @@
+name: Jira sync on PRs and branches
+
+# Subtask or task named in the branch or PR title (SCRUM-377):
+#   new branch -> In Progress, PR opened (not draft) -> In Review,
+#   merged into staging -> Done, closed without merge -> In Progress.
+# pull_request_target runs this file from staging, never from the PR branch,
+# and the reusable job never runs the PR's code.
+
+on:
+  pull_request_target:
+    types: [opened, reopened, ready_for_review, closed]
+    branches: [staging]
+  create:
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  pr:
+    # PRs from forks never get the secrets.
+    if: >-
+      github.event_name == 'pull_request_target' &&
+      github.event.pull_request.head.repo.full_name == github.repository
+    uses: ./.github/workflows/jira-sync.yml
+    with:
+      command: pr
+    secrets: inherit
+
+  branch:
+    if: github.event_name == 'create' && github.event.ref_type == 'branch'
+    uses: ./.github/workflows/jira-sync.yml
+    with:
+      command: branch
+    secrets: inherit
