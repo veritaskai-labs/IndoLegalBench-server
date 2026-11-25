@@ -30,6 +30,8 @@ from app.modules.cases.models import Case, CaseOrigin, CaseStatus, CaseVersion, 
 from app.modules.cases.schemas import (
     ActorRead,
     CaseCompleteness,
+    CaseListItem,
+    CasePage,
     CaseRead,
     CaseSummary,
     CaseWrite,
@@ -252,6 +254,45 @@ def list_cases(
     baris = repository.list_for_suite(db, suite_id, status=status, split_tag=split_tag)
     katalog = legal_refs_service.load_catalog(db)
     return [_to_summary(case, version, katalog) for case, version in baris]
+
+
+def list_all_cases(
+    db: Session,
+    *,
+    keyword: str | None = None,
+    status: CaseStatus | None = None,
+    suite_id: uuid.UUID | None = None,
+    page: int = 1,
+    size: int = 20,
+) -> CasePage:
+    """One page of the cases of every suite, for the case directory (PBI-4 AC3, SCRUM-339).
+
+    Each row is the per-suite summary plus its suite, read through suites.service
+    (import inside the function, see _require_suite). Only the rows of this page
+    are summarized (completeness is recalculated per row).
+    """
+    from app.modules.suites import service as suites_service
+
+    rows, total = repository.page_in_effect(
+        db,
+        keyword=keyword or None,
+        status=status,
+        suite_id=suite_id,
+        offset=(page - 1) * size,
+        limit=size,
+    )
+    suites = {sid: (name, archived) for sid, name, archived in suites_service.search_catalog(db)}
+    katalog = legal_refs_service.load_catalog(db)
+    items = [
+        CaseListItem(
+            **_to_summary(case, version, katalog).model_dump(),
+            suite_id=case.suite_id,
+            suite_name=suites[case.suite_id][0],
+            suite_archived=suites[case.suite_id][1],
+        )
+        for case, version in rows
+    ]
+    return CasePage(items=items, total=total, page=page, size=size)
 
 
 def list_cases_for_developer_ai(

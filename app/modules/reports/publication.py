@@ -8,7 +8,9 @@ Yang dijaga di service, bukan hanya oleh trigger Postgres (AC12):
 - skor dev ditolak (ensure_publishable);
 - hanya status saved yang bisa terbit;
 - pengganti menunjuk satu baris published_reports yang laporannya masih
-  published, dan version_no adalah version_no lama ditambah satu.
+  published, dan version_no adalah version_no lama ditambah satu;
+- pengganti membandingkan himpunan produk yang sama dengan versi yang diganti
+  (SCRUM-371, 409 REPORT_PRODUCTS_MISMATCH).
 
 Satu commit mencakup baris terbit baru dan kedua perubahan status, sama
 seperti urutan yang ditunggu trigger deferred: baris terbit ada dulu, baru
@@ -24,7 +26,14 @@ from sqlalchemy.orm import Session
 
 from app.modules.reports import repository
 from app.modules.reports.models import PublishedReport, Report, ReportStatus
-from app.modules.reports.schemas import PublicationRead, PublishedReportListItem
+from app.modules.reports.replacement import ensure_same_products
+from app.modules.reports.schemas import (
+    PublicationRead,
+    PublishedReportListItem,
+    ReplaceCandidateRead,
+    ReplaceCandidates,
+    ReplaceMode,
+)
 from app.modules.reports.service import ensure_publishable
 from app.shared.exceptions import ConflictError, NotFoundError
 from app.shared.pagination import Page, PageParams
@@ -61,6 +70,13 @@ def publish(
     """Terbitkan satu laporan tersimpan, atau ganti satu versi yang masih berlaku."""
     report = _saved_report(db, report_id)
     replaced = _replaced_version(db, supersedes_id)
+    if replaced is not None:
+        # Setelah kedua laporan dikunci (SCRUM-371). Produknya beku (report_sessions
+        # insert-only), jadi kunci menjaga status, dan cek ini memakai baris yang dipegang.
+        ensure_same_products(
+            repository.product_ids(db, report.id),
+            repository.product_ids(db, replaced.report.id),
+        )
     row = PublishedReport(
         report_id=report.id,
         version_no=1 if replaced is None else replaced.publication.version_no + 1,
@@ -101,6 +117,71 @@ def list_published(db: Session, params: PageParams) -> Page[PublishedReportListI
         for row in rows
     ]
     return Page(items=items, total=total, page=params.page, size=params.size)
+
+
+def replace_candidates(db: Session, report_id: uuid.UUID) -> ReplaceCandidates:
+    """Pilihan ganti versi untuk laporan yang sedang dibuka: hanya yang produknya sama.
+
+    Laporan tersimpan memilih versi terbit yang diganti; laporan terbit memilih laporan
+    tersimpan penggantinya. Aturan produknya satu (replacement.py lewat query repository),
+    dan POST publish menjaganya lagi di dalam kunci, jadi daftar ini hanya kenyamanan.
+    """
+    report = repository.get_report(db, report_id)
+    if report is None:
+        raise NotFoundError("Laporan tidak ditemukan.", code=REPORT_NOT_FOUND)
+    ensure_publishable(report)
+    if report.status is ReportStatus.SAVED:
+        return _candidates_for_saved(db, report_id)
+    # None untuk laporan superseded, dan untuk baris published tanpa versi terbit (data rusak).
+    current = repository.current_publication_of(db, report_id)
+    if current is None:
+        raise ConflictError(
+            "Hanya laporan tersimpan atau yang sedang terbit yang punya pilihan ganti versi.",
+            code=REPORT_NOT_PUBLISHABLE,
+        )
+    return _candidates_for_published(db, report_id, current.id)
+
+
+def _candidates_for_saved(db: Session, report_id: uuid.UUID) -> ReplaceCandidates:
+    rows = repository.replace_candidates_for_saved(db, report_id)
+    labels = repository.frozen_product_labels(db, [row.report.id for row in rows])
+    items = [
+        ReplaceCandidateRead(
+            report_id=row.report.id,
+            publication_id=row.publication.id,
+            version_no=row.publication.version_no,
+            title=row.report.title,
+            product_labels=labels.get(row.report.id, []),
+            date=row.publication.published_at,
+        )
+        for row in rows
+    ]
+    return ReplaceCandidates(
+        mode=ReplaceMode.REPLACE_PUBLISHED, replaces_publication_id=None, items=items
+    )
+
+
+def _candidates_for_published(
+    db: Session, report_id: uuid.UUID, publication_id: uuid.UUID
+) -> ReplaceCandidates:
+    reports = repository.replace_candidates_for_published(db, report_id)
+    labels = repository.frozen_product_labels(db, [candidate.id for candidate in reports])
+    items = [
+        ReplaceCandidateRead(
+            report_id=candidate.id,
+            publication_id=None,
+            version_no=None,
+            title=candidate.title,
+            product_labels=labels.get(candidate.id, []),
+            date=candidate.created_at,
+        )
+        for candidate in reports
+    ]
+    return ReplaceCandidates(
+        mode=ReplaceMode.REPLACE_WITH_SAVED,
+        replaces_publication_id=publication_id,
+        items=items,
+    )
 
 
 def _saved_report(db: Session, report_id: uuid.UUID) -> Report:

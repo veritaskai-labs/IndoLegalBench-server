@@ -1137,6 +1137,129 @@
         }
       }
     },
+    "/cases": {
+      "get": {
+        "tags": [
+          "cases"
+        ],
+        "summary": "Daftar kasus lintas suite dengan pencarian dan filter",
+        "description": "List the cases of every suite, newest update first (PBI-4 AC3, SCRUM-339).\n\nContributor and Admin only: rows are not masked, so Developer AI keeps the\nper-suite list that hides test cases.",
+        "operationId": "list_all_cases_cases_get",
+        "parameters": [
+          {
+            "name": "q",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "maxLength": 200
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Sebagian kode kasus atau judul, huruf besar/kecil tidak dibedakan. Kosong atau hanya spasi berarti tanpa kata kunci.",
+              "title": "Q"
+            },
+            "description": "Sebagian kode kasus atau judul, huruf besar/kecil tidak dibedakan. Kosong atau hanya spasi berarti tanpa kata kunci."
+          },
+          {
+            "name": "status",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/CaseStatus"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Status versi yang berlaku",
+              "title": "Status"
+            },
+            "description": "Status versi yang berlaku"
+          },
+          {
+            "name": "suite_id",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "type": "string",
+                  "format": "uuid"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Satu suite. Suite yang tidak ada memberi daftar kosong.",
+              "title": "Suite Id"
+            },
+            "description": "Satu suite. Suite yang tidak ada memberi daftar kosong."
+          },
+          {
+            "name": "page",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "minimum": 1,
+              "default": 1,
+              "title": "Page"
+            }
+          },
+          {
+            "name": "size",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "type": "integer",
+              "maximum": 100,
+              "minimum": 1,
+              "default": 20,
+              "title": "Size"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/CasePage"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Hanya Kontributor dan Admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
     "/cases/{case_id}": {
       "get": {
         "tags": [
@@ -1820,6 +1943,164 @@
           },
           "404": {
             "description": "Kasus atau suite tidak ditemukan.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/case-imports/template": {
+      "get": {
+        "tags": [
+          "case-imports"
+        ],
+        "summary": "Unduh template CSV impor kasus",
+        "description": "Template CSV dari sistem. case_code tidak ada karena dibuat sistem.",
+        "operationId": "download_import_template_case_imports_template_get",
+        "responses": {
+          "200": {
+            "description": "Header delapan kolom (title, question, category, split_tag, legal_refs, must_contain, must_not_contain, expected_conclusion), UTF-8 dengan BOM, pemisah koma. Kolom legal_refs, must_contain, must_not_contain berisi list JSON, misalnya [\"Pasal 1 KUHPerdata\"]; dari Google Sheets tulis apa adanya, kutip ganda di-escape otomatis saat diekspor.",
+            "content": {
+              "text/csv": {
+                "schema": {
+                  "type": "string"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Kontributor atau Admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/case-imports": {
+      "post": {
+        "tags": [
+          "case-imports"
+        ],
+        "summary": "Impor kasus dari satu berkas CSV",
+        "description": "Baris valid menjadi kasus draft di satu suite sementara, baris gagal dilaporkan dengan\nalasan, baris kembar dilewati. Nomor baris mengikuti spreadsheet.",
+        "operationId": "import_cases_case_imports_post",
+        "requestBody": {
+          "content": {
+            "multipart/form-data": {
+              "schema": {
+                "properties": {
+                  "file": {
+                    "type": "string",
+                    "format": "binary",
+                    "description": "Berkas .csv dari template, UTF-8, pemisah koma"
+                  }
+                },
+                "type": "object",
+                "required": [
+                  "file"
+                ]
+              }
+            }
+          },
+          "required": true
+        },
+        "responses": {
+          "201": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportSummaryRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Kontributor atau Admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Seluruh berkas ditolak, tidak ada yang disimpan: tanpa berkas (`IMPORT_FILE_REQUIRED`), bukan .csv (`IMPORT_FILE_NOT_CSV`), bukan UTF-8 (`IMPORT_FILE_NOT_UTF8`), terlalu besar (`IMPORT_FILE_TOO_LARGE`), rusak (`IMPORT_FILE_UNREADABLE`), header beda dari template (`IMPORT_HEADER_MISMATCH`, `expected` berisi header yang benar), tanpa baris kasus (`IMPORT_FILE_EMPTY`), atau lebih dari 500 baris (`IMPORT_TOO_MANY_ROWS`).",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/case-imports/{batch_id}": {
+      "get": {
+        "tags": [
+          "case-imports"
+        ],
+        "summary": "Buka lagi ringkasan satu impor CSV",
+        "description": "Ringkasan yang sama dengan respons impor, dibaca dari tabel impor. Hanya untuk pengimpor\nbatch itu dan Admin; pengguna lain mendapat 404.",
+        "operationId": "read_import_summary_case_imports__batch_id__get",
+        "parameters": [
+          {
+            "name": "batch_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Batch Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ImportSummaryRead"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Kontributor atau Admin.",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Batch tidak ada, atau bukan milik pengguna ini dan bukan Admin (`IMPORT_BATCH_NOT_FOUND`).",
             "content": {
               "application/json": {
                 "schema": {
@@ -6047,7 +6328,81 @@
             }
           },
           "409": {
-            "description": "Tidak bisa diterbitkan",
+            "description": "Tidak bisa diterbitkan (`REPORT_NOT_PUBLISHABLE`, `REPORT_HAS_DEV_SCORES`), atau pengganti membandingkan produk lain (`REPORT_PRODUCTS_MISMATCH`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "422": {
+            "description": "Validation Error",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/HTTPValidationError"
+                }
+              }
+            }
+          }
+        }
+      }
+    },
+    "/reports/{report_id}/replace-candidates": {
+      "get": {
+        "tags": [
+          "reports"
+        ],
+        "summary": "Pilihan ganti versi: hanya laporan dengan produk yang sama",
+        "description": "Admin saja, sama dengan POST publish. Kedua jalur FE memakai rute ini (SCRUM-371).",
+        "operationId": "list_replace_candidates_reports__report_id__replace_candidates_get",
+        "parameters": [
+          {
+            "name": "report_id",
+            "in": "path",
+            "required": true,
+            "schema": {
+              "type": "string",
+              "format": "uuid",
+              "title": "Report Id"
+            }
+          }
+        ],
+        "responses": {
+          "200": {
+            "description": "Successful Response",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ReplaceCandidates"
+                }
+              }
+            }
+          },
+          "403": {
+            "description": "Bukan Admin",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "404": {
+            "description": "Laporan tidak ada (`REPORT_NOT_FOUND`)",
+            "content": {
+              "application/json": {
+                "schema": {
+                  "$ref": "#/components/schemas/ErrorBody"
+                }
+              }
+            }
+          },
+          "409": {
+            "description": "Laporan berisi skor dev (`REPORT_HAS_DEV_SCORES`) atau sudah digantikan (`REPORT_NOT_PUBLISHABLE`)",
             "content": {
               "application/json": {
                 "schema": {
@@ -9654,6 +10009,122 @@
         "title": "CaseIdentity",
         "description": "Title, question, and optional category for one case."
       },
+      "CaseIdentityRead": {
+        "properties": {
+          "title": {
+            "type": "string",
+            "maxLength": 300,
+            "title": "Title",
+            "description": "Judul pertanyaan; kosong hanya pada draft impor"
+          },
+          "question": {
+            "type": "string",
+            "maxLength": 20000,
+            "title": "Question",
+            "description": "Pertanyaan hukum; kosong hanya pada draft impor"
+          },
+          "category": {
+            "anyOf": [
+              {
+                "type": "string",
+                "maxLength": 120
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Category"
+          }
+        },
+        "type": "object",
+        "required": [
+          "title",
+          "question"
+        ],
+        "title": "CaseIdentityRead",
+        "description": "Identitas kasus saat dibaca. Judul dan pertanyaan boleh kosong hanya pada draft hasil impor\nCSV: kasus lama masuk dengan field lebih sedikit lalu dilengkapi. Menyimpan lewat editor tetap\nmemakai CaseIdentity, yang mewajibkan keduanya."
+      },
+      "CaseListItem": {
+        "properties": {
+          "id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Id"
+          },
+          "case_code": {
+            "type": "string",
+            "title": "Case Code"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "split_tag": {
+            "anyOf": [
+              {
+                "$ref": "#/components/schemas/SplitTag"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "description": "Kosong hanya pada draft hasil impor atau duplikasi (PBI-4 AC2, AC8)"
+          },
+          "status": {
+            "$ref": "#/components/schemas/CaseStatus"
+          },
+          "origin": {
+            "$ref": "#/components/schemas/CaseOrigin",
+            "default": "manual"
+          },
+          "completeness_pct": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 0.0,
+            "title": "Completeness Pct"
+          },
+          "updated_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Updated At"
+          },
+          "masked": {
+            "type": "boolean",
+            "title": "Masked",
+            "description": "True for a test case shown to Developer AI: case_code and title are server placeholders and the case cannot be opened (SCRUM-183).",
+            "default": false
+          },
+          "suite_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Suite Id"
+          },
+          "suite_name": {
+            "type": "string",
+            "title": "Suite Name"
+          },
+          "suite_archived": {
+            "type": "boolean",
+            "title": "Suite Archived",
+            "description": "True when the suite is archived; its cases stay listed"
+          }
+        },
+        "type": "object",
+        "required": [
+          "id",
+          "case_code",
+          "title",
+          "split_tag",
+          "status",
+          "completeness_pct",
+          "updated_at",
+          "suite_id",
+          "suite_name",
+          "suite_archived"
+        ],
+        "title": "CaseListItem",
+        "description": "One row of GET /cases: the suite summary plus the suite it belongs to (SCRUM-339)."
+      },
       "CaseNotReadyBody": {
         "properties": {
           "code": {
@@ -9694,6 +10165,43 @@
         "title": "CaseOrigin",
         "description": "Cara kasus masuk ke platform (D8). Kasus lama sebelum PBI-4 semuanya manual."
       },
+      "CasePage": {
+        "properties": {
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/CaseListItem"
+            },
+            "type": "array",
+            "title": "Items"
+          },
+          "total": {
+            "type": "integer",
+            "minimum": 0.0,
+            "title": "Total",
+            "description": "Rows matching the filters, over every page"
+          },
+          "page": {
+            "type": "integer",
+            "minimum": 1.0,
+            "title": "Page"
+          },
+          "size": {
+            "type": "integer",
+            "maximum": 100.0,
+            "minimum": 1.0,
+            "title": "Size"
+          }
+        },
+        "type": "object",
+        "required": [
+          "items",
+          "total",
+          "page",
+          "size"
+        ],
+        "title": "CasePage",
+        "description": "One page of GET /cases, newest update first (PBI-4 AC3, SCRUM-339)."
+      },
       "CaseRead": {
         "properties": {
           "id": {
@@ -9711,7 +10219,7 @@
             "title": "Case Code"
           },
           "identity": {
-            "$ref": "#/components/schemas/CaseIdentity"
+            "$ref": "#/components/schemas/CaseIdentityRead"
           },
           "legal_refs": {
             "items": {
@@ -11183,6 +11691,146 @@
           "database"
         ],
         "title": "HealthResponse"
+      },
+      "ImportRowRead": {
+        "properties": {
+          "row_no": {
+            "type": "integer",
+            "minimum": 2.0,
+            "title": "Row No",
+            "description": "Nomor baris di spreadsheet; header adalah baris 1"
+          },
+          "status": {
+            "$ref": "#/components/schemas/ImportRowStatus"
+          },
+          "case_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Id",
+            "description": "Hanya untuk status created"
+          },
+          "case_code": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Case Code",
+            "description": "Kode buatan sistem, hanya created"
+          },
+          "reason": {
+            "anyOf": [
+              {
+                "type": "string"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Reason",
+            "description": "Alasan gagal atau dilewati"
+          }
+        },
+        "type": "object",
+        "required": [
+          "row_no",
+          "status"
+        ],
+        "title": "ImportRowRead",
+        "description": "Hasil satu baris. Nomor baris mengikuti spreadsheet (header = baris 1)."
+      },
+      "ImportRowStatus": {
+        "type": "string",
+        "enum": [
+          "created",
+          "failed",
+          "skipped"
+        ],
+        "title": "ImportRowStatus",
+        "description": "Hasil satu baris CSV impor (D7): jadi kasus, gagal validasi, atau dilewati kembar."
+      },
+      "ImportSummaryRead": {
+        "properties": {
+          "batch_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Batch Id"
+          },
+          "file_name": {
+            "type": "string",
+            "title": "File Name"
+          },
+          "imported_by": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Imported By"
+          },
+          "imported_at": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Imported At"
+          },
+          "suite_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Suite Id",
+            "description": "Suite sementara tempat semua kasus berkas ini"
+          },
+          "suite_name": {
+            "type": "string",
+            "title": "Suite Name"
+          },
+          "total_rows": {
+            "type": "integer",
+            "title": "Total Rows",
+            "description": "Baris kasus yang dibaca; baris kosong tidak dihitung"
+          },
+          "success_count": {
+            "type": "integer",
+            "title": "Success Count"
+          },
+          "failed_count": {
+            "type": "integer",
+            "title": "Failed Count"
+          },
+          "skipped_count": {
+            "type": "integer",
+            "title": "Skipped Count"
+          },
+          "rows": {
+            "items": {
+              "$ref": "#/components/schemas/ImportRowRead"
+            },
+            "type": "array",
+            "title": "Rows"
+          }
+        },
+        "type": "object",
+        "required": [
+          "batch_id",
+          "file_name",
+          "imported_by",
+          "imported_at",
+          "suite_id",
+          "suite_name",
+          "total_rows",
+          "success_count",
+          "failed_count",
+          "skipped_count",
+          "rows"
+        ],
+        "title": "ImportSummaryRead",
+        "description": "Ringkasan impor (AC7): berhasil, gagal beserta alasannya, dan dilewati."
       },
       "InReviewCase": {
         "properties": {
@@ -13512,6 +14160,113 @@
         ],
         "title": "RegulationTypeRead",
         "description": "Satu jenis peraturan untuk dropdown editor (AC2)."
+      },
+      "ReplaceCandidateRead": {
+        "properties": {
+          "report_id": {
+            "type": "string",
+            "format": "uuid",
+            "title": "Report Id"
+          },
+          "publication_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Publication Id",
+            "description": "replace_published: kirim sebagai supersedes_id. replace_with_saved: null"
+          },
+          "version_no": {
+            "anyOf": [
+              {
+                "type": "integer"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Version No",
+            "description": "Nomor versi yang sedang terbit; null di replace_with_saved"
+          },
+          "title": {
+            "type": "string",
+            "title": "Title"
+          },
+          "product_labels": {
+            "items": {
+              "type": "string"
+            },
+            "type": "array",
+            "title": "Product Labels",
+            "description": "Label produk beku, urut abjad"
+          },
+          "date": {
+            "type": "string",
+            "format": "date-time",
+            "title": "Date",
+            "description": "replace_published: published_at. replace_with_saved: created_at"
+          }
+        },
+        "type": "object",
+        "required": [
+          "report_id",
+          "publication_id",
+          "version_no",
+          "title",
+          "product_labels",
+          "date"
+        ],
+        "title": "ReplaceCandidateRead",
+        "description": "Satu pilihan di dropdown ganti versi."
+      },
+      "ReplaceCandidates": {
+        "properties": {
+          "mode": {
+            "$ref": "#/components/schemas/ReplaceMode"
+          },
+          "replaces_publication_id": {
+            "anyOf": [
+              {
+                "type": "string",
+                "format": "uuid"
+              },
+              {
+                "type": "null"
+              }
+            ],
+            "title": "Replaces Publication Id",
+            "description": "replace_with_saved: versi laporan ini, kirim sebagai supersedes_id saat menerbitkan item yang dipilih. replace_published: null"
+          },
+          "items": {
+            "items": {
+              "$ref": "#/components/schemas/ReplaceCandidateRead"
+            },
+            "type": "array",
+            "title": "Items"
+          }
+        },
+        "type": "object",
+        "required": [
+          "mode",
+          "replaces_publication_id",
+          "items"
+        ],
+        "title": "ReplaceCandidates",
+        "description": "GET /reports/{id}/replace-candidates: hanya laporan dengan himpunan produk yang sama."
+      },
+      "ReplaceMode": {
+        "type": "string",
+        "enum": [
+          "replace_published",
+          "replace_with_saved"
+        ],
+        "title": "ReplaceMode",
+        "description": "Arah ganti versi menurut status laporan yang sedang dibuka (SCRUM-371)."
       },
       "ReplaceReviewerRequest": {
         "properties": {

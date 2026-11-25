@@ -9,8 +9,8 @@ Isi file ini murni query, tanpa logika bisnis.
 import uuid
 from collections.abc import Iterator
 
-from sqlalchemy import func, select
-from sqlalchemy.orm import Session, selectinload
+from sqlalchemy import func, literal, or_, select, union
+from sqlalchemy.orm import Session, aliased, selectinload
 
 from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
 
@@ -31,6 +31,15 @@ def get_by_id(db: Session, case_id: uuid.UUID) -> Case | None:
 def get_by_code(db: Session, case_code: str) -> Case | None:
     """Find a case_code across every suite. The code is globally unique."""
     return db.query(Case).filter(Case.case_code == case_code).one_or_none()
+
+
+def _in_effect_version_id():
+    """The version a case shows: the latest approved one, else the current one.
+
+    One definition for the per-suite list, the case directory and the dashboard
+    counts, so they can never disagree about a case's status or title.
+    """
+    return func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
 
 
 def search_candidates(
@@ -63,7 +72,7 @@ def list_for_suite(
     That version is the latest approved one when it exists, otherwise the
     current version. Newest update of that version comes first.
     """
-    in_effect_id = func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
+    in_effect_id = _in_effect_version_id()
     query = (
         db.query(Case, CaseVersion)
         .join(CaseVersion, CaseVersion.id == in_effect_id)
@@ -76,6 +85,78 @@ def list_for_suite(
     return query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc()).all()
 
 
+def page_in_effect(
+    db: Session,
+    *,
+    keyword: str | None = None,
+    status: CaseStatus | None = None,
+    suite_id: uuid.UUID | None = None,
+    offset: int = 0,
+    limit: int = 20,
+) -> tuple[list[tuple[Case, CaseVersion]], int]:
+    """One page of cases with the version in effect, across suites, and the total (SCRUM-339).
+
+    Same in-effect rule and order as list_for_suite, so the directory and the
+    per-suite list never disagree. status filters on the in-effect version, so
+    an approved case with an open revision counts as approved (like
+    count_by_status). keyword matches part of the case code or of the in-effect
+    title, ignoring letter case, with % _ and \\ taken literally. Filters
+    combine with AND. Paging happens in SQL; the case code is the second sort
+    key so pages never overlap when update times tie.
+    """
+    in_effect_id = _in_effect_version_id()
+    query = db.query(Case, CaseVersion).join(CaseVersion, CaseVersion.id == in_effect_id)
+    if status is not None:
+        query = query.filter(CaseVersion.status == status)
+    if suite_id is not None:
+        query = query.filter(Case.suite_id == suite_id)
+    if keyword is not None:
+        query = query.filter(*_keyword_filters(keyword))
+    total = query.count()
+    rows = (
+        query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc())
+        .offset(offset)
+        .limit(limit)
+        .all()
+    )
+    return rows, total
+
+
+def _keyword_filters(keyword: str) -> tuple:
+    """Filters for part of the case code or of the in-effect title (SCRUM-339).
+
+    Two steps, so PostgreSQL can use the trigram indexes (migration ff8f38c22a8e):
+    1. candidate case ids from each index on its own: codes that match, plus cases
+       with any version whose title matches;
+    2. the exact rule on the joined in-effect row, so a draft revision's title
+       never makes an approved case match.
+    A single OR across the two joined tables cannot use either index (measured:
+    two sequential scans over every row). The subqueries use aliases so they are
+    not correlated with the outer query.
+
+    The pattern is lowercased by the database's own lower(), the same function
+    as the columns and the indexes. Python's str.lower() can disagree with it
+    ("İ" becomes "i" plus a combining dot), so a keyword copied from a title
+    would miss. Lowercasing never touches the % _ and \\ escapes.
+    """
+    pola = func.lower(literal("%" + _escape_like(keyword) + "%"))
+    kasus, versi = aliased(Case), aliased(CaseVersion)
+    calon = union(
+        select(kasus.id).where(func.lower(kasus.case_code).like(pola, escape="\\")),
+        select(versi.case_id).where(
+            func.lower(versi.content["title"].as_string()).like(pola, escape="\\")
+        ),
+    )
+    judul = CaseVersion.content["title"].as_string()
+    return (
+        Case.id.in_(calon),
+        or_(
+            func.lower(Case.case_code).like(pola, escape="\\"),
+            func.lower(judul).like(pola, escape="\\"),
+        ),
+    )
+
+
 def count_by_status(db: Session, *, created_by: uuid.UUID | None = None) -> dict[CaseStatus, int]:
     """Count cases by the status of their in-effect version, in one GROUP BY.
 
@@ -83,7 +164,7 @@ def count_by_status(db: Session, *, created_by: uuid.UUID | None = None) -> dict
     created_by limits the count to one writer's cases (PBI-24 AC6); None counts
     every case.
     """
-    in_effect_id = func.coalesce(Case.latest_approved_version_id, Case.current_version_id)
+    in_effect_id = _in_effect_version_id()
     query = db.query(CaseVersion.status, func.count(Case.id)).join(
         CaseVersion, CaseVersion.id == in_effect_id
     )

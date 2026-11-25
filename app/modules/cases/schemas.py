@@ -77,6 +77,20 @@ class CaseIdentity(BaseModel):
         return bersih or None
 
 
+class CaseIdentityRead(BaseModel):
+    """Identitas kasus saat dibaca. Judul dan pertanyaan boleh kosong hanya pada draft hasil impor
+    CSV: kasus lama masuk dengan field lebih sedikit lalu dilengkapi. Menyimpan lewat editor tetap
+    memakai CaseIdentity, yang mewajibkan keduanya."""
+
+    title: str = Field(
+        max_length=300, description="Judul pertanyaan; kosong hanya pada draft impor"
+    )
+    question: str = Field(
+        max_length=20000, description="Pertanyaan hukum; kosong hanya pada draft impor"
+    )
+    category: str | None = Field(default=None, max_length=120)
+
+
 class _LegalRefLinkBase(BaseModel):
     """Fields shared by the write and read shape of one regulation in a citation (PBI-21)."""
 
@@ -272,7 +286,7 @@ class CaseRead(BaseModel):
     id: uuid.UUID
     suite_id: uuid.UUID
     case_code: str
-    identity: CaseIdentity
+    identity: CaseIdentityRead
     legal_refs: list[LegalRefRead]
     answer_criteria: AnswerCriteria
     split_tag: SplitTag | None = Field(
@@ -321,6 +335,25 @@ class CaseSummary(BaseModel):
             "server placeholders and the case cannot be opened (SCRUM-183)."
         ),
     )
+
+
+class CaseListItem(CaseSummary):
+    """One row of GET /cases: the suite summary plus the suite it belongs to (SCRUM-339)."""
+
+    suite_id: uuid.UUID
+    suite_name: str
+    suite_archived: bool = Field(
+        description="True when the suite is archived; its cases stay listed"
+    )
+
+
+class CasePage(BaseModel):
+    """One page of GET /cases, newest update first (PBI-4 AC3, SCRUM-339)."""
+
+    items: list[CaseListItem]
+    total: int = Field(ge=0, description="Rows matching the filters, over every page")
+    page: int = Field(ge=1)
+    size: int = Field(ge=1, le=100)
 
 
 class CompletenessIssue(BaseModel):

@@ -10,7 +10,6 @@ from urllib.parse import quote
 
 from fastapi import APIRouter, Depends, Query, Request, Response, status
 from fastapi.concurrency import run_in_threadpool
-from starlette.types import Message
 
 from app.modules.auth.schemas import ErrorBody
 from app.modules.runs import manual_evidence_rules as evidence_rules
@@ -41,6 +40,7 @@ from app.modules.runs.session_list import SessionListService
 from app.shared.config import Settings, get_settings
 from app.shared.exceptions import ValidationError
 from app.shared.security import CurrentUser, Role, require_roles
+from app.shared.upload_limits import capped_body, reject_oversized
 
 router = APIRouter(prefix="/manual-measurements", tags=["manual-measurements"])
 
@@ -224,8 +224,6 @@ _EVIDENCE_409 = {
 _DELETE_409 = {"model": ErrorBody, "description": f"{_CLOSED_SESSION}."}
 
 
-# Ruang untuk boundary dan header multipart di atas batas berkas.
-_MULTIPART_OVERHEAD = 64 * 1024
 # Body ditulis manual (bukan File/Form) supaya Content-Length dicek sebelum multipart dibaca;
 # schema ini menjaga kontrak OpenAPI tetap menyebut kedua field untuk FE.
 _EVIDENCE_FORM = {
@@ -249,36 +247,6 @@ _EVIDENCE_FORM = {
         },
     }
 }
-
-
-def _reject_oversized(request: Request, limit_bytes: int) -> None:
-    """Review #121: Starlette menampung seluruh body multipart sebelum handler membaca berkas,
-    jadi unggahan raksasa ditolak dari Content-Length sebelum body diterima. Tanpa header itu
-    (chunked), _capped_body yang menghentikannya."""
-    try:
-        length = int(request.headers.get("content-length", ""))
-    except ValueError:
-        return
-    if length > limit_bytes + _MULTIPART_OVERHEAD:
-        raise evidence_rules.too_large(limit_bytes)
-
-
-def _capped_body(request: Request, limit_bytes: int) -> Request:
-    """Re-review #121: Starlette tidak membatasi part berkas, jadi tanpa ini unggahan chunked
-    raksasa ditampung utuh ke disk sebelum ditolak. Body dihitung saat diterima dan dihentikan
-    begitu lewat batas; parser multipart menutup berkas sementaranya sendiri."""
-    cap = limit_bytes + _MULTIPART_OVERHEAD
-    received = 0
-
-    async def receive() -> Message:
-        nonlocal received
-        message = await request.receive()
-        received += len(message.get("body", b""))
-        if received > cap:
-            raise evidence_rules.too_large(limit_bytes)
-        return message
-
-    return Request(request.scope, receive)
 
 
 @router.post(
@@ -314,9 +282,11 @@ async def add_manual_evidence(
     settings: Settings = Depends(get_settings),
 ) -> EvidenceRead:
     limit = settings.manual_evidence_max_bytes
-    _reject_oversized(request, limit)
+    reject_oversized(request, limit, evidence_rules.too_large)
     actor = uuid.UUID(str(user.user_id))
-    async with _capped_body(request, limit).form(max_files=1, max_fields=1) as form:
+    async with capped_body(request, limit, evidence_rules.too_large).form(
+        max_files=1, max_fields=1
+    ) as form:
         file, url = form.get("file"), form.get("url")
         if isinstance(file, str) or (file is None) == (url is None):
             raise ValidationError(
