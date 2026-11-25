@@ -7,6 +7,8 @@ PR body. No network here: every input is a plain value.
 from datetime import UTC, datetime, timedelta
 
 import pytest
+
+from scripts.jira_sync import rules
 from scripts.jira_sync.rules import (
     DONE,
     IN_PROGRESS,
@@ -16,8 +18,6 @@ from scripts.jira_sync.rules import (
     Comment,
     Ticket,
 )
-
-from scripts.jira_sync import rules
 
 PO = "po-account"
 ENTERED = datetime(2026, 11, 26, 9, 0, tzinfo=UTC)
