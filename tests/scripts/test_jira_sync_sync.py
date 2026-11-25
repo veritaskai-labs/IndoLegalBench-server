@@ -242,7 +242,7 @@ def deploy_event(conclusion="success"):
         "workflow_run": {
             "id": 100,
             "workflow_id": 7,
-            "head_sha": "abcdef1234",
+            "head_sha": "abcdef1234",  # pragma: allowlist secret
             "conclusion": conclusion,
             "html_url": "https://run/100",
         },

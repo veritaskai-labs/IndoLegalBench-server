@@ -18,4 +18,4 @@ jobs:
     uses: ./.github/workflows/jira-sync.yml
     with:
       command: po-review
-    secrets: inherit
+    secrets: inherit  # pragma: allowlist secret
