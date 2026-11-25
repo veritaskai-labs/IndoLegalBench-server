@@ -20,6 +20,7 @@ from app.modules.auth.cookies import (
     session_id_from_cookie,
     set_session_cookie,
 )
+from app.modules.auth.login_log import log_login_outcome
 from app.modules.auth.oidc import OidcClient, get_oidc_client
 from app.modules.auth.schemas import (
     ConfirmationRequiredBody,
@@ -157,11 +158,14 @@ def callback(
     try:
         result = service.complete_login(db, oidc=oidc, code=code, state=state)
     except DomainError as error:
+        # Never a 5xx, so this log line is the only place a failed login shows up.
+        log_login_outcome(error.code)
         return RedirectResponse(
             url=_done_url_with_error(settings.auth_done_url, error.code),
             status_code=302,
         )
 
+    log_login_outcome(None)
     response = RedirectResponse(url=result.redirect_url, status_code=302)
     set_session_cookie(response, settings, result.session_id)
     return response

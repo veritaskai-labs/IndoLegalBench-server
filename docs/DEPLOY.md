@@ -205,6 +205,10 @@ starts the database, runs `alembic upgrade head`, then starts everything. The
 first build takes a few minutes, most of it the web app. Run the same command
 for every later update. Only one deploy runs at a time on the VM; a second one
 waits for the first.
+It ends by waiting up to 3 minutes for the new API to pass its healthcheck
+(`/health`, which also checks the database). If it does not, it prints the API's
+last 40 log lines and exits 1, so a CD run that broke the API turns red and
+GitHub emails whoever merged, instead of a UAT tester finding the 502.
 
 dev is redeployed automatically after every merge to `staging` (section 9).
 prod is deployed by hand after a release (section 10).
@@ -550,4 +554,11 @@ already has the script, which is any `staging` deployed after it was merged.
 - `/docs` and `/openapi.json` are public on both stacks. Worth closing on prod.
 - Sessions that simply expire in the browser are never deleted from the
   database. Harmless for now, needs a periodic cleanup later.
-- Monitoring. Veritask's own Tencent-based infra is the plan for that.
+- Monitoring dashboards and alerts. Veritask's own monitoring ecosystem is the
+  plan for that; no third-party monitoring is installed (Veritask, 24 Nov 2026).
+  The app already writes signals any log tool can collect from the containers'
+  stdout: one line per login result, `login outcome=ok` or
+  `login outcome=<CODE> kind=<system|flow|account>` (logger `app.auth.login`;
+  `OIDC_EXCHANGE_FAILED` is the only ERROR and means nobody can log in). Read it
+  with `docker compose logs api | grep "login outcome"`. A deploy whose API never
+  turns healthy fails `deploy.sh` (section 4).

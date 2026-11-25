@@ -46,6 +46,7 @@ from app.modules.runs.router import results_router
 from app.modules.runs.router import router as runs_router
 from app.modules.search.router import router as search_router
 from app.modules.suites.router import router as suites_router
+from app.shared.app_logging import send_app_logs_to_stdout
 from app.shared.config import get_settings
 from app.shared.dev_db import bootstrap_local_sqlite
 from app.shared.exceptions import DomainError, SessionExpiredError
@@ -58,6 +59,9 @@ from app.shared.validation_errors import detail_aman
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
+
+# INFO lines of app.* (e.g. login outcomes) reach the container's stdout under uvicorn.
+send_app_logs_to_stdout()
 
 # PBI-18: setiap perubahan di tabel katalog D6a tercatat otomatis.
 audit_listener.install()

@@ -47,6 +47,26 @@ main() {
   docker image prune -f > /dev/null
 
   docker compose ps
+  wait_until_healthy api 180
+}
+
+# A deploy only counts when the new API passes its own healthcheck (/health,
+# which also checks the database). Otherwise exit 1, so the CD job turns red and
+# GitHub emails whoever merged, instead of a UAT tester finding the 502.
+wait_until_healthy() {
+  local service="$1" seconds="$2" id status=""
+  id="$(docker compose ps -q "$service")"
+  for ((waited = 0; waited < seconds; waited += 5)); do
+    status="$(docker inspect -f '{{.State.Health.Status}}' "$id" 2>/dev/null || echo missing)"
+    case "$status" in
+      healthy) echo "$service is healthy"; return 0 ;;
+      unhealthy | missing) break ;;
+    esac
+    sleep 5
+  done
+  echo "$service is not healthy after deploy (status: ${status:-unknown})" >&2
+  docker compose logs --tail 40 "$service" >&2
+  exit 1
 }
 
 main "$@"; exit
