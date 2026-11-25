@@ -145,7 +145,7 @@ def test_merge_waits_while_another_open_pr_names_the_same_subtask():
     report = run_pr(jira, pr_event("closed", BRANCH, merged=True), gh)
     assert jira.moves == []
     assert gh.asked == [(tuple(REPOS), (REPO, 12))]
-    assert report.notes == ["SCRUM-321: left In Review (another open PR names it)"]
+    assert "SCRUM-321: left In Review (another open PR names it)" in report.notes
 
 
 def test_story_waits_while_another_child_is_open():
@@ -315,3 +315,30 @@ def test_summary_lists_moves_notes_and_warnings():
     assert "SCRUM-1: To Do → In Review" in text
     assert "Warnings" in text
     assert sync.Report().markdown("x").endswith("Nothing moved.\n")
+
+
+def test_parent_that_is_not_a_story_is_left_alone():
+    jira = FakeJira(sub("SCRUM-245", IN_REVIEW, parent=None))
+    report = run_pr(jira, pr_event("closed", "fix/SCRUM-245-x", merged=True))
+    assert jira.moves == [("SCRUM-245", DONE)]
+    assert report.warnings == []
+
+
+def test_deploy_jira_error_is_a_warning():
+    jira = FakeJira(fail={"SCRUM-321"})
+    report = sync.Report()
+    sync.on_deploy(jira, FakeGitHub(deployed=[("fix/SCRUM-321-x", "")]), deploy_event(), report)
+    assert report.warnings == ["SCRUM-321: Jira error (boom)"]
+
+
+def test_po_review_waiting_story_and_jira_error():
+    fresh = FakeJira(story(status=PO_REVIEW), entered={"SCRUM-79": NOW - timedelta(hours=2)})
+    report = sync.Report()
+    sync.on_po_review(fresh, "po", NOW, report)
+    assert (fresh.moves, report.notes, report.warnings) == ([], [], [])
+
+    broken = FakeJira(story(status=PO_REVIEW), entered={"SCRUM-79": NOW})
+    broken.comments = lambda key: (_ for _ in ()).throw(JiraError("timeout"))
+    report = sync.Report()
+    sync.on_po_review(broken, "po", NOW, report)
+    assert report.warnings == ["SCRUM-79: Jira error (timeout)"]

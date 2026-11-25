@@ -12,10 +12,10 @@ import urllib.error
 from datetime import UTC, datetime
 
 import pytest
-from scripts.jira_sync.clients import GitHubClient, JiraClient, JiraError
-from scripts.jira_sync.rules import DONE, IN_REVIEW, PO_REVIEW
 
 from scripts.jira_sync import rules
+from scripts.jira_sync.clients import GitHubClient, JiraClient, JiraError
+from scripts.jira_sync.rules import DONE, IN_REVIEW, PO_REVIEW
 
 
 class FakeHttp:
@@ -274,3 +274,43 @@ def test_first_ever_deploy_has_no_range_and_reports_nothing():
         }
     )
     assert client.deployed_prs("org/server", workflow_id=7, run_id=100, head_sha="new") == []
+
+
+def test_entered_status_at_follows_changelog_pages():
+    first = {
+        "values": [
+            {
+                "created": "2026-11-20T10:00:00.000+0700",
+                "items": [{"field": "status", "to": PO_REVIEW}],
+            }
+        ],
+        "isLast": False,
+    }
+    second = {"values": [], "isLast": True}
+    client, http = jira(
+        {
+            ("GET", API + "/issue/SCRUM-79/changelog?startAt=1"): second,
+            ("GET", API + "/issue/SCRUM-79/changelog?startAt=0"): first,
+        }
+    )
+    assert client.entered_status_at("SCRUM-79", PO_REVIEW) == datetime(
+        2026, 11, 20, 3, 0, tzinfo=UTC
+    )
+    assert len(http.calls) == 2
+
+
+def test_comment_text_skips_non_text_nodes():
+    payload = {
+        "comments": [
+            {
+                "author": {"accountId": "po"},
+                "body": {
+                    "type": "doc",
+                    "content": [{"type": "mention"}, "stray", {"type": "text", "text": "ACC"}],
+                },
+                "created": "2026-11-26T10:00:00.000+0700",
+            }
+        ]
+    }
+    client, _ = jira({("GET", API + "/issue/SCRUM-79/comment"): payload})
+    assert client.comments("SCRUM-79")[0].body == "ACC"
