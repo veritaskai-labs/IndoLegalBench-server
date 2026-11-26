@@ -272,8 +272,8 @@ def test_deployed_prs_between_the_last_two_successful_deploys():
         {
             ("GET", GH + "/repos/org/server/actions/workflows/7/runs"): {
                 "workflow_runs": [
-                    {"id": 100, "head_sha": "new"},
-                    {"id": 90, "head_sha": "old"},
+                    {"id": 100, "head_sha": "new", "conclusion": "success"},
+                    {"id": 90, "head_sha": "old", "conclusion": "success"},
                 ]
             },
             ("GET", GH + "/repos/org/server/compare/old...new"): {
@@ -311,11 +311,52 @@ def test_first_ever_deploy_has_no_range_and_reports_nothing():
     client, _ = github(
         {
             ("GET", GH + "/repos/org/server/actions/workflows/7/runs"): {
-                "workflow_runs": [{"id": 100, "head_sha": "new"}]
+                "workflow_runs": [{"id": 100, "head_sha": "new", "conclusion": "success"}]
             }
         }
     )
     assert client.deployed_prs("org/server", workflow_id=7, run_id=100, head_sha="new") == []
+
+
+def test_deployed_prs_filters_success_itself_instead_of_trusting_the_status_filter():
+    # 26 Nov: GitHub's status filter (success, and completed too) left out the successful
+    # d60cab8 deploy, so the range started one deploy too early and SCRUM-347 got a second
+    # "Live on staging". Ask for the plain list and keep the successful runs here.
+    client, http = github(
+        {
+            ("GET", GH + "/repos/org/server/actions/workflows/7/runs"): {
+                "workflow_runs": [
+                    {"id": 100, "head_sha": "new", "conclusion": "success"},
+                    {"id": 95, "head_sha": "broken", "conclusion": "failure"},
+                    {"id": 92, "head_sha": "stopped", "conclusion": "cancelled"},
+                    {"id": 90, "head_sha": "old", "conclusion": "success"},
+                    {"id": 80, "head_sha": "older", "conclusion": "success"},
+                ]
+            },
+            ("GET", GH + "/repos/org/server/compare/old...new"): {"commits": []},
+        }
+    )
+    assert client.deployed_prs("org/server", workflow_id=7, run_id=100, head_sha="new") == []
+    runs_url = http.calls[0][1]
+    assert "status=" not in runs_url
+    assert "branch=staging" in runs_url
+
+
+def test_no_earlier_successful_deploy_reports_nothing():
+    # A run still in progress has no conclusion yet; it must not start the range either.
+    client, http = github(
+        {
+            ("GET", GH + "/repos/org/server/actions/workflows/7/runs"): {
+                "workflow_runs": [
+                    {"id": 101, "head_sha": "running", "conclusion": None},
+                    {"id": 100, "head_sha": "new", "conclusion": "success"},
+                    {"id": 95, "head_sha": "broken", "conclusion": "failure"},
+                ]
+            }
+        }
+    )
+    assert client.deployed_prs("org/server", workflow_id=7, run_id=100, head_sha="new") == []
+    assert len(http.calls) == 1
 
 
 def test_entered_status_at_follows_changelog_pages():
