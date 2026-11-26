@@ -273,15 +273,18 @@ def list_all_cases(
     """
     from app.modules.suites import service as suites_service
 
+    # The catalog leaves out deleted suites; their cases stay in the table, so the
+    # page is limited to the listed suites (else the name lookup below fails).
+    suites = {sid: (name, archived) for sid, name, archived in suites_service.search_catalog(db)}
     rows, total = repository.page_in_effect(
         db,
+        suite_ids=suites.keys(),
         keyword=keyword or None,
         status=status,
         suite_id=suite_id,
         offset=(page - 1) * size,
         limit=size,
     )
-    suites = {sid: (name, archived) for sid, name, archived in suites_service.search_catalog(db)}
     katalog = legal_refs_service.load_catalog(db)
     items = [
         CaseListItem(
