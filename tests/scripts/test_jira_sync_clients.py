@@ -157,6 +157,48 @@ def test_comments_are_read_as_plain_text():
     assert comment.created == datetime(2026, 11, 26, 3, 0, tzinfo=UTC)
 
 
+def _comment_payload(adf):
+    created = "2026-11-26T10:00:00.000+0700"
+    return {"comments": [{"author": {"accountId": "po"}, "body": adf, "created": created}]}
+
+
+def _para(*nodes):
+    return {"type": "paragraph", "content": list(nodes)}
+
+
+def _text(value):
+    return {"type": "text", "text": value}
+
+
+@pytest.mark.parametrize(
+    ("content", "expected"),
+    [
+        # "ACC", Enter, a note: Jira stores two paragraphs (review on #172)
+        ([_para(_text("ACC")), _para(_text("Sudah dicek di dev"))], "ACC\nSudah dicek di dev"),
+        # Shift+Enter: one paragraph with a hardBreak node
+        ([_para(_text("ACC"), {"type": "hardBreak"}, _text("ok"))], "ACC\nok"),
+        # a mention has no text of its own
+        ([_para({"type": "mention", "attrs": {"text": "@Roben"}}, _text(" ACC"))], "ACC"),
+    ],
+)
+def test_comment_paragraphs_and_line_breaks_stay_separate(content, expected):
+    client, _ = jira(
+        {
+            ("GET", API + "/issue/SCRUM-79/comment"): _comment_payload(
+                {"type": "doc", "content": content}
+            )
+        }
+    )
+    assert client.comments("SCRUM-79")[0].body == expected
+
+
+def test_comments_are_read_newest_first():
+    # with more than 100 comments the newest ones, where the ACC is, must still be read
+    client, http = jira({("GET", API + "/issue/SCRUM-79/comment"): {"comments": []}})
+    client.comments("SCRUM-79")
+    assert "orderBy=-created" in http.calls[0][1]
+
+
 def test_add_comment_sends_an_adf_paragraph():
     client, http = jira({("POST", API + "/issue/SCRUM-1/comment"): {"id": "1"}})
     client.add_comment("SCRUM-1", "Live on staging")

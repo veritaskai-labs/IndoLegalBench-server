@@ -195,6 +195,30 @@ def test_acc_by_someone_else_or_before_po_review_does_not_count():
     assert rules.po_review_action(ENTERED, [comment("ACC", hours=-1)], PO, now) is None
 
 
+@pytest.mark.parametrize(
+    "body",
+    [
+        "ACC",
+        "Acc, mantap",
+        "ACC ✅",
+        "ACC.",
+        "ACC!",
+        "ACC: sudah oke",
+        "ACC\nSudah dicek di dev",
+        " acc ok",
+    ],
+)
+def test_acc_with_punctuation_or_a_new_line_counts(body):
+    now = ENTERED + timedelta(hours=2)
+    assert rules.po_review_action(ENTERED, [comment(body)], PO, now) == "done"
+
+
+@pytest.mark.parametrize("body", ["Belum ACC ya", "accordingly fixed", "ACC_x", "accepted?"])
+def test_words_that_only_contain_acc_do_not_count(body):
+    now = ENTERED + timedelta(hours=2)
+    assert rules.po_review_action(ENTERED, [comment(body)], PO, now) is None
+
+
 def test_a_question_from_the_po_is_not_an_acceptance():
     now = ENTERED + timedelta(hours=2)
     assert rules.po_review_action(ENTERED, [comment("Accordion kok gak kebuka?")], PO, now) is None
