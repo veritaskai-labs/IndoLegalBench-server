@@ -195,10 +195,15 @@ class GitHubClient:
         runs = self._get(
             f"/repos/{repo}/actions/workflows/{workflow_id}/runs",
             branch="staging",
-            status="success",
-            per_page=10,
+            # No status= filter: on 26 Nov both status=success and status=completed left
+            # out a successful run, the range started one deploy too early, and a ticket
+            # got a second "Live on staging". The plain list is complete; filter here.
+            per_page=20,
         )["workflow_runs"]
-        previous = next((r["head_sha"] for r in runs if r["id"] != run_id), None)
+        previous = next(
+            (r["head_sha"] for r in runs if r["id"] != run_id and r["conclusion"] == "success"),
+            None,
+        )
         if previous is None:
             return []
         commits = self._get(f"/repos/{repo}/compare/{previous}...{head_sha}")["commits"]
