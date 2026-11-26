@@ -7,7 +7,7 @@ Isi file ini murni query, tanpa logika bisnis.
 """
 
 import uuid
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 
 from sqlalchemy import func, literal, or_, select, union
 from sqlalchemy.orm import Session, aliased, selectinload
@@ -88,6 +88,7 @@ def list_for_suite(
 def page_in_effect(
     db: Session,
     *,
+    suite_ids: Iterable[uuid.UUID],
     keyword: str | None = None,
     status: CaseStatus | None = None,
     suite_id: uuid.UUID | None = None,
@@ -101,11 +102,16 @@ def page_in_effect(
     an approved case with an open revision counts as approved (like
     count_by_status). keyword matches part of the case code or of the in-effect
     title, ignoring letter case, with % _ and \\ taken literally. Filters
-    combine with AND. Paging happens in SQL; the case code is the second sort
+    combine with AND. Only cases of suite_ids are listed, so cases of a deleted
+    suite never show (SCRUM-339 fix). Paging happens in SQL; the case code is the second sort
     key so pages never overlap when update times tie.
     """
     in_effect_id = _in_effect_version_id()
-    query = db.query(Case, CaseVersion).join(CaseVersion, CaseVersion.id == in_effect_id)
+    query = (
+        db.query(Case, CaseVersion)
+        .join(CaseVersion, CaseVersion.id == in_effect_id)
+        .filter(Case.suite_id.in_(list(suite_ids)))
+    )
     if status is not None:
         query = query.filter(CaseVersion.status == status)
     if suite_id is not None:
