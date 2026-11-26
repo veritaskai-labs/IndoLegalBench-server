@@ -46,10 +46,18 @@ def _jira_time(text: str) -> datetime:
     return datetime.strptime(text, "%Y-%m-%dT%H:%M:%S.%f%z")
 
 
+# Jira comments arrive as ADF (a JSON tree). Enter starts a new block and
+# Shift+Enter is a hardBreak node; both become a newline so words never glue.
+_BLOCKS = {"paragraph", "heading", "listItem", "blockquote", "codeBlock"}
+
+
 def _adf_text(node: Any) -> str:
-    if isinstance(node, dict):
-        return node.get("text", "") + "".join(_adf_text(c) for c in node.get("content", []))
-    return ""
+    if not isinstance(node, dict):
+        return ""
+    if node.get("type") == "hardBreak":
+        return "\n"
+    text = node.get("text", "") + "".join(_adf_text(c) for c in node.get("content", []))
+    return text + "\n" if node.get("type") in _BLOCKS else text
 
 
 def _adf(text: str) -> dict:
@@ -123,9 +131,12 @@ class JiraClient:
         ]
 
     def comments(self, key: str) -> list[Comment]:
-        raw = self._request("GET", f"/issue/{key}/comment?maxResults=100&orderBy=created")
+        # Newest first, so the latest ACC is read even on a story with 100+ comments.
+        raw = self._request("GET", f"/issue/{key}/comment?maxResults=100&orderBy=-created")
         return [
-            Comment(c["author"]["accountId"], _adf_text(c["body"]), _jira_time(c["created"]))
+            Comment(
+                c["author"]["accountId"], _adf_text(c["body"]).strip(), _jira_time(c["created"])
+            )
             for c in raw["comments"]
         ]
 

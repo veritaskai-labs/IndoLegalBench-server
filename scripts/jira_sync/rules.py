@@ -34,7 +34,8 @@ OTHER = "other"
 # another digit, a letter or a dot (SCRUM-27.6 is a test case id, not a ticket).
 _KEY = re.compile(r"(?<![A-Za-z0-9])SCRUM-(\d+)(?![\dA-Za-z.])", re.IGNORECASE)
 
-ACCEPT_WORD = "acc"
+# "ACC" as the first word, followed by anything that is not a letter, digit or _.
+_ACCEPT = re.compile(r"\s*acc\b", re.IGNORECASE)
 REMINDER_MARK = "[jira-sync reminder]"
 REMIND_AFTER = timedelta(hours=24)
 
@@ -126,8 +127,7 @@ def po_review_action(
     """ "done" on an ACC comment by the PO, "remind" once after 24 h, else None."""
     since = [c for c in comments if c.created >= entered]
     for c in since:
-        words = c.body.strip().lower().replace(",", " ").split()
-        if c.author == po_account and words and words[0] == ACCEPT_WORD:
+        if c.author == po_account and _ACCEPT.match(c.body):
             return "done"
     if now - entered >= REMIND_AFTER and not any(c.body.startswith(REMINDER_MARK) for c in since):
         return "remind"

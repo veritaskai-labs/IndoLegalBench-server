@@ -22,7 +22,11 @@ def _now() -> datetime:
 
 
 def _run(command: str, env: dict, report: sync.Report) -> str:
-    event = json.loads(Path(env["GITHUB_EVENT_PATH"]).read_text()) if command != "po-review" else {}
+    event = (
+        json.loads(Path(env["GITHUB_EVENT_PATH"]).read_text(encoding="utf-8"))
+        if command != "po-review"
+        else {}
+    )
     jira = JiraClient(env["JIRA_BASE_URL"], env["JIRA_EMAIL"], env["JIRA_API_TOKEN"])
     github = GitHubClient(env.get("GITHUB_TOKEN", ""))
     repos = [r.strip() for r in env.get("JIRA_SYNC_REPOS", "").split(",") if r.strip()]
@@ -60,7 +64,7 @@ def main(argv: list[str], env: dict) -> int:
         print(f"::warning::{warning}")
     summary = report.markdown(title)
     if env.get("GITHUB_STEP_SUMMARY"):
-        with Path(env["GITHUB_STEP_SUMMARY"]).open("a") as handle:
+        with Path(env["GITHUB_STEP_SUMMARY"]).open("a", encoding="utf-8") as handle:
             handle.write(summary)
     else:
         print(summary)
