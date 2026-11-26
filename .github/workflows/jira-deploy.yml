@@ -1,0 +1,24 @@
+name: Jira sync after deploy
+
+# After "Deploy staging" succeeds, every ticket merged since the previous
+# successful deploy gets one "Live on staging" comment (DoD: live on staging).
+# A separate file, so deploy-staging.yml stays unchanged.
+
+on:
+  workflow_run:
+    workflows: [Deploy staging]
+    types: [completed]
+
+# actions: list the previous successful deploy; pull-requests: map commits to PRs.
+permissions:
+  contents: read
+  actions: read
+  pull-requests: read
+
+jobs:
+  deploy:
+    if: github.event.workflow_run.conclusion == 'success'
+    uses: ./.github/workflows/jira-sync.yml
+    with:
+      command: deploy
+    secrets: inherit  # pragma: allowlist secret

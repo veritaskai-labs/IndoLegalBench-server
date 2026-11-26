@@ -1,0 +1,60 @@
+name: Jira sync (reusable)
+
+# Moves Jira tickets from GitHub events (SCRUM-377). Called by jira-pr.yml,
+# jira-deploy.yml and jira-po-review.yml here and in the client repo, so the
+# logic lives in one place: scripts/jira_sync on server staging.
+#
+# It replaces the Jira Automation rule that stopped on 9 Nov when the Jira Free
+# quota (100 rule runs a month) ran out. Calls to the Jira REST API do not count
+# toward that quota, and Actions minutes are free on a public repo.
+#
+# Safety (pull_request_target): this job never checks out or runs the PR's own
+# code. It checks out only scripts/jira_sync from server staging, without
+# credentials, and the secrets only reach that script.
+
+on:
+  workflow_call:
+    inputs:
+      command:
+        description: pr, branch, deploy or po-review
+        required: true
+        type: string
+    secrets:
+      JIRA_EMAIL:
+        required: false
+      JIRA_API_TOKEN:
+        required: false
+      JIRA_PO_ACCOUNT_ID:
+        required: false
+
+# No permissions block here on purpose: a called workflow can only keep or lower
+# what its caller grants, so each caller sets exactly what its command needs.
+
+jobs:
+  sync:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          repository: veritaskai-labs/IndoLegalBench-server
+          ref: staging
+          sparse-checkout: scripts/jira_sync
+          persist-credentials: false
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+
+      # Without the secrets the script prints a notice and exits 0, so a repo
+      # without them set never gets a red check from this workflow.
+      - name: Move Jira tickets
+        env:
+          COMMAND: ${{ inputs.command }}
+          JIRA_BASE_URL: https://kelompok4pplxpropensi.atlassian.net
+          JIRA_EMAIL: ${{ secrets.JIRA_EMAIL }}
+          JIRA_API_TOKEN: ${{ secrets.JIRA_API_TOKEN }}
+          JIRA_PO_ACCOUNT_ID: ${{ secrets.JIRA_PO_ACCOUNT_ID }}
+          JIRA_SYNC_REPOS: veritaskai-labs/IndoLegalBench-server,veritaskai-labs/IndoLegalBench-client
+          GITHUB_TOKEN: ${{ github.token }}
+        run: python -m scripts.jira_sync "$COMMAND"

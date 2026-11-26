@@ -1,0 +1,21 @@
+name: Jira PO review check
+
+# Stories in PO Review: a comment by the PO starting with "ACC" moves the story
+# to Done (that comment is the "Accepted by PO" evidence); after 24 h without
+# one, the PO gets one reminder. Never an automatic Done without the PO.
+# Runs only here, one place is enough for the whole Jira project.
+
+on:
+  schedule:
+    - cron: '*/30 * * * *'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  po-review:
+    uses: ./.github/workflows/jira-sync.yml
+    with:
+      command: po-review
+    secrets: inherit  # pragma: allowlist secret
