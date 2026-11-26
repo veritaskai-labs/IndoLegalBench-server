@@ -120,6 +120,44 @@ def test_suite_arsip_tetap_tampil_dengan_tandanya(as_role):
     assert [item["suite_archived"] for item in items] == [True]
 
 
+def test_kasus_dari_suite_yang_dihapus_tidak_tampil(as_role):
+    """Negatif: suite yang dihapus (soft delete) masih menyimpan baris kasusnya. Dulu baris itu ikut
+    terambil tetapi suitenya tidak ada di peta nama suite, jadi GET /cases jatuh 500 dan seluruh
+    halaman Daftar kasus gagal dimuat (staging, 26 Nov). Kasusnya tidak tampil, total ikut."""
+    # Arrange
+    admin = as_role(Role.ADMIN)
+    tetap = _suite(admin, "Tetap")
+    dihapus = _suite(admin, "Dihapus")
+    kasus_tetap = _buat(admin, tetap, case_code="TETAP-001").json()
+    _buat(admin, dihapus, case_code="HAPUS-001")
+    assert admin.delete(f"/suites/{dihapus}").status_code == 204
+
+    # Act
+    response = admin.get("/cases")
+
+    # Assert
+    assert response.status_code == 200
+    body = response.json()
+    assert ([item["id"] for item in body["items"]], body["total"]) == ([kasus_tetap["id"]], 1)
+
+
+def test_filter_suite_yang_dihapus_memberi_daftar_kosong(as_role):
+    """Edge: halaman bisa masih menyimpan suite yang baru dihapus di filternya. Sama seperti suite
+    yang tidak ada: daftar kosong, bukan 500."""
+    # Arrange
+    admin = as_role(Role.ADMIN)
+    dihapus = _suite(admin)
+    _buat(admin, dihapus)
+    assert admin.delete(f"/suites/{dihapus}").status_code == 204
+
+    # Act
+    response = admin.get("/cases", params={"suite_id": dihapus})
+
+    # Assert
+    assert response.status_code == 200
+    assert (response.json()["items"], response.json()["total"]) == ([], 0)
+
+
 def test_draft_tanpa_tag_tetap_tampil(penulis, db_session):
     """Edge: AC2/AC8, draft hasil impor atau duplikasi belum punya tag dev/test (NULL). Join atau
     filter yang memakai tag akan membuang baris ini, padahal justru kasus inilah yang harus dicari
