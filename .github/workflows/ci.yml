@@ -294,10 +294,12 @@ jobs:
 
   # Branch protection uses this job name as the required check. Do not rename it.
   # It passes only when every job above passed, so the rule stays "all of CI green".
+  # !cancelled() instead of always(): a run cancelled by a newer push skips the
+  # gate instead of leaving a red build on the older commit.
   build:
     runs-on: ubuntu-latest
     needs: [quality, test, image]
-    if: always()
+    if: ${{ !cancelled() }}
     permissions: {}
     steps:
       - name: Every CI job passed
