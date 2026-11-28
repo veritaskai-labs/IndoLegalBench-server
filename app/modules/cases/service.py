@@ -24,6 +24,13 @@ from app.modules.cases import (
     sections,
     validation,
 )
+from app.modules.cases.case_sorting import (
+    DEFAULT_SORT,
+    CaseSortKey,
+    SortOrder,
+    default_order,
+    suite_rank,
+)
 from app.modules.cases.display_text import citation_text
 from app.modules.cases.fingerprint import content_fingerprint
 from app.modules.cases.models import Case, CaseOrigin, CaseStatus, CaseVersion, SplitTag
@@ -262,6 +269,8 @@ def list_all_cases(
     keyword: str | None = None,
     status: CaseStatus | None = None,
     suite_id: uuid.UUID | None = None,
+    sort: CaseSortKey = DEFAULT_SORT,
+    order: SortOrder | None = None,
     page: int = 1,
     size: int = 20,
 ) -> CasePage:
@@ -269,19 +278,26 @@ def list_all_cases(
 
     Each row is the per-suite summary plus its suite, read through suites.service
     (import inside the function, see _require_suite). Only the rows of this page
-    are summarized (completeness is recalculated per row).
+    are summarized (completeness is recalculated per row). sort and order only arrange the
+    rows (SCRUM-379); an empty order means the column's default direction. Sorting by suite
+    ranks the suites by name here, because the repository does not import the suites module.
     """
     from app.modules.suites import service as suites_service
 
     # The catalog leaves out deleted suites; their cases stay in the table, so the
     # page is limited to the listed suites (else the name lookup below fails).
     suites = {sid: (name, archived) for sid, name, archived in suites_service.search_catalog(db)}
+    names = {sid: name for sid, (name, _) in suites.items()}
+    rank = suite_rank(names) if sort == CaseSortKey.SUITE else None
     rows, total = repository.page_in_effect(
         db,
         suite_ids=suites.keys(),
         keyword=keyword or None,
         status=status,
         suite_id=suite_id,
+        sort=sort,
+        order=order or default_order(sort),
+        suite_rank=rank,
         offset=(page - 1) * size,
         limit=size,
     )

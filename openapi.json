@@ -1143,7 +1143,7 @@
           "cases"
         ],
         "summary": "Daftar kasus lintas suite dengan pencarian dan filter",
-        "description": "List the cases of every suite, newest update first (PBI-4 AC3, SCRUM-339).\n\nContributor and Admin only: rows are not masked, so Developer AI keeps the\nper-suite list that hides test cases.",
+        "description": "List the cases of every suite, newest update first unless sorted (PBI-4 AC3, SCRUM-339/379).\n\nContributor and Admin only: rows are not masked, so Developer AI keeps the\nper-suite list that hides test cases.",
         "operationId": "list_all_cases_cases_get",
         "parameters": [
           {
@@ -1201,6 +1201,35 @@
               "title": "Suite Id"
             },
             "description": "Satu suite. Suite yang tidak ada memberi daftar kosong."
+          },
+          {
+            "name": "sort",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "$ref": "#/components/schemas/CaseSortKey",
+              "description": "Kolom urutan. Hanya kolom data yang diizinkan; kolom Aksi dan hitungan (completeness_pct) ditolak 422. Kode kasus menjadi kunci kedua.",
+              "default": "updated_at"
+            },
+            "description": "Kolom urutan. Hanya kolom data yang diizinkan; kolom Aksi dan hitungan (completeness_pct) ditolak 422. Kode kasus menjadi kunci kedua."
+          },
+          {
+            "name": "order",
+            "in": "query",
+            "required": false,
+            "schema": {
+              "anyOf": [
+                {
+                  "$ref": "#/components/schemas/SortOrder"
+                },
+                {
+                  "type": "null"
+                }
+              ],
+              "description": "Arah urutan. Kosong: waktu diubah dari yang terbaru, kolom lain naik.",
+              "title": "Order"
+            },
+            "description": "Arah urutan. Kosong: waktu diubah dari yang terbaru, kolom lain naik."
           },
           {
             "name": "page",
@@ -10425,6 +10454,19 @@
         ],
         "title": "CaseSearchHit"
       },
+      "CaseSortKey": {
+        "type": "string",
+        "enum": [
+          "case_code",
+          "title",
+          "status",
+          "suite",
+          "split_tag",
+          "updated_at"
+        ],
+        "title": "CaseSortKey",
+        "description": "Kolom daftar kasus yang bermakna untuk diurutkan. Kolom Aksi dan hitungan tidak termasuk."
+      },
       "CaseStatus": {
         "type": "string",
         "enum": [
@@ -17567,6 +17609,14 @@
           "invalid"
         ],
         "title": "SessionValidity"
+      },
+      "SortOrder": {
+        "type": "string",
+        "enum": [
+          "asc",
+          "desc"
+        ],
+        "title": "SortOrder"
       },
       "SplitTag": {
         "type": "string",

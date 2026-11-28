@@ -13,6 +13,7 @@ from sqlalchemy.orm import Session
 
 from app.modules.auth.schemas import ErrorBody
 from app.modules.cases import service
+from app.modules.cases.case_sorting import DEFAULT_SORT, CaseSortKey, SortOrder
 from app.modules.cases.models import CaseStatus, SplitTag
 from app.modules.cases.schemas import (
     CaseCompleteness,
@@ -144,18 +145,36 @@ def list_all_cases(
     suite_id: uuid.UUID | None = Query(
         default=None, description="Satu suite. Suite yang tidak ada memberi daftar kosong."
     ),
+    sort: CaseSortKey = Query(
+        default=DEFAULT_SORT,
+        description=(
+            "Kolom urutan. Hanya kolom data yang diizinkan; kolom Aksi dan hitungan "
+            "(completeness_pct) ditolak 422. Kode kasus menjadi kunci kedua."
+        ),
+    ),
+    order: SortOrder | None = Query(
+        default=None,
+        description="Arah urutan. Kosong: waktu diubah dari yang terbaru, kolom lain naik.",
+    ),
     page: int = Query(default=1, ge=1),
     size: int = Query(default=20, ge=1, le=100),
     db: Session = Depends(get_db),
     _: CurrentUser = Depends(_can_search),
 ) -> CasePage:
-    """List the cases of every suite, newest update first (PBI-4 AC3, SCRUM-339).
+    """List the cases of every suite, newest update first unless sorted (PBI-4 AC3, SCRUM-339/379).
 
     Contributor and Admin only: rows are not masked, so Developer AI keeps the
     per-suite list that hides test cases.
     """
     return service.list_all_cases(
-        db, keyword=q, status=status_filter, suite_id=suite_id, page=page, size=size
+        db,
+        keyword=q,
+        status=status_filter,
+        suite_id=suite_id,
+        sort=sort,
+        order=order,
+        page=page,
+        size=size,
     )
 
 
