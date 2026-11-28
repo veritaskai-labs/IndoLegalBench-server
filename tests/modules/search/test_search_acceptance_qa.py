@@ -6,16 +6,26 @@ do not cover, all through GET /search as the search box calls it:
 - AC4: one shared data set searched by all four roles, with the exact hits each role may get
 - AC4: a manual session made by someone else is found by Admin and Contributor, never by the others
 - AC4: results depend on the role, so the response must not be cached
+- AC4: no field of a test case (legal reference, criteria, conclusion) gives Developer AI a hit
+- AC2, AC4: Developer AI finds a dev case by its criteria and legal reference, and the hit carries
+  no snippet of them
+- AC4: a duplicate (draft, no tag) and a dev case that Admin retagged as test stay hidden from Developer AI
+- AC1: users and audit entries are not searched
 - Edge: a keyword of exactly 200 characters is accepted
 
 Synthetic data only (L1, L3), no Veritask cases.
 """
 
+import uuid
+
 import pytest
 
+from app.modules.audit.models import AuditLog
+from app.modules.auth.models import User
 from app.modules.grading.models import GradingRunStatus
 from app.modules.runs.models import SessionStatus, SessionType
 from app.shared.security import Role
+from tests.legal_refs import rujukan_pasal
 from tests.modules.cases.test_cases import _ganti, _setujui, _suite
 from tests.modules.runs.test_session_list_endpoint import _sesi
 from tests.modules.runs.test_session_list_endpoint import pembuat as pembuat
@@ -200,3 +210,183 @@ def test_keyword_of_exactly_200_characters_is_accepted(as_role):
     # Assert
     assert response.status_code == 200
     assert response.json() == EMPTY
+
+
+# --- AC4: the content of a test case never gives Developer AI a hit ------------------------------
+
+# SCRUM-351 checks title, question, conclusion, code and id. These are the other searchable fields.
+TEST_CASE_FIELDS = {
+    "free text legal reference": "TestRefKeyword",
+    "note on a legal reference link": "TestAboutKeyword",
+    "must_contain": "TestMustKeyword",
+    "must_not_contain": "TestMustNotKeyword",
+}
+
+
+@pytest.mark.parametrize("keyword", TEST_CASE_FIELDS.values(), ids=TEST_CASE_FIELDS.keys())
+def test_no_field_of_a_test_case_gives_developer_ai_a_hit(
+    as_role, db_session, buat_pengguna, keyword
+):
+    """Negative: the word is only in one field of an approved test case, and only Admin finds it."""
+    # Arrange
+    client = as_role(Role.ADMIN)
+    case_id = _case(
+        client,
+        _suite(client),
+        split_tag="test",
+        legal_refs=[
+            {"kind": "free_text", "free_text": "TestRefKeyword", "links": []},
+            rujukan_pasal("151", about="TestAboutKeyword"),
+        ],
+        answer_criteria={
+            "must_contain": ["TestMustKeyword"],
+            "must_not_contain": ["TestMustNotKeyword"],
+            "expected_conclusion": "Synthetic conclusion",
+        },
+    )
+    _setujui(db_session, case_id)
+    assert [hit["id"] for hit in _search(client, keyword)["cases"]] == [case_id]
+
+    # Act
+    _ganti(client, buat_pengguna(Role.DEVELOPER_AI))
+    body = _search(client, keyword)
+
+    # Assert
+    assert body == EMPTY
+
+
+# --- AC2, AC4: what Developer AI may find, and what the hit shows --------------------------------
+
+
+@pytest.mark.parametrize("keyword", ["DevMustKeyword", "DevRefKeyword", "DevConclusionKeyword"])
+def test_developer_ai_finds_a_dev_case_by_criteria_or_legal_reference_without_a_snippet(
+    as_role, db_session, buat_pengguna, keyword
+):
+    """Edge: the word is only in the criteria or the legal reference, and the hit does not repeat it."""
+    # Arrange
+    client = as_role(Role.ADMIN)
+    case_id = _case(
+        client,
+        _suite(client),
+        split_tag="dev",
+        legal_refs=[{"kind": "free_text", "free_text": "DevRefKeyword", "links": []}],
+        answer_criteria={
+            "must_contain": ["DevMustKeyword"],
+            "must_not_contain": [],
+            "expected_conclusion": "DevConclusionKeyword",
+        },
+    )
+    _setujui(db_session, case_id)
+    _ganti(client, buat_pengguna(Role.DEVELOPER_AI))
+
+    # Act
+    response = client.get(URL, params={"q": keyword})
+
+    # Assert
+    assert response.status_code == 200
+    assert response.json()["cases"] == [
+        {"id": case_id, "label": "PHK sepihak", "case_code": "PHK-001", "archived": False}
+    ]
+    assert keyword not in response.text
+
+
+# --- AC4: cases that are not an approved dev case ------------------------------------------------
+
+
+def test_duplicate_of_a_dev_case_is_hidden_from_developer_ai_while_the_original_is_found(
+    as_role, db_session, buat_pengguna
+):
+    """Edge: the copy has the same title as the original, but it is a draft without a tag."""
+    # Arrange
+    client = as_role(Role.ADMIN)
+    original_id = _case(
+        client,
+        _suite(client),
+        split_tag="dev",
+        identity={"title": "DuplicateKeyword case", "question": "Synthetic question?"},
+    )
+    _setujui(db_session, original_id)
+    copy = client.post(f"/cases/{original_id}/duplicate")
+    assert copy.status_code == 201, copy.text
+    copy_id = copy.json()["id"]
+    assert copy.json()["split_tag"] is None
+    assert {hit["id"] for hit in _search(client, "DuplicateKeyword")["cases"]} == {
+        original_id,
+        copy_id,
+    }
+
+    # Act
+    _ganti(client, buat_pengguna(Role.DEVELOPER_AI))
+    body = _search(client, "DuplicateKeyword")
+
+    # Assert
+    assert [hit["id"] for hit in body["cases"]] == [original_id]
+
+
+def test_dev_case_retagged_as_test_by_admin_is_hidden_from_developer_ai(
+    as_role, db_session, buat_pengguna
+):
+    """Edge: Developer AI found the case while it was dev, and loses it once Admin moves it to test."""
+    # Arrange
+    client = as_role(Role.ADMIN)
+    case_id = _case(
+        client,
+        _suite(client),
+        split_tag="dev",
+        identity={"title": "RetagKeyword case", "question": "Synthetic question?"},
+    )
+    _setujui(db_session, case_id)
+    _ganti(client, buat_pengguna(Role.DEVELOPER_AI))
+    assert [hit["id"] for hit in _search(client, "RetagKeyword")["cases"]] == [case_id]
+    _ganti(client, buat_pengguna(Role.ADMIN))
+
+    # Act
+    retag = client.patch(f"/cases/{case_id}/split-tag", json={"split_tag": "test", "confirm": True})
+    _ganti(client, buat_pengguna(Role.DEVELOPER_AI))
+    body = _search(client, "RetagKeyword")
+
+    # Assert
+    assert retag.status_code == 200, retag.text
+    assert body == EMPTY
+    _ganti(client, buat_pengguna(Role.ADMIN))
+    assert [hit["id"] for hit in _search(client, "RetagKeyword")["cases"]] == [case_id]
+
+
+# --- AC1: only suites, cases and sessions are searched -------------------------------------------
+
+
+def test_users_and_audit_entries_are_not_searched(as_role, db_session):
+    """Negative: a user's name and email and an audit entry's text give no hit, even for Admin."""
+    # Arrange
+    client = as_role(Role.ADMIN)
+    person = User(
+        email="userkeyword.person@veritask.test", name="UserNameKeyword", role=Role.CONTRIBUTOR
+    )
+    db_session.add(person)
+    db_session.flush()
+    db_session.add(
+        AuditLog(
+            actor_user_id=person.id,
+            action="AuditActionKeyword",
+            entity_type="suite",
+            entity_id=uuid.uuid4(),
+            reason="AuditReasonKeyword",
+        )
+    )
+    db_session.commit()
+    suite_id = _suite(client, "ControlKeyword Suite")
+
+    # Act
+    results = {
+        term: _search(client, term)
+        for term in (
+            "UserNameKeyword",
+            "userkeyword.person",
+            "AuditActionKeyword",
+            "AuditReasonKeyword",
+        )
+    }
+
+    # Assert
+    assert all(body == EMPTY for body in results.values()), results
+    assert [hit["id"] for hit in _search(client, "ControlKeyword")["suites"]] == [suite_id]
