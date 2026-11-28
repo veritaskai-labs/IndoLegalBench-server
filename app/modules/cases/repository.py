@@ -7,11 +7,12 @@ Isi file ini murni query, tanpa logika bisnis.
 """
 
 import uuid
-from collections.abc import Iterable, Iterator
+from collections.abc import Iterable, Iterator, Mapping
 
 from sqlalchemy import func, literal, or_, select, union
 from sqlalchemy.orm import Session, aliased, selectinload
 
+from app.modules.cases.case_sorting import DEFAULT_SORT, CaseSortKey, SortOrder, build_order_by
 from app.modules.cases.models import Case, CaseStatus, CaseVersion, SplitTag
 
 
@@ -82,7 +83,7 @@ def list_for_suite(
         query = query.filter(CaseVersion.status == status)
     if split_tag is not None:
         query = query.filter(CaseVersion.split_tag == split_tag)
-    return query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc()).all()
+    return query.order_by(*build_order_by()).all()
 
 
 def page_in_effect(
@@ -92,6 +93,9 @@ def page_in_effect(
     keyword: str | None = None,
     status: CaseStatus | None = None,
     suite_id: uuid.UUID | None = None,
+    sort: CaseSortKey = DEFAULT_SORT,
+    order: SortOrder | None = None,
+    suite_rank: Mapping[uuid.UUID, int] | None = None,
     offset: int = 0,
     limit: int = 20,
 ) -> tuple[list[tuple[Case, CaseVersion]], int]:
@@ -103,8 +107,10 @@ def page_in_effect(
     count_by_status). keyword matches part of the case code or of the in-effect
     title, ignoring letter case, with % _ and \\ taken literally. Filters
     combine with AND. Only cases of suite_ids are listed, so cases of a deleted
-    suite never show (SCRUM-339 fix). Paging happens in SQL; the case code is the second sort
-    key so pages never overlap when update times tie.
+    suite never show (SCRUM-339 fix). Paging happens in SQL. The order comes from
+    case_sorting.build_order_by (SCRUM-379): the chosen column, then the case code, so pages
+    never overlap when values tie. Sorting never adds a join or filter, so the rows and the
+    total are the same whatever the order.
     """
     in_effect_id = _in_effect_version_id()
     query = (
@@ -120,10 +126,7 @@ def page_in_effect(
         query = query.filter(*_keyword_filters(keyword))
     total = query.count()
     rows = (
-        query.order_by(CaseVersion.updated_at.desc(), Case.case_code.asc())
-        .offset(offset)
-        .limit(limit)
-        .all()
+        query.order_by(*build_order_by(sort, order, suite_rank)).offset(offset).limit(limit).all()
     )
     return rows, total
 
