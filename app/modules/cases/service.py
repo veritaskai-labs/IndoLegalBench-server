@@ -287,7 +287,8 @@ def list_all_cases(
     # The catalog leaves out deleted suites; their cases stay in the table, so the
     # page is limited to the listed suites (else the name lookup below fails).
     suites = {sid: (name, archived) for sid, name, archived in suites_service.search_catalog(db)}
-    rank = suite_rank({sid: name for sid, (name, _) in suites.items()}) if sort == "suite" else None
+    names = {sid: name for sid, (name, _) in suites.items()}
+    rank = suite_rank(names) if sort == CaseSortKey.SUITE else None
     rows, total = repository.page_in_effect(
         db,
         suite_ids=suites.keys(),
